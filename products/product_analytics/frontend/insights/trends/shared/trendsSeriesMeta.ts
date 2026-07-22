@@ -14,7 +14,7 @@ export type TrendsSeriesMeta = {
 }
 
 export const buildTrendsSeriesMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
-    action: r.action,
+    action: r.action ?? undefined,
     breakdown_value: r.breakdown_value,
     compare_label: r.compare_label,
     days: r.days,

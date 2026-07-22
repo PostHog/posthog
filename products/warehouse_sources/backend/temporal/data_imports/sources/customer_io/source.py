@@ -42,7 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customer_i
     CIO_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_CIO_OBJECT_TYPE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerio import (
+    CustomerIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -84,6 +86,10 @@ class CustomerIOSource(
     SimpleSource[CustomerIOSourceConfig],
     WebhookSource[CustomerIOSourceConfig],
 ):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.customer.io/api/app/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

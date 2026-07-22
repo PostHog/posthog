@@ -8,10 +8,11 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, MutationWaiter
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.deletion import cluster_has_events_json_table
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -103,6 +104,16 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         return {
             "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
         }
+
+    @property
+    def events_json_update_mutation_runner(self) -> AlterTableMutationRunner:
+        """The same person_id squash applied to the native-JSON events table — both tables must be
+        rewritten or person_id diverges between them while they coexist."""
+        return AlterTableMutationRunner(
+            table=EVENTS_JSON_DATA_TABLE,
+            commands=self.update_commands,
+            parameters={"name": self.qualified_name},
+        )
 
     @property
     def overrides_table(self):
@@ -246,6 +257,8 @@ def run_person_id_update_mutations(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
     dictionary.update_mutation_runner.run_on_shards(cluster)
+    if cluster_has_events_json_table(cluster):
+        dictionary.events_json_update_mutation_runner.run_on_shards(cluster)
     return dictionary
 
 

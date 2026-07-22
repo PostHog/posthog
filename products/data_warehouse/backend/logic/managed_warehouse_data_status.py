@@ -1,45 +1,34 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Literal, TypedDict
 
-from django.db import DatabaseError
-from django.db.models import Count, Exists, Max, Min, OuterRef, Q, Subquery
 from django.utils import timezone
-
-import structlog
 
 from posthog.ducklake.models import DuckgresServerTeam, DuckgresSinkSchemaState
 
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-from products.warehouse_sources_queue.backend.models import (
-    SourceBatch,
-    SourceBatchDuckgresApply,
-    SourceBatchDuckgresStatus,
-)
-
-logger = structlog.get_logger(__name__)
 
 ReadinessState = Literal[
     "not_configured",
     "waiting",
     "backfilling",
-    "catching_up",
     "up_to_date",
     "needs_attention",
-    "unknown",
+    "sync_paused",
 ]
 
-QUEUE_RETENTION_DAYS = 14
 PERSISTENT_BACKFILL_FAILURES = 3
+# sync_paused ranks below every active-work or failure state (those are still worth surfacing even
+# on a paused schema's source) but above up_to_date: a source with some schemas paused shouldn't
+# read as fully "up to date" when part of it isn't being kept current at all.
 READINESS_PRIORITY: tuple[ReadinessState, ...] = (
     "needs_attention",
     "backfilling",
-    "catching_up",
     "waiting",
-    "unknown",
+    "sync_paused",
     "up_to_date",
 )
 
@@ -67,8 +56,8 @@ class SourceTableStatus(TypedDict):
     backfilled: bool
     completed_chunks: int
     total_chunks: int | None
-    pending_batches: int | None
-    oldest_pending_at: datetime | None
+    # When the sink last applied a live imported batch to the warehouse — an event
+    # timestamp stamped by the sink at apply time, not a derived liveness signal.
     last_applied_at: datetime | None
     last_synced_at: datetime | None
 
@@ -81,7 +70,7 @@ class SourceSummary(TypedDict):
     detail: str
     total_schemas: int
     backfilled_schemas: int
-    pending_batches: int | None
+    last_applied_at: datetime | None
     last_synced_at: datetime | None
 
 
@@ -97,12 +86,6 @@ class ManagedWarehouseDataStatus(TypedDict):
     persons: DatasetStatus
     sources: SourcesStatus
     generated_at: datetime
-
-
-class QueueTailStatus(TypedDict):
-    pending_batches: int
-    oldest_pending_at: datetime | None
-    last_applied_at: datetime | None
 
 
 def _event_historical_partition_count(backfill: DuckgresServerTeam) -> int | None:
@@ -197,78 +180,14 @@ def dataset_status(
     }
 
 
-def _queue_tail_statuses(team_id: int, schema_ids: list[str]) -> dict[str, QueueTailStatus] | None:
-    if not schema_ids:
-        return {}
+def source_table_readiness(state: DuckgresSinkSchemaState) -> tuple[ReadinessState, str]:
+    """Readiness derived purely from events the sink jobs recorded at the time of the work.
 
-    try:
-        queue_cutoff = timezone.now() - timedelta(days=QUEUE_RETENTION_DAYS)
-        latest_duckgres_state = Subquery(
-            SourceBatchDuckgresStatus.objects.filter(
-                batch_id=OuterRef("pk"),
-                created_at__gte=queue_cutoff - timedelta(days=QUEUE_RETENTION_DAYS),
-            )
-            .order_by("-created_at", "-id")
-            .values("job_state")[:1]
-        )
-        has_apply = Exists(
-            SourceBatchDuckgresApply.objects.for_team(team_id).filter(
-                schema_id=OuterRef("schema_id"),
-                run_uuid=OuterRef("run_uuid"),
-                batch_index=OuterRef("batch_index"),
-            )
-        )
-        pending_rows = (
-            SourceBatch.objects.filter(
-                team_id=team_id,
-                schema_id__in=schema_ids,
-                latest_state=SourceBatch.LatestState.SUCCEEDED,
-                is_final_batch=False,
-                created_at__gte=queue_cutoff,
-            )
-            .annotate(latest_duckgres_state=latest_duckgres_state, has_apply=has_apply)
-            .filter(has_apply=False)
-            .filter(
-                Q(latest_duckgres_state__isnull=True)
-                | Q(
-                    latest_duckgres_state__in=[
-                        SourceBatchDuckgresStatus.State.EXECUTING,
-                        SourceBatchDuckgresStatus.State.WAITING_RETRY,
-                    ]
-                )
-            )
-            .values("schema_id")
-            .annotate(pending_batches=Count("id"), oldest_pending_at=Min("created_at"))
-        )
-        applied_rows = (
-            SourceBatchDuckgresApply.objects.for_team(team_id)
-            .filter(schema_id__in=schema_ids, created_at__gte=queue_cutoff)
-            .values("schema_id")
-            .annotate(last_applied_at=Max("created_at"))
-        )
-        statuses: dict[str, QueueTailStatus] = {
-            schema_id: {
-                "pending_batches": 0,
-                "oldest_pending_at": None,
-                "last_applied_at": None,
-            }
-            for schema_id in schema_ids
-        }
-        for row in pending_rows:
-            schema_id = str(row["schema_id"])
-            statuses[schema_id]["pending_batches"] = int(row["pending_batches"])
-            statuses[schema_id]["oldest_pending_at"] = row["oldest_pending_at"]
-        for row in applied_rows:
-            statuses[str(row["schema_id"])]["last_applied_at"] = row["last_applied_at"]
-        return statuses
-    except DatabaseError:
-        logger.exception("managed_warehouse_queue_status_unavailable", team_id=team_id)
-        return None
-
-
-def source_table_readiness(
-    state: DuckgresSinkSchemaState, queue_status: QueueTailStatus | None, queue_available: bool
-) -> tuple[ReadinessState, str]:
+    There is deliberately no liveness inference here (no pending counts, no staleness
+    windows): the backfill lifecycle fields are written by the planner/backfill jobs, and
+    the last live apply is stamped by the sink at apply time — the UI reports what ran
+    and when, nothing more.
+    """
     if (
         state.state == DuckgresSinkSchemaState.State.NEEDS_RESYNC
         or state.consecutive_failures >= PERSISTENT_BACKFILL_FAILURES
@@ -280,13 +199,7 @@ def source_table_readiness(
         if state.chunk_count:
             return "backfilling", f"Copied {state.chunks_applied} of {state.chunk_count} backfill chunks."
         return "backfilling", "Existing rows are being copied into the warehouse."
-    if not queue_available:
-        return "unknown", "Live import status is temporarily unavailable."
-    if queue_status and queue_status["pending_batches"] > 0:
-        count = queue_status["pending_batches"]
-        suffix = "batch" if count == 1 else "batches"
-        return "catching_up", f"Applying {count} imported {suffix} to the warehouse."
-    return "up_to_date", "Imported data is up to date."
+    return "up_to_date", "New imports are applied to the warehouse as they arrive."
 
 
 def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> list[SourceTableStatus]:
@@ -300,10 +213,13 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
     if not states:
         return []
 
+    # should_sync is deliberately not filtered here: a schema with sync paused still has real,
+    # queryable data in the warehouse (or a genuine backfill-in-progress state), and hiding it
+    # entirely reads as "nothing here" rather than "this one isn't actively syncing right now".
+    # Only schemas/sources that no longer exist (soft-deleted) are excluded.
     schema_filter: dict[str, object] = {
         "team_id": team_id,
         "id__in": [state.schema_id for state in states],
-        "should_sync": True,
         "deleted": False,
         "source__deleted": False,
     }
@@ -314,16 +230,20 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
         str(schema.id): schema for schema in ExternalDataSchema.objects.filter(**schema_filter).select_related("source")
     }
     visible_states = [state for state in states if str(state.schema_id) in schema_by_id]
-    schema_ids = [str(state.schema_id) for state in visible_states]
-    queue_statuses = _queue_tail_statuses(team_id, schema_ids)
-    queue_available = queue_statuses is not None
 
     tables: list[SourceTableStatus] = []
     for state in visible_states:
         schema_id = str(state.schema_id)
         schema = schema_by_id[schema_id]
-        queue_status = queue_statuses.get(schema_id) if queue_statuses is not None else None
-        readiness_state, detail = source_table_readiness(state, queue_status, queue_available)
+        if schema.should_sync:
+            readiness_state, detail = source_table_readiness(state)
+        else:
+            # Paused wins over whatever the sink state says: a stale failure streak from before
+            # the pause isn't actionable while nothing is actively importing for this table.
+            readiness_state, detail = (
+                "sync_paused",
+                "Sync is paused for this table. Data already in the warehouse is unaffected.",
+            )
         tables.append(
             {
                 "schema_id": schema_id,
@@ -336,9 +256,7 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
                 "backfilled": state.state == DuckgresSinkSchemaState.State.PRIMED,
                 "completed_chunks": state.chunks_applied,
                 "total_chunks": state.chunk_count,
-                "pending_batches": queue_status["pending_batches"] if queue_status is not None else None,
-                "oldest_pending_at": queue_status["oldest_pending_at"] if queue_status is not None else None,
-                "last_applied_at": queue_status["last_applied_at"] if queue_status is not None else None,
+                "last_applied_at": state.queue_last_applied_at,
                 "last_synced_at": schema.last_synced_at,
             }
         )
@@ -353,10 +271,9 @@ def get_source_schema_statuses(team_id: int, source_id: str) -> list[SourceTable
 _SOURCE_SUMMARY_DETAILS: dict[ReadinessState, str] = {
     "needs_attention": "One or more schemas need attention.",
     "backfilling": "Historical rows are being copied for one or more schemas.",
-    "catching_up": "Recent imports are still being applied for one or more schemas.",
     "waiting": "One or more schemas are waiting to start.",
-    "unknown": "Live import status is temporarily unavailable for one or more schemas.",
-    "up_to_date": "All schemas are up to date.",
+    "sync_paused": "Sync is paused for one or more schemas.",
+    "up_to_date": "New imports are applied to the warehouse as they arrive.",
     "not_configured": "No schemas are configured for this source.",
 }
 
@@ -369,10 +286,8 @@ def _rollup_sources(tables: list[SourceTableStatus]) -> list[SourceSummary]:
     summaries: list[SourceSummary] = []
     for source_id, rows in grouped.items():
         readiness_state = _roll_up_state([row["readiness_state"] for row in rows])
-        # pending_batches is uniformly None (queue check failed) or uniformly an int across a
-        # team's rows, since _queue_tail_statuses either fails for all schemas or none.
-        pending_batches = (
-            None if rows[0]["pending_batches"] is None else sum(row["pending_batches"] or 0 for row in rows)
+        last_applied_at = max(
+            (row["last_applied_at"] for row in rows if row["last_applied_at"] is not None), default=None
         )
         last_synced_at = max((row["last_synced_at"] for row in rows if row["last_synced_at"] is not None), default=None)
         summaries.append(
@@ -384,7 +299,7 @@ def _rollup_sources(tables: list[SourceTableStatus]) -> list[SourceSummary]:
                 "detail": _SOURCE_SUMMARY_DETAILS[readiness_state],
                 "total_schemas": len(rows),
                 "backfilled_schemas": sum(1 for row in rows if row["backfilled"]),
-                "pending_batches": pending_batches,
+                "last_applied_at": last_applied_at,
                 "last_synced_at": last_synced_at,
             }
         )
@@ -431,9 +346,8 @@ def _sources_status(team_id: int) -> SourcesStatus:
     details: dict[ReadinessState, str] = {
         "needs_attention": "One or more imported sources need attention.",
         "backfilling": "Existing rows are being copied for one or more imported sources.",
-        "catching_up": "Recent imports are still being applied to the warehouse.",
         "waiting": "One or more imported sources are waiting to start.",
-        "unknown": "Some live import statuses are temporarily unavailable.",
+        "sync_paused": "Sync is paused for one or more imported sources.",
         "up_to_date": "All imported sources are up to date.",
         "not_configured": "No imported source tables are configured for this warehouse.",
     }

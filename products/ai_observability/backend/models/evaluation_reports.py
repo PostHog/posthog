@@ -9,16 +9,18 @@ from posthog.models.utils import UUIDTModel
 
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
-from .evaluation_configs import REPORTABLE_OUTPUT_TYPES
-from .evaluations import EvaluationTarget
+from .evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 
 
 class EvaluationReportQuerySet(models.QuerySet):
     def reportable(self) -> "EvaluationReportQuerySet":
-        return self.filter(
-            evaluation__output_type__in=REPORTABLE_OUTPUT_TYPES,
-            evaluation__target=EvaluationTarget.GENERATION,
-        )
+        reportable_filter = models.Q()
+        for target, output_types in REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
+            reportable_filter |= models.Q(
+                evaluation__target=target,
+                evaluation__output_type__in=output_types,
+            )
+        return self.filter(reportable_filter)
 
     def deliverable(self) -> "EvaluationReportQuerySet":
         return self.reportable().filter(
@@ -179,6 +181,7 @@ def validate_report_rrule(rrule_string: str) -> None:
 class EvaluationReportRun(UUIDTModel):
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending"
+        GENERATED = "generated"
         DELIVERED = "delivered"
         PARTIAL_FAILURE = "partial_failure"
         FAILED = "failed"

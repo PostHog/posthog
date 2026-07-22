@@ -34,12 +34,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
     FORMBRICKS_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FormbricksSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
+    FormbricksSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeConfig]):
+    api_docs_url = "https://formbricks.com/docs/api-reference/rest-api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

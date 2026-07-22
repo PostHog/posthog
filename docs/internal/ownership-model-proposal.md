@@ -119,13 +119,19 @@ This keeps all 68 products at zero migration cost and preserves `hogli product:l
 
 ### Slack derivation: measured, not assumed
 
-Checked all 31 team slugs in use (CODEOWNERS + soft + product.yaml) against live Slack channels (2026-07):
+Checked every team slug in use against live Slack channels, re-verified 2026-07-15 against the 30 slugs left after the migration:
 
-- 24/31: `#<slug>` exists verbatim — every well-formed `team-*` slug.
-- 3/31 (`clickhouse`, `conversations`, `batch-exports`): slug lacks the `team-` prefix but `#team-<slug>` exists — slug hygiene to fix during migration, not an override case.
-- 4/31 need an explicit value: `team-posthog-code` → `#team-code`, `team-wizard` → `#team-wizard-and-docs`, `team-data-stack` → `#group-data-stack`, and `hogql`/`logs` have no team channel at all (`slack: false`).
+- 24/30: `#<slug>` exists verbatim, so no entry is needed.
+- 6/30 need an entry in the root `teams:` registry (below):
+  - `clickhouse`, `conversations`, `batch-exports` — these predate the `team-` convention and are the real org slugs; `team-clickhouse` and friends do not exist as GitHub teams, so the slugs cannot be "fixed" and the channel is `#team-<slug>`.
+  - `team-data-stack` → `#group-data-stack`.
+  - `team-posthog-code` → `#team-desktop`, the name the channel was created under.
+  - `logs` → `#team-apm`: the `logs` and `apm` GitHub teams have identical membership, APM ("Logs, Metrics and Traces") having absorbed logs.
 
-So the derived default is right for ~87% of teams and the rest add one line to the root `teams:` registry (below). Guarding against a derived channel that doesn't exist is lint's job, not a per-file flag: `owners:lint` gets an opt-in Slack-API check mirroring the existing opt-in live GitHub-team validation.
+So the derived default is right for 80% of teams and the rest carry one entry each.
+
+Nothing validates that a derived channel actually exists — a wrong or dead channel fails silently.
+An opt-in Slack-API check in `owners:lint`, mirroring the existing opt-in live GitHub-team validation, would close that gap; it is not built.
 
 #### The `teams:` registry (repo-root only)
 
@@ -135,11 +141,11 @@ The **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of t
 ```yaml
 # owners.yaml (repo root only)
 teams:
-  team-posthog-code:
-    slack: '#team-code'
+  clickhouse:
+    slack: '#team-clickhouse'
   team-data-stack:
     slack: '#group-data-stack'
-  hogql:
+  some-retired-team:
     slack: false
 ```
 

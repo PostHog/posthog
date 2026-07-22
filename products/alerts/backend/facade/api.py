@@ -11,6 +11,7 @@ from products.alerts.backend.destinations import (
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
+from products.alerts.backend.email_notifications import send_alert_email
 
 __all__ = [
     "DESTINATION_TEMPLATE_IDS",
@@ -21,5 +22,6 @@ __all__ = [
     "create_alert_destination_hog_functions",
     "soft_delete_alert_destinations",
     "soft_delete_all_alert_destinations",
+    "send_alert_email",
     "validate_destination_data",
 ]

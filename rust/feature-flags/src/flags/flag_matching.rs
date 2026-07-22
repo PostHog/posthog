@@ -1329,7 +1329,7 @@ impl FeatureFlagMatcher {
             let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
-                let is_match = v == "true" || v == &Value::Bool(true);
+                let is_match = FlagFilters::is_enrolled(v);
                 let payload = self.get_matching_payload(None, flag);
                 return Ok(FeatureFlagMatch {
                     matches: is_match,
@@ -1794,7 +1794,7 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
         if let Some(holdout) = &flag.filters.holdout {
-            let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
+            let percentage = holdout.exclusion_percentage_clamped();
 
             if percentage < 100.0
                 && self.get_holdout_hash(flag, None, request_hash_key_override)?

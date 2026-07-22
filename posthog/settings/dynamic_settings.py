@@ -39,6 +39,16 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA": (
+        False,
+        "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
+        bool,
+    ),
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
+        "",
+        "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
+        str,
+    ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         get_from_env("PERSON_ON_EVENTS_V2_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
@@ -277,8 +287,9 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "WEB_ANALYTICS_WARMING_DAYS": (
-        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7, type_cast=int),
-        "Number of days to look back for frequently-run web analytics queries",
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=2, type_cast=int),
+        "Number of days of system.query_log to look back for frequently-run web analytics queries. "
+        "Selection scans log_comment fleet-wide (terabytes per day), so keep this small.",
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
@@ -290,6 +301,11 @@ CONSTANCE_CONFIG = {
         get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
         "Teams that will have web analytics cache warming enabled",
         list[int],
+    ),
+    "WEB_ANALYTICS_WARMING_MAX_SHAPES": (
+        get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=20000, type_cast=int),
+        "Cap on the number of hot query shapes web analytics warming selects fleet-wide per run",
+        int,
     ),
 }
 
@@ -315,6 +331,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",
@@ -344,6 +362,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
+    "WEB_ANALYTICS_WARMING_MAX_SHAPES",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

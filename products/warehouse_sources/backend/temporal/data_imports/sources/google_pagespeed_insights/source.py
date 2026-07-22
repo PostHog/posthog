@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
     GooglePageSpeedInsightsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.google_pagespeed_insights import (
@@ -39,6 +39,9 @@ class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceCo
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    supported_versions = ("v5",)
+    default_version = "v5"
+    api_docs_url = "https://developers.google.com/speed/docs/insights/v5/get-started"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

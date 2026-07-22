@@ -1,12 +1,295 @@
-from typing import Any
+from typing import Any, TypedDict
 
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contradict
 from posthog.models import Team
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+_DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "LifecycleDataWarehouseNode"}
+
+# Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
+# when set. Property filters are handled separately (stacked unless they contradict).
+_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+
+# Tile-only flag, not a filter value: it must never reach DashboardFilter(**effective_filters)
+# (extra="forbid"), so every merged output strips it. It only acts on the override (tile) layer;
+# in the base layer (e.g. smuggled in via the `filters_override` query param) it is stripped
+# without effect, since a dashboard-layer "ignore dashboard filters" has no meaning.
+_IGNORE_DASHBOARD_FILTERS = "ignoreDashboardFilters"
+
+
+def _ignores_dashboard_filters(filters: dict | None) -> bool:
+    return bool(filters and filters.get(_IGNORE_DASHBOARD_FILTERS))
+
+
+def _without_ignore_flag(filters: dict) -> dict:
+    return {key: value for key, value in filters.items() if key != _IGNORE_DASHBOARD_FILTERS}
+
+
+class FilterLayerResolution(TypedDict):
+    dashboard: dict
+    tile: dict
+    overridden_dashboard: dict
+
+
+def resolve_filter_layers_by_priority(
+    base_filters: dict | None, override_filters: dict | None
+) -> FilterLayerResolution:
+    base = _without_ignore_flag(base_filters or {})
+    override = override_filters or {}
+
+    if _ignores_dashboard_filters(override):
+        overridden_base: dict = {key: value for key, value in base.items() if value is not None}
+        if overridden_base.get("properties") is not None:
+            overridden_base["properties"] = flatten_property_leaves(overridden_base["properties"])
+        return {
+            "dashboard": {},
+            "tile": override,
+            "overridden_dashboard": overridden_base,
+        }
+
+    effective_base = {**base}
+    overridden_base = {}
+
+    for field in _SCALAR_OVERRIDE_FIELDS:
+        if override.get(field) is not None:
+            effective_base.pop(field, None)
+            if base.get(field) is not None:
+                overridden_base[field] = base[field]
+
+    if override.get("date_from") is not None or override.get("date_to") is not None:
+        if base.get("date_from") is not None or base.get("date_to") is not None:
+            overridden_base["date_from"] = base.get("date_from")
+            overridden_base["date_to"] = base.get("date_to")
+            if base.get("explicitDate") is not None:
+                overridden_base["explicitDate"] = base["explicitDate"]
+        effective_base.pop("date_from", None)
+        effective_base.pop("date_to", None)
+        effective_base.pop("explicitDate", None)
+
+    override_props = flatten_property_leaves(override.get("properties"))
+    base_props = flatten_property_leaves(base.get("properties"))
+    contradicted_base = []
+    surviving_base = []
+    for base_property in base_props:
+        if any(filters_contradict(base_property, override_property) for override_property in override_props):
+            contradicted_base.append(base_property)
+        else:
+            surviving_base.append(base_property)
+    if contradicted_base:
+        overridden_base["properties"] = contradicted_base
+    if base.get("properties"):
+        # Always replace (or drop) the base properties — `effective_base` still holds the original
+        # value, which may be a property-group dict that later stages expect to be a flat list.
+        if surviving_base:
+            effective_base["properties"] = surviving_base
+        else:
+            effective_base.pop("properties", None)
+
+    return {
+        "dashboard": effective_base,
+        "tile": override,
+        "overridden_dashboard": overridden_base,
+    }
+
+
+def merge_filters_by_priority(base_filters: dict | None, override_filters: dict | None) -> dict:
+    """Merge two filter layers, with `override_filters` taking priority over `base_filters`.
+
+    The override wins per field. Scalars (breakdown, interval, test-account filtering) are replaced
+    outright when the override sets them. Property filters stack (AND-combine) by default, since two
+    filters on the same key can still describe a valid set (e.g. `utm_source = google` and
+    `utm_source is set`). A base property is dropped only when an override property provably contradicts
+    it — ANDing them could never match — in which case the override wins. The date range is treated as
+    one unit — an override that sets either bound supplies both bounds and explicitDate, so an override
+    date_from is never paired with a stale base date_to or a stale base explicitDate.
+
+    Callers today use this for the dashboard/tile layer pair (dashboard as base, tile as override), but
+    the algorithm itself is generic priority merging and isn't tied to that pairing.
+
+    Overriding the insight's own base filters (not just the lower-priority layer's) is handled separately
+    by `remove_query_properties_overridden_by`, which the override-aware call sites apply to the query.
+
+    An override with `ignoreDashboardFilters` drops the base layer entirely: only the override's own
+    values apply. The flag itself is stripped from every merged result, since the output feeds
+    `DashboardFilter(**...)` which forbids extra keys. In the base layer the flag is stripped without
+    acting — it is tile-only, but clients can place it in `base_filters` via the `filters_override`
+    query param.
+    """
+    if base_filters:
+        base_filters = _without_ignore_flag(base_filters)
+    if override_filters:
+        if override_filters.get(_IGNORE_DASHBOARD_FILTERS):
+            effective = _without_ignore_flag(override_filters)
+            if effective.get("properties") is not None:
+                effective["properties"] = flatten_property_leaves(effective["properties"])
+            return effective
+        override_filters = _without_ignore_flag(override_filters)
+    if not override_filters:
+        return base_filters or {}
+    if not base_filters:
+        return override_filters
+
+    resolved_layers = resolve_filter_layers_by_priority(base_filters, override_filters)
+    merged = {**resolved_layers["dashboard"]}
+
+    for field in _SCALAR_OVERRIDE_FIELDS:
+        if override_filters.get(field) is not None:
+            merged[field] = override_filters[field]
+
+    if override_filters.get("date_from") is not None or override_filters.get("date_to") is not None:
+        merged["date_from"] = override_filters.get("date_from")
+        merged["date_to"] = override_filters.get("date_to")
+        # The date range is one unit — drop the base's explicitDate before adopting the override's.
+        merged.pop("explicitDate", None)
+        if override_filters.get("explicitDate") is not None:
+            merged["explicitDate"] = override_filters["explicitDate"]
+
+    override_props = flatten_property_leaves(override_filters.get("properties"))
+    combined_properties = (resolved_layers["dashboard"].get("properties") or []) + override_props
+    if combined_properties:
+        merged["properties"] = combined_properties
+
+    return merged
+
+
+def flatten_property_leaves(properties: Any) -> list[dict]:
+    """Flatten AND property groups to the leaf-list shape expected by dashboard filters."""
+    if properties is None:
+        return []
+    if isinstance(properties, dict):
+        if properties.get("type") not in (None, "AND"):
+            raise ValueError("Only AND property groups are supported")
+        if not isinstance(properties.get("values"), list):
+            raise ValueError("Property group values must be a list")
+        properties = properties["values"]
+    if not isinstance(properties, list):
+        raise ValueError("Properties must be a list or an AND property group")
+    leaves: list[dict] = []
+    for item in properties:
+        if isinstance(item, dict) and "values" in item:
+            leaves.extend(flatten_property_leaves(item))
+        elif isinstance(item, dict):
+            leaves.append(item)
+        else:
+            raise ValueError(f"Invalid property filter item: expected dict, got {type(item).__name__}")
+    return leaves
+
+
+def normalize_dashboard_filters_properties(filters: dict) -> dict:
+    """Return filters with grouped properties normalized to the dashboard leaf-list contract."""
+    properties = filters.get("properties")
+    if properties is None:
+        return filters
+    flattened = flatten_property_leaves(properties)
+    if not flattened:
+        result = {k: v for k, v in filters.items() if k != "properties"}
+        return result
+    return {**filters, "properties": flattened}
+
+
+def _without_contradicted(properties: Any, overriding_props: list[dict]) -> Any:
+    """Drop leaf property filters that any `overriding_props` filter provably contradicts from a query's
+    `properties`, which is either a flat list of leaves or a `PropertyGroupFilter` dict (a group of
+    `PropertyGroupFilterValue` subgroups, themselves arbitrarily nested — AND of ORs of ANDs, etc).
+    Recurses into every nested subgroup rather than stopping at one level, since leaves can sit at any
+    depth. Emptied subgroups are pruned."""
+
+    def is_contradicted(leaf: Any) -> bool:
+        return isinstance(leaf, dict) and any(filters_contradict(leaf, o) for o in overriding_props)
+
+    if isinstance(properties, list):
+        return [p for p in properties if not is_contradicted(p)]
+    if isinstance(properties, dict) and isinstance(properties.get("values"), list):
+        new_values = []
+        for value in properties["values"]:
+            if isinstance(value, dict) and isinstance(value.get("values"), list):
+                pruned = _without_contradicted(value, overriding_props)
+                if pruned["values"]:
+                    new_values.append(pruned)
+            elif not is_contradicted(value):
+                new_values.append(value)
+        return {**properties, "values": new_values}
+    return properties
+
+
+def _strip_query_properties(query: dict, overriding_props: list[dict]) -> dict:
+    if query.get("kind") in WRAPPER_NODE_KINDS:
+        return {**query, "source": _strip_query_properties(query["source"], overriding_props)}
+    if query.get("properties") is not None:
+        query = {**query, "properties": _without_contradicted(query["properties"], overriding_props)}
+    series = query.get("series")
+    if isinstance(series, list):
+        query = {
+            **query,
+            "series": [
+                (
+                    {**node, "properties": _without_contradicted(node["properties"], overriding_props)}
+                    if isinstance(node, dict) and node.get("properties") is not None
+                    else node
+                )
+                for node in series
+            ],
+        }
+    filters = query.get("filters")
+    if isinstance(filters, dict) and filters.get("properties") is not None:
+        query = {
+            **query,
+            "filters": {**filters, "properties": _without_contradicted(filters["properties"], overriding_props)},
+        }
+    return query
+
+
+def remove_query_properties_overridden_by(query: dict, overriding_filters: dict | None) -> dict:
+    """Drop the insight's own property filters that an `overriding_filters` property provably contradicts,
+    so the higher-priority layers take precedence over the insight's base filter instead of AND-ing a
+    contradiction into an empty result. Compatible filters on the same key are left in place to stack.
+    Callers pass the effective dashboard + tile filter set, so both layers can override the insight's own
+    filter."""
+    overriding_props = flatten_property_leaves((overriding_filters or {}).get("properties"))
+    if not overriding_props:
+        return query
+    return _strip_query_properties(query, overriding_props)
+
+
+def _has_data_warehouse_series(query: dict) -> bool:
+    if query.get("kind") in WRAPPER_NODE_KINDS:
+        return _has_data_warehouse_series(query["source"])
+    series = query.get("series")
+    return isinstance(series, list) and any(
+        isinstance(node, dict) and node.get("kind") in _DATA_WAREHOUSE_NODE_KINDS for node in series
+    )
+
+
+def resolve_effective_dashboard_filters(
+    query: dict, base_filters: dict | None, tile_filters_override: dict | None
+) -> tuple[dict, dict]:
+    """Combine dashboard and tile filters for query execution and display reconstruction."""
+    effective_filters = (
+        merge_filters_by_priority(base_filters, tile_filters_override)
+        if tile_filters_override
+        else _without_ignore_flag(base_filters or {})
+    )
+    # `merge_filters_by_priority` can early-return a raw layer (and a single layer is unmerged), so
+    # `properties` may still be a group dict here — normalize before it reaches `DashboardFilter`.
+    effective_filters = normalize_dashboard_filters_properties(effective_filters)
+    if effective_filters and not _has_data_warehouse_series(query):
+        query = remove_query_properties_overridden_by(query, effective_filters)
+    return query, effective_filters
+
+
+def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
+    """Build a dashboard filter while tolerating legacy grouped properties."""
+    # Final guard: callers like Insight.get_effective_query pass client-supplied filter dicts
+    # here without going through the merge functions, and the tile-only flag would trip
+    # DashboardFilter's extra="forbid".
+    filters = _without_ignore_flag(filters)
+    if isinstance(filters.get("properties"), dict):
+        filters = {**filters, "properties": flatten_property_leaves(filters["properties"])}
+    return DashboardFilter(**filters)
 
 
 # Apply the filters from the django-style Dashboard object
@@ -23,7 +306,7 @@ def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> d
     except ValueError:
         capture_exception()
         return query
-    query_runner.apply_dashboard_filters(DashboardFilter(**filters))
+    query_runner.apply_dashboard_filters(dashboard_filter_from_dict(filters))
     return query_runner.query.model_dump()
 
 

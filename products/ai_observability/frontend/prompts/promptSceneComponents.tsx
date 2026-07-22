@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { Suspense, useRef } from 'react'
 
-import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconColumns, IconMarkdown, IconMarkdownFilled, IconPlusSmall } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -16,6 +16,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -24,6 +25,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,6 +41,8 @@ import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PromptLabelChip } from './PromptLabelChip'
+import { PromptLabelPicker } from './PromptLabelPicker'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
@@ -86,71 +90,44 @@ export function PromptViewDetails(): JSX.Element {
         : []
 
     return (
-        <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
-                <LemonTag type="highlight" size="small">
-                    v{prompt.version}
-                </LemonTag>
-                {prompt.is_latest ? (
-                    <LemonTag type="success" size="small">
-                        Latest
-                    </LemonTag>
-                ) : (
-                    <LemonTag type="muted" size="small">
-                        Historical
-                    </LemonTag>
-                )}
-                <span className="text-secondary text-sm">
-                    This prompt has {prompt.version_count} published version{prompt.version_count === 1 ? '' : 's'}.
-                </span>
-            </div>
-
-            {prompt.version_description ? (
-                <p className="text-secondary m-0 text-sm italic" data-attr="llma-prompt-version-description">
-                    {prompt.version_description}
-                </p>
-            ) : null}
-
+        <div className="space-y-4">
             <div>
-                <label className="text-xs font-semibold uppercase text-secondary">Name</label>
-                <p className="font-mono">{prompt.name}</p>
-            </div>
-
-            <div>
-                <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold uppercase text-secondary">Prompt</label>
-                    {!isDiffVisible && (
-                        <LemonButton
-                            size="small"
-                            noPadding
-                            icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                            tooltip="Toggle markdown rendering"
-                            onClick={toggleMarkdownRendering}
-                        />
-                    )}
-                    {canCompareVersions && (
-                        <LemonButton
-                            size="xsmall"
-                            type={isDiffVisible ? 'primary' : 'secondary'}
-                            icon={<IconColumns />}
-                            onClick={() => {
-                                if (isDiffVisible) {
-                                    setCompareVersion(null)
-                                } else {
-                                    const firstOption = compareVersionOptions[0]?.value
-                                    const defaultVersion = compareVersionOptions.some(
-                                        (o) => o.value === prompt.version - 1
-                                    )
-                                        ? prompt.version - 1
-                                        : (firstOption ?? null)
-                                    setCompareVersion(defaultVersion)
-                                }
-                            }}
-                            data-attr="llma-prompt-compare-versions-button"
-                        >
-                            Compare versions
-                        </LemonButton>
-                    )}
+                <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="m-0 font-semibold">Prompt</h3>
+                    <div className="flex items-center gap-2">
+                        {!isDiffVisible && (
+                            <LemonButton
+                                size="small"
+                                noPadding
+                                icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                tooltip="Toggle markdown rendering"
+                                onClick={toggleMarkdownRendering}
+                            />
+                        )}
+                        {canCompareVersions && (
+                            <LemonButton
+                                size="xsmall"
+                                type={isDiffVisible ? 'primary' : 'secondary'}
+                                icon={<IconColumns />}
+                                onClick={() => {
+                                    if (isDiffVisible) {
+                                        setCompareVersion(null)
+                                    } else {
+                                        const firstOption = compareVersionOptions[0]?.value
+                                        const defaultVersion = compareVersionOptions.some(
+                                            (o) => o.value === prompt.version - 1
+                                        )
+                                            ? prompt.version - 1
+                                            : (firstOption ?? null)
+                                        setCompareVersion(defaultVersion)
+                                    }
+                                }}
+                                data-attr="llma-prompt-compare-versions-button"
+                            >
+                                Compare versions
+                            </LemonButton>
+                        )}
+                    </div>
                 </div>
                 {isDiffVisible ? (
                     <PromptDiffView />
@@ -164,22 +141,8 @@ export function PromptViewDetails(): JSX.Element {
                         </div>
                     </>
                 ) : (
-                    <pre className="mt-1 max-w-3xl rounded border bg-bg-light p-3 whitespace-pre-wrap">
-                        {prompt.prompt}
-                    </pre>
+                    <pre className="mt-1 rounded border bg-bg-light p-3 whitespace-pre-wrap">{prompt.prompt}</pre>
                 )}
-            </div>
-
-            <div className="grid max-w-3xl gap-3 text-sm text-secondary sm:grid-cols-2">
-                <div className="flex flex-wrap items-center gap-1">
-                    Published {dayjs(prompt.created_at).format('MMM D, YYYY h:mm A')}
-                    {prompt.created_by ? (
-                        <span className="flex items-center gap-1">
-                            by <ProfilePicture user={prompt.created_by} showName size="sm" />
-                        </span>
-                    ) : null}
-                </div>
-                <div>First version created {dayjs(prompt.first_version_created_at).format('MMM D, YYYY h:mm A')}</div>
             </div>
 
             {variables.length > 0 && (
@@ -196,16 +159,80 @@ export function PromptViewDetails(): JSX.Element {
     )
 }
 
+// One line under the page title carrying every fact the page used to repeat:
+// version, freshness, and provenance.
+export function PromptHeaderMeta(): JSX.Element | null {
+    const { prompt, promptLabels } = useValues(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
+
+    if (!isPrompt(prompt)) {
+        return null
+    }
+
+    return (
+        <div
+            className="-mt-2 flex flex-wrap items-center gap-2 text-sm text-secondary"
+            data-attr="llma-prompt-header-meta"
+        >
+            <LemonTag type="highlight" size="small">
+                v{prompt.version}
+            </LemonTag>
+            {prompt.is_latest ? (
+                <LemonTag type="success" size="small">
+                    Latest
+                </LemonTag>
+            ) : (
+                <LemonTag type="muted" size="small">
+                    Historical
+                </LemonTag>
+            )}
+            {labelsEnabled
+                ? promptLabels.map((label) => (
+                      <PromptLabelChip
+                          key={label.name}
+                          label={`${label.name} → v${label.version}`}
+                          data-attr={`llma-prompt-header-label-${label.name}`}
+                      />
+                  ))
+                : null}
+            {prompt.version_description ? (
+                <span className="italic" data-attr="llma-prompt-version-description">
+                    “{prompt.version_description}”
+                </span>
+            ) : null}
+            <span className="flex items-center gap-1">
+                published {dayjs(prompt.created_at).format('MMM D, YYYY')}
+                {prompt.created_by ? (
+                    <span className="flex items-center gap-1">
+                        by <ProfilePicture user={prompt.created_by} showName size="sm" />
+                    </span>
+                ) : null}
+            </span>
+        </div>
+    )
+}
+
 export function PublishReviewModal(): JSX.Element | null {
     const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting, versionDescription } =
         useValues(llmPromptLogic)
+    const { promptLabels } = useValues(llmPromptLogic)
     const { closePublishReview, submitPromptForm, setVersionDescription } = useActions(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     if (!isPrompt(prompt)) {
         return null
     }
 
     const publishLabel = nextVersion ? `Publish v${nextVersion}` : 'Publish version'
+    // Publishing no longer means shipping once labels are in use; say so at the moment it matters.
+    const labelsNote =
+        labelsEnabled && promptLabels.length > 0
+            ? ` Publishing does not move labels: ${promptLabels
+                  .map((label) => `${label.name} stays on v${label.version}`)
+                  .join(', ')}.`
+            : ''
 
     return (
         <LemonModal
@@ -214,7 +241,7 @@ export function PublishReviewModal(): JSX.Element | null {
             title="Review changes"
             description={`Comparing v${prompt.version} with your edits. Publishing creates ${
                 nextVersion ? `v${nextVersion}` : 'a new version'
-            } — previous versions stay unchanged.`}
+            } — previous versions stay unchanged.${labelsNote}`}
             width={880}
             footer={
                 <>
@@ -350,7 +377,7 @@ function PromptDiffView(): JSX.Element {
 
 export function PromptRelatedTraces(): JSX.Element {
     const { prompt, relatedTracesQuery, viewAllTracesUrl, analyticsScope } = useValues(llmPromptLogic)
-    const { setAnalyticsScope, setRelatedTracesQuery } = useActions(llmPromptLogic)
+    const { setRelatedTracesQuery } = useActions(llmPromptLogic)
     const tracesQueryContext = useTracesQueryContext()
 
     if (!prompt || !isPrompt(prompt)) {
@@ -358,40 +385,33 @@ export function PromptRelatedTraces(): JSX.Element {
     }
 
     return (
-        <div className="mt-8" data-attr="llma-prompt-related-traces-section">
-            <div className="mb-4 flex flex-col gap-3">
-                <div className="min-w-0 flex-1">
-                    <h3 className="text-lg font-semibold">Related traces</h3>
-                    <p className="mt-1 text-sm text-secondary">
-                        Send <code className="rounded bg-bg-light px-1">$ai_prompt_name</code> and{' '}
-                        <code className="rounded bg-bg-light px-1">$ai_prompt_version</code> with your LLM events for
-                        version-specific attribution.
-                    </p>
+        <div className="mt-6" data-attr="llma-prompt-related-traces-section">
+            <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                    <b>Related traces</b>
+                    <div className="text-secondary text-sm">
+                        {analyticsScope === PromptAnalyticsScope.Selected ? (
+                            <>
+                                Traces sending <code>$ai_prompt_name="{prompt.name}"</code> and{' '}
+                                <code>$ai_prompt_version={prompt.version}</code>. Events that only send the name appear
+                                under all versions.
+                            </>
+                        ) : (
+                            <>
+                                Traces sending <code>$ai_prompt_name="{prompt.name}"</code>, any version.
+                            </>
+                        )}
+                    </div>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                    <PromptAnalyticsScopeControls
-                        analyticsScope={analyticsScope}
-                        setAnalyticsScope={setAnalyticsScope}
-                    />
-                    <LemonButton
-                        type="secondary"
-                        to={viewAllTracesUrl}
-                        size="small"
-                        data-attr="llma-prompt-view-all-traces-button"
-                    >
-                        View all traces
-                    </LemonButton>
-                </div>
+                <LemonButton
+                    type="secondary"
+                    to={viewAllTracesUrl}
+                    size="small"
+                    data-attr="llma-prompt-view-all-traces-button"
+                >
+                    View all traces
+                </LemonButton>
             </div>
-
-            {analyticsScope === PromptAnalyticsScope.Selected && (
-                <LemonBanner type="info" className="mb-4">
-                    Currently matching <code>$ai_prompt_name="{prompt.name}"</code> and{' '}
-                    <code>$ai_prompt_version={prompt.version}</code>. If your events only send the prompt name, switch
-                    to all versions.
-                </LemonBanner>
-            )}
 
             {relatedTracesQuery && (
                 <DataTable
@@ -411,10 +431,17 @@ function extractPromptVariables(promptText: string): string[] {
     return matches ? [...new Set(matches.map((match) => match.slice(2, -2).trim()))] : []
 }
 
-function buildPythonSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+function buildPythonSnippet(
+    promptName: string,
+    host: string,
+    projectApiKey: string,
+    variables: string[],
+    labelName?: string
+): string {
     const compileLines = variables.length
         ? `\nsystem_prompt = prompts.compile(result.prompt, {${variables.map((v) => `${JSON.stringify(v)}: '...'`).join(', ')}})`
         : ''
+    const labelArg = labelName ? `label=${JSON.stringify(labelName)}, ` : ''
     return `from posthog import Posthog
 from posthog.ai.prompts import Prompts
 
@@ -425,14 +452,21 @@ posthog = Posthog(
 )
 prompts = Prompts(posthog)
 
-result = prompts.get(${JSON.stringify(promptName)}, with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
+result = prompts.get(${JSON.stringify(promptName)}, ${labelArg}with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
 # result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
-function buildNodeSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+function buildNodeSnippet(
+    promptName: string,
+    host: string,
+    projectApiKey: string,
+    variables: string[],
+    labelName?: string
+): string {
     const compileLines = variables.length
         ? `\nconst systemPrompt = prompts.compile(result.prompt, {${variables.map((v) => ` ${JSON.stringify(v)}: '...'`).join(',')} })`
         : ''
+    const labelArg = labelName ? `label: '${labelName}', ` : ''
     return `import { Prompts } from '@posthog/ai'
 import { PostHog } from 'posthog-node'
 
@@ -442,18 +476,24 @@ const posthog = new PostHog('${projectApiKey}', {
 })
 const prompts = new Prompts({ posthog })
 
-const result = await prompts.get(${JSON.stringify(promptName)}, { fallback: 'You are a helpful assistant.' })${compileLines}
+const result = await prompts.get(${JSON.stringify(promptName)}, { ${labelArg}fallback: 'You are a helpful assistant.' })${compileLines}
 // result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
 export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Element {
-    const { snippetLanguage } = useValues(llmPromptLogic)
+    const { snippetLanguage, promptLabels } = useValues(llmPromptLogic)
     const { setSnippetLanguage } = useActions(llmPromptLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     const host = window.location.origin
     const projectApiKey = currentTeam?.api_token ?? '<project_api_key>'
     const variables = extractPromptVariables(prompt.prompt)
+    // Teach the recommended pattern the moment it applies: once a label exists, fetch by it.
+    const snippetLabel = labelsEnabled
+        ? (promptLabels.find((label) => label.name === 'production') ?? promptLabels[0])?.name
+        : undefined
 
     return (
         <div className="mb-6" data-attr="llma-prompt-code-snippets">
@@ -461,7 +501,9 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                 <div>
                     <b>Use this prompt in your code</b>
                     <div className="text-secondary text-sm">
-                        Fetch the latest version at runtime — publish new versions without deploying.
+                        {snippetLabel
+                            ? `Fetch the version the ${snippetLabel} label points at. Move the label to release, without deploying.`
+                            : 'Fetch the latest version at runtime — publish new versions without deploying.'}
                     </div>
                 </div>
                 <LemonButton
@@ -484,7 +526,7 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                         label: 'Python',
                         content: (
                             <CodeSnippet language={Language.Python}>
-                                {buildPythonSnippet(prompt.name, host, projectApiKey, variables)}
+                                {buildPythonSnippet(prompt.name, host, projectApiKey, variables, snippetLabel)}
                             </CodeSnippet>
                         ),
                     },
@@ -493,12 +535,28 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                         label: 'Node.js',
                         content: (
                             <CodeSnippet language={Language.JavaScript}>
-                                {buildNodeSnippet(prompt.name, host, projectApiKey, variables)}
+                                {buildNodeSnippet(prompt.name, host, projectApiKey, variables, snippetLabel)}
                             </CodeSnippet>
                         ),
                     },
                 ]}
             />
+        </div>
+    )
+}
+
+export function PromptCode({ prompt }: { prompt: LLMPrompt }): JSX.Element {
+    return (
+        <div data-attr="llma-prompt-code-container">
+            <PromptCodeSnippets prompt={prompt} />
+
+            <LemonBanner type="info">
+                During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
+                <Link to="https://posthog.com/pricing" target="_blank">
+                    pricing page
+                </Link>
+                .
+            </LemonBanner>
         </div>
     )
 }
@@ -509,16 +567,6 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
 
     return (
         <div data-attr="llma-prompt-usage-container">
-            <PromptCodeSnippets prompt={prompt} />
-
-            <LemonBanner type="info" className="mb-4">
-                During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
-                <Link to="https://posthog.com/pricing" target="_blank">
-                    pricing page
-                </Link>
-                .
-            </LemonBanner>
-
             <div className="mb-4 flex flex-col gap-2">
                 <div className="min-w-0">
                     <b>Trend</b>
@@ -790,8 +838,10 @@ export function PromptVersionSidebar({
     searchParams: Record<string, any>
     readOnly?: boolean
 }): JSX.Element {
-    const { compareVersion } = useValues(llmPromptLogic)
-    const { setCompareVersion } = useActions(llmPromptLogic)
+    const { compareVersion, labelsByVersion, labelPickerVersion } = useValues(llmPromptLogic)
+    const { setCompareVersion, openLabelPicker, requestRemoveLabel } = useActions(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     return (
         <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
@@ -860,6 +910,52 @@ export function PromptVersionSidebar({
                                 </div>
                                 {versionPrompt.created_by?.email ? (
                                     <div className="mt-1 text-xs text-secondary">{versionPrompt.created_by.email}</div>
+                                ) : null}
+                                {labelsEnabled ? (
+                                    <div
+                                        className="mt-1.5 flex flex-wrap items-center gap-1"
+                                        // The card is a Link; label actions must not navigate. Capture-phase
+                                        // preventDefault runs before child handlers that stopPropagation
+                                        // (e.g. LemonTag's close button), which would otherwise let the
+                                        // anchor's native navigation through.
+                                        onClickCapture={(e) => e.preventDefault()}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {(labelsByVersion[versionPrompt.version] ?? []).map((label) => (
+                                            <AccessControlAction
+                                                key={label.name}
+                                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                            >
+                                                <PromptLabelChip
+                                                    label={label.name}
+                                                    onRemove={
+                                                        readOnly ? undefined : () => requestRemoveLabel(label.name)
+                                                    }
+                                                    data-attr={`llma-prompt-label-${label.name}`}
+                                                />
+                                            </AccessControlAction>
+                                        ))}
+                                        {!readOnly &&
+                                            (labelPickerVersion === versionPrompt.version ? (
+                                                <PromptLabelPicker version={versionPrompt.version} />
+                                            ) : (
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                >
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        icon={<IconPlusSmall />}
+                                                        onClick={() => openLabelPicker(versionPrompt.version)}
+                                                        tooltip="Point a label at this version"
+                                                        data-attr={`llma-prompt-add-label-${versionPrompt.version}`}
+                                                    >
+                                                        Add label
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                            ))}
+                                    </div>
                                 ) : null}
                             </>
                         )

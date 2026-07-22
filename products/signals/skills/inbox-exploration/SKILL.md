@@ -4,8 +4,8 @@ description: >
   Explore PostHog's Inbox and act on what it surfaces — the place where signal reports cluster into
   actionable issues and trends. Use when the user asks "what's in my inbox?", "what should I look at?",
   "which reports are actionable?", "what's PostHog flagged recently?", asks about a specific report by
-  ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to dismiss or
-  snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
+  ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
+  dismiss, or snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
   drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
   or semantic search are needed.
 ---
@@ -33,7 +33,8 @@ the user's actual question.
 - The user pastes a report ID or URL and wants context
 - "Fix this inbox item" / "turn this report into a PR" / "implement this report" — see
   _Workflow: act on an actionable report_
-- "Dismiss this" / "snooze this report" — see _Workflow: dismiss or snooze a report_
+- "Dismiss this" / "snooze this report" / "mark this resolved" / "I've fixed this" — see
+  _Workflow: resolve, dismiss, or snooze a report_
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -61,7 +62,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-report-artefacts-list`         | A report's full work log — `signal_finding` evidence, status judgments, commits, task runs, notes (read-only) |
 | `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                                                                 |
-| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report                                                |
+| `inbox-reports-set-state`             | Resolve (`resolved`), dismiss (`suppressed`), or snooze (`potential`) a single report                         |
 | `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)                                                 |
 | `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)                                                     |
 | `inbox-source-configs-retrieve`       | Full record for a single source config                                                                        |
@@ -69,13 +70,13 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)                                           |
 
 The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
-`inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report),
+`inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call) — see
-_Workflow: dismiss or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
+_Workflow: resolve, dismiss, or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
 source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
 `-create` / `-update` exist too for standing a source up or replacing it wholesale. Other writes
-(pause processing, mark a report resolved, set `implementation_pr_url`) are not exposed via MCP
-today — those happen on the product surface when a PR is opened against a report.
+(pause processing, set `implementation_pr_url`) are not exposed via MCP today — the PR link is
+populated on the product surface when a PR is opened against a report.
 
 ## Terminology
 
@@ -87,6 +88,9 @@ What each report status means (in roughly the order a triage agent should care a
 - `candidate` / `potential` — accumulated signals but not yet promoted to a real report
 - `failed` — processing errored
 - `suppressed` — manually hidden; not surfaced by default
+- `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
+  so a recurrence starts a fresh report linked back to it. Set automatically when a linked
+  implementation PR merges, or directly via `inbox-reports-set-state` (see the workflow below)
 
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
@@ -327,16 +331,26 @@ speculative fix.
 
 ### Step 4 — Open the PR and link it back
 
-Open the PR following the repo's PR conventions. There is **no MCP tool to mark a report resolved
-or set `implementation_pr_url`** — that link is populated on the product surface when a PR is
-opened against the report. So reference the report in the PR description (its `_posthogUrl`) and
-tell the user which report the PR addresses, so the loop is traceable. Don't claim the report is
-"resolved" in the inbox — it isn't until the product surface records the merged PR.
+Open the PR following the repo's PR conventions. There is no MCP tool to set
+`implementation_pr_url` — that link is populated on the product surface when a PR is opened
+against the report. So reference the report in the PR description (its `_posthogUrl`) and tell the
+user which report the PR addresses, so the loop is traceable.
 
-## Workflow: dismiss or snooze a report
+**Don't resolve a report because you opened a PR.** When the fix ships as a PR, the merge is what
+resolves the report — the tasks GitHub webhook does it automatically. Resolving by hand at PR-open
+time asserts work that hasn't landed, and a reviewer looking at the inbox can't tell the difference.
+Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a
+`NO_REPO` report — see the workflow below.
 
-When the user has reviewed a report and wants it gone, or wants to defer it. These are the inbox
-writes exposed via MCP:
+## Workflow: resolve, dismiss, or snooze a report
+
+Three outcomes, one tool. Pick by what actually happened to the underlying issue:
+
+| The issue is…                                 | State        | Why                                                |
+| --------------------------------------------- | ------------ | -------------------------------------------------- |
+| fixed by work you did                         | `resolved`   | terminal; the report has served its purpose        |
+| not real, or not worth fixing                 | `suppressed` | dismissed from the inbox, with the reason recorded |
+| real but deferred, or fixed by something else | `potential`  | back into the pipeline; reappears if it recurs     |
 
 ```json
 inbox-reports-set-state
@@ -348,21 +362,28 @@ inbox-reports-set-state
 }
 ```
 
+- `state: "resolved"` marks the requested work done, and is terminal — a recurrence starts a fresh
+  report rather than reopening this one. Allowed from `ready` / `pending_input`, or from a
+  `suppressed` report that held one of those when archived; anything else returns `409`. **Only
+  resolve work that has actually landed.** A fix shipping as a PR resolves itself on merge (see
+  _Step 4_); resolve by hand only where the webhook can never reach — a skill-body edit, a config
+  change, a `NO_REPO` report. Don't use `already_fixed` + `state: "potential"` when _you_ did the
+  fixing: that pairing means "fixed by something else, might recur", so the report comes back.
 - `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
   into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
 - `dismissal_reason` must be one of six server-validated canonical codes — `already_fixed`,
   `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other` — an
-  unlisted value returns `400`. `already_fixed` is a _snooze_, so pair it with `state: "potential"`
-  rather than `"suppressed"`; reach for `other` plus a `dismissal_note` for anything that doesn't
+  unlisted value returns `400`. Reach for `other` plus a `dismissal_note` for anything that doesn't
   fit a specific code. `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL
-  artefact, so the rationale survives even if the report transitions again later — **always include
-  them** so a future reader knows _why_.
+  artefact, so the rationale survives later transitions — **always include them**, on a resolve too,
+  so a future reader knows _why_.
 - It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
   report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
   the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is
   worse than none. A report you dismissed because the diagnosis was wrong (Step 2 above) is the
-  textbook case: suppress it with `analysis_wrong` and the evidence in the note.
-- To dismiss or snooze several reports at once, use `inbox-reports-bulk-set-state` with an `ids`
+  textbook case: suppress it with `analysis_wrong` and the evidence in the note. A refunded report
+  is frozen: snooze and resolve both come back `409` / `skipped` with an explanatory `detail`.
+- To transition several reports at once, use `inbox-reports-bulk-set-state` with an `ids`
   array (1–100). It applies the same `state` / `dismissal_reason` / `dismissal_note` / `snooze_for`
   to every id and returns a per-id `results` list (in request order) plus a
   `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. Each id is
@@ -446,13 +467,13 @@ inbox-source-configs-partial-update
   status; this is expected, not a bug — judgment hasn't run yet
 - `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
   user wants to see hidden items
-- The inbox writes exposed via MCP are `inbox-reports-set-state` (dismiss / snooze one report),
-  `inbox-reports-bulk-set-state` (the same for 1–100 reports), and `inbox-source-configs-partial-update`
-  (toggle a source's `enabled` flag). To _act_ on a report (implement a
-  fix), verify the diagnosis against the code first, then open a
-  PR — see _Workflow: act on an actionable report_. Marking a report resolved / setting
-  `implementation_pr_url` happens on the product surface, not via MCP; always also surface the
-  `_posthogUrl` deep-link
+- The inbox writes exposed via MCP are `inbox-reports-set-state` (resolve / dismiss / snooze one
+  report), `inbox-reports-bulk-set-state` (the same for 1–100 reports), and
+  `inbox-source-configs-partial-update` (toggle a source's `enabled` flag). To _act_ on a report
+  (implement a fix), verify the diagnosis against the code first, then open a PR — see
+  _Workflow: act on an actionable report_. A PR-backed fix is resolved automatically when the PR
+  merges, so don't resolve it by hand at PR-open time; setting `implementation_pr_url` happens on
+  the product surface, not via MCP. Always also surface the `_posthogUrl` deep-link
 - **Never implement a report's fix straight from its `summary`.** Reports — especially
   `signals_scout` ones — are LLM diagnoses; confirm the cited files / functions / behavior in the
   actual code before writing a fix. A report that doesn't hold up is a dismissal candidate, not a
