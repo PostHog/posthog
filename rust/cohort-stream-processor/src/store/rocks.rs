@@ -6,7 +6,7 @@
 #![allow(clippy::disallowed_methods)]
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -26,6 +26,7 @@ use super::column_families::{self, Cf, OpaqueCf};
 use super::keys::{
     self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
     Stage2Key, Stage2TransferredRegisterKey, Stage2TransferredRegisterPersonPrefix, TombstoneKey,
+    STAGE2_DIRTY_KEY_LEN,
 };
 use super::keyspace::{
     BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_SCHEMA_VERSION,
@@ -187,7 +188,10 @@ pub type RawKv = (Vec<u8>, Vec<u8>);
 
 #[derive(Debug, Default)]
 struct Stage2DirtyTracking {
-    active: RwLock<HashMap<Stage2CohortPrefix, usize>>,
+    /// The set of cohort prefixes with a reconcile drain currently capturing dirty rows. At most one
+    /// job per prefix ever holds a lease (admission supersedes same `(partition, team, cohort)`, and
+    /// the partition worker is serial), so a set — not a refcount — models the real invariant.
+    active: RwLock<HashSet<Stage2CohortPrefix>>,
     active_count: AtomicUsize,
 }
 
@@ -197,7 +201,11 @@ impl Stage2DirtyTracking {
             .active
             .write()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work");
-        *active.entry(prefix).or_default() += 1;
+        let inserted = active.insert(prefix);
+        debug_assert!(
+            inserted,
+            "a cohort prefix cannot hold two dirty-tracking leases"
+        );
         self.active_count.fetch_add(1, Ordering::Release);
         Stage2DirtyTrackingGuard {
             tracking: self.clone(),
@@ -205,31 +213,38 @@ impl Stage2DirtyTracking {
         }
     }
 
+    /// Cheap pre-check for the hot write path: whether any drain is capturing at all. A `false` lets
+    /// a reconcile-disabled pipeline skip decoding the Stage 2 key entirely.
+    fn any_active(&self) -> bool {
+        self.active_count.load(Ordering::Acquire) != 0
+    }
+
     fn is_active(&self, prefix: Stage2CohortPrefix) -> bool {
-        if self.active_count.load(Ordering::Acquire) == 0 {
+        if !self.any_active() {
             return false;
         }
         self.active
             .read()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work")
-            .contains_key(&prefix)
+            .contains(&prefix)
+    }
+
+    /// The dirty marker to stage for a `cf_stage2` write, or `None` when no drain tracks its cohort.
+    /// The single home of the "is this cohort captured / which marker do we write" decision, shared by
+    /// the live-event [`BatchBuilder`] path and the owned [`StagedBatch`] apply path so the rule for
+    /// emitting a marker cannot drift between them.
+    fn dirty_marker(&self, key: &Stage2Key) -> Option<[u8; STAGE2_DIRTY_KEY_LEN]> {
+        self.is_active(key.cohort_prefix())
+            .then(|| Stage2DirtyKey::new(*key).encode())
     }
 
     fn release(&self, prefix: Stage2CohortPrefix) {
-        let mut active = self
+        let removed = self
             .active
             .write()
-            .expect("Stage 2 dirty-tracking lock is not held across fallible work");
-        let remove = {
-            let count = active
-                .get_mut(&prefix)
-                .expect("every dirty-tracking guard owns one active reference");
-            *count -= 1;
-            *count == 0
-        };
-        if remove {
-            active.remove(&prefix);
-        }
+            .expect("Stage 2 dirty-tracking lock is not held across fallible work")
+            .remove(&prefix);
+        debug_assert!(removed, "every dirty-tracking guard owns one active lease");
         let previous = self.active_count.fetch_sub(1, Ordering::Release);
         debug_assert!(previous > 0, "dirty-tracking reference count underflow");
     }
@@ -782,14 +797,18 @@ impl CohortStore {
         if !matches!(cf, Cf::Stage2) {
             return;
         }
+        // Skip decoding the key on the hot write path when no reconcile drain is capturing dirties.
+        if !self.dirty_tracking.any_active() {
+            return;
+        }
         let Ok(key) = Stage2Key::decode(encoded_key) else {
             return;
         };
-        if self.dirty_tracking.is_active(key.cohort_prefix()) {
+        if let Some(marker) = self.dirty_tracking.dirty_marker(&key) {
             batch.put_cf(
                 self.cf(Cf::Stage2)
                     .expect("the Stage 2 CF was opened before applying a batch"),
-                Stage2DirtyKey::new(key).encode(),
+                marker,
                 [],
             );
         }
@@ -1324,9 +1343,8 @@ impl<'db> BatchBuilder<'db> {
     }
 
     fn mark_stage2_dirty(&mut self, key: &Stage2Key) {
-        if self.dirty_tracking.is_active(key.cohort_prefix()) {
-            self.batch
-                .put_cf(self.stage2, Stage2DirtyKey::new(*key).encode(), []);
+        if let Some(marker) = self.dirty_tracking.dirty_marker(key) {
+            self.batch.put_cf(self.stage2, marker, []);
         }
     }
 }

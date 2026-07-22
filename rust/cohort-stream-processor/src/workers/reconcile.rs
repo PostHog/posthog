@@ -39,6 +39,20 @@ use crate::workers::worker::{
     count_by_status, first_cascades, produce_cascades, produce_membership,
 };
 
+/// Emit a `warn!` carrying the reconcile job identity (`team_id`, `cohort_id`, `run_id`) read from
+/// `$tile`, so the drain warnings share one definition of those fields. Extra fields and the message
+/// follow exactly as in a bare `warn!`: `warn_job!(tile, partition_id, error = %error, "…")`.
+macro_rules! warn_job {
+    ($tile:expr, $($rest:tt)*) => {
+        warn!(
+            team_id = $tile.team_id().0,
+            cohort_id = $tile.cohort_id().0,
+            run_id = %$tile.run_id().0,
+            $($rest)*
+        )
+    };
+}
+
 /// Default number of Stage 2 rows one reconcile drain tick may scan.
 pub const DEFAULT_RECONCILE_SCAN_PAGE: usize = 256;
 
@@ -284,6 +298,9 @@ fn evaluate_guard(
     if !eligibility.registers_membership() {
         return ReconcileGuard::Discard(ReconcileDiscardReason::NotEmitting);
     }
+    // An absent hash means the cohort has no behavioral leaves (the loader omits person-only
+    // cohorts, which the person-property backfill heals separately) or the run was superseded. Either
+    // way this is the intended fail-closed skip, observable via the `hash_unknown` discard counter.
     let Some(actual_hash) = filters.behavioral_shape_hashes.get(&tile.cohort_id()) else {
         return ReconcileGuard::Discard(ReconcileDiscardReason::HashUnknown);
     };
@@ -341,11 +358,9 @@ pub(crate) async fn handle_reconcile_drain(
                     "discarded reconcile",
                 );
                 counter!(RECONCILE_JOBS_DISCARDED_TOTAL, "reason" => reason.as_str()).increment(1);
-                warn!(
+                warn_job!(
+                    tile,
                     partition_id,
-                    team_id = tile.team_id().0,
-                    cohort_id = tile.cohort_id().0,
-                    run_id = %tile.run_id().0,
                     reason = reason.as_str(),
                     "discarding reconcile job without a completion marker",
                 );
@@ -359,11 +374,13 @@ pub(crate) async fn handle_reconcile_drain(
             .cohorts
             .get(&tile.cohort_id())
             .expect("the proceed guard proved the cohort exists");
-        let eligibility = filters
+        // Only flipped bits of a full-tree cohort cascade to referrers; single-leaf fixes never do.
+        let cascades_flips = filters
             .eligibility
             .get(&tile.cohort_id())
             .copied()
-            .expect("the proceed guard proved eligibility exists");
+            .expect("the proceed guard proved eligibility exists")
+            .writes_cf_stage2();
 
         let prefix = Stage2CohortPrefix {
             partition_id,
@@ -372,287 +389,382 @@ pub(crate) async fn handle_reconcile_drain(
         };
         queue.activate_front_tracking(prefix);
 
-        match phase {
+        let step = match phase {
             ScanPhase::Scanning { cursor } => {
-                let page = match handle
-                    .scan_stage2_cohort(prefix, cursor, merge.reconcile.scan_page)
-                    .await
-                {
-                    Ok(page) => page,
-                    Err(error) => {
-                        warn!(
-                            partition_id,
-                            team_id = tile.team_id().0,
-                            cohort_id = tile.cohort_id().0,
-                            run_id = %tile.run_id().0,
-                            error = %error,
-                            "reconcile Stage 2 scan failed; retrying this page on the next tick",
-                        );
-                        return;
-                    }
-                };
-                if page.is_empty() {
-                    queue
-                        .front_mut()
-                        .expect("the scanned queue head is still present")
-                        .phase = ScanPhase::DrainingDirty { cursor: None };
-                    continue;
-                }
-
-                let dirty_to_clear: Vec<Stage2DirtyKey> =
-                    page.iter().copied().map(Stage2DirtyKey::new).collect();
-                let Some(progress) = settle_reconcile_page(
+                drain_scanning(
                     partition_id,
                     handle,
                     sink,
                     merge,
+                    queue,
                     &tile,
                     filters,
                     tree,
-                    eligibility.writes_cf_stage2(),
-                    &page,
-                    &dirty_to_clear,
+                    cascades_flips,
+                    prefix,
                     source_offset,
+                    cursor,
                     last_updated,
                 )
                 .await
-                else {
-                    return;
-                };
-
-                let short_page = page.len() < merge.reconcile.scan_page;
-                let next_cursor = page
-                    .last()
-                    .expect("a non-empty page has a final key")
-                    .encode()
-                    .to_vec();
-                let job = queue
-                    .front_mut()
-                    .expect("the advanced queue head is still present");
-                job.rows_scanned = job.rows_scanned.saturating_add(progress.rows_scanned);
-                job.bits_fixed = job.bits_fixed.saturating_add(progress.bits_fixed);
-                job.phase = if short_page {
-                    ScanPhase::DrainingDirty { cursor: None }
-                } else {
-                    ScanPhase::Scanning {
-                        cursor: Some(next_cursor),
-                    }
-                };
-                // One non-empty settlement page is the tick's work budget. Even a short final main
-                // page leaves dirty verification for the next tick, so mutations behind the cursor
-                // cannot silently double the configured per-tick ceiling.
-                return;
             }
             ScanPhase::DrainingDirty { cursor } => {
-                let page = match handle
-                    .scan_stage2_dirty(prefix, cursor.clone(), merge.reconcile.scan_page)
-                    .await
-                {
-                    Ok(page) => page,
-                    Err(error) => {
-                        warn!(
-                            partition_id,
-                            team_id = tile.team_id().0,
-                            cohort_id = tile.cohort_id().0,
-                            run_id = %tile.run_id().0,
-                            error = %error,
-                            "reconcile dirty scan failed; retrying this page on the next tick",
-                        );
-                        return;
-                    }
-                };
-                if page.is_empty() {
-                    let job = queue
-                        .front_mut()
-                        .expect("the dirty-scanning queue head is still present");
-                    if cursor.is_some() {
-                        // Verify once more from the prefix so a marker inserted behind the cursor
-                        // between ticks cannot be missed.
-                        job.phase = ScanPhase::DrainingDirty { cursor: None };
-                    } else {
-                        job.phase = ScanPhase::MarkerReady;
-                    }
-                    continue;
-                }
-
-                let stage2_keys: Vec<Stage2Key> =
-                    page.iter().map(|dirty| dirty.stage2_key()).collect();
-                let current_rows = match handle
-                    .multi_get_stage2(stage2_keys.clone(), ReadLane::Maintenance)
-                    .await
-                {
-                    Ok(rows) => rows,
-                    Err(error) => {
-                        warn!(
-                            partition_id,
-                            team_id = tile.team_id().0,
-                            cohort_id = tile.cohort_id().0,
-                            run_id = %tile.run_id().0,
-                            error = %error,
-                            "reconcile dirty-row read failed; retrying this page on the next tick",
-                        );
-                        return;
-                    }
-                };
-                let existing_keys: Vec<Stage2Key> = stage2_keys
-                    .into_iter()
-                    .zip(current_rows)
-                    .filter_map(|(key, value)| value.is_some().then_some(key))
-                    .collect();
-                let Some(progress) = settle_reconcile_page(
+                drain_dirty(
                     partition_id,
                     handle,
                     sink,
                     merge,
+                    queue,
                     &tile,
                     filters,
                     tree,
-                    eligibility.writes_cf_stage2(),
-                    &existing_keys,
-                    &page,
+                    cascades_flips,
+                    prefix,
                     source_offset,
+                    cursor,
                     last_updated,
                 )
                 .await
-                else {
-                    return;
-                };
-
-                let short_page = page.len() < merge.reconcile.scan_page;
-                let next_cursor = page
-                    .last()
-                    .expect("a non-empty dirty page has a final key")
-                    .encode()
-                    .to_vec();
-                let job = queue
-                    .front_mut()
-                    .expect("the advanced dirty queue head is still present");
-                job.rows_scanned = job.rows_scanned.saturating_add(progress.rows_scanned);
-                job.bits_fixed = job.bits_fixed.saturating_add(progress.bits_fixed);
-                job.phase = ScanPhase::DrainingDirty {
-                    cursor: Some(next_cursor.clone()),
-                };
-
-                // A full page does not prove exhaustion, so first look strictly after it. This is
-                // verification only: if another page exists, the next tick settles it.
-                if !short_page {
-                    match handle.scan_stage2_dirty(prefix, Some(next_cursor), 1).await {
-                        Ok(remaining) if !remaining.is_empty() => return,
-                        Ok(_) => {}
-                        Err(error) => {
-                            warn!(
-                                partition_id,
-                                team_id = tile.team_id().0,
-                                cohort_id = tile.cohort_id().0,
-                                run_id = %tile.run_id().0,
-                                error = %error,
-                                "reconcile dirty tail verification failed; retrying next tick",
-                            );
-                            return;
-                        }
-                    }
-                }
-
-                // Verify once from the prefix to catch work inserted behind an earlier cursor. The
-                // worker owns this partition serially, so an empty result immediately after the
-                // settlement closes the hot-single-key case even when page size is one. Never
-                // settle a second nonempty page in this tick.
-                queue
-                    .front_mut()
-                    .expect("the verified dirty queue head is still present")
-                    .phase = ScanPhase::DrainingDirty { cursor: None };
-                match handle.scan_stage2_dirty(prefix, None, 1).await {
-                    Ok(remaining) if !remaining.is_empty() => return,
-                    Ok(_) => {
-                        queue
-                            .front_mut()
-                            .expect("the verified dirty queue head is still present")
-                            .phase = ScanPhase::MarkerReady;
-                        continue;
-                    }
-                    Err(error) => {
-                        warn!(
-                            partition_id,
-                            team_id = tile.team_id().0,
-                            cohort_id = tile.cohort_id().0,
-                            run_id = %tile.run_id().0,
-                            error = %error,
-                            "reconcile dirty prefix verification failed; retrying next tick",
-                        );
-                        return;
-                    }
-                }
             }
             ScanPhase::MarkerReady => {
-                // A marker produce may have failed on a prior tick. Recheck the dirty prefix before
-                // every retry so newly arrived work is settled first without rescanning the cohort.
-                let pending_dirty = match handle.scan_stage2_dirty(prefix, None, 1).await {
-                    Ok(page) => page,
-                    Err(error) => {
-                        warn!(
-                            partition_id,
-                            team_id = tile.team_id().0,
-                            cohort_id = tile.cohort_id().0,
-                            run_id = %tile.run_id().0,
-                            error = %error,
-                            "reconcile dirty verification failed before marker; retrying on the next tick",
-                        );
-                        return;
-                    }
-                };
-                if !pending_dirty.is_empty() {
-                    queue
-                        .front_mut()
-                        .expect("the marker-ready queue head is still present")
-                        .phase = ScanPhase::DrainingDirty { cursor: None };
-                    continue;
-                }
-                let marker = ReconcileCompleteMarker::new(
-                    tile.team_id(),
-                    tile.cohort_id(),
+                drain_marker(
                     partition_id,
-                    tile.run_id(),
-                    last_updated.to_string(),
-                );
-                let acks = sink.produce_markers(vec![marker]).await;
-                let marker_errors =
-                    acks.iter().filter(|ack| ack.is_err()).count() + acks.len().abs_diff(1);
-                if marker_errors > 0 {
-                    warn!(
-                        partition_id,
-                        team_id = tile.team_id().0,
-                        cohort_id = tile.cohort_id().0,
-                        run_id = %tile.run_id().0,
-                        errors = marker_errors,
-                        "reconcile completion-marker produce failed; rechecking dirty work before retry",
-                    );
-                    return;
-                }
+                    handle,
+                    sink,
+                    merge,
+                    queue,
+                    &tile,
+                    prefix,
+                    last_updated,
+                )
+                .await
+            }
+        };
+        match step {
+            DrainStep::Reenter => continue,
+            DrainStep::Yield => return,
+        }
+    }
+}
 
-                counter!(RECONCILE_MARKERS_EMITTED_TOTAL).increment(1);
-                let completed = queue
-                    .finish_front()
-                    .expect("the marker-producing queue head is still present");
-                complete_offset(
-                    &merge.seed_tracker,
+/// Whether the drain loop should re-enter against the head's newly transitioned phase
+/// ([`DrainStep::Reenter`]) or yield the tick because its work budget is spent ([`DrainStep::Yield`]).
+enum DrainStep {
+    Reenter,
+    Yield,
+}
+
+/// Scan one Stage 2 page for the cohort and emit its current membership. An empty page hands off to
+/// dirty verification; a settled non-empty page is the tick's whole budget.
+#[allow(clippy::too_many_arguments)]
+async fn drain_scanning(
+    partition_id: u16,
+    handle: &StoreHandle,
+    sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
+    queue: &mut ReconcileQueue,
+    tile: &ReconcileTile,
+    filters: &TeamFilters,
+    tree: &crate::filters::tree::CohortTree,
+    cascades_flips: bool,
+    prefix: Stage2CohortPrefix,
+    source_offset: i64,
+    cursor: Option<Vec<u8>>,
+    last_updated: &str,
+) -> DrainStep {
+    let page = match handle
+        .scan_stage2_cohort(prefix, cursor, merge.reconcile.scan_page)
+        .await
+    {
+        Ok(page) => page,
+        Err(error) => {
+            warn_job!(
+                tile,
+                partition_id,
+                error = %error,
+                "reconcile Stage 2 scan failed; retrying this page on the next tick",
+            );
+            return DrainStep::Yield;
+        }
+    };
+    if page.is_empty() {
+        queue
+            .front_mut()
+            .expect("the scanned queue head is still present")
+            .phase = ScanPhase::DrainingDirty { cursor: None };
+        return DrainStep::Reenter;
+    }
+
+    let dirty_to_clear: Vec<Stage2DirtyKey> =
+        page.iter().copied().map(Stage2DirtyKey::new).collect();
+    let Some(progress) = settle_reconcile_page(
+        partition_id,
+        handle,
+        sink,
+        merge,
+        tile,
+        filters,
+        tree,
+        cascades_flips,
+        &page,
+        &dirty_to_clear,
+        source_offset,
+        last_updated,
+    )
+    .await
+    else {
+        return DrainStep::Yield;
+    };
+
+    let short_page = page.len() < merge.reconcile.scan_page;
+    let next_cursor = page
+        .last()
+        .expect("a non-empty page has a final key")
+        .encode()
+        .to_vec();
+    let job = queue
+        .front_mut()
+        .expect("the advanced queue head is still present");
+    job.rows_scanned = job.rows_scanned.saturating_add(progress.rows_scanned);
+    job.bits_fixed = job.bits_fixed.saturating_add(progress.bits_fixed);
+    job.phase = if short_page {
+        ScanPhase::DrainingDirty { cursor: None }
+    } else {
+        ScanPhase::Scanning {
+            cursor: Some(next_cursor),
+        }
+    };
+    // One non-empty settlement page is the tick's work budget. Even a short final main page leaves
+    // dirty verification for the next tick, so mutations behind the cursor cannot silently double the
+    // configured per-tick ceiling.
+    DrainStep::Yield
+}
+
+/// Re-settle rows mutated behind the main scan, verifying from the cohort prefix until the dirty set
+/// is empty before advancing to the marker.
+#[allow(clippy::too_many_arguments)]
+async fn drain_dirty(
+    partition_id: u16,
+    handle: &StoreHandle,
+    sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
+    queue: &mut ReconcileQueue,
+    tile: &ReconcileTile,
+    filters: &TeamFilters,
+    tree: &crate::filters::tree::CohortTree,
+    cascades_flips: bool,
+    prefix: Stage2CohortPrefix,
+    source_offset: i64,
+    cursor: Option<Vec<u8>>,
+    last_updated: &str,
+) -> DrainStep {
+    let page = match handle
+        .scan_stage2_dirty(prefix, cursor.clone(), merge.reconcile.scan_page)
+        .await
+    {
+        Ok(page) => page,
+        Err(error) => {
+            warn_job!(
+                tile,
+                partition_id,
+                error = %error,
+                "reconcile dirty scan failed; retrying this page on the next tick",
+            );
+            return DrainStep::Yield;
+        }
+    };
+    if page.is_empty() {
+        let job = queue
+            .front_mut()
+            .expect("the dirty-scanning queue head is still present");
+        if cursor.is_some() {
+            // Verify once more from the prefix so a marker inserted behind the cursor
+            // between ticks cannot be missed.
+            job.phase = ScanPhase::DrainingDirty { cursor: None };
+        } else {
+            job.phase = ScanPhase::MarkerReady;
+        }
+        return DrainStep::Reenter;
+    }
+
+    let stage2_keys: Vec<Stage2Key> = page.iter().map(|dirty| dirty.stage2_key()).collect();
+    let current_rows = match handle
+        .multi_get_stage2(stage2_keys.clone(), ReadLane::Maintenance)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            warn_job!(
+                tile,
+                partition_id,
+                error = %error,
+                "reconcile dirty-row read failed; retrying this page on the next tick",
+            );
+            return DrainStep::Yield;
+        }
+    };
+    let existing_keys: Vec<Stage2Key> = stage2_keys
+        .into_iter()
+        .zip(current_rows)
+        .filter_map(|(key, value)| value.is_some().then_some(key))
+        .collect();
+    let Some(progress) = settle_reconcile_page(
+        partition_id,
+        handle,
+        sink,
+        merge,
+        tile,
+        filters,
+        tree,
+        cascades_flips,
+        &existing_keys,
+        &page,
+        source_offset,
+        last_updated,
+    )
+    .await
+    else {
+        return DrainStep::Yield;
+    };
+
+    let short_page = page.len() < merge.reconcile.scan_page;
+    let next_cursor = page
+        .last()
+        .expect("a non-empty dirty page has a final key")
+        .encode()
+        .to_vec();
+    let job = queue
+        .front_mut()
+        .expect("the advanced dirty queue head is still present");
+    job.rows_scanned = job.rows_scanned.saturating_add(progress.rows_scanned);
+    job.bits_fixed = job.bits_fixed.saturating_add(progress.bits_fixed);
+    job.phase = ScanPhase::DrainingDirty {
+        cursor: Some(next_cursor.clone()),
+    };
+
+    // A full page does not prove exhaustion, so first look strictly after it. This is
+    // verification only: if another page exists, the next tick settles it.
+    if !short_page {
+        match handle.scan_stage2_dirty(prefix, Some(next_cursor), 1).await {
+            Ok(remaining) if !remaining.is_empty() => return DrainStep::Yield,
+            Ok(_) => {}
+            Err(error) => {
+                warn_job!(
+                    tile,
                     partition_id,
-                    completed.offset,
-                    "completed reconcile",
+                    error = %error,
+                    "reconcile dirty tail verification failed; retrying next tick",
                 );
-                counter!(RECONCILE_JOBS_COMPLETED_TOTAL).increment(1);
-                info!(
-                    partition_id,
-                    team_id = tile.team_id().0,
-                    cohort_id = tile.cohort_id().0,
-                    run_id = %tile.run_id().0,
-                    rows_scanned = completed.rows_scanned,
-                    bits_fixed = completed.bits_fixed,
-                    "reconcile job completed",
-                );
-                return;
+                return DrainStep::Yield;
             }
         }
     }
+
+    // Verify once from the prefix to catch work inserted behind an earlier cursor. The
+    // worker owns this partition serially, so an empty result immediately after the
+    // settlement closes the hot-single-key case even when page size is one. Never
+    // settle a second nonempty page in this tick.
+    queue
+        .front_mut()
+        .expect("the verified dirty queue head is still present")
+        .phase = ScanPhase::DrainingDirty { cursor: None };
+    match handle.scan_stage2_dirty(prefix, None, 1).await {
+        Ok(remaining) if !remaining.is_empty() => DrainStep::Yield,
+        Ok(_) => {
+            queue
+                .front_mut()
+                .expect("the verified dirty queue head is still present")
+                .phase = ScanPhase::MarkerReady;
+            DrainStep::Reenter
+        }
+        Err(error) => {
+            warn_job!(
+                tile,
+                partition_id,
+                error = %error,
+                "reconcile dirty prefix verification failed; retrying next tick",
+            );
+            DrainStep::Yield
+        }
+    }
+}
+
+/// Emit the per-partition completion marker once the dirty set is drained. A failed marker produce
+/// retries the marker only; work dirtied while the marker was pending is settled before the retry.
+#[allow(clippy::too_many_arguments)]
+async fn drain_marker(
+    partition_id: u16,
+    handle: &StoreHandle,
+    sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
+    queue: &mut ReconcileQueue,
+    tile: &ReconcileTile,
+    prefix: Stage2CohortPrefix,
+    last_updated: &str,
+) -> DrainStep {
+    // A marker produce may have failed on a prior tick. Recheck the dirty prefix before
+    // every retry so newly arrived work is settled first without rescanning the cohort.
+    let pending_dirty = match handle.scan_stage2_dirty(prefix, None, 1).await {
+        Ok(page) => page,
+        Err(error) => {
+            warn_job!(
+                tile,
+                partition_id,
+                error = %error,
+                "reconcile dirty verification failed before marker; retrying on the next tick",
+            );
+            return DrainStep::Yield;
+        }
+    };
+    if !pending_dirty.is_empty() {
+        queue
+            .front_mut()
+            .expect("the marker-ready queue head is still present")
+            .phase = ScanPhase::DrainingDirty { cursor: None };
+        return DrainStep::Reenter;
+    }
+    let marker = ReconcileCompleteMarker::new(
+        tile.team_id(),
+        tile.cohort_id(),
+        partition_id,
+        tile.run_id(),
+        last_updated.to_string(),
+    );
+    let acks = sink.produce_markers(vec![marker]).await;
+    // Exactly one marker went in, so anything but a single successful ack is a produce failure.
+    let failed_acks = acks.iter().filter(|ack| ack.is_err()).count();
+    if acks.len() != 1 || failed_acks > 0 {
+        warn_job!(
+            tile,
+            partition_id,
+            ack_count = acks.len(),
+            failed_acks,
+            "reconcile completion-marker produce failed; rechecking dirty work before retry",
+        );
+        return DrainStep::Yield;
+    }
+
+    counter!(RECONCILE_MARKERS_EMITTED_TOTAL).increment(1);
+    let completed = queue
+        .finish_front()
+        .expect("the marker-producing queue head is still present");
+    complete_offset(
+        &merge.seed_tracker,
+        partition_id,
+        completed.offset,
+        "completed reconcile",
+    );
+    counter!(RECONCILE_JOBS_COMPLETED_TOTAL).increment(1);
+    info!(
+        partition_id,
+        team_id = tile.team_id().0,
+        cohort_id = tile.cohort_id().0,
+        run_id = %tile.run_id().0,
+        rows_scanned = completed.rows_scanned,
+        bits_fixed = completed.bits_fixed,
+        "reconcile job completed",
+    );
+    DrainStep::Yield
 }
 
 struct PageProgress {
@@ -698,11 +810,9 @@ async fn settle_reconcile_page(
         {
             Ok(diff) => diff,
             Err(error) => {
-                warn!(
+                warn_job!(
+                    tile,
                     partition_id,
-                    team_id = tile.team_id().0,
-                    cohort_id = tile.cohort_id().0,
-                    run_id = %tile.run_id().0,
                     person_id = %key.person_id,
                     error = %error,
                     "reconcile recompute failed; retrying this page on the next tick",
@@ -749,11 +859,9 @@ async fn settle_reconcile_page(
         produce_membership(sink, changes).await
     };
     if membership_errors > 0 {
-        warn!(
+        warn_job!(
+            tile,
             partition_id,
-            team_id = tile.team_id().0,
-            cohort_id = tile.cohort_id().0,
-            run_id = %tile.run_id().0,
             errors = membership_errors,
             "reconcile membership produce failed; retrying this page on the next tick",
         );
@@ -762,11 +870,9 @@ async fn settle_reconcile_page(
 
     let cascade_errors = produce_cascades(merge, cascades).await;
     if cascade_errors > 0 {
-        warn!(
+        warn_job!(
+            tile,
             partition_id,
-            team_id = tile.team_id().0,
-            cohort_id = tile.cohort_id().0,
-            run_id = %tile.run_id().0,
             errors = cascade_errors,
             "reconcile cascade produce failed; retrying this page on the next tick",
         );
@@ -784,11 +890,9 @@ async fn settle_reconcile_page(
     }
     if !staged.is_empty() {
         if let Err(error) = handle.commit(staged).await {
-            warn!(
+            warn_job!(
+                tile,
                 partition_id,
-                team_id = tile.team_id().0,
-                cohort_id = tile.cohort_id().0,
-                run_id = %tile.run_id().0,
                 error = %error,
                 "reconcile Stage 2 settlement failed; retrying this page on the next tick",
             );
@@ -1043,6 +1147,26 @@ mod tests {
             self.queue.enqueue(tile, deferred);
         }
 
+        /// Admit a newer run over a queued job exactly as `admit_reconcile` does: supersede, hand the
+        /// superseded floor to `replace_deferred`, then enqueue the replacement at the new offset.
+        fn supersede(&mut self, tile: ReconcileTile, offset: i64) {
+            self.deps
+                .seed_tracker
+                .mark_dispatched(PARTITION as i32, offset + 1);
+            let SupersedeOutcome::Replaced(superseded) =
+                self.queue
+                    .supersede_if_newer(tile.team_id(), tile.cohort_id(), offset)
+            else {
+                panic!("a newer run must supersede the queued job");
+            };
+            let (replacement, _) = self
+                .deps
+                .seed_tracker
+                .replace_deferred(superseded, offset)
+                .expect("the superseded reconcile retains its deferred offset");
+            self.queue.enqueue(tile, replacement);
+        }
+
         async fn tick(&mut self) {
             handle_reconcile_drain(
                 PARTITION,
@@ -1213,6 +1337,75 @@ mod tests {
             assert_eq!(backlog.len(), 1);
             assert_eq!(tracker.committable_offsets().get(&3), None);
         }
+    }
+
+    #[tokio::test]
+    async fn superseding_a_mid_drain_run_reemits_under_the_new_run_and_releases_its_offset() {
+        let sink = CaptureSink::new();
+        // A one-row page over three people keeps run A mid-scan (active dirty lease, cursor set) when
+        // the newer run arrives.
+        let mut shell = DrainShell::new(true, Arc::new(sink.clone()), CaptureCascadeSink::new(), 1);
+        let people = [Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3)];
+        for person in people {
+            shell.write_current(person, true, false, true);
+        }
+        shell.enqueue(tile(TEAM, COHORT, 100), 5);
+
+        shell.tick().await;
+        assert_eq!(
+            sink.changes().len(),
+            1,
+            "run A emitted one page before being superseded",
+        );
+        assert!(matches!(
+            shell.queue.front().map(|job| &job.phase),
+            Some(ScanPhase::Scanning { cursor: Some(_) }),
+        ));
+
+        shell.supersede(tile(TEAM, COHORT, 200), 7);
+        assert_eq!(shell.queue.len(), 1);
+        assert_eq!(
+            shell.queue.front_run_id(),
+            Some(RunId(Uuid::from_u128(200)))
+        );
+
+        for _ in 0..16 {
+            if shell.queue.front().is_none() {
+                break;
+            }
+            shell.tick().await;
+        }
+        assert!(shell.queue.front().is_none());
+        assert!(shell.deps.reconcile.backlog.is_empty());
+
+        let markers = sink.markers();
+        assert_eq!(
+            markers.len(),
+            1,
+            "the superseded run never emits its own marker"
+        );
+        assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(200)));
+
+        let reemitted: std::collections::HashSet<String> = sink
+            .changes()
+            .iter()
+            .filter(|change| change.run_id == Some(RunId(Uuid::from_u128(200))))
+            .map(|change| change.person_id.clone())
+            .collect();
+        assert_eq!(
+            reemitted,
+            people
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<std::collections::HashSet<_>>(),
+            "run B re-emits the full current membership",
+        );
+
+        assert_eq!(
+            shell.committable(),
+            Some(8),
+            "the deferred floor releases only after run B completes",
+        );
     }
 
     fn guard_filters(eligibility: Option<CohortEligibility>, hash: Option<&str>) -> TeamFilters {
