@@ -20,7 +20,9 @@ class TestEmailVerificationRecipient(SimpleTestCase):
             ("defaults_to_pending_email_without_target", "new@x.com", None, "new@x.com"),
         ]
     )
-    def test_verification_recipient(self, _name, db_pending_email, target_email, expected):
+    def test_verification_recipient(
+        self, _name: str, db_pending_email: str, target_email: str | None, expected: str
+    ) -> None:
         user = SimpleNamespace(
             pk=1,
             uuid="u",
