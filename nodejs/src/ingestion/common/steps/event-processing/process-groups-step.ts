@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { Properties } from '~/plugin-scaffold'
@@ -56,14 +57,15 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
             )
 
             if (preparedEvent.event === '$groupidentify') {
-                await upsertGroup(
+                const warnings = await upsertGroup(
                     groupTypeManager,
                     groupStoreForBatch,
                     team.id,
                     team.project_id,
-                    preparedEvent.properties,
+                    preparedEvent,
                     DateTime.fromISO(preparedEvent.timestamp)
                 )
+                return ok(input, [], warnings)
             }
         }
 
@@ -100,19 +102,44 @@ async function updateGroupsAndFirstEvent(
     await Promise.all(promises)
 }
 
+// Group properties must be a plain JSON object — anything else (string, number,
+// array, ...) would reach Postgres as an invalid jsonb parameter and poison the
+// whole write batch.
+function isValidGroupSet(value: unknown): value is Properties {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 async function upsertGroup(
     groupTypeManager: GroupTypeManager,
     groupStore: GroupStoreForBatch,
     teamId: TeamId,
     projectId: ProjectId,
-    properties: Properties,
+    preparedEvent: PreIngestionEvent,
     timestamp: DateTime
-): Promise<void> {
+): Promise<PipelineWarning[]> {
+    const properties = preparedEvent.properties
     if (!properties['$group_type'] || !properties['$group_key']) {
-        return
+        return []
     }
 
     const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
+
+    if (groupPropertiesToSet != null && !isValidGroupSet(groupPropertiesToSet)) {
+        return [
+            {
+                type: 'invalid_group_set',
+                details: {
+                    eventUuid: preparedEvent.eventUuid,
+                    distinctId: preparedEvent.distinctId,
+                    groupType: String(groupType),
+                    groupKey: sanitizeString(String(groupKey)),
+                    receivedType: Array.isArray(groupPropertiesToSet) ? 'array' : typeof groupPropertiesToSet,
+                },
+                key: String(groupKey),
+            },
+        ]
+    }
+
     const groupTypeIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, timestamp)
     if (groupTypeIndex !== null) {
         await groupStore.upsertGroup(
@@ -124,4 +151,5 @@ async function upsertGroup(
             timestamp
         )
     }
+    return []
 }
