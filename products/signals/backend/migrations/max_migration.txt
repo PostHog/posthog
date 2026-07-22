@@ -1,1 +1,1 @@
-0063_alter_signalreportartefact_type
+0067_signalscoutconfig_run_cron_schedule

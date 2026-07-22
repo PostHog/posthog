@@ -1,15 +1,15 @@
 //! Worker-side `cf_stage2` orphan garbage collection.
 //!
-//! [`handle_stage2_orphan_gc`] reclaims `cf_stage2` rows whose cohort is no longer composable, on the
-//! same [`ShuffleMessage::MergeCfGc`](crate::partitions::shuffle_message::ShuffleMessage::MergeCfGc)
+//! [`handle_stage2_orphan_gc`] reclaims `cf_stage2` rows whose cohort no longer registers membership,
+//! on the same
+//! [`ShuffleMessage::MergeCfGc`](crate::partitions::shuffle_message::ShuffleMessage::MergeCfGc)
 //! tick as [`handle_merge_gc`](crate::workers::merge_gc::handle_merge_gc). Two paths strand such rows:
-//! an absent-team merge drain (the drain deletes via the catalog's composable cohorts, empty when the
-//! team is absent) and a cohort reclassified out of the composable set (`Stage2Composable` →
-//! `SingleLeaf`, deleted, or made non-realtime).
+//! an absent-team merge drain (the catalog provides no ids to delete) and a cohort deleted or made
+//! non-realtime.
 //!
 //! The victim decision is **catalog absence, not a timestamp**: a `cf_stage2` value's
-//! `last_evaluated_at_ms` is the replay-stable source event time, so a time cutoff would evict a
-//! still-live dormant member.
+//! `last_evaluated_at_ms` records its latest evaluation, not its retention lifetime, so a time cutoff
+//! would evict a still-live dormant member.
 //!
 //! Two gates keep the pass from deleting live state on an untrustworthy snapshot — a successful
 //! *empty* refresh is indistinguishable from "every cohort vanished":
@@ -23,11 +23,12 @@ use tracing::warn;
 
 use crate::filters::manager::CatalogHandle;
 use crate::filters::{CohortId, FilterCatalog, TeamId};
+use crate::merge::transfer::{TransferMembershipRegisterKind, TransferredRegisterProvenance};
 use crate::observability::metrics::{
     STAGE2_ORPHAN_GC_KEYS_DELETED_TOTAL, STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
     STAGE2_ORPHAN_GC_SKIPPED_TOTAL, STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
 };
-use crate::store::{Cf, CohortStore, Stage2Key};
+use crate::store::{Cf, CohortStore, Stage2DirtyKey, Stage2Key, Stage2TransferredRegisterKey};
 
 /// Per-worker resume cursor: the raw last-key scanned in this partition's `cf_stage2` slice; `None`
 /// restarts at the prefix start. Loss on a rebalance is benign — a fresh tenure rescans and
@@ -35,9 +36,12 @@ use crate::store::{Cf, CohortStore, Stage2Key};
 #[derive(Default)]
 pub struct Stage2GcCursor(Option<Vec<u8>>);
 
-/// GC one partition's `cf_stage2` orphans for one tick: scan up to `scan_limit` rows, delete every
-/// row whose cohort is no longer composable in `catalog`, and advance the cursor (wrapping on
-/// exhaustion). A no-op before the first catalog load or against an empty catalog (the two safety gates).
+/// GC one partition's `cf_stage2` orphans for one tick: inspect at most `scan_limit` raw keys,
+/// delete every Stage 2 row whose cohort no longer registers membership in `catalog`, and advance
+/// the raw cursor (wrapping on exhaustion). Dirty and transferred-register metadata count against
+/// the hard per-tick budget but are not membership rows. Inactive dirty metadata is reclaimed;
+/// transferred-register metadata protects a catalog-skewed row until the catalog recognizes it. A
+/// no-op before the first catalog load or against an empty catalog (the two safety gates).
 // Sync GC core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
 // `CohortStore` I/O is already off the runtime threads.
 #[allow(clippy::disallowed_methods)]
@@ -61,9 +65,9 @@ pub fn handle_stage2_orphan_gc(
         return;
     }
 
-    let page = match store.scan_merge_cf(Cf::Stage2, partition_id, cursor.0.as_deref(), scan_limit)
+    let rows = match store.scan_merge_cf(Cf::Stage2, partition_id, cursor.0.as_deref(), scan_limit)
     {
-        Ok(page) => page,
+        Ok(rows) => rows,
         Err(error) => {
             warn!(
                 partition_id,
@@ -74,21 +78,81 @@ pub fn handle_stage2_orphan_gc(
         }
     };
 
-    if page.is_empty() {
-        // Slice exhausted — wrap the cursor to the prefix start.
+    if rows.is_empty() {
         cursor.0 = None;
         return;
     }
 
-    counter!(STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL).increment(page.len() as u64);
+    counter!(STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL).increment(rows.len() as u64);
+    let next_cursor = (rows.len() == scan_limit).then(|| {
+        rows.last()
+            .expect("a full raw page has a final key")
+            .0
+            .clone()
+    });
 
     // Decode and classify before opening the batch, since the batch closure is infallible.
     let mut undecodable = 0u64;
     let mut victims: Vec<Stage2Key> = Vec::new();
-    for (key_bytes, _value) in &page {
+    let mut stale_dirty: Vec<Stage2DirtyKey> = Vec::new();
+    let mut settled_transferred: Vec<Stage2TransferredRegisterKey> = Vec::new();
+    for (key_bytes, value) in &rows {
+        if let Ok(dirty) = Stage2DirtyKey::decode(key_bytes) {
+            if !store.is_stage2_dirty_tracking_active(dirty.stage2_key().cohort_prefix()) {
+                stale_dirty.push(dirty);
+            }
+            continue;
+        }
+        if let Ok(transferred) = Stage2TransferredRegisterKey::decode(key_bytes) {
+            let stage2_key = transferred.stage2_key();
+            let primary = match store.get_stage2(&stage2_key) {
+                Ok(row) => row,
+                Err(error) => {
+                    warn!(
+                        partition_id,
+                        error = %error,
+                        "cf_stage2 orphan GC inventory read failed; retrying this page next tick",
+                    );
+                    return;
+                }
+            };
+            // Exact primary bytes tie provenance to the receiver fallback it describes. A later
+            // local evaluation supersedes that fallback without requiring an extra tombstone on
+            // every Stage 2 write. Matching catalog semantics also make person-first enumeration
+            // redundant. Missing primaries always leave stale inventory.
+            let settled = match (
+                primary.as_deref(),
+                TransferredRegisterProvenance::decode(value),
+            ) {
+                (None, _) => true,
+                (Some(primary), Some(provenance)) => {
+                    !provenance.matches_primary(primary)
+                        || Some(provenance.kind) == catalog_register_kind(&snapshot, &stage2_key)
+                }
+                (Some(_), None) => false,
+            };
+            if settled {
+                settled_transferred.push(transferred);
+            }
+            continue;
+        }
         match Stage2Key::decode(key_bytes) {
             Ok(key) => match is_orphan(&snapshot, &key) {
-                Some(true) => victims.push(key),
+                Some(true) => {
+                    let inventory = Stage2TransferredRegisterKey::new(key);
+                    match store.get_stage2_transferred_register(&inventory) {
+                        Ok(Some(_)) => {}
+                        Ok(None) => victims.push(key),
+                        Err(error) => {
+                            warn!(
+                                partition_id,
+                                error = %error,
+                                "cf_stage2 orphan GC protection read failed; retrying this page next tick",
+                            );
+                            return;
+                        }
+                    }
+                }
                 Some(false) => {}
                 // An id outside `i32` can't be classified — leave it in place (not corruption).
                 None => undecodable += 1,
@@ -104,10 +168,19 @@ pub fn handle_stage2_orphan_gc(
         }
     }
 
-    if !victims.is_empty() {
+    if !victims.is_empty() || !stale_dirty.is_empty() || !settled_transferred.is_empty() {
         let result = store.write_batch(|batch| {
             for key in &victims {
                 batch.delete_stage2(key);
+                // Orphan deletion does not need reconcile coverage. Clear both a pre-existing dirty
+                // marker and the one `delete_stage2` just staged, in the same atomic batch.
+                batch.delete_stage2_dirty(&Stage2DirtyKey::new(*key));
+            }
+            for key in &stale_dirty {
+                batch.delete_stage2_dirty(key);
+            }
+            for key in &settled_transferred {
+                batch.delete_stage2_transferred_register(key);
             }
         });
         match result {
@@ -130,16 +203,12 @@ pub fn handle_stage2_orphan_gc(
         counter!(STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL).increment(undecodable);
     }
 
-    // Full page → resume after the last key; short page → wrap. The cursor is the last *scanned* key
-    // (survivors included), so a mostly-live slice still advances over successive ticks.
-    cursor.0 = (page.len() == scan_limit)
-        .then(|| page.last().expect("non-empty by the guard above").0.clone());
+    cursor.0 = next_cursor;
 }
 
-/// Whether a `cf_stage2` row is an orphan: its cohort is not a composable cohort in `snapshot`
-/// (`writes_cf_stage2()` is `true` only for the two composable classes, so team-absent, cohort-absent,
-/// and reclassified-out all resolve to orphan). `None` when the id can't be classified (outside `i32`),
-/// which the caller leaves in place.
+/// Whether a `cf_stage2` row is an orphan: its cohort does not register membership in `snapshot`.
+/// Team-absent, cohort-absent, and excluded cohorts resolve to orphan. `None` when the id can't be
+/// classified (outside `i32`), which the caller leaves in place.
 fn is_orphan(snapshot: &FilterCatalog, key: &Stage2Key) -> Option<bool> {
     // Keys store `u64`; `TeamId`/`CohortId` are `i32`, so an overflowing id can't be matched.
     let team_id = i32::try_from(key.team_id).ok()?;
@@ -147,8 +216,18 @@ fn is_orphan(snapshot: &FilterCatalog, key: &Stage2Key) -> Option<bool> {
     let live = snapshot
         .team(TeamId(team_id))
         .and_then(|team_filters| team_filters.eligibility.get(&CohortId(cohort_id)))
-        .is_some_and(|eligibility| eligibility.writes_cf_stage2());
+        .is_some_and(|eligibility| eligibility.registers_membership());
     Some(!live)
+}
+
+/// Catalog semantics for a register, when both ids are representable and the cohort is live.
+fn catalog_register_kind(
+    snapshot: &FilterCatalog,
+    key: &Stage2Key,
+) -> Option<TransferMembershipRegisterKind> {
+    let team_id = TeamId(i32::try_from(key.team_id).ok()?);
+    let cohort_id = CohortId(i32::try_from(key.cohort_id).ok()?);
+    TransferMembershipRegisterKind::from_filters(snapshot.team(team_id)?, cohort_id)
 }
 
 // Tests seed and read stage-2 rows directly against the store.
@@ -160,6 +239,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::filters::reverse_index::TeamFilters;
+    use crate::merge::transfer::TransferMembershipRegister;
     use crate::stage1::key::LeafStateKey;
     use crate::stage2::state::Stage2State;
     use crate::stage2::{CohortEligibility, ExcludedReason};
@@ -251,9 +331,9 @@ mod tests {
     }
 
     #[test]
-    fn orphan_row_for_a_cohort_reclassified_out_of_composable_is_deleted() {
+    fn single_leaf_register_is_kept_while_an_absent_cohort_is_deleted() {
         let (_dir, store) = temp_store();
-        // Team present, but cohort 1 is now SingleLeaf and cohort 2 absent — both left the composable set.
+        // Team present: cohort 1 still registers membership, while cohort 2 is absent.
         let reclassified = stage2_key(LIVE_TEAM, 1, 100);
         let deleted_cohort = stage2_key(LIVE_TEAM, 2, 100);
         put_row(&store, &reclassified);
@@ -264,8 +344,8 @@ mod tests {
         handle_stage2_orphan_gc(PARTITION, &store, &catalog, &mut cursor, NO_CAP);
 
         assert!(
-            !exists(&store, &reclassified),
-            "a SingleLeaf reclassification leaves the cf_stage2 row an orphan",
+            exists(&store, &reclassified),
+            "a SingleLeaf row is a live membership register",
         );
         assert!(
             !exists(&store, &deleted_cohort),
@@ -418,6 +498,166 @@ mod tests {
     }
 
     #[test]
+    fn dirty_metadata_consumes_the_raw_per_tick_budget() {
+        let (_dir, store) = temp_store();
+        let live = stage2_key(LIVE_TEAM, 1, 100);
+        let _tracking = store.track_stage2_dirty(live.cohort_prefix());
+        put_row(&store, &live);
+        let dirty = Stage2DirtyKey::new(live).encode().to_vec();
+        let catalog = loaded(&[(LIVE_TEAM as i32, &[(1, single_leaf())])]);
+        let mut cursor = Stage2GcCursor::default();
+
+        handle_stage2_orphan_gc(PARTITION, &store, &catalog, &mut cursor, 1);
+        assert_eq!(cursor.0, Some(live.encode().to_vec()));
+
+        handle_stage2_orphan_gc(PARTITION, &store, &catalog, &mut cursor, 1);
+        assert_eq!(
+            cursor.0,
+            Some(dirty),
+            "one dirty marker consumes the entire one-key tick budget",
+        );
+        assert!(exists(&store, &live));
+
+        handle_stage2_orphan_gc(PARTITION, &store, &catalog, &mut cursor, 1);
+        assert!(cursor.0.is_none(), "the following empty tick wraps");
+    }
+
+    #[test]
+    fn inactive_dirty_only_marker_is_reclaimed() {
+        let (_dir, store) = temp_store();
+        let deleted = stage2_key(ABSENT_TEAM, 1, 100);
+        {
+            let _tracking = store.track_stage2_dirty(deleted.cohort_prefix());
+            store
+                .write_batch(|batch| batch.delete_stage2(&deleted))
+                .unwrap();
+            assert!(store
+                .get(Cf::Stage2, &Stage2DirtyKey::new(deleted).encode())
+                .unwrap()
+                .is_some());
+        }
+
+        let mut cursor = Stage2GcCursor::default();
+        handle_stage2_orphan_gc(PARTITION, &store, &live_team_only(), &mut cursor, NO_CAP);
+
+        assert!(store
+            .get(Cf::Stage2, &Stage2DirtyKey::new(deleted).encode())
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn transferred_register_survives_gc_until_catalog_refresh() {
+        let (_dir, store) = temp_store();
+        let transferred = stage2_key(ABSENT_TEAM, 17, 100);
+        let inventory = Stage2TransferredRegisterKey::new(transferred);
+        let state = Stage2State {
+            in_cohort: true,
+            last_evaluated_at_ms: 1,
+        };
+        let provenance = TransferredRegisterProvenance::new(
+            TransferMembershipRegister {
+                cohort_id: 17,
+                in_cohort: true,
+                kind: TransferMembershipRegisterKind::Composable,
+            },
+            &state.encode_transferred_fallback(),
+        );
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(&transferred, &state.encode_transferred_fallback());
+                batch.put_stage2_transferred_register(&inventory, &provenance.encode());
+            })
+            .unwrap();
+
+        let mut cursor = Stage2GcCursor::default();
+        handle_stage2_orphan_gc(PARTITION, &store, &live_team_only(), &mut cursor, NO_CAP);
+        assert!(exists(&store, &transferred));
+        assert!(store
+            .get_stage2_transferred_register(&inventory)
+            .unwrap()
+            .is_some());
+
+        // A later catalog snapshot recognizes the cohort. The ordinary keep predicate now protects
+        // the row and GC retires only the temporary person-first inventory.
+        let refreshed = loaded(&[(
+            ABSENT_TEAM as i32,
+            &[(17, CohortEligibility::Stage2Composable)],
+        )]);
+        cursor.0 = None;
+        handle_stage2_orphan_gc(PARTITION, &store, &refreshed, &mut cursor, NO_CAP);
+        assert!(exists(&store, &transferred));
+        assert!(store
+            .get_stage2_transferred_register(&inventory)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn stale_catalog_shape_cannot_retire_wire_inventory() {
+        let (_dir, store) = temp_store();
+        let transferred = stage2_key(LIVE_TEAM, 17, 100);
+        let inventory = Stage2TransferredRegisterKey::new(transferred);
+        let transferred_state = Stage2State {
+            in_cohort: true,
+            last_evaluated_at_ms: 1,
+        };
+        let provenance = TransferredRegisterProvenance::new(
+            TransferMembershipRegister {
+                cohort_id: 17,
+                in_cohort: true,
+                kind: TransferMembershipRegisterKind::SingleLeafBehavioral,
+            },
+            &transferred_state.encode_transferred_fallback(),
+        );
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(
+                    &transferred,
+                    &transferred_state.encode_transferred_fallback(),
+                );
+                batch.put_stage2_transferred_register(&inventory, &provenance.encode());
+            })
+            .unwrap();
+        let stale_shape = loaded(&[(
+            LIVE_TEAM as i32,
+            &[(17, CohortEligibility::Stage2Composable)],
+        )]);
+        let mut cursor = Stage2GcCursor::default();
+
+        handle_stage2_orphan_gc(PARTITION, &store, &stale_shape, &mut cursor, NO_CAP);
+        assert!(store
+            .get_stage2_transferred_register(&inventory)
+            .unwrap()
+            .is_some());
+
+        // A later normal evaluation write supersedes the exact fallback fingerprint. GC can retire
+        // the provenance without adding a second write to the evaluation hot path.
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(
+                    &transferred,
+                    &Stage2State {
+                        in_cohort: false,
+                        last_evaluated_at_ms: 2,
+                    }
+                    .encode(),
+                );
+            })
+            .unwrap();
+        assert!(store
+            .get_stage2_transferred_register(&inventory)
+            .unwrap()
+            .is_some());
+        cursor.0 = None;
+        handle_stage2_orphan_gc(PARTITION, &store, &stale_shape, &mut cursor, NO_CAP);
+        assert!(store
+            .get_stage2_transferred_register(&inventory)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
     fn undecodable_or_impossible_key_is_left_in_place() {
         let (_dir, store) = temp_store();
 
@@ -476,10 +716,10 @@ mod tests {
             is_orphan(&catalog, &stage2_key(LIVE_TEAM, 2, 0)),
             Some(false)
         );
-        // SingleLeaf / Excluded no longer write cf_stage2 → orphan.
+        // SingleLeaf registers membership; Excluded persists no row.
         assert_eq!(
             is_orphan(&catalog, &stage2_key(LIVE_TEAM, 3, 0)),
-            Some(true)
+            Some(false)
         );
         assert_eq!(
             is_orphan(&catalog, &stage2_key(LIVE_TEAM, 4, 0)),
