@@ -5,8 +5,8 @@ Companion to [`sql_v2_frame_store.md`](./sql_v2_frame_store.md) — that doc dec
 
 Artifacts:
 
-- [`observability/notebooks-rollout.grafana.json`](./observability/notebooks-rollout.grafana.json) — importable Grafana dashboard (Prometheus/VictoriaMetrics).
-- [`observability/notebooks-query-log.sql`](./observability/notebooks-query-log.sql) — `query_log_archive` query pack (ClickHouse per-query cost).
+- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — importable Grafana dashboard (Prometheus/VictoriaMetrics).
+- [`observability/notebooks-query-log.sql`](../observability/notebooks-query-log.sql) — `query_log_archive` query pack (ClickHouse per-query cost).
 
 ## The split: two surfaces, and why
 
