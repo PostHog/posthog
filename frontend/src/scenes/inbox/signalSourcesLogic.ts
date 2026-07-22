@@ -671,6 +671,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         }
 
         return {
+            loadCiSignalsConfigFailure: ({ error, errorObject }) => {
+                // A silent failure leaves the card claiming setup is required for a source that may
+                // already be enabled, so surface it instead of rendering a misleading 'Connect' prompt.
+                lemonToast.error(errorObject?.detail || error || 'Failed to load CI signals status')
+            },
             openSourcesModal: () => {
                 // Load external data sources so we can check connectivity when user toggles a source
                 actions.loadSources()

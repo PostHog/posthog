@@ -91,6 +91,7 @@ export function EngineeringAnalyticsSignalCard({ signal }: SignalCardProps): JSX
 
 export const engineeringAnalyticsSignalCardEntry: SignalCardEntry = {
     key: 'engineering_analytics',
-    matches: (signal: SignalNode) => signal.source_product === SignalSourceProduct.EngineeringAnalytics,
+    matches: (signal: SignalNode) =>
+        signal.source_product === SignalSourceProduct.EngineeringAnalytics && hasRepoWorkflow(signal.extra),
     Component: EngineeringAnalyticsSignalCard,
 }

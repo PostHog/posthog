@@ -31,6 +31,8 @@ async def create_ci_signals_coordinator_schedule(client: Client) -> None:
             "engineering-analytics-ci-signals-coordinator",
             id=SCHEDULE_ID,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            # Bounded to the interval so a wedged sweep can never block more than one SKIP tick.
+            execution_timeout=SCHEDULE_INTERVAL,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
         # SKIP so a slow tick doesn't stack; enrolment (not cron frequency) bounds the work.
