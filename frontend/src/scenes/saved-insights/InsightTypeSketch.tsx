@@ -231,39 +231,53 @@ export function AiSketch(): JSX.Element {
     )
 }
 
+// Rough land mask as a union of ellipses in normalized lon/lat space
+// (x: 0 = west .. 1 = east, y: 0 = north .. 1 = south), each [cx, cy, rx, ry].
+const WORLD_MAP_LAND: [number, number, number, number][] = [
+    [0.17, 0.25, 0.095, 0.13], // North America
+    [0.2, 0.15, 0.12, 0.07], // Canada
+    [0.235, 0.4, 0.028, 0.06], // Central America
+    [0.295, 0.64, 0.042, 0.155], // South America
+    [0.315, 0.52, 0.058, 0.055], // South America (north)
+    [0.385, 0.11, 0.03, 0.045], // Greenland
+    [0.5, 0.23, 0.05, 0.07], // Europe
+    [0.53, 0.45, 0.085, 0.06], // Africa (Sahara)
+    [0.55, 0.58, 0.06, 0.15], // Africa (south)
+    [0.74, 0.24, 0.155, 0.12], // Asia
+    [0.77, 0.15, 0.17, 0.06], // Asia (Siberia)
+    [0.675, 0.43, 0.033, 0.072], // India
+    [0.81, 0.45, 0.06, 0.045], // Southeast Asia
+    [0.88, 0.7, 0.06, 0.07], // Australia
+]
+
+// Sample a grid over the mask so the preview reads as an actual dotted world map
+// (the world map insight is a choropleth). Computed once at module load.
+function computeWorldMapDots(): [number, number][] {
+    const cols = 46
+    const rows = 22
+    const dots: [number, number][] = []
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const nx = (col + 0.5) / cols
+            const ny = (row + 0.5) / rows
+            for (const [cx, cy, rx, ry] of WORLD_MAP_LAND) {
+                if (((nx - cx) / rx) ** 2 + ((ny - cy) / ry) ** 2 <= 1) {
+                    dots.push([12 + nx * 136, 12 + ny * 64])
+                    break
+                }
+            }
+        }
+    }
+    return dots
+}
+
+const WORLD_MAP_DOTS = computeWorldMapDots()
+
 export function WorldMapSketch(): JSX.Element {
-    // Choropleth-style world: simplified continents in real-ish positions,
-    // shaded by "value" (opacity) the way the actual world map insight renders.
-    const continents: { d: string; opacity: number }[] = [
-        // North America
-        {
-            d: 'M18 22 C 26 17, 42 17, 48 22 C 51 26, 46 30, 44 34 C 40 40, 30 42, 25 37 C 21 33, 14 27, 18 22 Z',
-            opacity: 0.4,
-        },
-        // South America
-        {
-            d: 'M42 46 C 49 45, 53 51, 51 58 C 49 66, 45 73, 41 68 C 39 62, 40 55, 41 50 C 41 48, 41 46, 42 46 Z',
-            opacity: 0.55,
-        },
-        // Europe
-        { d: 'M72 22 C 80 19, 88 21, 86 27 C 84 31, 78 33, 73 31 C 69 29, 68 24, 72 22 Z', opacity: 0.5 },
-        // Africa
-        {
-            d: 'M78 36 C 88 35, 93 42, 91 51 C 89 60, 83 66, 79 61 C 75 55, 73 47, 75 41 C 76 39, 77 37, 78 36 Z',
-            opacity: 0.7,
-        },
-        // Asia (largest landmass, so highest value)
-        {
-            d: 'M94 25 C 104 18, 126 18, 138 23 C 145 26, 144 32, 137 34 C 130 36, 124 41, 116 41 C 108 41, 100 39, 96 34 C 92 31, 89 28, 94 25 Z',
-            opacity: 0.9,
-        },
-        // Australia
-        { d: 'M122 58 C 131 56, 140 60, 138 66 C 136 71, 127 71, 122 67 C 119 64, 118 60, 122 58 Z', opacity: 0.3 },
-    ]
     return (
         <SketchSvg>
-            {continents.map(({ d, opacity }, index) => (
-                <path key={index} d={d} fill={INK} opacity={opacity} />
+            {WORLD_MAP_DOTS.map(([cx, cy], index) => (
+                <circle key={index} cx={cx} cy={cy} r="1.4" fill={INK} opacity="0.85" />
             ))}
         </SketchSvg>
     )
