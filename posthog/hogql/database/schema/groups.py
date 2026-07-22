@@ -205,17 +205,10 @@ def join_with_group_n_table(
     return join_expr
 
 
-# Aliases on the events table that resolve to lazy joins or traversers. If the outer WHERE
-# references any of these (e.g. `WHERE group_0.properties.X = 'Y'`, `WHERE person.id = ...`),
-# cloning that WHERE into the inner `SELECT $group_N FROM events WHERE ...` subquery would
-# carry the typed `Field` for the lazy join, and the resolver would recursively try to
-# resolve the same lazy join inside our inner subquery — producing unbounded recursion or a
-# `ResolutionError: Select query must have a type`. Skip the optimization in that case;
-# we'd rather pay the original groups-hash-table cost than crash.
-#
-# Per-project group-type-name aliases (e.g. `organization`, `company`) are FieldTraversers to
-# `group_N` added dynamically per project, so they're not listed here — `_group_type_name_aliases`
-# reads them off the events table at query time and unions them into the guarded set.
+# Static events-table aliases that resolve to a lazy join. Cloning a WHERE that references one
+# into the inner `SELECT $group_N FROM events` subquery re-triggers the same lazy join during
+# resolution and recurses, so the prefilter is skipped in that case (see `_guarded_events_aliases`,
+# which also picks up the per-project group-type-name aliases dynamically).
 EVENTS_LAZY_JOIN_ALIASES = frozenset(
     {
         "person",
