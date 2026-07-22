@@ -604,6 +604,50 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
 
 
 # ---------------------------------------------------------------------------
+# fetch_report_ids_for_scout_names — synchronous, for the viewset list filter
+# ---------------------------------------------------------------------------
+
+
+def fetch_report_ids_for_scout_names(team: Team, scout_names: list[str]) -> set[str]:
+    """Return the set of report IDs that have at least one non-deleted signal authored by the given scouts.
+
+    Scout-emitted signals carry the authoring scout's raw skill_name slug (e.g.
+    "signals-scout-error-tracking") in `extra.skill_name`; other sources leave it empty, so
+    matching on it alone is already scoped to scout signals. Uses argMax deduplication to give
+    stable results regardless of ReplacingMergeTree merge state.
+    """
+    ch_query = f"""
+        SELECT DISTINCT report_id
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'extra', 'skill_name') as skill_name,
+                timestamp
+            FROM ({_deduped_signals_subquery()})
+            ORDER BY timestamp DESC
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+          AND skill_name IN ({{scout_names}})
+        LIMIT 300
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFilterByScoutName",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "scout_names": ast.Tuple(exprs=[ast.Constant(value=name) for name in scout_names]),
+        },
+    )
+
+    return {row[0] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
 # fetch_report_ids_for_source_ids — synchronous, for the scout reverse lookup
 # ---------------------------------------------------------------------------
 
