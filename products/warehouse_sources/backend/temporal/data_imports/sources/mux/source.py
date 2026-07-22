@@ -110,6 +110,7 @@ Grant the following read permissions:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only video views expose a server-side timestamp filter (`view_end`), so it can sync
         # incrementally; every other endpoint is full refresh. Append is never offered — the
@@ -131,7 +132,7 @@ Grant the following read permissions:
         return schemas
 
     def validate_credentials(
-        self, config: MuxSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: MuxSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         path = MUX_ENDPOINTS[schema_name].path if schema_name in MUX_ENDPOINTS else DEFAULT_VALIDATION_PATH
         status = get_validation_status(config.access_token_id, config.secret_key, path)
