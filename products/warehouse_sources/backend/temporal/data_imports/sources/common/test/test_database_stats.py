@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -109,7 +110,13 @@ class _StubSQLSource(SQLSource):
     def get_source_config(self):  # pragma: no cover - not exercised
         raise NotImplementedError
 
-    def validate_credentials(self, config, team_id):  # pragma: no cover - not exercised
+    def validate_credentials(  # pragma: no cover - not exercised
+        self,
+        config: Any,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
         raise NotImplementedError
 
 
@@ -258,7 +265,7 @@ class TestBuildDatabaseStatsSourceResponse:
             open_connection=open_connection,
             logger=logger,
         )
-        assert list(response.items()) == []
+        assert list(cast(Iterable[Any], response.items())) == []
 
     def test_rows_are_stamped_with_shared_snapshot_identity(self):
         seen: dict[str, Any] = {}
@@ -278,7 +285,7 @@ class TestBuildDatabaseStatsSourceResponse:
             open_connection=open_connection,
             logger=logger,
         )
-        rows = list(response.items())
+        rows = list(cast(Iterable[Any], response.items()))
         assert rows[0]["snapshot_id"] == seen["snapshot_id"]
         assert rows[0]["collected_at"] == seen["collected_at"]
         assert is_database_stats_schema(DATABASE_STATS_SERVER)

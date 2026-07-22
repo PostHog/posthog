@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterable
 from contextlib import contextmanager
 from typing import Any, cast
 
@@ -193,7 +194,7 @@ class TestPostgresStatsCollectors:
                 require_ssl=False,
                 logger=logger,
             )
-            assert list(response.items()) == []
+            assert list(cast(Iterable[Any], response.items())) == []
 
 
 def _snapshot_base():
@@ -398,7 +399,7 @@ class TestStatsSourceRouting:
         response = PostgresSource().source_for_pipeline(config, inputs)
 
         assert response.name == DATABASE_STATS_SERVER
-        rows = list(cast(Any, response.items)())
+        rows = list(cast(Iterable[Any], response.items()))
         assert rows, "expected server metrics from the test database"
         assert {r["metric_name"] for r in rows} >= {"server_version", "connections_total"}
         assert all(set(r.keys()) == _column_names(DATABASE_STATS_SERVER) for r in rows)
