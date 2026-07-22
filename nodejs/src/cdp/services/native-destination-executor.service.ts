@@ -161,6 +161,8 @@ export class NativeDestinationExecutorService {
                         url,
                         fetchParams: fetchOptions,
                         templateId: invocation.hogFunction.template_id ?? '',
+                        teamId: invocation.teamId,
+                        hogFunctionId: invocation.hogFunction.id,
                     })
 
                     const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
