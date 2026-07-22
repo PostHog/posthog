@@ -258,26 +258,64 @@ const STORY_SLACK_CHANNELS: Record<string, { id: string; name: string }[]> = {
     ],
 }
 
+const STORY_EXISTING_HOG_FUNCTIONS = [
+    {
+        id: 'hf1',
+        type: 'internal_destination',
+        name: 'Alert: Slack #alerts',
+        description: '',
+        created_by: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        enabled: true,
+        hog: '',
+        template_id: 'template-slack',
+        inputs: {
+            slack_workspace: { value: 1 },
+            channel: { value: 'C100|#alerts' },
+        },
+    },
+    {
+        id: 'hf2',
+        type: 'internal_destination',
+        name: 'Alert: Slack #acme-alerts',
+        description: '',
+        created_by: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        enabled: true,
+        hog: '',
+        template_id: 'template-slack',
+        inputs: {
+            slack_workspace: { value: 2 },
+            channel: { value: 'C200|#acme-alerts' },
+        },
+    },
+]
+
 function MultipleSlackWorkspacesStory(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/environments/:team_id/integrations': { results: STORY_SLACK_WORKSPACES, count: 2 },
-            '/api/environments/:team_id/integrations/:id/channels': (req, res, ctx) => {
-                const channels = (STORY_SLACK_CHANNELS[String(req.params.id)] ?? []).map((channel) => ({
+            '/api/environments/:team_id/integrations/:id/channels': ({ params }) => {
+                const channels = (STORY_SLACK_CHANNELS[String(params.id)] ?? []).map((channel) => ({
                     ...channel,
                     is_private: false,
                     is_ext_shared: false,
                     is_member: true,
                 }))
-                return res(ctx.json({ channels, lastRefreshedAt: '2026-01-01T00:00:00Z' }))
+                return [200, { channels, lastRefreshedAt: '2026-01-01T00:00:00Z' }]
             },
-            '/api/environments/:team_id/hog_functions': { results: [], count: 0 },
+            '/api/environments/:team_id/hog_functions': {
+                results: STORY_EXISTING_HOG_FUNCTIONS,
+                count: STORY_EXISTING_HOG_FUNCTIONS.length,
+            },
         },
     })
 
     return (
         <div className="max-w-2xl border rounded bg-surface-primary p-4">
-            <InlineAlertNotifications />
+            <InlineAlertNotifications alertId="alert-1" />
         </div>
     )
 }

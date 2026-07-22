@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, SlackChannelType } from '~/types'
+import { HogFunctionType, IntegrationType, SlackChannelType } from '~/types'
 
 import {
     AlertNotificationDestinationEditor,
@@ -27,17 +28,43 @@ function resolveSlackChannelName(channelValue: string, slackChannels: SlackChann
     return slackChannels.find((channel) => channel.id === channelId)?.name ?? null
 }
 
+// Existing destinations can belong to any connected workspace, not just the one currently
+// selected in the picker, so each row resolves its own channel name from its own workspace.
+function SlackDestinationChannel({
+    workspaceId,
+    channelValue,
+}: {
+    workspaceId: number
+    channelValue: string
+}): JSX.Element {
+    const { slackChannels } = useValues(slackIntegrationLogic({ id: workspaceId }))
+    const channelName = resolveSlackChannelName(channelValue, slackChannels)
+    return <>{channelName ? `#${channelName}` : 'channel'}</>
+}
+
 function getHogFunctionDestination(
     hogFunction: HogFunctionType,
-    slackChannels: SlackChannelType[]
-): { type: string; detail: string | null } {
+    slackIntegrations: IntegrationType[] | undefined
+): { type: string; detail: ReactNode } {
     const channelValue = hogFunction.inputs?.channel?.value
-    if (channelValue && typeof channelValue === 'string') {
-        const channelName = resolveSlackChannelName(channelValue, slackChannels)
-        return { type: 'Slack', detail: channelName ? `#${channelName}` : null }
-    }
     if (channelValue) {
-        return { type: 'Slack', detail: null }
+        const workspaceId = hogFunction.inputs?.slack_workspace?.value
+        const workspaceName =
+            typeof workspaceId === 'number'
+                ? slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
+                : undefined
+        if (typeof channelValue !== 'string' || typeof workspaceId !== 'number') {
+            return { type: 'Slack', detail: workspaceName ?? null }
+        }
+        return {
+            type: 'Slack',
+            detail: (
+                <>
+                    {workspaceName ?? 'Unknown workspace'} ·{' '}
+                    <SlackDestinationChannel workspaceId={workspaceId} channelValue={channelValue} />
+                </>
+            ),
+        }
     }
     if (hogFunction.template_id === 'template-discord') {
         const webhookUrl = hogFunction.inputs?.webhookUrl?.value
@@ -54,10 +81,17 @@ function getHogFunctionDestination(
     return { type: hogFunction.name, detail: null }
 }
 
-function getNotificationLabel(notification: PendingAlertNotification): string {
+function getNotificationLabel(
+    notification: PendingAlertNotification,
+    slackIntegrations: IntegrationType[] | undefined
+): string {
     switch (notification.type) {
-        case ALERT_NOTIFICATION_TYPE_SLACK:
-            return `Slack: #${notification.slackChannelName ?? 'channel'}`
+        case ALERT_NOTIFICATION_TYPE_SLACK: {
+            const workspaceName = slackIntegrations?.find(
+                (integration) => integration.id === notification.slackWorkspaceId
+            )?.display_name
+            return `Slack: ${workspaceName ?? 'Unknown workspace'} · #${notification.slackChannelName ?? 'channel'}`
+        }
         case ALERT_NOTIFICATION_TYPE_DISCORD:
             return `Discord: ${notification.webhookUrl}`
         case ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS:
@@ -141,9 +175,6 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setWebhookUrl,
     } = useActions(logic)
 
-    const slackLogic = slackIntegrationLogic({ id: selectedSlackIntegration?.id ?? 0 })
-    const { slackChannels } = useValues(slackLogic)
-
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
             if (!slackChannelValue || !selectedSlackIntegration) {
@@ -183,7 +214,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     }
 
     const existingDestinations: AlertNotificationDestinationView[] = existingHogFunctions.map((hogFunction) => {
-        const destination = getHogFunctionDestination(hogFunction, slackChannels)
+        const destination = getHogFunctionDestination(hogFunction, slackIntegrations)
         return {
             key: hogFunction.id,
             title: destination.type,
@@ -204,7 +235,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
         (notification, index) => ({
             key: `${notification.type}-${index}`,
-            label: getNotificationLabel(notification),
+            label: getNotificationLabel(notification, slackIntegrations),
             status: '(pending, click Save to apply)',
             onRemove: () => removePendingNotification(index),
         })

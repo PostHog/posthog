@@ -33,8 +33,8 @@ interface AlertNotificationDestinationButtonAction {
 
 export interface AlertNotificationDestinationView {
     key: string
-    title: string
-    detail?: string | null
+    title: ReactNode
+    detail?: ReactNode
     tags?: { label: string; type?: LemonTagType }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
     onDelete: () => void
