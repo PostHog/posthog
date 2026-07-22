@@ -106,6 +106,24 @@ class TestPushedAuthorizationRequest(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_authorize_rejects_request_uri_without_client_id(self):
+        # RFC 9126 §4: the authorization request must identify the client the
+        # reference was issued to. A request_uri presented without client_id is
+        # rejected rather than restoring the client_id from the pushed params.
+        request_uri = self.push(self.public_par_body()).json()["request_uri"]
+
+        response = self.client.get(f"/oauth/authorize/?{urlencode({'request_uri': request_uri})}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_push_rejects_oversized_field(self):
+        body = self.public_par_body()
+        body["scope"] = "openid " + ("a:read " * 2000)  # well over the 4096 cap
+
+        response = self.push(body)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
     def test_authorize_rejects_unknown_request_uri(self):
         response = self.client.get(
             f"/oauth/authorize/?client_id=test_public_client_id"

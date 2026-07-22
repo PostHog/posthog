@@ -71,7 +71,8 @@ def _cache_key(reference: str) -> str:
 
 def consume_pushed_authorization_request(request_uri: str, client_id: str | None) -> dict | None:
     """Return the stored parameters for a pushed `request_uri`, or None if it is
-    unknown/expired or bound to a different client.
+    unknown/expired, or the authorization request does not carry the client_id
+    the reference was issued to.
 
     The reference is intentionally not deleted on read: the browser may reload
     the consent screen (an idempotent GET that mints nothing), and the short TTL
@@ -86,10 +87,10 @@ def consume_pushed_authorization_request(request_uri: str, client_id: str | None
     if not isinstance(params, dict):
         return None
 
-    # A pushed request is bound to the client that pushed it. The authorization
-    # request must carry the same client_id, so a reference cannot be replayed
-    # under a different client.
-    if client_id and params.get("client_id") != client_id:
+    # RFC 9126 §4: a pushed request is bound to the client that pushed it. The
+    # authorization request must supply the same client_id, so a reference can
+    # be replayed neither under a different client nor without identifying one.
+    if not client_id or params.get("client_id") != client_id:
         return None
 
     return params
@@ -113,34 +114,51 @@ class PushedAuthorizationRequestSerializer(serializers.Serializer):
     """Validates an RFC 9126 pushed authorization request. Fields mirror the
     query parameters of a normal OAuth authorization request."""
 
-    client_id = serializers.CharField(help_text="OAuth client identifier issued to the application.")
+    # max_length bounds each field so a public client cannot fill the shared
+    # cache with oversized pushed requests. The limits are generous relative to
+    # legitimate values (PostHog has ~90 scopes) but keep any single entry small.
+    client_id = serializers.CharField(max_length=512, help_text="OAuth client identifier issued to the application.")
     client_secret = serializers.CharField(
         required=False,
+        max_length=512,
         help_text="Client secret, required only for confidential clients (token_endpoint_auth_method=client_secret_post).",
     )
     redirect_uri = serializers.CharField(
-        required=False, help_text="Redirect URI the authorization response is sent to."
+        required=False, max_length=2048, help_text="Redirect URI the authorization response is sent to."
     )
-    response_type = serializers.CharField(required=False, help_text="OAuth response type; must be 'code'.")
+    response_type = serializers.CharField(
+        required=False, max_length=64, help_text="OAuth response type; must be 'code'."
+    )
     scope = serializers.CharField(
-        required=False, allow_blank=True, help_text="Space-delimited OAuth scopes being requested."
+        required=False, allow_blank=True, max_length=4096, help_text="Space-delimited OAuth scopes being requested."
     )
     state = serializers.CharField(
-        required=False, help_text="Opaque value used by the client to maintain state between request and callback."
+        required=False,
+        max_length=2048,
+        help_text="Opaque value used by the client to maintain state between request and callback.",
     )
-    code_challenge = serializers.CharField(required=False, help_text="PKCE code challenge (RFC 7636).")
-    code_challenge_method = serializers.CharField(required=False, help_text="PKCE code challenge method; 'S256'.")
-    nonce = serializers.CharField(required=False, help_text="OpenID Connect nonce.")
-    claims = serializers.CharField(required=False, help_text="OpenID Connect claims request parameter (JSON string).")
+    code_challenge = serializers.CharField(required=False, max_length=256, help_text="PKCE code challenge (RFC 7636).")
+    code_challenge_method = serializers.CharField(
+        required=False, max_length=16, help_text="PKCE code challenge method; 'S256'."
+    )
+    nonce = serializers.CharField(required=False, max_length=512, help_text="OpenID Connect nonce.")
+    claims = serializers.CharField(
+        required=False, max_length=4096, help_text="OpenID Connect claims request parameter (JSON string)."
+    )
     resource = serializers.CharField(
-        required=False, help_text="Resource indicator (RFC 8707) identifying the protected resource."
+        required=False, max_length=2048, help_text="Resource indicator (RFC 8707) identifying the protected resource."
     )
-    prompt = serializers.CharField(required=False, help_text="OpenID Connect prompt parameter, e.g. 'login'.")
+    prompt = serializers.CharField(
+        required=False, max_length=64, help_text="OpenID Connect prompt parameter, e.g. 'login'."
+    )
     approval_prompt = serializers.CharField(
-        required=False, help_text="Whether to force the consent screen ('force') or allow auto-approval ('auto')."
+        required=False,
+        max_length=16,
+        help_text="Whether to force the consent screen ('force') or allow auto-approval ('auto').",
     )
     request_uri = serializers.CharField(
         required=False,
+        max_length=512,
         help_text="Not permitted: a pushed authorization request must not itself contain a request_uri (RFC 9126 §2.1).",
     )
 
