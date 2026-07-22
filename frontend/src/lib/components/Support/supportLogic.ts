@@ -140,9 +140,10 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
 }
 
 // Mirrors the max_length on the conversations widget message endpoint (WidgetMessageSerializer in
-// products/conversations/backend/api/serializers.py). Kept in sync so an over-limit message fails
-// with a clear error here instead of a silent server-side rejection.
-export const SUPPORT_MESSAGE_MAX_LENGTH = 50000
+// products/conversations/backend/api/serializers.py) that this form posts through. Kept in sync so an
+// over-limit message fails with a clear error here instead of a silent server-side rejection. The
+// widget cap is kept lower than the authenticated reply/compose endpoints since it is public.
+export const SUPPORT_MESSAGE_MAX_LENGTH = 10000
 
 // Conversations tickets carry just the user's message (like the side panel composer), but for bug
 // reports we still fold the exception in so it survives on email-channel tickets and when the
