@@ -289,9 +289,15 @@ def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[N
 
 def _is_navigable_url(url: str) -> bool:
     """Gate for the prompt timeline. `$current_url` is client-supplied free text rendered into the trusted preamble,
-    so only values shaped like real web URLs (http scheme, no whitespace or control characters) get in. Anything
-    else is dropped rather than escaped."""
-    return url.startswith(("http://", "https://")) and url.isprintable() and not any(c.isspace() for c in url)
+    so only values shaped like real web URLs get in: http scheme, printable, no whitespace, and no backtick (a raw
+    backtick would escape the prompt's inline-code fencing, and real URLs percent-encode it). Anything else is
+    dropped rather than escaped."""
+    return (
+        url.startswith(("http://", "https://"))
+        and url.isprintable()
+        and "`" not in url
+        and not any(c.isspace() for c in url)
+    )
 
 
 def _relative_ms(event_timestamp: Any, session_start: dt.datetime) -> int:
