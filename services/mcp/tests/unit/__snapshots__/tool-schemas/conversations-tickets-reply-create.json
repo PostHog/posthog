@@ -12,7 +12,7 @@
         },
         "message": {
             "description": "Reply content in markdown.",
-            "maxLength": 50000,
+            "maxLength": 5000,
             "type": "string"
         },
         "rich_content": {
