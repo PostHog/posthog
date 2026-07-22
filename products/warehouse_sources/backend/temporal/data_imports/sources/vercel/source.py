@@ -96,6 +96,12 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
             # stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.vercel.com": "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.vercel.com": "Your Vercel access token is not authorized for this resource. Check the token's scope (and team access), then reconnect.",
+            # Vercel's FOCUS billing endpoint 404s when the configured team can't be resolved for
+            # this token (wrong/missing Team ID, or the token's user no longer belongs to that
+            # team) rather than the 403 it returns for a role that lacks billing access. Retrying
+            # never resolves a bad team reference, so stop the sync. Match the stable path, not the
+            # query string (it carries the per-request date window and team id).
+            "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges": "Vercel couldn't find billing data for the configured team. Check that the Team ID is correct and that your access token's user still belongs to that team, then reconnect.",
         }
 
     def get_schemas(

@@ -3,7 +3,7 @@ name: adding-ingestion-warnings
 description: >
   How to add a new ingestion warning type to the event ingestion pipeline.
   Use when emitting a new warning from nodejs ingestion code (emitIngestionWarning, captureIngestionWarning, pipeline `warnings` arrays, `drop()` with warnings), when adding a warning type, category, or severity, or when a typecheck error says a string is not assignable to IngestionWarningType.
-  Covers the INGESTION_WARNING_TYPES registry (the single source of truth for type, category, and severity), the details-key conventions that ClickHouse v2 materializes into columns, debouncing, and the downstream surfaces to keep in sync (v1 UI map, docs, v2 API).
+  Covers the INGESTION_WARNING_TYPES registry (the single source of truth for type, category, and severity), the details-key conventions that ClickHouse v2 materializes into columns, debouncing, and the downstream surfaces to keep in sync (v1 UI map, resolving-ingestion-warnings skill, docs, v2 API).
 ---
 
 # Adding ingestion warnings
@@ -97,9 +97,6 @@ Adding a `captureProduced` type is an additive schema change, but nodejs and Rus
 When adding a type, also update:
 
 - **v1 UI map** — `WARNING_TYPE_TO_DESCRIPTION` (and `WARNING_TYPE_TO_DOCS_ANCHOR` if documented) in `frontend/src/scenes/data-management/ingestion-warnings/IngestionWarningsView.tsx`.
+- **Resolution skill (MCP)** — add the type to the routing table in [products/ingestion/skills/resolving-ingestion-warnings/SKILL.md](../../../products/ingestion/skills/resolving-ingestion-warnings/SKILL.md), the agent-facing skill that diagnoses each warning for customers. An inline fix in the table row is enough for simple warnings; add a `references/fixing-<type>.md` there when the diagnosis needs per-SDK or multi-cause detail.
 - **posthog.com docs** — the ingestion warnings page (`https://posthog.com/docs/data/ingestion-warnings`) if the warning is user-actionable.
 - **v2 API / MCP descriptions** — only if you added a new category or severity value; the example vocabularies live in the `ingestion_warnings_v2` serializer help texts (`posthog/api/ingestion_warnings_v2.py`).
-
-## Related
-
-- Warning-fixing skills (`fixing-<warning-type>`) that teach agents how to resolve each warning are planned under the ingestion warnings v2 effort; authoring one per new warning type will become part of this checklist.

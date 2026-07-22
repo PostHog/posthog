@@ -1,7 +1,6 @@
 name: Migration & Service Separation Check
 
 # Reusable workflow, called by pr-housekeeping.yml on every PR push.
-# merge_group stays as a direct trigger for the merge queue.
 
 on:
     workflow_call:
@@ -10,7 +9,6 @@ on:
                 required: false
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
-    merge_group:
 
 permissions:
     contents: read
@@ -31,25 +29,9 @@ jobs:
             - name: Check for skip label
               id: skip-label
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  EVENT_NAME: ${{ github.event_name }}
                   PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
-                  GITHUB_REF: ${{ github.ref }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
               run: |
-                  if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "workflow_call" ]; then
-                      labels="$PR_LABELS_JSON"
-                  elif [ "$EVENT_NAME" = "merge_group" ]; then
-                      # GITHUB_REF looks like refs/heads/gh-readonly-queue/<base>/pr-<num>-<sha>
-                      pr_num=$(echo "$GITHUB_REF" | grep -oE 'pr-[0-9]+' | head -1 | sed 's/pr-//')
-                      if [ -n "$pr_num" ]; then
-                          labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr_num/labels" --jq '[.[].name]')
-                      else
-                          labels='[]'
-                      fi
-                  else
-                      labels='[]'
-                  fi
+                  labels="$PR_LABELS_JSON"
                   echo "Labels: $labels"
                   if echo "$labels" | grep -q '"skip-migration-service-check"'; then
                       echo "skip=true" >> "$GITHUB_OUTPUT"

@@ -13,6 +13,7 @@ from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
 from products.tasks.backend.access import has_tasks_access
+from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
 logger = logging.getLogger(__name__)
@@ -155,13 +156,20 @@ def cloud_usage_limit_response(user, team_id: int) -> Response | None:
     """Return a blocking response when Code access or usage limits deny a cloud run, else None.
 
     Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
+    Every usage check is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`)
+    so a degraded gateway silently removing this cost backstop is visible, not just logged.
     """
     if response := code_access_required_response(user):
         return response
 
     usage = get_posthog_code_usage(user, team_id)
-    if usage is None or not usage.is_rate_limited:
+    if usage is None:
+        observe_code_usage_gate_check(outcome="fail_open")
         return None
+    if not usage.is_rate_limited:
+        observe_code_usage_gate_check(outcome="checked_allowed")
+        return None
+    observe_code_usage_gate_check(outcome="checked_blocked")
     return Response(
         TaskRunErrorResponseSerializer(rate_limit_error_payload(usage)).data,
         status=status.HTTP_429_TOO_MANY_REQUESTS,

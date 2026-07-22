@@ -24,6 +24,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
+from products.data_modeling.backend.facade.api import get_declared_target
 from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
@@ -90,6 +91,11 @@ class NodeSerializer(serializers.ModelSerializer):
         return node.properties.get("user", {}).get("tag")
 
     def get_sync_interval(self, node: Node) -> str | None:
+        # The node's freshness target is authoritative on tiered v2 teams (where the saved
+        # query's interval is NULL); the saved-query interval covers v1 teams.
+        target = get_declared_target(node)
+        if target is not None:
+            return sync_frequency_interval_to_sync_frequency(target)
         if node.saved_query:
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
