@@ -19,14 +19,22 @@ from products.tasks.backend.models import Channel, Task
 # - HOGDESK: support-desk Code threads. The task is pinned to the support ticket via a
 #   shared ticket tag, so any agent opening the ticket resumes the same thread — it must
 #   be viewable by the whole team, not just the agent who started it.
-# - EXPERIMENTS: flag-cleanup tasks opened when an experiment ends. The experiment (and
-#   the task's status on it) is team-visible, so any team member should be able to open
-#   the task and answer the agent, not just whoever clicked "End experiment".
 TEAM_VISIBLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.SIGNAL_REPORT,
     Task.OriginProduct.SIGNALS_SCOUT,
     Task.OriginProduct.ONBOARDING,
     Task.OriginProduct.HOGDESK,
+]
+
+# Origin products whose tasks are team-readable but stay creator-driven, like
+# public-channel tasks: teammates can open the task and read what the agent did or
+# asked, but runs execute with the creator's credentials (oauth.py mints tokens from
+# `task.created_by`), so edits, runs, and agent commands stay with the creator.
+# - EXPERIMENTS: flag-cleanup tasks opened when an experiment ends. The experiment
+#   (and the task's status on it) is team-visible, so any team member should be able
+#   to open the task, not just whoever clicked "End experiment".
+TEAM_READABLE_ORIGIN_PRODUCTS = [
+    *TEAM_VISIBLE_ORIGIN_PRODUCTS,
     Task.OriginProduct.EXPERIMENTS,
 ]
 
@@ -53,12 +61,16 @@ def task_control_q(user_id: int | None) -> Q:
 def task_visibility_q(user_id: int | None) -> Q:
     """Filter for tasks visible (readable) to the given user.
 
-    Everything controllable per ``task_control_q``, plus tasks in a public
-    channel: channel feeds are multiplayer, so every team member sees every
-    task filed there. Personal-channel ("#me") tasks stay creator-only via
-    the control rules.
+    Everything controllable per ``task_control_q``, plus team-readable origins
+    and tasks in a public channel: channel feeds are multiplayer, so every team
+    member sees every task filed there. Personal-channel ("#me") tasks stay
+    creator-only via the control rules.
     """
-    return task_control_q(user_id) | Q(channel__channel_type=Channel.ChannelType.PUBLIC, channel__deleted=False)
+    return (
+        task_control_q(user_id)
+        | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
+        | Q(channel__channel_type=Channel.ChannelType.PUBLIC, channel__deleted=False)
+    )
 
 
 def task_run_visibility_q(user_id: int | None) -> Q:
@@ -66,6 +78,6 @@ def task_run_visibility_q(user_id: int | None) -> Q:
     return (
         Q(task__created_by_id=user_id)
         | Q(task__created_by__isnull=True)
-        | Q(task__origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
+        | Q(task__origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
         | Q(task__channel__channel_type=Channel.ChannelType.PUBLIC, task__channel__deleted=False)
     )
