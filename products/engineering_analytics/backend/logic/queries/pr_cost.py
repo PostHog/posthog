@@ -273,7 +273,7 @@ def query_workflow_window_costs(
 
 # One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
 # attributed to the author through their PRs, keyed on (repo_owner, repo_name, pr_number) — never
-# pr_number alone, since PR numbers restart per repo (SPEC §7). Windowed on the run start so the figure
+# pr_number alone, since PR numbers restart per repo (SPEC §6). Windowed on the run start so the figure
 # answers "spend over [window]", never an unbounded all-time.
 _AUTHOR_WORKFLOW_SELECT = """
     SELECT c.workflow_name AS workflow_name, __COST_AGGREGATES__
@@ -297,7 +297,7 @@ def query_author_workflow_costs(
     """One author's billable CI cost split by workflow over [date_from, date_to], highest spend first.
 
     Empty when the jobs source isn't synced. Grouped and costed in SQL over the shared cost source; the
-    author→runs link goes through their PR numbers (the one attribution rule, SPEC §7) — the cost
+    author→runs link goes through their PR numbers (the one attribution rule, SPEC §6) — the cost
     source's normalized pr_number never matches on an unattributed (NULL) run.
     """
     cost_source = curated.job_cost_source()

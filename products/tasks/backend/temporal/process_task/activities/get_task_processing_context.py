@@ -128,6 +128,12 @@ class TaskProcessingContext:
         return (self.state or {}).get("sandbox_environment_id")
 
     @property
+    def loop_id(self) -> str | None:
+        """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
+        value = (self.state or {}).get("loop_id")
+        return value if isinstance(value, str) else None
+
+    @property
     def runtime_adapter(self) -> str | None:
         value = (self.state or {}).get("runtime_adapter")
         return value if isinstance(value, str) else None
@@ -559,6 +565,19 @@ def _is_modal_directory_resume_snapshots_enabled(
     return enabled
 
 
+def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
+    """Loop runs opt into the CI/review-comment follow-up loop when the loop's
+    snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
+    `watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
+    the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
+    already-queued run.
+    """
+    if task.origin_product != Task.OriginProduct.LOOP:
+        return False
+    behaviors = ((state or {}).get("config_snapshot") or {}).get("behaviors") or {}
+    return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
+
+
 def _is_continue_as_new_enabled(
     *,
     distinct_id: str,
@@ -720,6 +739,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # gets for its PRs.
     pr_loop_enabled = (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        or _loop_pr_follow_up_enabled(task, state)
         or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,

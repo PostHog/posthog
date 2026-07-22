@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TavusSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tavus import TavusSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

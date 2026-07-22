@@ -135,6 +135,21 @@ tools:
         response:
             include:
                 - results
+    apm-spans-latency-heatmap:
+        operation: tracing_spans_latency_heatmap_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Latency over time (heatmap)
+        description_file: ./prompts/apm-spans-latency-heatmap.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
     apm-spans-sparkline:
         operation: tracing_spans_sparkline_create
         enabled: true
@@ -208,9 +223,6 @@ tools:
                 - results
     tracing-spans-has-spans-retrieve:
         operation: tracing_spans_has_spans_retrieve
-        enabled: false
-    tracing-spans-latency-heatmap-create:
-        operation: tracing_spans_latency_heatmap_create
         enabled: false
     tracing-spans-symbol-stats-create:
         operation: tracing_spans_symbol_stats_create
