@@ -224,6 +224,19 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         # Cleanup never ran; the sandbox died at created_at + 6h regardless.
         assert usage.seconds == [(self.team.id, 6 * 3600)]
 
+    def test_late_close_clamps_to_ttl(self):
+        # Cleanup stamped hours after the provider already killed the sandbox at created_at + 6h.
+        self._session(
+            created_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, 10, tzinfo=UTC),
+            ttl_seconds=6 * 60 * 60,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.seconds == [(self.team.id, 6 * 3600)]
+
     def test_live_session_clamps_to_now(self):
         self._session(
             created_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
