@@ -585,3 +585,89 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+
+
+class TestRecentWizardCloudRunTimes(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    other_team: ClassVar[Team]
+    user: ClassVar[User]
+    other_user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Quota Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Quota Team")
+        cls.other_team = Team.objects.create(organization=cls.organization, name="Other Quota Team")
+        cls.user = User.objects.create(email="quota@test.com", distinct_id="quota-distinct")
+        cls.other_user = User.objects.create(email="quota-other@test.com", distinct_id="quota-other-distinct")
+
+    def _make_run(
+        self,
+        *,
+        status=TaskRun.Status.IN_PROGRESS,
+        origin_product=Task.OriginProduct.ONBOARDING,
+        environment=TaskRun.Environment.CLOUD,
+        state=None,
+        team=None,
+        created_by=None,
+    ) -> TaskRun:
+        task = Task.objects.create(
+            team=team or self.team,
+            title="Set up PostHog",
+            description="wizard",
+            origin_product=origin_product,
+            created_by=created_by or self.user,
+            repository="acme/app",
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=team or self.team,
+            status=status,
+            environment=environment,
+            state={"wizard_config": {}} if state is None else state,
+        )
+
+    @parameterized.expand(
+        [
+            # Failed and cancelled runs must not consume quota: users retry exactly when a run broke.
+            ("failed_run", {"status": TaskRun.Status.FAILED}, 0),
+            ("cancelled_run", {"status": TaskRun.Status.CANCELLED}, 0),
+            ("in_progress_run", {"status": TaskRun.Status.IN_PROGRESS}, 1),
+            ("queued_run", {"status": TaskRun.Status.QUEUED}, 1),
+            ("completed_run", {"status": TaskRun.Status.COMPLETED}, 1),
+            # Ordinary task runs lack the wizard markers and must not consume wizard quota.
+            ("non_onboarding_task", {"origin_product": Task.OriginProduct.USER_CREATED}, 0),
+            ("local_run", {"environment": TaskRun.Environment.LOCAL}, 0),
+            ("run_without_wizard_config", {"state": {}}, 0),
+        ]
+    )
+    def test_counts_only_quota_consuming_runs(self, _name, run_kwargs, expected_count):
+        self._make_run(**run_kwargs)
+        since = django_timezone.now() - timedelta(hours=1)
+        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), expected_count)
+
+    def test_include_unsuccessful_counts_failed_and_cancelled_but_not_non_wizard_runs(self):
+        # The attempts backstop counts every sandbox boot, so failed/cancelled must count with
+        # the flag while ordinary task runs stay excluded either way.
+        self._make_run(status=TaskRun.Status.FAILED)
+        self._make_run(status=TaskRun.Status.CANCELLED)
+        self._make_run(origin_product=Task.OriginProduct.USER_CREATED)
+        since = django_timezone.now() - timedelta(hours=1)
+
+        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), 0)
+        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since, include_unsuccessful=True)), 2)
+
+    def test_scopes_by_user_across_teams_and_respects_window(self):
+        self._make_run()
+        # Same user, different team: the throttle is per user, so this counts too.
+        self._make_run(team=self.other_team)
+        # Another user's run must never consume this user's quota.
+        self._make_run(created_by=self.other_user)
+        old_run = self._make_run()
+        TaskRun.objects.filter(id=old_run.id).update(created_at=django_timezone.now() - timedelta(hours=3))
+
+        since = django_timezone.now() - timedelta(hours=1)
+        times = facade.recent_wizard_cloud_run_times(self.user.id, since)
+        self.assertEqual(len(times), 2)
+        self.assertEqual(times, sorted(times))

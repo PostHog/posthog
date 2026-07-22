@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -6,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -527,6 +529,42 @@ class SetupWizardCloudRunTests(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_throttles_when_quota_counting_runs_reports_the_cap(self, mock_create, mock_run_times):
+        # Wiring guard for the outcome-aware throttles: the endpoint must consult the facade's
+        # run count (the exclusion behavior itself is covered in the tasks product's facade tests).
+        mock_run_times.return_value = [timezone.now() - timedelta(minutes=5), timezone.now() - timedelta(minutes=1)]
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_create.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_attempts_backstop_throttles_regardless_of_run_outcome(self, mock_create, mock_run_times):
+        # Failed/cancelled runs don't consume the outcome-aware quota, so the backstop (which
+        # counts runs regardless of outcome via include_unsuccessful) is the only thing
+        # bounding a start-fail or start-cancel loop.
+        now = timezone.now()
+        mock_run_times.side_effect = lambda user_id, since, include_unsuccessful=False: (
+            [now - timedelta(minutes=i) for i in range(15, 0, -1)] if include_unsuccessful else []
+        )
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_create.assert_not_called()
 
     def tearDown(self):
         super().tearDown()

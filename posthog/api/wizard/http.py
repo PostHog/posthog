@@ -35,6 +35,7 @@ from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import (
     SetupWizardAuthenticationRateThrottle,
+    SetupWizardCloudRunAttemptsRateThrottle,
     SetupWizardCloudRunBurstRateThrottle,
     SetupWizardCloudRunSustainedRateThrottle,
     SetupWizardQueryRateThrottle,
@@ -56,7 +57,7 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
-    "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied)",
+    "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied/throttled)",
     labelnames=["outcome"],
 )
 
@@ -150,6 +151,13 @@ class SetupWizardViewSet(viewsets.ViewSet):
             return ["project:read"]
 
         return []
+
+    def throttled(self, request: Request, wait: float | None) -> None:
+        # 429s never reach the action body, so without this the kickoff counter is blind to
+        # rate-limited users and throttle pressure is invisible in dashboards.
+        if self.action == "cloud_run":
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
+        super().throttled(request, wait)
 
     @action(methods=["POST"], detail=False, url_path="initialize")
     def initialize(self, request: Request) -> Response:
@@ -430,7 +438,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
         url_path="cloud_run",
         authentication_classes=[SessionAuthentication],
         permission_classes=[IsAuthenticated],
-        throttle_classes=[SetupWizardCloudRunBurstRateThrottle, SetupWizardCloudRunSustainedRateThrottle],
+        throttle_classes=[
+            SetupWizardCloudRunBurstRateThrottle,
+            SetupWizardCloudRunSustainedRateThrottle,
+            SetupWizardCloudRunAttemptsRateThrottle,
+        ],
     )
     def cloud_run(self, request: Request) -> Response:
         """Run the PostHog setup wizard in the cloud against the user's GitHub repository.

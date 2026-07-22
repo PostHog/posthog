@@ -267,7 +267,9 @@ export function cloudProgress(
     const error =
         phase === 'error'
             ? (stalledError ?? {
-                  title: 'Installation failed',
+                  // A cancelled run is a deliberate stop (Cancel button or closing the setup PR),
+                  // not a broken installation — presenting it as a failure reads as a bug.
+                  title: taskRunState?.status === 'cancelled' ? 'Run cancelled' : 'Installation failed',
                   detail:
                       taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
               })

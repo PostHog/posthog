@@ -303,6 +303,77 @@ class TestGitHubPRWebhook(TestCase):
         assert run.output is not None
         self.assertIs(run.output.get("pr_merged"), True)
 
+    def _closed_pr_payload(self, pr_url: str) -> dict:
+        return {
+            "action": "closed",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": False,
+            },
+        }
+
+    @parameterized.expand(
+        [
+            ("wizard_run_in_progress", {"wizard_config": {}}, TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, 1),
+            ("wizard_run_queued", {"wizard_config": {}}, TaskRun.Status.QUEUED, TaskRun.Environment.CLOUD, 1),
+            ("non_wizard_run", {}, TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, 0),
+            ("already_terminal_run", {"wizard_config": {}}, TaskRun.Status.COMPLETED, TaskRun.Environment.CLOUD, 0),
+            ("local_run", {"wizard_config": {}}, TaskRun.Status.IN_PROGRESS, TaskRun.Environment.LOCAL, 0),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_closed_cancels_wizard_run(
+        self, _name, state, status, environment, expected_cancels, _mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/780"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=status,
+            environment=environment,
+            state=state,
+            output={"pr_url": pr_url},
+        )
+
+        with patch("products.tasks.backend.webhooks.cancel_task_run") as mock_cancel:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(self._closed_pr_payload(pr_url))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_cancel.call_count, expected_cancels)
+        if expected_cancels:
+            mock_cancel.assert_called_once_with(
+                run.id,
+                run.task_id,
+                run.team_id,
+                reason="Setup pull request was closed",
+                source="pr_closed",
+            )
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_closed_cancel_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/781"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"wizard_config": {}},
+            output={"pr_url": pr_url},
+        )
+
+        with patch(
+            "products.tasks.backend.webhooks.cancel_task_run",
+            side_effect=RuntimeError("temporal unreachable"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._make_webhook_request(self._closed_pr_payload(pr_url))
+
+        self.assertEqual(response.status_code, 200)
+
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_closed_without_merge_webhook(self, mock_capture, mock_get_secret):
