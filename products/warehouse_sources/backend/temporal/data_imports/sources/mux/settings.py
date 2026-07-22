@@ -1,7 +1,18 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# First-sync window for the incremental video-views endpoint. Raw per-view rows have much tighter
+# retention than aggregates and the list endpoint isn't a bulk export, so we start modest; subsequent
+# syncs track the `view_end` watermark forward from here.
+VIDEO_VIEWS_INITIAL_LOOKBACK = timedelta(days=30)
+# Window for the full-refresh aggregate endpoints (errors, metric comparison). Mux Data retains
+# engagement/QoE metrics for ~13 months, so this pulls essentially everything Mux keeps; Mux clamps
+# the window to what's actually retained rather than erroring. The responses are small and replaced
+# each sync, so a wide window is cheap.
+AGGREGATE_LOOKBACK = timedelta(days=395)
 
 
 @dataclass
@@ -34,6 +45,9 @@ class MuxEndpointConfig:
     # the one Data endpoint that can sync incrementally; errors and metric aggregates are full refresh.
     supports_incremental: bool = False
     incremental_field: Optional[str] = None
+    # How far back the `timeframe[]` window reaches when there's no watermark (first sync or a
+    # full-refresh endpoint). Only meaningful when `use_timeframe` is set.
+    lookback: timedelta = AGGREGATE_LOOKBACK
 
 
 MUX_ENDPOINTS: dict[str, MuxEndpointConfig] = {
@@ -80,6 +94,7 @@ MUX_ENDPOINTS: dict[str, MuxEndpointConfig] = {
         use_timeframe=True,
         supports_incremental=True,
         incremental_field="view_end",
+        lookback=VIDEO_VIEWS_INITIAL_LOOKBACK,
     ),
     "errors": MuxEndpointConfig(
         name="errors",

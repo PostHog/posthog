@@ -29,9 +29,6 @@ MUX_BASE_URL = "https://api.mux.com"
 # Endpoint used to confirm a token is genuine when no specific schema is being validated.
 DEFAULT_VALIDATION_PATH = "/video/v1/assets"
 
-# First-sync window for Mux Data endpoints. Raw video-view retention is plan-limited (Mux clamps the
-# window to what's available), so a generous default gives the initial sync a useful span of history.
-DEFAULT_LOOKBACK = timedelta(days=30)
 # On incremental syncs, re-query slightly before the last `view_end` watermark. Mux Data can finish
 # processing a view minutes after it ended, so a view can surface with a `view_end` we've already
 # passed; the overlap re-fetches that boundary and the merge on `id` dedupes the repeats.
@@ -173,7 +170,7 @@ def _timeframe_params(
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
         start = _as_epoch(db_incremental_field_last_value) - int(INCREMENTAL_OVERLAP.total_seconds())
     else:
-        start = int((now - DEFAULT_LOOKBACK).timestamp())
+        start = int((now - config.lookback).timestamp())
     return {"timeframe[]": [start, int(now.timestamp())]}
 
 

@@ -12,7 +12,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import mux
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux import (
-    DEFAULT_LOOKBACK,
     INCREMENTAL_OVERLAP,
     MuxResumeConfig,
     _as_epoch,
@@ -22,7 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux im
     get_validation_status,
     mux_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import MUX_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import (
+    AGGREGATE_LOOKBACK,
+    MUX_ENDPOINTS,
+    VIDEO_VIEWS_INITIAL_LOOKBACK,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -361,23 +364,24 @@ class TestTimeframeParams:
         assert start == 1672531200 - int(INCREMENTAL_OVERLAP.total_seconds())
         assert end >= start
 
-    def test_first_sync_falls_back_to_default_lookback(self) -> None:
+    def test_first_video_views_sync_uses_short_lookback(self) -> None:
         params = _timeframe_params(
             MUX_ENDPOINTS["video_views"], should_use_incremental_field=True, db_incremental_field_last_value=None
         )
         start, end = params["timeframe[]"]
-        # Roughly DEFAULT_LOOKBACK before the end bound (allow a couple of seconds of clock drift).
-        assert abs((end - start) - int(DEFAULT_LOOKBACK.total_seconds())) <= 5
+        # First incremental sync windows by the modest video-views lookback, not the wide aggregate one.
+        assert abs((end - start) - int(VIDEO_VIEWS_INITIAL_LOOKBACK.total_seconds())) <= 5
 
-    def test_full_refresh_ignores_watermark(self) -> None:
-        # A non-incremental endpoint (or full-refresh run) must window by lookback, not the watermark.
+    def test_full_refresh_aggregate_uses_wide_lookback(self) -> None:
+        # Aggregate endpoints ignore any watermark and window by the wide (~13 month) retention lookback,
+        # so a sync summarizes essentially all the history Mux keeps rather than a trailing month.
         params = _timeframe_params(
             MUX_ENDPOINTS["errors"],
             should_use_incremental_field=False,
             db_incremental_field_last_value="2023-01-01T00:00:00Z",
         )
         start, end = params["timeframe[]"]
-        assert abs((end - start) - int(DEFAULT_LOOKBACK.total_seconds())) <= 5
+        assert abs((end - start) - int(AGGREGATE_LOOKBACK.total_seconds())) <= 5
 
 
 class TestMuxDataEndpoints:
