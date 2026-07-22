@@ -232,32 +232,27 @@ export function AiSketch(): JSX.Element {
 }
 
 export function WorldMapSketch(): JSX.Element {
+    // Choropleth-style world: simplified continents in real-ish positions,
+    // shaded by "value" (opacity) the way the actual world map insight renders.
+    const continents: { d: string; opacity: number }[] = [
+        // North America
+        { d: 'M18 22 C 26 17, 42 17, 48 22 C 51 26, 46 30, 44 34 C 40 40, 30 42, 25 37 C 21 33, 14 27, 18 22 Z', opacity: 0.4 },
+        // South America
+        { d: 'M42 46 C 49 45, 53 51, 51 58 C 49 66, 45 73, 41 68 C 39 62, 40 55, 41 50 C 41 48, 41 46, 42 46 Z', opacity: 0.55 },
+        // Europe
+        { d: 'M72 22 C 80 19, 88 21, 86 27 C 84 31, 78 33, 73 31 C 69 29, 68 24, 72 22 Z', opacity: 0.5 },
+        // Africa
+        { d: 'M78 36 C 88 35, 93 42, 91 51 C 89 60, 83 66, 79 61 C 75 55, 73 47, 75 41 C 76 39, 77 37, 78 36 Z', opacity: 0.7 },
+        // Asia (largest landmass, so highest value)
+        { d: 'M94 25 C 104 18, 126 18, 138 23 C 145 26, 144 32, 137 34 C 130 36, 124 41, 116 41 C 108 41, 100 39, 96 34 C 92 31, 89 28, 94 25 Z', opacity: 0.9 },
+        // Australia
+        { d: 'M122 58 C 131 56, 140 60, 138 66 C 136 71, 127 71, 122 67 C 119 64, 118 60, 122 58 Z', opacity: 0.3 },
+    ]
     return (
         <SketchSvg>
-            <path
-                d="M22 22 C 30 14, 44 16, 48 24 C 52 32, 44 36, 46 44 C 48 52, 38 60, 32 54 C 26 48, 28 44, 24 38 C 20 32, 16 28, 22 22 Z"
-                fill={INK}
-                opacity="0.15"
-            />
-            <path
-                d="M66 18 C 76 12, 92 14, 96 22 C 100 30, 92 34, 94 42 C 96 52, 84 58, 78 50 C 72 44, 74 38, 68 32 C 62 26, 60 22, 66 18 Z"
-                fill={INK}
-                opacity="0.15"
-            />
-            <path
-                d="M104 26 C 116 18, 136 22, 140 32 C 144 42, 132 46, 130 54 C 128 62, 116 64, 112 56 C 108 48, 112 40, 104 26 Z"
-                fill={INK}
-                opacity="0.15"
-            />
-            <path
-                d="M116 62 C 122 58, 132 60, 132 66 C 132 72, 124 74, 120 70 C 116 66, 112 66, 116 62 Z"
-                fill={INK}
-                opacity="0.15"
-            />
-            <circle cx="36" cy="34" r="9" fill={INK} opacity="0.8" />
-            <circle cx="82" cy="32" r="6" fill={INK} opacity="0.65" />
-            <circle cx="124" cy="40" r="12" fill={INK} opacity="0.9" />
-            <circle cx="123" cy="67" r="4" fill={INK} opacity="0.5" />
+            {continents.map(({ d, opacity }, index) => (
+                <path key={index} d={d} fill={INK} opacity={opacity} />
+            ))}
         </SketchSvg>
     )
 }
@@ -292,18 +287,32 @@ export function TableSketch(): JSX.Element {
 export function NumberSketch(): JSX.Element {
     return (
         <SketchSvg>
-            <rect x="26" y="14" width="44" height="6" rx="3" fill={AXIS} />
-            <text x="26" y="58" fill={INK} fontSize="34" fontWeight="700">
-                1,024
-            </text>
+            {/* Card title */}
+            <rect x="16" y="13" width="34" height="5" rx="2.5" fill={AXIS} />
+            {/* Change pill: up arrow + percentage, top-right on its own row */}
+            <rect x="100" y="10" width="44" height="16" rx="8" fill={INK_UP} opacity="0.15" />
             <path
-                d="M112 52 L119 42 L126 52"
+                d="M108 21 L112.5 14.5 L117 21"
                 stroke={INK_UP}
-                strokeWidth="2.5"
+                strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
             />
-            <rect x="26" y="66" width="24" height="5" rx="2.5" fill={INK_UP} opacity="0.8" />
+            <text x="120" y="22" fill={INK_UP} fontSize="10" fontWeight="700">
+                12%
+            </text>
+            {/* Big number */}
+            <text x="14" y="58" fill={INK} fontSize="27" fontWeight="700">
+                1,024
+            </text>
+            {/* Sparkline */}
+            <path
+                d="M16 76 C 32 74, 42 72, 56 71 C 70 70, 82 68, 96 66 C 112 63.5, 128 63, 144 68"
+                stroke={INK}
+                strokeWidth="2"
+                strokeLinecap="round"
+                opacity="0.35"
+            />
         </SketchSvg>
     )
 }
