@@ -1,6 +1,7 @@
 from typing import Any
 
 from langchain.schema import HumanMessage
+from langchain_core.exceptions import OutputParserException
 from langchain_core.prompts import ChatPromptTemplate
 
 from posthog.hogql.context import HogQLContext
@@ -227,6 +228,24 @@ The newly updated query gave us this error:
 <error>
 {e.validation_message}
 </error>""".strip()
+                    )
+                )
+            except OutputParserException as e:
+                # langchain raises this when the model's function-call arguments are truncated or
+                # malformed JSON (e.g. large multi-CTE queries that hit the output-token limit).
+                # Feed the raw output back and ask for a complete, valid response so we retry
+                # instead of surfacing an unhandled 500.
+                messages.append(
+                    HumanMessage(
+                        content=f"""
+Your previous response could not be parsed because it was not valid, complete JSON — it was likely truncated.
+
+Here is the raw output we received:
+<raw_output>
+{e.llm_output or str(e)}
+</raw_output>
+
+Please return the corrected query again as a single, complete, valid response. Keep the query as concise as possible so the full response fits within the output limit.""".strip()
                     )
                 )
         else:
