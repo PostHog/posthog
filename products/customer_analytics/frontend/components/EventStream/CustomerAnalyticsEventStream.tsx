@@ -4,11 +4,8 @@ import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { urls } from 'scenes/urls'
-
-import type { IntegrationType } from '~/types'
 
 import { eventStreamLogic } from './eventStreamLogic'
 
@@ -22,42 +19,25 @@ function ConnectSlackPrompt(): JSX.Element {
 }
 
 export function CustomerAnalyticsEventStream(): JSX.Element {
-    const { eventStream, eventStreamLoading, draft, hasChanges, testMessageLoading } = useValues(eventStreamLogic)
-    const { setDraft, resetDraft, saveEventStream, sendTestMessage } = useActions(eventStreamLogic)
-    const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
+    const {
+        eventStream,
+        eventStreamLoading,
+        draft,
+        hasChanges,
+        testMessageLoading,
+        isInitialLoading,
+        integrations,
+        selectedIntegration,
+        slackChannelValue,
+        memberCount,
+        testMessageDisabledReason,
+    } = useValues(eventStreamLogic)
+    const { setDraft, resetDraft, saveEventStream, sendTestMessage, setSlackIntegration, setSlackChannel } =
+        useActions(eventStreamLogic)
 
-    if ((integrationsLoading && slackIntegrations === undefined) || (eventStreamLoading && eventStream === null)) {
+    if (isInitialLoading) {
         return <LemonSkeleton className="h-20 w-full" />
     }
-
-    const integrations: IntegrationType[] = slackIntegrations ?? []
-    const selectedIntegration =
-        integrations.find((integration) => integration.id === draft.slack_integration) ??
-        (integrations.length === 1 ? integrations[0] : null)
-    const channelValue = draft.slack_channel_id
-        ? `${draft.slack_channel_id}|${draft.slack_channel_name || ''}`
-        : undefined
-    const memberCount = eventStream?.account_ids?.length ?? 0
-
-    const onChannelChange = (value: string | null): void => {
-        if (!selectedIntegration) {
-            return
-        }
-        const [channelId, ...nameParts] = (value ?? '').split('|')
-        setDraft({
-            slack_integration: selectedIntegration.id,
-            slack_channel_id: channelId,
-            slack_channel_name: nameParts.join('|'),
-        })
-    }
-
-    const testMessageDisabledReason = !eventStream?.slack_integration
-        ? 'Save a Slack workspace and channel first'
-        : !eventStream?.slack_channel_id
-          ? 'Save a Slack channel first'
-          : hasChanges
-            ? 'Save your changes first — the test uses the saved configuration'
-            : undefined
 
     return (
         <div className="flex flex-col gap-4">
@@ -94,21 +74,14 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
                                     value: integration.id,
                                     label: integration.display_name,
                                 }))}
-                                onChange={(integrationId) =>
-                                    // Switching workspaces clears the channel — it won't exist in the new workspace.
-                                    setDraft({
-                                        slack_integration: integrationId,
-                                        slack_channel_id: '',
-                                        slack_channel_name: '',
-                                    })
-                                }
+                                onChange={setSlackIntegration}
                             />
                         )}
                         {selectedIntegration && (
                             <SlackChannelPicker
                                 integration={selectedIntegration}
-                                value={channelValue}
-                                onChange={onChannelChange}
+                                value={slackChannelValue}
+                                onChange={setSlackChannel}
                             />
                         )}
                         <div>

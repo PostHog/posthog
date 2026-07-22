@@ -2,9 +2,12 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
+
+import type { IntegrationType } from '~/types'
 
 import {
     eventStreamsAddAccountCreate,
@@ -45,11 +48,13 @@ function draftFromStream(stream: EventStreamApi | null): EventStreamDraft {
 export const eventStreamLogic = kea<eventStreamLogicType>([
     path(['products', 'customerAnalytics', 'eventStream', 'eventStreamLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], integrationsLogic, ['slackIntegrations', 'integrationsLoading']],
     })),
     actions({
         setDraft: (draft: Partial<EventStreamDraft>) => ({ draft }),
         resetDraft: true,
+        setSlackIntegration: (integrationId: number | null) => ({ integrationId }),
+        setSlackChannel: (value: string | null) => ({ value }),
         setAccountMembership: (accountId: string, included: boolean) => ({ accountId, included }),
         membershipUpdateStarted: (accountId: string) => ({ accountId }),
         membershipUpdateFinished: (accountId: string) => ({ accountId }),
@@ -116,10 +121,67 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
                 (accountId: string): boolean =>
                     !!eventStream?.account_ids?.includes(accountId),
         ],
+        isInitialLoading: [
+            (s) => [s.integrationsLoading, s.slackIntegrations, s.eventStreamLoading, s.eventStream],
+            (
+                integrationsLoading: boolean,
+                slackIntegrations: IntegrationType[] | undefined,
+                eventStreamLoading: boolean,
+                eventStream: EventStreamApi | null
+            ): boolean =>
+                (integrationsLoading && slackIntegrations === undefined) ||
+                (eventStreamLoading && eventStream === null),
+        ],
+        integrations: [
+            (s) => [s.slackIntegrations],
+            (slackIntegrations: IntegrationType[] | undefined): IntegrationType[] => slackIntegrations ?? [],
+        ],
+        selectedIntegration: [
+            (s) => [s.integrations, s.draft],
+            (integrations: IntegrationType[], draft: EventStreamDraft): IntegrationType | null =>
+                integrations.find((integration) => integration.id === draft.slack_integration) ??
+                (integrations.length === 1 ? integrations[0] : null),
+        ],
+        slackChannelValue: [
+            (s) => [s.draft],
+            (draft: EventStreamDraft): string | undefined =>
+                draft.slack_channel_id ? `${draft.slack_channel_id}|${draft.slack_channel_name || ''}` : undefined,
+        ],
+        memberCount: [
+            (s) => [s.eventStream],
+            (eventStream: EventStreamApi | null): number => eventStream?.account_ids?.length ?? 0,
+        ],
+        testMessageDisabledReason: [
+            (s) => [s.eventStream, s.hasChanges],
+            (eventStream: EventStreamApi | null, hasChanges: boolean): string | undefined =>
+                !eventStream?.slack_integration
+                    ? 'Save a Slack workspace and channel first'
+                    : !eventStream?.slack_channel_id
+                      ? 'Save a Slack channel first'
+                      : hasChanges
+                        ? 'Save your changes first — the test uses the saved configuration'
+                        : undefined,
+        ],
     }),
     listeners(({ actions, values }) => ({
         resetDraft: () => {
             actions.setDraft(draftFromStream(values.eventStream))
+        },
+        setSlackIntegration: ({ integrationId }) => {
+            // Switching workspaces clears the channel — it won't exist in the new workspace.
+            actions.setDraft({ slack_integration: integrationId, slack_channel_id: '', slack_channel_name: '' })
+        },
+        setSlackChannel: ({ value }) => {
+            const integration = values.selectedIntegration
+            if (!integration) {
+                return
+            }
+            const [channelId, ...nameParts] = (value ?? '').split('|')
+            actions.setDraft({
+                slack_integration: integration.id,
+                slack_channel_id: channelId,
+                slack_channel_name: nameParts.join('|'),
+            })
         },
         saveEventStreamSuccess: ({ eventStream }) => {
             lemonToast.success('Event stream configuration saved')
