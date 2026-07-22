@@ -38,7 +38,6 @@ env:
     DISPLAY: ':99.0'
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
     # Verify the path filter below stays in sync with what dagster files
@@ -433,20 +432,6 @@ jobs:
               with:
                   name: junit-results-dagster-${{ matrix.group }}
                   path: junit-*.xml
-
-            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this upload skips.
-            - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              continue-on-error: true
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-dagster-${{ matrix.group }}.xml
-                  org-slug: posthog-inc
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

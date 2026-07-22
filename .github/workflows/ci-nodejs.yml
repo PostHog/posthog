@@ -15,7 +15,6 @@ env:
     OBJECT_STORAGE_BUCKET: 'posthog'
     # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -358,8 +357,7 @@ jobs:
 
             - name: Test with Jest
               id: run-jest
-              # continue-on-error so the quarantine gate below is the verdict — it passes when
-              # every failure is an already-quarantined flake, fails otherwise.
+              # continue-on-error so the "Fail on test failure" step below is the verdict.
               continue-on-error: true
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
@@ -374,10 +372,10 @@ jobs:
                   LOG_LEVEL: info
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
-                  # Emit JUnit XML for the Trunk upload below (turbo passes JEST_JUNIT_* through).
+                  # Emit JUnit XML for the artifact upload (turbo passes JEST_JUNIT_* through).
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.shard }}.xml
-                  # Trunk attributes flakes by test file; jest-junit's default suite name is the
+                  # Flake identity is per test file; jest-junit's default suite name is the
                   # describe block, so make it the file path instead.
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
@@ -401,31 +399,11 @@ jobs:
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: cd nodejs && pnpm run test:postgres-parity
 
-            # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
-            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
-            - name: Quarantine gate
-              id: quarantine_gate
-              continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-results/junit-*.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
-                  # Worst of the two test steps: the gate must know the run failed even when
-                  # only the parity step (shard 1) did. A skipped parity step counts as success.
-                  previous-step-outcome: ${{ (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && 'failure' || 'success' }}
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-
-            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
-            # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure step
-            # so a real failure still triggers it via failure().
+            # Verdict: red a real failure the in-runner quarantine didn't neutralize (quarantined
+            # tests are tolerated by frontend/jest.quarantine.ts, wired into nodejs/jest.config.js).
+            # Sits before the logs-on-failure step so a real failure still triggers it via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') }}
               shell: bash
               run: exit 1
 
