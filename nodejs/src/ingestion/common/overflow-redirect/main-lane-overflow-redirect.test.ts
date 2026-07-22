@@ -4,7 +4,7 @@ import { HealthCheckResultOk } from '~/types'
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
 import { OverflowEventBatch } from './overflow-redirect-service'
 import { OverflowRedisRepository } from './overflow-redis-repository'
-import { EventRateOverflowStrategy } from './overflow-strategy'
+import { EventRateOverflowStrategy, MergeEventRateOverflowStrategy } from './overflow-strategy'
 
 const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
     batchCheck: jest.fn().mockResolvedValue(new Map()),
@@ -214,6 +214,51 @@ describe('MainLaneOverflowRedirect', () => {
 
             expect(result.size).toBe(0)
         })
+    })
+
+    describe('merge event rate strategy', () => {
+        const createMergeAwareService = (): MainLaneOverflowRedirect =>
+            createService({
+                strategies: [
+                    { strategy: new EventRateOverflowStrategy(), bucketCapacity: 100, replenishRate: 1 },
+                    { strategy: new MergeEventRateOverflowStrategy(), bucketCapacity: 3, replenishRate: 0.01 },
+                ],
+            })
+
+        const createBatchWithEvents = (
+            token: string,
+            distinctId: string,
+            eventNames: (string | undefined)[]
+        ): OverflowEventBatch => ({
+            key: { token, distinctId },
+            eventHeaders: eventNames.map((event) => createTestEventHeaders({ token, distinct_id: distinctId, event })),
+            firstTimestamp: Date.now(),
+        })
+
+        it.each(['$identify', '$create_alias', '$merge_dangerously'])(
+            'redirects a key whose %s rate exceeds the merge bucket while under the event bucket',
+            async (eventName) => {
+                const mergeAwareService = createMergeAwareService()
+                const batch = [createBatchWithEvents('token1', 'user1', Array(5).fill(eventName))]
+
+                const result = await mergeAwareService.handleEventBatch(batch)
+
+                expect(result.has('token1:user1')).toBe(true)
+            }
+        )
+
+        it.each([['$pageview'], [undefined]])(
+            'does not count non-merge events (%s) against the merge bucket',
+            async (eventName) => {
+                const mergeAwareService = createMergeAwareService()
+                // 50 events: over the merge bucket capacity (3) but under the event bucket (100)
+                const batch = [createBatchWithEvents('token1', 'user1', Array(50).fill(eventName))]
+
+                const result = await mergeAwareService.handleEventBatch(batch)
+
+                expect(result.size).toBe(0)
+            }
+        )
     })
 
     describe('healthCheck', () => {
