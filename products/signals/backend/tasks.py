@@ -94,7 +94,7 @@ def _scout_slack_retry_countdown(exc: Exception, retries: int) -> int:
 def deliver_scout_slack_output(
     self,
     team_id: int,
-    output_type: ScoutSlackOutputType,
+    output_type: str,
     output_id: str,
     run_id: str,
     delivery_id: str,
