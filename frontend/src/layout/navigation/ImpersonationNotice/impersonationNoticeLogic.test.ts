@@ -182,7 +182,7 @@ describe('impersonationNoticeLogic', () => {
                     ],
                 },
             })
-            const openSpy = jest.spyOn(window, 'open').mockReturnValue(null)
+            const openSpy = jest.spyOn(window, 'open').mockReturnValue({} as Window)
 
             await expectLogic(logic, () => {
                 logic.actions.initiateImpersonation()
@@ -192,6 +192,33 @@ describe('impersonationNoticeLogic', () => {
 
             expect(openSpy).toHaveBeenCalledWith('https://eu.posthog.com/admin/posthog/user/?q=a', '_blank')
             expect(lemonToast.info).toHaveBeenCalled()
+            openSpy.mockRestore()
+        })
+
+        it('surfaces a manual open action instead of a success toast when the cross-region popup is blocked', async () => {
+            logic.actions.setTicketContext({ ticketId: TICKET_ID, email: 'a@example.com', region: Region.EU })
+            useMocks({
+                get: { '/admin/auth_check': () => [200, {}] },
+                post: {
+                    '/admin/impersonation/from-ticket/': () => [
+                        200,
+                        { redirect_region: 'EU', redirect_url: 'https://eu.posthog.com/admin/posthog/user/?q=a' },
+                    ],
+                },
+            })
+            const openSpy = jest.spyOn(window, 'open').mockReturnValue(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.initiateImpersonation()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isInitiatingImpersonation: false })
+
+            expect(lemonToast.info).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                expect.stringContaining('Popup blocked'),
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Open' }) })
+            )
             openSpy.mockRestore()
         })
 
@@ -233,7 +260,12 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: { '/admin/auth_check': () => [200, {}] },
                 post: {
-                    '/admin/impersonation/from-ticket/': () => [200, { success: true, ticket_id: TICKET_ID }],
+                    '/admin/impersonation/from-ticket/': () => [
+                        200,
+                        // The backend returns the resolved account's email, which can differ
+                        // from the ticket trait — the stored context must use the resolved one.
+                        { success: true, ticket_id: TICKET_ID, email: 'resolved@example.com' },
+                    ],
                 },
             })
             const originalLocation = window.location
@@ -249,7 +281,7 @@ describe('impersonationNoticeLogic', () => {
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
-                        returnToTicketContext: { ticketNumber: 42, email: 'a@example.com' },
+                        returnToTicketContext: { ticketNumber: 42, email: 'resolved@example.com' },
                     })
 
                 expect(window.location.replace).toHaveBeenCalledWith('/')

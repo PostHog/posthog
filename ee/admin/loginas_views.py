@@ -229,6 +229,12 @@ def loginas_user_from_ticket(request):
         if not target_user:
             return JsonResponse({"error": "No user found for this ticket's verified identity"}, status=404)
     else:
+        # Verified non-widget tickets (Slack/Teams/email) attest an email into the
+        # read-only distinct_id, yet still resolve here via the email trait — which
+        # anyone with ticket write access on the internal support project can edit,
+        # so such a ticket can be repointed at another account post-verification.
+        # Accepted risk: writers are internal staff and impersonation is audited.
+        # Resolving verified tickets by distinct_id regardless of channel closes it.
         email = ticket.anonymous_traits.get("email") if ticket.anonymous_traits else None
         if not email:
             return JsonResponse({"error": "Ticket has no associated email"}, status=400)
@@ -246,6 +252,17 @@ def loginas_user_from_ticket(request):
     staff_user = request.user
     loginas_user_login(request, str(target_user.id))
 
+    # A loginas rejection (CAN_LOGIN_AS, missing reason) redirects without touching the
+    # session, and its rejection redirect can equal the success one (referer defaults
+    # to "/"), so neither the response nor is_impersonated_session alone can distinguish
+    # this attempt from an impersonation that was already active. A successful login
+    # rebinds request.user to the target — gate the session mutations on that, so a
+    # rejected attempt can't stamp this ticket (or an impersonation_started event for
+    # its user) onto an unrelated session.
+    login_succeeded = is_impersonated_session(request) and request.user.pk == target_user.pk
+    if not login_succeeded:
+        return JsonResponse({"error": "Failed to initiate impersonation"}, status=403)
+
     _configure_impersonation_session(
         request,
         staff_user,
@@ -255,7 +272,7 @@ def loginas_user_from_ticket(request):
         ticket_id=str(ticket.id),
     )
 
-    if is_impersonated_session(request):
-        return JsonResponse({"success": True, "ticket_id": str(ticket.id)})
-
-    return JsonResponse({"error": "Failed to initiate impersonation"}, status=403)
+    # The resolved account's email can differ from the ticket's mutable email trait;
+    # return it so the frontend keys its return-to-ticket context on the identity
+    # actually impersonated.
+    return JsonResponse({"success": True, "ticket_id": str(ticket.id), "email": target_user.email})

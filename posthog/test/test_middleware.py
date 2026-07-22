@@ -26,7 +26,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import IMPERSONATION_TICKET_ID_SESSION_KEY, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -2456,6 +2456,24 @@ class TestLoginAsFromTicket(APIBaseTest):
             res = self._post({"ticket_id": str(ticket.id)})
         assert res.status_code == 200
         assert self.client.get("/api/users/@me").json()["email"] == "attacker@posthog.com"
+
+    def test_rejected_login_during_active_impersonation_is_not_reported_as_success(self):
+        staff_target = User.objects.create_and_join(self.organization, email="staff2@posthog.com", password="123456")
+        staff_target.is_staff = True
+        staff_target.save()
+
+        first = self._create_ticket({"email": "customer@posthog.com"})
+        second = self._create_ticket({"email": "staff2@posthog.com"})
+        with self._as_internal_team():
+            assert self._post({"ticket_id": str(first.id)}).status_code == 200
+            res = self._post({"ticket_id": str(second.id)})
+
+        # CAN_LOGIN_AS rejects staff targets without touching the session, so the
+        # session still impersonates the first customer — the failure must not
+        # masquerade as success or re-stamp the ticket context.
+        assert res.status_code == 403
+        assert self.client.get("/api/users/@me").json()["email"] == "customer@posthog.com"
+        assert self.client.session.get(IMPERSONATION_TICKET_ID_SESSION_KEY) == str(first.id)
 
     def test_verified_ticket_with_unresolvable_identity_does_not_fall_back_to_email(self):
         ticket = self._create_ticket({"email": "customer@posthog.com"})

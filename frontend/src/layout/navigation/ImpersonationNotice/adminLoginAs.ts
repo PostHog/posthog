@@ -101,6 +101,9 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
 export interface LoginAsFromTicketResult {
     success?: boolean
     ticket_id?: string
+    // Email of the account actually impersonated — can differ from the ticket's
+    // mutable email trait when the target was resolved from the attested identity.
+    email?: string
     // Set when the ticket belongs to a different region; staff should be sent there instead.
     redirect_url?: string
     redirect_region?: string
