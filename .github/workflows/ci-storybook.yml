@@ -161,8 +161,8 @@ jobs:
                   echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
     build-storybook:
-        name: Build Storybook (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Build Storybook (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
         # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
         # runner yields a slow-but-green build instead of a cancelled one that hard-fails
@@ -340,7 +340,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
         if: >-
             always()

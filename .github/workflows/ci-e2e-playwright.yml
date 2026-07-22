@@ -445,7 +445,7 @@ jobs:
         # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
         # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-latest-8
+        runs-on: depot-ubuntu-24.04-8
         timeout-minutes: 45
         permissions:
             contents: read

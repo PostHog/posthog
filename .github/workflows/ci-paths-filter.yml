@@ -16,7 +16,7 @@ permissions:
 jobs:
     verify:
         name: Test and verify committed bundle
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         defaults:
             run:

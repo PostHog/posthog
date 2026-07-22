@@ -80,7 +80,7 @@ jobs:
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.node_files == 'true') ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.node_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run

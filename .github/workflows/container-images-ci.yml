@@ -118,7 +118,7 @@ jobs:
         needs: changes
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
