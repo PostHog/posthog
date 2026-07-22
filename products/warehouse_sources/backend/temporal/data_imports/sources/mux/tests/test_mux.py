@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -11,13 +12,20 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import mux
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux import (
+    INCREMENTAL_OVERLAP,
     MuxResumeConfig,
+    _as_epoch,
     _normalize_row,
     _strip_sensitive_fields,
+    _timeframe_params,
     get_validation_status,
     mux_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import MUX_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import (
+    AGGREGATE_LOOKBACK,
+    MUX_ENDPOINTS,
+    VIDEO_VIEWS_INITIAL_LOOKBACK,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -59,7 +67,13 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
-def _run(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
+def _run(
+    endpoint: str,
+    manager: mock.MagicMock,
+    *,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> list[dict[str, Any]]:
     response = mux_source(
         access_token_id="id",
         secret_key="secret",
@@ -67,6 +81,8 @@ def _run(endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
         team_id=1,
         job_id="j",
         resumable_source_manager=manager,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
     )
     return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
@@ -313,3 +329,102 @@ class TestMuxSourceResponse:
         assert response.name == "uploads"
         assert response.partition_mode is None
         assert response.partition_keys is None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metrics_comparison_keys_on_metric_and_is_unpartitioned(self, _MockSession) -> None:
+        response = mux_source(
+            "id", "secret", "metrics_comparison", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.primary_keys == ["metric"]
+        assert response.partition_mode is None
+        assert response.sort_mode == "asc"
+
+
+class TestAsEpoch:
+    def test_parses_iso_string_as_utc(self) -> None:
+        # 2023-01-01T00:00:00Z == 1672531200 seconds since epoch.
+        assert _as_epoch("2023-01-01T00:00:00Z") == 1672531200
+
+    def test_accepts_datetime(self) -> None:
+        assert _as_epoch(datetime(2023, 1, 1, tzinfo=UTC)) == 1672531200
+
+    def test_naive_datetime_treated_as_utc(self) -> None:
+        # Mux `view_end` values are UTC; a tz-naive watermark must not shift by the local offset.
+        assert _as_epoch(datetime(2023, 1, 1)) == 1672531200
+
+
+class TestTimeframeParams:
+    def test_incremental_window_starts_before_watermark(self) -> None:
+        params = _timeframe_params(
+            MUX_ENDPOINTS["video_views"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2023-01-01T00:00:00Z",
+        )
+        start, end = params["timeframe[]"]
+        assert start == 1672531200 - int(INCREMENTAL_OVERLAP.total_seconds())
+        assert end >= start
+
+    def test_first_video_views_sync_uses_short_lookback(self) -> None:
+        params = _timeframe_params(
+            MUX_ENDPOINTS["video_views"], should_use_incremental_field=True, db_incremental_field_last_value=None
+        )
+        start, end = params["timeframe[]"]
+        # First incremental sync windows by the modest video-views lookback, not the wide aggregate one.
+        assert abs((end - start) - int(VIDEO_VIEWS_INITIAL_LOOKBACK.total_seconds())) <= 5
+
+    def test_full_refresh_aggregate_uses_wide_lookback(self) -> None:
+        # Aggregate endpoints ignore any watermark and window by the wide (~13 month) retention lookback,
+        # so a sync summarizes essentially all the history Mux keeps rather than a trailing month.
+        params = _timeframe_params(
+            MUX_ENDPOINTS["errors"],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2023-01-01T00:00:00Z",
+        )
+        start, end = params["timeframe[]"]
+        assert abs((end - start) - int(AGGREGATE_LOOKBACK.total_seconds())) <= 5
+
+
+class TestMuxDataEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_video_views_incremental_windows_from_watermark(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"data": [{"id": "v1", "view_end": "2023-02-01T00:00:00Z"}]})])
+
+        rows = _run(
+            "video_views",
+            _make_manager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2023-01-01T00:00:00Z",
+        )
+
+        assert [r["id"] for r in rows] == ["v1"]
+        start, _end = params[0]["timeframe[]"]
+        assert start == 1672531200 - int(INCREMENTAL_OVERLAP.total_seconds())
+        # Oldest-first so the asc watermark advances safely, and page pagination still applies.
+        assert params[0]["order_direction"] == "asc"
+        assert params[0]["limit"] == 100
+        assert params[0]["page"] == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_video_views_full_refresh_omits_order_direction(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"data": [{"id": "v1", "view_end": "2023-02-01T00:00:00Z"}]})])
+
+        _run("video_views", _make_manager(), should_use_incremental_field=False)
+
+        assert "timeframe[]" in params[0]
+        assert "order_direction" not in params[0]
+
+    @parameterized.expand([("errors",), ("metrics_comparison",)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_response_endpoints_fetch_once_with_timeframe(self, endpoint: str, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"data": [{"id": 1, "code": 500}]})])
+
+        rows = _run(endpoint, _make_manager())
+
+        assert len(rows) == 1
+        # Single-page paginator: exactly one request, no page/limit walking.
+        assert session.send.call_count == 1
+        assert "timeframe[]" in params[0]
+        assert "page" not in params[0]
