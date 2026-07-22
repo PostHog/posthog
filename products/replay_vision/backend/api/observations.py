@@ -873,13 +873,13 @@ class ReplayObservationViewSet(
         description=(
             "Set or update the observation's shared label: whether the scanner scored the session correctly, "
             "plus optional feedback on what it got wrong. One label per observation, shared across the team; "
-            "these labels feed prompt improvement. Requires session recording edit access."
+            "these labels feed prompt improvement. Requires editor access to the scanner."
         ),
     )
     @extend_schema(
         methods=["DELETE"],
         responses={204: None},
-        description="Remove the observation's shared label. Requires session recording edit access.",
+        description="Remove the observation's shared label. Requires editor access to the scanner.",
     )
     @action(
         detail=True,
@@ -895,11 +895,10 @@ class ReplayObservationViewSet(
             raise NotFound()
         observation = self.get_object()
         # Label writes are scanner writes; the session route's get_object only object-checks the observation row.
+        # `label`'s required_scopes carries replay_scanner:write, so this already resolves to an editor-level
+        # check — object-level too, so a per-scanner grant correctly overrides a resource-wide "none" default.
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         self.check_object_permissions(self.request, scanner)
-        # Editing the shared label needs edit access, not just the viewer access reading needs.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):
-            raise PermissionDenied("Editing observation labels requires session_recording edit access.")
         user = cast(User, request.user)
         if request.method == "DELETE":
             ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id).delete()

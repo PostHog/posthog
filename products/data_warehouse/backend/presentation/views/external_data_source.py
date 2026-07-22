@@ -19,9 +19,10 @@ import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from openai import APIConnectionError
+from opentelemetry import trace
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -166,6 +167,7 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 logger = structlog.get_logger(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
+RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
@@ -1000,6 +1002,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")
+            if ExternalDataSource.is_system_managed_prefix(normalized_prefix):
+                raise ValidationError(RESERVED_SOURCE_NAME_MESSAGE)
             validated_data["prefix"] = normalized_prefix
         else:
             validated_data["prefix"] = instance.prefix
@@ -1712,6 +1716,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
 
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSource):
+            if obj.is_system_managed:
+                raise PermissionDenied("This source is managed by PostHog and cannot be changed through this API.")
+
     def dangerously_get_permissions(self):
         # The account picker enumerates every account/site the connected provider exposes, so require
         # manage access even though it's a GET — a read-only member shouldn't discover unrelated
@@ -1738,6 +1748,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ]
         return super().get_throttles()
 
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # Tag the request span with the two things that drive source-list load cost — source count and
+        # total serialized schema count — so the historically-slow list endpoint is diagnosable in
+        # tracing. Done here rather than by overriding `list`, since a method named `list` would shadow
+        # the builtin `list[...]` type used in annotations elsewhere in this class. Guarded for shape
+        # because finalize_response also runs for error responses (no `results`) and other actions.
+        if self.action == "list" and isinstance(response.data, dict):
+            results = response.data.get("results")
+            if isinstance(results, list):
+                span = trace.get_current_span()
+                span.set_attribute("data_warehouse.sources.count", len(results))
+                span.set_attribute(
+                    "data_warehouse.sources.schemas.count",
+                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
+                )
+        return response
+
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
             return ExternalDataSourceCreateSerializer
@@ -1760,8 +1788,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def safely_get_queryset(self, queryset):
         return (
             queryset.exclude(deleted=True)
+            # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
+            # serialization. select_related folds them into the main query instead of firing one
+            # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
+            # list load (up to one query, and a get_or_create write, per source).
+            .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
-                "created_by",
                 Prefetch(
                     "jobs",
                     queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
@@ -2014,6 +2046,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 created_via = ExternalDataSource.CreatedVia.SELF_DRIVING
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
 
+        if ExternalDataSource.is_system_managed_prefix(prefix):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": RESERVED_SOURCE_NAME_MESSAGE},
+            )
+
         if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2109,7 +2147,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             payload.get("cdc_enabled", False) and cdc_adapter is not None and is_cdc_enabled_for_team(self.team)
         )
 
-        source_schemas = source.get_schemas(source_config, self.team_id)
+        try:
+            source_schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased scaffold the UI hides).
+            # Roll back the row just created so a caller can't accumulate orphaned sources, and return
+            # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
@@ -3501,13 +3549,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         and by the self-managed setup popup to verify user-created publications.
         """
         source_type = request.data.get("source_type")
-        if not source_type_supports_cdc(source_type):
+        if not isinstance(source_type, str) or not source_type_supports_cdc(source_type):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
             )
 
-        source_impl: PostgresSource = PostgresSource()
+        # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
+        # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        if not isinstance(source_impl, PostgresSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC prerequisite checks are not supported for source type: {source_type}"},
+            )
         is_valid, errors = source_impl.validate_config(request.data)
         if not is_valid:
             return Response(
@@ -4143,6 +4198,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+
+        if ExternalDataSource.is_system_managed_prefix(prefix):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": RESERVED_SOURCE_NAME_MESSAGE},
+            )
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
             if source_type not in direct_capable_source_types():

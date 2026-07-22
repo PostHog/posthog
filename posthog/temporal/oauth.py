@@ -112,7 +112,11 @@ PosthogMcpScopes = McpScopePreset | list[str]
 MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports")
 
 
-def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
+def resolve_scopes(
+    scopes: PosthogMcpScopes = "read_only",
+    *,
+    include_internal_scopes: bool = True,
+) -> list[str]:
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":

@@ -193,6 +193,15 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
         if (issue.code === 'unrecognized_keys') {
             return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
         }
+        // A too-long string names the limit and the input's actual length so the
+        // agent knows how much to trim (zod's default names only the limit).
+        // Surfaces the LENGTH only, never the value: the message is returned to
+        // the caller and recorded as the analytics error_message. `issue.input`
+        // is only present under `reportInput: true`; without it, or for
+        // non-string origins, fall through to zod's limit-naming default.
+        if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+        }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
@@ -237,9 +246,15 @@ export function describeValidationError(
     return { fields, inputKeys }
 }
 
-/** Whether the tool's input schema declares an `output_format` field. */
+/** Whether the tool's input schema declares an `output_format` field. Unwraps
+ *  `z.preprocess(...)` pipes (e.g. the id-alias normalization on insight-query)
+ *  to reach the underlying object schema. */
 function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
-    return schema instanceof z.ZodObject && 'output_format' in schema.shape
+    let current: z.ZodType = schema
+    while (current instanceof z.ZodPipe) {
+        current = current.out as z.ZodType
+    }
+    return current instanceof z.ZodObject && 'output_format' in current.shape
 }
 
 /**

@@ -125,11 +125,12 @@ def _max_ts(*candidates: str | None) -> str:
 def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     """Render a message author as a labeled Slack mention when we have the raw id.
 
-    `<@U…|displayname>` is the wire-format token Slack accepts on both inbound and
-    outbound messages; including it here means the agent sees who wrote each line
-    *and* can echo the token verbatim to ping that participant back. When the raw
-    id is missing (bots, app-posted messages, unresolved users), fall back to the
-    plain display name so the line still reads naturally.
+    `<@U…|displayname>` is the form Slack uses to deliver mentions inbound; rendering
+    it here means the agent sees who wrote each line *and* can echo the token verbatim
+    to ping that participant back (the Slack relay rewrites echoed tokens to the bare
+    `<@U…>` on the way out, which is what actually notifies). When the raw id is missing
+    (bots, app-posted messages, unresolved users), fall back to the plain display name
+    so the line still reads naturally.
     """
     name = (display_name or "").strip() or "user"
     uid = (user_id or "").strip()
