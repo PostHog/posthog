@@ -4159,6 +4159,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             live_status = adapter.get_status(instance)
+        except OperationalError as e:
+            # Source DB unreachable (e.g. ConnectionTimeout) is routine and already surfaced
+            # to the UI via the 400 below — log it rather than opening an error-tracking issue.
+            logger.warning(
+                "Could not connect to source to read CDC status",
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                exc_info=e,
+            )
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to read CDC status: {e}"},
+            )
         except Exception as e:
             # An unreachable source DB is the degraded state this endpoint exists to report, so
             # don't capture expected connection failures as error-tracking noise. Capture only
