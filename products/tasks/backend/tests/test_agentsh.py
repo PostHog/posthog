@@ -132,6 +132,22 @@ class TestGeneratePolicyYaml(TestCase):
         policy = yaml.safe_load(generate_policy_yaml([]))
         self.assertIn("POSTHOG_*", policy["env_policy"]["allow"])
 
+    def test_env_policy_allows_gateway_selection_vars(self):
+        # AI_GATEWAY_URL picks the Go gateway and AI_GATEWAY_PRODUCTS scopes it. If
+        # the firewall strips either, the sandbox silently stays on the Python
+        # gateway, so a migrated product keeps billing under its old tag.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        for key in ("LLM_GATEWAY_URL", "AI_GATEWAY_URL", "AI_GATEWAY_PRODUCTS"):
+            self.assertIn(key, policy["env_policy"]["allow"])
+
+    def test_go_gateway_hosts_reachable(self):
+        # The Go gateway is a different hostname from the Python one; without an
+        # allow-domains entry every sandbox model call is denied at the syscall layer.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("ai-gateway.us.posthog.com", allow_rule["domains"])
+        self.assertIn("ai-gateway.eu.posthog.com", allow_rule["domains"])
+
     @override_settings(DEBUG=True)
     def test_debug_mode_adds_dev_ports(self):
         policy = yaml.safe_load(generate_policy_yaml([]))

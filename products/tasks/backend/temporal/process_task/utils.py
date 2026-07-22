@@ -1148,6 +1148,10 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
+        env_vars["AI_GATEWAY_URL"] = settings.SANDBOX_AI_GATEWAY_URL
+        env_vars["AI_GATEWAY_PRODUCTS"] = settings.SANDBOX_AI_GATEWAY_PRODUCTS
+
     return env_vars
 
 

@@ -226,6 +226,10 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+        if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
+            environment_variables["AI_GATEWAY_URL"] = settings.SANDBOX_AI_GATEWAY_URL
+            environment_variables["AI_GATEWAY_PRODUCTS"] = settings.SANDBOX_AI_GATEWAY_PRODUCTS
+
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
         run_state = parse_run_state(ctx.state)
