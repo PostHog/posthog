@@ -98,6 +98,7 @@ You can find the API key in your Appstack dashboard settings. API keys are scope
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = build_endpoint_schemas(
             ENDPOINTS,
@@ -118,7 +119,11 @@ You can find the API key in your Appstack dashboard settings. API keys are scope
         return schemas
 
     def validate_credentials(
-        self, config: AppstackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AppstackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             if validate_appstack_credentials(config.api_key):

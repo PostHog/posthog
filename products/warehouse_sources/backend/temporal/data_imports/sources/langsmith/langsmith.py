@@ -60,6 +60,13 @@ MAX_CURSOR_BYTES = 8 * 1024
 # make hitting this in one attempt take days.
 MAX_PAGES_PER_RUN = 50_000
 
+# Cap the total bytes of session ids accumulated while scoping the runs query. `host` is
+# user-controlled and returns arbitrary `id` strings on every project page, so without a cumulative
+# cap a host could return unboundedly many (or oversized) ids across thousands of pages — well
+# before MAX_PAGES_PER_RUN trips — and exhaust a shared import worker's memory. ~58k real UUIDs'
+# worth, far beyond any legitimate workspace's tracing-project count.
+MAX_SESSION_IDS_BYTES = 2 * 1024 * 1024
+
 
 class LangSmithRetryableError(Exception):
     pass
@@ -323,6 +330,53 @@ def _fetch_page(
         return json.loads(raw) if raw else None
 
 
+def _list_session_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    logger: FilteringBoundLogger,
+) -> list[str]:
+    """Collect every tracing-project (session) id in the workspace.
+
+    runs/query rejects a request that doesn't scope to at least one of session/id/parent_run/
+    trace/reference_example; this sync pulls runs across every project, so it scopes by every
+    session id in the workspace instead of narrowing to one.
+    """
+    config = LANGSMITH_ENDPOINTS["projects"]
+    ids: list[str] = []
+    ids_bytes = 0
+    offset = 0
+    pages = 0
+    while True:
+        url = f"{base_url}{config.path}?{urlencode({'limit': config.page_size, 'offset': offset})}"
+        data = _fetch_page(session, url, headers, logger)
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            break
+        for row in rows:
+            row_id = row.get("id")
+            if not row_id:
+                continue
+            ids.append(row_id)
+            ids_bytes += len(row_id.encode())
+            if ids_bytes > MAX_SESSION_IDS_BYTES:
+                raise LangSmithResponseTooLargeError(
+                    f"LangSmith returned an oversized set of tracing-project ids "
+                    f"(> {MAX_SESSION_IDS_BYTES} bytes) while scoping the runs query"
+                )
+        if len(rows) < config.page_size:
+            break
+        offset += config.page_size
+        # Same hostile-host guard as the other paginators: a host returning a full page forever
+        # must not hold the worker until the activity timeout.
+        pages += 1
+        if pages >= MAX_PAGES_PER_RUN:
+            raise LangSmithPageLimitError(
+                f"LangSmith session listing hit the {MAX_PAGES_PER_RUN}-page limit while scoping the runs query"
+            )
+    return ids
+
+
 def _get_runs_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -350,6 +404,13 @@ def _get_runs_rows(
         start = _resolve_window_start(config, should_use_incremental_field, db_incremental_field_last_value)
         window_start = _format_datetime(start) if start is not None else None
 
+    # runs/query requires at least one of session/id/parent_run/trace/reference_example in the
+    # body (a 400 otherwise) — there's no such thing as an unscoped query across a workspace.
+    session_ids = _list_session_ids(session, headers, base_url, logger)
+    if not session_ids:
+        logger.debug("LangSmith: no tracing projects in workspace, nothing to sync for runs")
+        return
+
     body: dict[str, Any] = {
         "limit": config.page_size,
         "select": RUNS_SELECT_FIELDS,
@@ -357,6 +418,7 @@ def _get_runs_rows(
         # window bound. The watermark still only persists at job end (sort_mode="desc") since we
         # can't verify the ordering guarantee across every LangSmith deployment.
         "order": "asc",
+        "session": session_ids,
     }
     if window_start:
         body["start_time"] = window_start

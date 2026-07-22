@@ -71,9 +71,11 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "hog_flow",
     "insight",
     "llm_analytics",
+    "ai_observability_clusters",
     "notebook",
     "revenue_analytics",
     "session_recording",
+    "sharing_configuration",
     "survey",
     "web_analytics",
     "activity_log",
@@ -81,6 +83,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "logs",
     "metrics",
     "tracing",
+    "replay_scanner",
     "toolbar",
 )
 
@@ -106,6 +109,10 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
     # AccessControlResourceType.WebAnalytics).
     "marketing_analytics": "web_analytics",
+    # Vision actions are a second data model of the Replay Vision product (the
+    # scanner's "and then…" automations) — configured via the same single
+    # replay_scanner rule rather than a separate resource.
+    "vision_action": "replay_scanner",
 }
 
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
@@ -155,6 +162,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "hog_flow":
         return "workflows"
+    if resource == "ai_observability_clusters":
+        return "AI trace clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
     if resource == "warehouse_objects":
@@ -306,6 +315,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "plugin"
     if name == "sessionrecording":
         return "session_recording"
+    if name == "sharingconfiguration":
+        return "sharing_configuration"
     if name == "exportedasset":
         return "export"
     if name == "sessionrecordingplaylist":

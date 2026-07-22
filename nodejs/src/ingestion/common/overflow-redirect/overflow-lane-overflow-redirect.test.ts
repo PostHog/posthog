@@ -1,7 +1,8 @@
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { HealthCheckResultError, HealthCheckResultOk } from '~/types'
 
 import { OverflowLaneOverflowRedirect } from './overflow-lane-overflow-redirect'
-import { OverflowEventBatch } from './overflow-redirect-service'
+import { OverflowEventGroup } from './overflow-redirect-service'
 import { OverflowRedisRepository } from './overflow-redis-repository'
 
 const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
@@ -11,14 +12,16 @@ const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
     healthCheck: jest.fn().mockResolvedValue(new HealthCheckResultOk()),
 })
 
-const createBatch = (
+const createGroup = (
     token: string,
     distinctId: string,
     eventCount: number = 1,
     firstTimestamp: number = Date.now()
-): OverflowEventBatch => ({
+): OverflowEventGroup => ({
     key: { token, distinctId },
-    eventCount,
+    headersPerEvent: Array.from({ length: eventCount }, () =>
+        createTestEventHeaders({ token, distinct_id: distinctId })
+    ),
     firstTimestamp,
 })
 
@@ -36,7 +39,7 @@ describe('OverflowLaneOverflowRedirect', () => {
 
     describe('handleEventBatch', () => {
         it('always returns empty set (no redirects from overflow lane)', async () => {
-            const batch = [createBatch('token1', 'user1', 100), createBatch('token1', 'user2', 100)]
+            const batch = [createGroup('token1', 'user1', 100), createGroup('token1', 'user2', 100)]
 
             const result = await service.handleEventBatch(batch)
 
@@ -44,7 +47,7 @@ describe('OverflowLaneOverflowRedirect', () => {
         })
 
         it('refreshes TTL for all keys in batch', async () => {
-            const batch = [createBatch('token1', 'user1'), createBatch('token1', 'user2')]
+            const batch = [createGroup('token1', 'user1'), createGroup('token1', 'user2')]
 
             await service.handleEventBatch(batch)
 
@@ -60,7 +63,7 @@ describe('OverflowLaneOverflowRedirect', () => {
                 overflowType: 'recordings',
             })
 
-            await recordingsService.handleEventBatch([createBatch('token1', 'session1')])
+            await recordingsService.handleEventBatch([createGroup('token1', 'session1')])
 
             expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('recordings', [
                 { token: 'token1', distinctId: 'session1' },
@@ -76,9 +79,9 @@ describe('OverflowLaneOverflowRedirect', () => {
 
         it('sends all keys in a single batchRefreshTTL call', async () => {
             const batch = [
-                createBatch('token1', 'user1'),
-                createBatch('token1', 'user2'),
-                createBatch('token2', 'user1'),
+                createGroup('token1', 'user1'),
+                createGroup('token1', 'user2'),
+                createGroup('token2', 'user1'),
             ]
 
             await service.handleEventBatch(batch)
@@ -97,7 +100,7 @@ describe('OverflowLaneOverflowRedirect', () => {
             // The repository layer handles Redis errors internally (fail-open)
             // From the service perspective, batchRefreshTTL completes without error
             // and the service still returns an empty set (no redirects from overflow lane)
-            const batch = [createBatch('token1', 'user1')]
+            const batch = [createGroup('token1', 'user1')]
 
             const result = await service.handleEventBatch(batch)
 
