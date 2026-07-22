@@ -10,12 +10,16 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use common_redis::MockRedisClient;
-use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
+use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY, QUOTA_LIMITING_SUSPENDED_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::prometheus::{
+    CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL, CAPTURE_EVENTS_DROPPED_TOTAL,
+};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
@@ -69,6 +73,23 @@ async fn setup_router_with_limits(
     // resources that will be set limited for the given token for scoped limiters to detect
     resources_to_limit: Vec<QuotaResource>,
 ) -> (Router, MemorySink) {
+    setup_router_with_limits_and_grace(
+        token,
+        capture_mode,
+        set_global_limit,
+        false,
+        resources_to_limit,
+    )
+    .await
+}
+
+async fn setup_router_with_limits_and_grace(
+    token: &str,
+    capture_mode: CaptureMode,
+    set_global_limit: bool,
+    set_grace_period: bool,
+    resources_to_limit: Vec<QuotaResource>,
+) -> (Router, MemorySink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
@@ -91,12 +112,25 @@ async fn setup_router_with_limits(
         QUOTA_LIMITER_CACHE_KEY,
         global_billing_resource.as_str()
     );
+    let grace_period_key = format!(
+        "{}{}",
+        QUOTA_LIMITING_SUSPENDED_CACHE_KEY,
+        global_billing_resource.as_str()
+    );
 
     let mut redis = if set_global_limit {
         MockRedisClient::new().zrangebyscore_ret(&global_billing_key, vec![token.to_string()])
     } else {
         MockRedisClient::new().zrangebyscore_ret(&global_billing_key, vec![])
     };
+    redis = redis.zrangebyscore_ret(
+        &grace_period_key,
+        if set_grace_period {
+            vec![token.to_string()]
+        } else {
+            vec![]
+        },
+    );
 
     // TODO: add more scoped limiter resource types here as needed!
     for resource in &[
@@ -112,7 +146,14 @@ async fn setup_router_with_limits(
             vec![]
         };
 
-        redis = redis.zrangebyscore_ret(&key, limited_tokens)
+        redis = redis.zrangebyscore_ret(&key, limited_tokens);
+
+        let scoped_grace_key = format!(
+            "{}{}",
+            QUOTA_LIMITING_SUSPENDED_CACHE_KEY,
+            resource.as_str()
+        );
+        redis = redis.zrangebyscore_ret(&scoped_grace_key, vec![]);
     }
 
     let redis = Arc::new(redis);
@@ -134,7 +175,7 @@ async fn setup_router_with_limits(
         TokenDropper::default(),
         None,  // event_restriction_service
         false, // metrics
-        CaptureMode::Events,
+        capture_mode,
         String::from("capture"),
         None,             // concurrency_limit
         1024 * 1024,      // event_payload_size_limit
@@ -157,6 +198,20 @@ async fn setup_router_with_limits(
     );
 
     (app, sink)
+}
+
+fn create_recording_payload(token: &str) -> String {
+    serde_json::json!({
+        "token": token,
+        "event": "$snapshot",
+        "distinct_id": "test_user_id",
+        "properties": {
+            "$session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+            "$window_id": "test_window_id",
+            "$snapshot_data": [{"type": 2, "data": {"source": 0}, "timestamp": 1753963200000_i64}]
+        }
+    })
+    .to_string()
 }
 
 fn create_batch_payload_with_token(events: &[&str], token: &str) -> String {
@@ -194,6 +249,111 @@ fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
             event_data["event"].as_str().unwrap().to_string()
         })
         .collect()
+}
+
+/// Scans a metrics snapshot for a single counter matching `metric_name` and
+/// carrying a label `label_key` == `label_value`.
+fn counter_with_label(
+    snapshotter: &Snapshotter,
+    metric_name: &str,
+    label_key: &str,
+    label_value: &str,
+) -> Option<u64> {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .find_map(|(key, _, _, value)| {
+            if key.key().name() != metric_name {
+                return None;
+            }
+            let metric_label = key
+                .key()
+                .labels()
+                .find(|label| label.key() == label_key)
+                .map(|label| label.value());
+            if metric_label != Some(label_value) {
+                return None;
+            }
+            match value {
+                DebugValue::Counter(count) => Some(count),
+                _ => None,
+            }
+        })
+}
+
+fn grace_period_count(snapshotter: &Snapshotter, resource: &str) -> Option<u64> {
+    counter_with_label(
+        snapshotter,
+        CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+        "resource",
+        resource,
+    )
+}
+
+fn dropped_events_count(snapshotter: &Snapshotter, cause: &str) -> Option<u64> {
+    counter_with_label(snapshotter, CAPTURE_EVENTS_DROPPED_TOTAL, "cause", cause)
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_recording_grace_period_counts_admitted_snapshots() {
+    let token = "test_token_recording_grace_period";
+    let (router, sink) =
+        setup_router_with_limits_and_grace(token, CaptureMode::Recordings, false, true, vec![])
+            .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
+    let client = TestClient::new(router);
+
+    let response = client
+        .post("/s")
+        .body(create_recording_payload(token))
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(sink.events().len(), 1);
+    assert_eq!(grace_period_count(&snapshotter, "recordings"), Some(1));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_global_limit_takes_precedence_over_global_grace_period() {
+    let token = "test_token_global_limit_and_grace";
+    let (router, sink) =
+        setup_router_with_limits_and_grace(token, CaptureMode::Events, true, true, vec![]).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
+    let client = TestClient::new(router);
+
+    let response = client
+        .post("/e")
+        .body(create_batch_payload_with_token(&["$exception"], token))
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(sink.events().len(), 1);
+    // Positive control: the global limit's drop-accounting pass in
+    // `check_and_filter` does observe this request (it counts the event
+    // toward `events_over_quota` even though the event survives via
+    // `retained_indices`), so the grace `None` assertion below provably means
+    // "suppressed by the grace-period logic", not "the recorder never saw
+    // this request".
+    assert_eq!(
+        dropped_events_count(&snapshotter, "events_over_quota"),
+        Some(1)
+    );
+    assert_eq!(grace_period_count(&snapshotter, "events"), None);
 }
 
 #[tokio::test]

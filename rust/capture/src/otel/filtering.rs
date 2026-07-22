@@ -28,7 +28,10 @@ pub async fn check_quota(
     let refs: Vec<&SpanEvent> = span_events.iter().collect();
     let count = refs.len();
 
-    match limiter.check_and_filter(token, refs).await {
+    match limiter
+        .check_and_filter_without_reporting(token, refs)
+        .await
+    {
         Ok(filtered) if filtered.len() == count => Ok(()),
         Ok(filtered) => {
             let dropped = count - filtered.len();

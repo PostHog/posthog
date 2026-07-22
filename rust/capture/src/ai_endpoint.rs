@@ -285,6 +285,10 @@ async fn ai_handler_inner(
         {
             return Err(CaptureError::BillingLimit);
         }
+        state
+            .quota_limiter
+            .report_global_grace_period_admission(token, 1)
+            .await;
         event_metadata
     } else {
         // We pass a single-element vec and check if it's filtered out
@@ -292,7 +296,6 @@ async fn ai_handler_inner(
             .quota_limiter
             .check_and_filter(token, vec![event_metadata])
             .await?;
-
         // If the event was filtered out by quota limiter, return billing limit error
         filtered
             .into_iter()

@@ -6,6 +6,45 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
 
+/// Counts events admitted while their org's token is in a billing grace
+/// period (the `@posthog/quota-limiting-suspended/<resource>` Redis set),
+/// i.e. events that would otherwise have been eligible for quota-limit
+/// enforcement. This is a measurement counter, not a billing source of
+/// truth — read it with these caveats:
+///
+/// - **Measurement point, not ingested volume.** It's incremented once an
+///   event has passed the billing quota gate for its path, before later
+///   stages that can still reject the batch (payload validation, Kafka
+///   sink, etc). Retries after a post-count failure re-increment the
+///   counter even though the event is only ingested once, so treat this as
+///   an upper bound on admitted volume, not an exact count.
+/// - **`resource` label units vary.** Most resources count individual
+///   events, but `resource="recordings"` counts raw `$snapshot` events —
+///   unlike the rest of billing, where "recordings" means deduplicated
+///   billable sessions. Don't read this label as "billable recordings
+///   admitted".
+/// - **Attribution when only the global grace period is active.** Scoped
+///   grace periods (`resource="exceptions"`, `resource="survey_responses"`,
+///   `resource="llm_events"`) take precedence, but when a scoped limiter
+///   isn't itself in grace, events it would have matched fall through and
+///   are counted under the global resource label (`events`/`recordings`)
+///   instead of the scoped one.
+/// - **Hard limits override grace.** A token present in both the hard-limit
+///   and suspended Redis sets (a transient skew while the billing writer
+///   updates them) is treated as limited, not in grace, and is not counted
+///   (modulo the limiter refresh window — grace and hard-limit membership
+///   are read from separate DashMaps refreshed by independent pollers, so a
+///   both-sets token can transiently read as grace=true/limited=false and
+///   get counted during a refresh).
+/// - **Fails toward stale counts, not toward silence.** The underlying
+///   Redis reader fails open: if Redis is unreachable past a grace-period
+///   expiry, pods keep counting that org's traffic as grace-admitted using
+///   the last-known state, with only a warn log as the failure signal (the
+///   loaded-tokens gauge freezes at its last value during the outage, so it
+///   can't be used to detect this).
+pub const CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL: &str =
+    "capture_events_admitted_during_billing_grace_period_total";
+
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
 }
