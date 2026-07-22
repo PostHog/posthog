@@ -89,11 +89,8 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
             {"name": "warehouse cohort", "filters": WAREHOUSE_FILTERS},
         )
 
-    def _deny_warehouse(self):
-        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
-
     def test_denied_member_cannot_save_warehouse_cohort(self):
-        self._deny_warehouse()
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
         response = self._save_cohort()
 
@@ -107,7 +104,7 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
         assert response.status_code == 201, response.content
 
     def test_denied_member_cannot_save_query_cohort_over_warehouse_table(self):
-        self._deny_warehouse()
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
@@ -123,7 +120,7 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
 
     def test_denied_member_cannot_update_via_legacy_groups(self):
         cohort = Cohort.objects.create(team=self.team, name="plain cohort")
-        self._deny_warehouse()
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
         # Legacy `groups` writes skip field-level validate_filters - the object-level gate must
         # still catch a warehouse reference smuggled in through them.
