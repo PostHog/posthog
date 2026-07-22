@@ -63,11 +63,6 @@ function getHogFunctionDestination(
     const inputs = hogFunction.inputs as SlackDestinationInputs | null | undefined
     const channelValue = inputs?.channel?.value
     if (channelValue) {
-        // `channel.value` comes from loosely-typed backend JSON written by several producers
-        // (inline alerts, error tracking alerts, logs alerting, MCP) — guard before splitting it.
-        if (typeof channelValue !== 'string') {
-            return { type: 'Slack', detail: null }
-        }
         // Destinations from before `slack_workspace` existed belonged to the single workspace
         // that was the only option at the time, so fall back to it for those legacy rows.
         const workspaceId = inputs?.slack_workspace?.value ?? slackIntegrations?.[0]?.id
