@@ -348,7 +348,9 @@ async fn test_evaluate_feature_flags_with_errors() {
 fn test_decode_request() {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
-    let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
+    let body = Bytes::from(
+        r#"{"token": "test_token", "distinct_id": "user123", "sent_at": 1700000000000}"#,
+    );
     let meta = FlagsQueryParams::default();
 
     let result = decoding::decode_request(&headers, body, &meta);
@@ -357,6 +359,7 @@ fn test_decode_request() {
     let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
+    assert_eq!(request.sent_at, Some(1_700_000_000_000));
 }
 
 #[test]

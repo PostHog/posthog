@@ -60,6 +60,8 @@ pub struct FlagRequest {
         default
     )]
     pub distinct_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<i64>,
     pub geoip_disable: Option<bool>,
     // Web and mobile clients can configure this parameter to disable flags for a request.
     // It's mostly used for folks who want to save money on flag evaluations while still using
@@ -91,6 +93,10 @@ pub struct FlagRequest {
 }
 
 impl FlagRequest {
+    pub fn resolve_sent_at(&self, query_sent_at: Option<i64>) -> Option<i64> {
+        self.sent_at.or(query_sent_at)
+    }
+
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
@@ -495,6 +501,22 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn test_resolve_sent_at_prefers_body_and_falls_back_to_query() {
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some(1_700_000_000_000),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_700_000_000_000)
+        );
+        assert_eq!(
+            FlagRequest::default().resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
     }
 
     #[test]
