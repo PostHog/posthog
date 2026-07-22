@@ -297,6 +297,37 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 201, response.json()
 
+    @parameterized.expand(
+        [
+            ("bare_string", "greeting", {"key": "greeting"}),
+            ("string_list", ["a", "b"], [{"key": "a"}, {"key": "b"}]),
+            ("already_object", {"key": "greeting", "result_path": "r"}, {"key": "greeting", "result_path": "r"}),
+        ]
+    )
+    def test_output_variable_coerced_to_worker_shape(self, _name, sent, stored):
+        # The worker's schema only parses {key, ...} objects; a bare string stored as-is makes the
+        # whole flow row unparseable for the worker.
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1]["output_variable"] = sent
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["actions"][1]["output_variable"] == stored
+
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("empty_string", ""),
+            ("dict_without_key", {"result_path": "r"}),
+            ("list_with_invalid_entry", ["a", 42]),
+        ]
+    )
+    def test_output_variable_invalid_shapes_rejected(self, _name, sent):
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1]["output_variable"] = sent
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        assert "output_variable" in str(response.json())
+
     def test_hog_flow_delay_validation_lenient_for_drafts(self):
         # status omitted defaults to draft; draft mode lets users save WIP with invalid configs
         response = self.client.post(

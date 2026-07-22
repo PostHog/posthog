@@ -1195,12 +1195,40 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         entries = list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").order_by("created_at"))
         assert [entry.activity for entry in entries] == ["created", "updated", "deleted"]
+        # item_id is the prompt name: the prompt page History tab queries by it.
+        assert all(entry.item_id == "my-prompt" for entry in entries)
         move_detail = entries[1].detail
         assert move_detail is not None
         assert move_detail["name"] == "my-prompt: production"
         assert move_detail["changes"][0]["before"] == 1
         assert move_detail["changes"][0]["after"] == 2
         assert entries[1].user is not None and entries[1].user.id == self.user.id
+
+    def test_label_activity_survives_prompt_names_longer_than_item_id_column(self):
+        long_name = "a" * 100  # valid prompt name (max 255) but longer than ActivityLog.item_id's varchar(72)
+        self.create_prompt_version(name=long_name, version=1)
+
+        response = self._set_label(long_name, "production", 1)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        entry = ActivityLog.objects.get(team_id=self.team.id, scope="LLMPromptLabel")
+        assert entry.item_id == "a" * 39 + "#2816597888e4a0d3a36b82b83316ab32"
+        # The History tab queries by the serializer-provided key; it must match what was logged.
+        resolve = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/{long_name}/")
+        assert resolve.json()["prompt"]["activity_item_id"] == entry.item_id
+
+    def test_long_prompt_names_sharing_a_prefix_get_distinct_activity_keys(self):
+        shared_prefix = "b" * 80
+        self.create_prompt_version(name=shared_prefix + "-one", version=1)
+        self.create_prompt_version(name=shared_prefix + "-two", version=1)
+
+        assert self._set_label(shared_prefix + "-one", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label(shared_prefix + "-two", "production", 1).status_code == status.HTTP_201_CREATED
+
+        item_ids = set(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").values_list("item_id", flat=True)
+        )
+        assert len(item_ids) == 2
 
     def test_archive_logs_label_deletion(self):
         self.create_prompt_version(version=1)
