@@ -6,12 +6,15 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, Team
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.customer_analytics.backend.logic.event_stream_destination import _NO_MEMBERS_SENTINEL
 from products.customer_analytics.backend.models import EventStream, EventStreamMember, TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.test.factories import create_account
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestEventStreamViewSet(APIBaseTest):
@@ -186,6 +189,34 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(EventStreamMember.objects.unscoped().filter(stream_id=stream["id"]).exists())
         self.assertEqual(self._group_filter(self._destination(stream))["value"], [_NO_MEMBERS_SENTINEL])
+
+    def test_object_level_denied_account_is_rejected_on_add_but_still_removable(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        stream = self._create_stream()
+        account = create_account(team_id=self.team.id, name="Denied", external_id="org-denied")
+        self.client.post(f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(account.id)}, format="json")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(account.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = self.client.post(
+            f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(account.id)}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(
+            f"{self.base_url}{stream['id']}/remove_account/", {"account_id": str(account.id)}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["account_ids"], [])
+        self.assertFalse(EventStreamMember.objects.unscoped().filter(stream_id=stream["id"]).exists())
 
     def test_update_resyncs_destination_and_normalizes_event_names(self):
         stream = self._create_stream()

@@ -2059,11 +2059,17 @@ def delete_event_stream(*, team_id: int, stream_id: str | UUID, user: "User") ->
 
 
 def set_event_stream_member(
-    *, team_id: int, stream_id: str | UUID, account_id: str | UUID, included: bool, user: "User"
+    *,
+    team_id: int,
+    stream_id: str | UUID,
+    account_id: str | UUID,
+    included: bool,
+    user: "User",
+    user_access_control: "UserAccessControl",
 ) -> contracts.EventStreamView | None:
     """Add or remove an account from the caller's stream. Idempotent in both directions.
     Returns None (→ 404) when no stream matches; raises ``Account_DoesNotExist`` for a
-    foreign or unknown account."""
+    foreign, unknown, or (when adding) object-level-denied account."""
     stream = _own_streams(team_id, user).filter(id=stream_id).first()
     if stream is None:
         return None
@@ -2071,6 +2077,11 @@ def set_event_stream_member(
     if account is None:
         raise Account_DoesNotExist()
     if included:
+        # Adding an account pipes its events into Slack, so a denied account must behave
+        # like an unknown one. Removal stays team-scoped: members must be droppable even
+        # after access to them is revoked.
+        if get_accessible_account_id(team_id, str(account.id), user_access_control) is None:
+            raise Account_DoesNotExist()
         # for_team() filters don't propagate into creation — team_id must be in defaults.
         EventStreamMember.objects.for_team(team_id).get_or_create(
             stream=stream,

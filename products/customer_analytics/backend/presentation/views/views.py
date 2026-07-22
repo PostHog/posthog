@@ -1316,6 +1316,7 @@ class EventStreamViewSet(
                     account_id=write.validated_data["account_id"],
                     included=included,
                     user=user,
+                    user_access_control=self.user_access_control,
                 )
                 if stream is None:
                     return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
