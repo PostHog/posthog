@@ -40,9 +40,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    _UNSET,
     FRESHNESS_WINDOW_SECONDS,
     BatchQueue,
     PendingBatch,
+    _Unset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
@@ -157,10 +159,13 @@ class DeltaBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,
+        expected_state_changed_at: datetime | None | _Unset = _UNSET,
     ) -> None:
         # 'failed' is absorbing: fail_run can retire a claimed batch mid-flight, and a
         # newer write would supersede it — un-failing a cancelled run. Takeover-sentinel
         # failures stay supersedable (see _is_job_dead's matching exemption).
+        # expected_state_changed_at additionally fences the recovery re-queue against a
+        # live owner that completed the batch after the stale scan (see the sweep).
         inserted = await BatchQueue.update_status_unless_failed(
             conn,
             batch_id=batch_id,
@@ -169,9 +174,13 @@ class DeltaBatchConsumerAdapter:
             error_response=error_response,
             batch_created_at=batch_created_at,
             supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+            expected_state_changed_at=expected_state_changed_at,
         )
         if not inserted:
-            raise OwnershipLostError(f"batch {batch_id} is already failed; refusing to write '{job_state}' over it")
+            raise OwnershipLostError(
+                f"batch {batch_id} moved under this writer (already failed or state advanced); "
+                f"refusing to write '{job_state}' over it"
+            )
 
     async def fail_run(
         self,
@@ -248,6 +257,15 @@ class DeltaBatchConsumerAdapter:
             owner_token=owner_token,
             lease_ttl_seconds=lease_ttl_seconds,
         )
+
+    async def delete_expired_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        await BatchQueue.delete_expired_lease(conn, team_id=team_id, schema_id=schema_id)
 
     async def get_stale_executing(
         self,

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -365,7 +366,8 @@ class TestRecoverySweep:
     @pytest.mark.asyncio
     async def test_retries_stale_below_max(self):
         consumer = _make_consumer(max_attempts=3)
-        stale_batch = _make_batch(latest_attempt=1)
+        # The observed state clock must ride into the re-queue as its CAS guard.
+        stale_batch = _make_batch(latest_attempt=1, state_changed_at=datetime(2026, 1, 1, tzinfo=UTC))
 
         with (
             patch(
@@ -392,6 +394,7 @@ class TestRecoverySweep:
             error_response={"error": "executing timed out - pod restart or OOM"},
             batch_created_at=stale_batch.created_at,
             supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+            expected_state_changed_at=stale_batch.state_changed_at,
         )
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
