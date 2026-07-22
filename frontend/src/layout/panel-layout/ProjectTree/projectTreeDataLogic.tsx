@@ -1599,7 +1599,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         searchTerm,
                         // With only a few tools pinned, category headers add more noise than structure —
                         // list them in sequence instead.
-                        disableCategories: imports.length < 5,
+                        disableCategories: imports.length <= 5,
                         disabledReason: (item) => getProductAccessDisabledReason(item as FileSystemImport),
                     })
                 }

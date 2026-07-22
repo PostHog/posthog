@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from requests import Response
+from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
@@ -45,6 +46,28 @@ def _make_client(secret: str, MockSession: MagicMock) -> MagicMock:
 
     mock_session.prepare_request.side_effect = _prep
     return mock_session
+
+
+def _make_client_with_credentialed_url(secret: str, MockSession: MagicMock) -> MagicMock:
+    # Unlike `_make_client`, the prepared URL itself carries the query-encoded credential — this
+    # is what a real `session.prepare_request()` produces once the auth hook injects the query
+    # param, and it's what `_send_request` sees when a connection error fires before any response.
+    mock_session = MockSession.return_value
+    mock_session.headers = {}
+    prepared = MagicMock()
+    prepared.url = f"https://api.example.com/items?api_key={quote(secret, safe='')}"
+    mock_session.prepare_request.return_value = prepared
+    return mock_session
+
+
+def _make_connection_error(secret: str) -> RequestsConnectionError:
+    # Mirrors urllib3's real "Max retries exceeded with url: ..." message shape, which embeds the
+    # full request URL (query string included) in the exception text itself.
+    url = f"https://api.example.com/items?api_key={quote(secret, safe='')}"
+    return RequestsConnectionError(
+        f"HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: {url} "
+        "(Caused by ProxyError('Cannot connect to proxy.'))"
+    )
 
 
 class TestExceptionRedaction:
@@ -102,6 +125,25 @@ class TestExceptionRedaction:
         assert secret not in message
         assert quote(secret, safe="") not in message
         assert "?" not in message
+
+    @parameterized.expand([("raw", SECRET), ("reserved_chars", SPECIAL_SECRET)])
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_connection_error_drops_query_so_no_secret_leaks(self, _name: str, secret: str, MockSession) -> None:
+        mock_session = _make_client_with_credentialed_url(secret, MockSession)
+        mock_session.send.side_effect = _make_connection_error(secret)
+        client = RESTClient(
+            base_url="https://api.example.com",
+            auth=APIKeyAuth(api_key=secret, name="api_key", location="query"),
+            max_retry_attempts=1,
+        )
+        with pytest.raises(RESTClientRetryableError) as excinfo:
+            list(client.paginate(path="/items"))
+        message = str(excinfo.value)
+        # Neither the raw nor the percent-encoded secret survives; the query is dropped entirely.
+        assert secret not in message
+        assert quote(secret, safe="") not in message
+        assert "?" not in message
+        assert "api.example.com/items" in message
 
     @patch(f"{MODULE}.make_tracked_session")
     def test_no_auth_still_reports_host_and_path(self, MockSession) -> None:

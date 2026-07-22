@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
     build:
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
 
         if: github.repository_owner == 'PostHog'

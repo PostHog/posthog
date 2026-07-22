@@ -11,9 +11,10 @@
  * * `schedule` - Schedule
  * * `threshold` - Threshold
  */
-export type TriggerTypeEnumApi = (typeof TriggerTypeEnumApi)[keyof typeof TriggerTypeEnumApi]
+export type VisionActionTriggerTypeEnumApi =
+    (typeof VisionActionTriggerTypeEnumApi)[keyof typeof VisionActionTriggerTypeEnumApi]
 
-export const TriggerTypeEnumApi = {
+export const VisionActionTriggerTypeEnumApi = {
     Schedule: 'schedule',
     Threshold: 'threshold',
 } as const
@@ -243,6 +244,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface VisionActionApi {
     readonly id: string
     /**
@@ -260,7 +264,7 @@ export interface VisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
@@ -307,6 +311,9 @@ export interface PaginatedVisionActionListApi {
     results: VisionActionApi[]
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface PatchedVisionActionApi {
     readonly id?: string
     /**
@@ -324,7 +331,7 @@ export interface PatchedVisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
@@ -738,6 +745,9 @@ export interface FeedbackThemesApi {
     generated_at: string
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -810,6 +820,11 @@ export interface ReplayScannerApi {
     readonly updated_at: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -821,6 +836,9 @@ export interface PaginatedReplayScannerListApi {
     results: ReplayScannerApi[]
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface PatchedReplayScannerApi {
     readonly id?: string
     /**
@@ -893,6 +911,11 @@ export interface PatchedReplayScannerApi {
     readonly updated_at?: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes?: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -935,6 +958,61 @@ export interface AffectedCohortResponseApi {
     readonly users_in_cohort: number
     /** Trailing window the cohort was drawn from, in days. */
     readonly window_days: number
+}
+
+/**
+ * Body of POST /vision/scanners/{id}/bulk_observe/.
+ */
+export interface BulkObserveRequestApi {
+    /**
+     * Session recording IDs to scan on demand, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch. Already-running sessions are a no-op.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
+}
+
+/**
+ * * `started` - Started
+ * * `already_running` - Already running
+ * * `skipped_limit` - Skipped — in-flight limit reached
+ * * `skipped_quota` - Skipped — monthly credit quota reached
+ * * `failed` - Failed to start
+ */
+export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
+
+export const ScanOutcomeEnumApi = {
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+    SkippedLimit: 'skipped_limit',
+    SkippedQuota: 'skipped_quota',
+    Failed: 'failed',
+} as const
+
+/**
+ * Per-session outcome of a bulk scan trigger.
+ */
+export interface BulkObserveResultApi {
+    /** The session recording this outcome is for. */
+    session_id: string
+    /** 'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached before this session; 'skipped_quota' — the monthly credit quota would be exceeded; 'failed' — the workflow failed to start.
+     *
+     * * `started` - Started
+     * * `already_running` - Already running
+     * * `skipped_limit` - Skipped — in-flight limit reached
+     * * `skipped_quota` - Skipped — monthly credit quota reached
+     * * `failed` - Failed to start */
+    scan_outcome: ScanOutcomeEnumApi
+}
+
+/**
+ * Result of POST /vision/scanners/{id}/bulk_observe/ — partial success by design.
+ */
+export interface BulkObserveResponseApi {
+    /** How many new scans were started. */
+    started: number
+    /** Per-session outcomes, in request order (deduplicated). */
+    results: BulkObserveResultApi[]
 }
 
 /**
