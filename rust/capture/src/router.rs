@@ -91,6 +91,10 @@ pub struct State {
     /// `overflow_limiter` / `event_restriction_service`. Never awaited and
     /// never allowed to fail a request.
     pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    /// Deployment capture mode. Threaded into the analytics processing paths
+    /// (legacy and v1) so mode-specific policy — Import skips the global rate
+    /// limiter and drops non-historical batches — lives with the pipeline.
+    pub capture_mode: CaptureMode,
 }
 
 #[derive(Clone, Copy)]
@@ -189,6 +193,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
         ingestion_warning_emitter,
+        capture_mode,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -363,14 +368,15 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
-    let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => Router::new()
+    let mut router = if capture_mode.serves_analytics_routes() {
+        Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)
             .merge(ai_router)
-            .merge(otel_router),
-        CaptureMode::Recordings => Router::new().merge(recordings_router),
+            .merge(otel_router)
+    } else {
+        Router::new().merge(recordings_router)
     };
 
     if let Some(limit) = concurrency_limit {
@@ -393,9 +399,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
     // concurrency cap to its own routes.
-    if matches!(capture_mode, CaptureMode::Events | CaptureMode::Ai)
-        && state.v1_sink_router.is_some()
-    {
+    if capture_mode.serves_analytics_routes() && state.v1_sink_router.is_some() {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
             concurrency_limit,
             max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,

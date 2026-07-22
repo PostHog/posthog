@@ -677,6 +677,7 @@ pub struct TestStateBuilder {
     mock_producer: Option<Arc<MockProducer>>,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
+    capture_mode: CaptureMode,
 }
 
 impl Default for TestStateBuilder {
@@ -696,6 +697,7 @@ impl TestStateBuilder {
             mock_producer: None,
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
+            capture_mode: CaptureMode::Events,
         }
     }
 
@@ -750,6 +752,12 @@ impl TestStateBuilder {
         emitter: Arc<dyn common_ingestion_warnings::WarningEmitter>,
     ) -> Self {
         self.ingestion_warning_emitter = Some(emitter);
+        self
+    }
+
+    /// Set the deployment capture mode (defaults to `Events`).
+    pub fn with_capture_mode(mut self, mode: CaptureMode) -> Self {
+        self.capture_mode = mode;
         self
     }
 
@@ -858,6 +866,7 @@ impl TestStateBuilder {
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
+            capture_mode: self.capture_mode,
         };
 
         TestState {

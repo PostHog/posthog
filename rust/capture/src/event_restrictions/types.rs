@@ -49,7 +49,9 @@ impl Pipeline {
     /// Other deployments serve their single pipeline.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
-            CaptureMode::Events => vec![Self::Analytics, Self::ErrorTracking],
+            CaptureMode::Events | CaptureMode::Import => {
+                vec![Self::Analytics, Self::ErrorTracking]
+            }
             CaptureMode::Recordings => vec![Self::SessionRecordings],
             CaptureMode::Ai => vec![Self::Ai],
         }
