@@ -380,7 +380,7 @@ _WAREHOUSE_FANOUT = DependentEndpointConfig(
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 @patch(
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.iter_parent_pages_from_warehouse"
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
 )
 def test_warehouse_parent_builds_data_iterator_and_404_ignore(mock_reader, mock_rest_api_resources) -> None:
     mock_rest_api_resources.return_value = []
@@ -408,7 +408,7 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(mock_reader, mock_
     pages = list(parent_resource["data_iterator"]())
     assert pages == [[{"id": "p1"}]]
     mock_reader.assert_called_once_with(
-        team_id=1, source_id="source-1", parent_name="parents", columns=["id"], page_size=3
+        team_id=1, source_id="source-1", parent_name="parents", columns=["id"], page_size=3, dedupe_by="id"
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
@@ -469,7 +469,7 @@ class _FakeChildOnlyClient:
 
 
 @patch(
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.iter_parent_pages_from_warehouse"
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
 )
 def test_warehouse_parent_drives_child_without_parent_http(mock_reader) -> None:
     mock_reader.return_value = iter([[{"id": "p1"}, {"id": "p2"}], [{"id": "p3"}]])

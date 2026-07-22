@@ -6,10 +6,6 @@ from django.conf import settings
 
 import pyarrow as pa
 import deltalake
-import posthoganalytics
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.team.team import Team
 
 from products.warehouse_sources.backend.models.external_data_schema import get_schema_if_exists
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -19,33 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     pyarrow_schema_from_arrow_exportable,
 )
-
-FANOUT_WAREHOUSE_REUSE_FLAG = "warehouse-fanout-parent-reuse"
-
-
-def is_fanout_warehouse_reuse_enabled(team_id: int) -> bool:
-    """Gate for reading fan-out parents from the warehouse instead of the parent API.
-
-    Fails closed: any error means "off", which keeps the legacy parent-API path.
-    """
-    try:
-        team = Team.objects.get(id=team_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                FANOUT_WAREHOUSE_REUSE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 class WarehouseParentTableNotFoundError(Exception):
@@ -74,6 +43,7 @@ def iter_parent_pages_from_warehouse(
     columns: list[str],
     page_size: int,
     order_by: Optional[tuple[str, Literal["ascending", "descending"]]] = None,
+    dedupe_by: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield fan-out parent rows from the parent schema's already-synced Delta table.
 
@@ -86,6 +56,12 @@ def iter_parent_pages_from_warehouse(
     back to the API names. `order_by` sorts the projected rows (an API field name from
     `columns`) for callers whose iteration semantics depend on parent order — it
     materializes only the projected columns, so keep `columns` narrow.
+
+    `dedupe_by` keeps only the first row per value of that field. Fan-out callers should
+    always pass their resolve field: an append-mode parent accumulates one row per sync
+    per parent, and without dedupe the child would re-fetch once per duplicate — the exact
+    API cost this reader exists to remove. First occurrence wins, which under a descending
+    `order_by` is also the freshest row.
     """
     uri = _parent_table_uri(team_id, source_id, parent_name)
     storage_options = get_delta_storage_options()
@@ -99,14 +75,18 @@ def iter_parent_pages_from_warehouse(
     physical_schema_names = set(pyarrow_schema_from_arrow_exportable(delta_table.schema()).names)
 
     physical_by_api_name: dict[str, str] = {}
+    missing_columns: list[str] = []
     for api_name in columns:
         physical = NamingConvention.normalize_identifier(api_name)
         if physical in physical_schema_names:
             physical_by_api_name[api_name] = physical
+        else:
+            missing_columns.append(api_name)
 
-    if not physical_by_api_name:
+    if missing_columns:
         raise WarehouseParentTableNotFoundError(
-            f"Parent table '{parent_name}' has none of the requested columns {columns}"
+            f"Parent table '{parent_name}' is missing requested column(s) {missing_columns} — "
+            f"re-sync the parent schema so the fan-out fields are present"
         )
 
     projected = list(dict.fromkeys(physical_by_api_name.values()))
@@ -115,22 +95,26 @@ def iter_parent_pages_from_warehouse(
     batches: Iterable[pa.RecordBatch]
     if order_by is not None:
         order_field, order_direction = order_by
-        order_physical = physical_by_api_name.get(order_field)
-        if order_physical is None:
-            raise WarehouseParentTableNotFoundError(
-                f"Parent table '{parent_name}' has no column for order_by field '{order_field}'"
-            )
+        if order_field not in physical_by_api_name:
+            raise ValueError(f"order_by field '{order_field}' must be one of the requested columns {columns}")
         table = dataset.to_table(columns=projected)
-        table = table.sort_by([(order_physical, order_direction)])
+        table = table.sort_by([(physical_by_api_name[order_field], order_direction)])
         batches = table.to_batches(max_chunksize=page_size)
     else:
         batches = dataset.to_batches(columns=projected, batch_size=page_size)
 
+    seen_keys: set[Any] = set()
     page: list[dict[str, Any]] = []
     for batch in batches:
         rows = batch.to_pylist()
         for row in rows:
-            page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
+            emitted = {api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()}
+            if dedupe_by is not None:
+                key = emitted.get(dedupe_by)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+            page.append(emitted)
             if len(page) >= page_size:
                 yield page
                 page = []

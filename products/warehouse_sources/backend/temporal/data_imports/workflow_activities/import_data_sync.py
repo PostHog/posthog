@@ -48,12 +48,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     SimpleSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
+    is_fanout_warehouse_reuse_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
-    is_fanout_warehouse_reuse_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -104,7 +104,7 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
 
 async def _ensure_required_parents_synced(
     source: AnySource, schema: ExternalDataSchema, source_id: uuid.UUID, team_id: int
-) -> None:
+) -> bool:
     """Hard gate for fan-out children that read their parent from the warehouse.
 
     The child streams parent rows from the parent schema's Delta table, so the parent must be
@@ -112,12 +112,15 @@ async def _ensure_required_parents_synced(
     job failed with an actionable message without burning activity retries; the next scheduled
     sync re-evaluates. The gate messages intentionally match no schema-pausing error patterns —
     the child stays enabled and recovers on its own once the parent has synced.
+
+    Returns whether warehouse parent reuse is active for this schema (the single feature-flag
+    evaluation for the run — sources consume it via `SourceInputs.fanout_warehouse_reuse`).
     """
     required_parents = source.get_required_parent_schemas(schema.name)
     if not required_parents:
-        return
+        return False
     if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
-        return
+        return False
 
     for parent_name in required_parents:
         parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
@@ -131,6 +134,8 @@ async def _ensure_required_parents_synced(
                 f"Parent schema '{parent_name}' must complete an initial sync before '{schema.name}' can sync. "
                 f"This schema will sync automatically on its next schedule once '{parent_name}' has synced."
             )
+
+    return True
 
 
 @activity.defn
@@ -238,7 +243,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if SourceRegistry.is_registered(source_type):
             new_source = SourceRegistry.get_source(source_type)
 
-            await _ensure_required_parents_synced(new_source, schema, inputs.source_id, inputs.team_id)
+            fanout_warehouse_reuse = await _ensure_required_parents_synced(
+                new_source, schema, inputs.source_id, inputs.team_id
+            )
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
@@ -263,6 +270,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
+                fanout_warehouse_reuse=fanout_warehouse_reuse,
             )
 
             try:

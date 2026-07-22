@@ -23,9 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     required_parents_from_endpoint_configs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
-    is_fanout_warehouse_reuse_enabled,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
@@ -196,5 +193,5 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             else None,
             incremental_field=inputs.incremental_field,
             source_id=inputs.source_id,
-            use_warehouse_parent=is_fanout_warehouse_reuse_enabled(inputs.team_id),
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )

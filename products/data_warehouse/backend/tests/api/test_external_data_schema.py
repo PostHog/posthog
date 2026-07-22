@@ -3690,3 +3690,20 @@ class TestFanoutParentEnforcement(APIBaseTest):
         assert response.status_code == 200, response.json()
         parent.refresh_from_db()
         assert parent.should_sync is False
+
+    def test_deleting_parent_with_enabled_fanout_child_errors(self):
+        _, parent, _child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            parent_should_sync=True,
+            child_should_sync=True,
+        )
+
+        with contextlib.ExitStack() as stack:
+            for p in self._enforcement_patches():
+                stack.enter_context(p)
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
+
+        assert response.status_code == 400
+        assert "can't be deleted while" in response.json()["detail"]
+        parent.refresh_from_db()
+        assert parent.deleted is not True

@@ -339,7 +339,9 @@ async def test_parent_gate_passes_when_parent_synced():
             module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
         ),
     ):
-        await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
+        result = await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
+
+    assert result is True
 
 
 @pytest.mark.asyncio
@@ -349,8 +351,9 @@ async def test_parent_gate_inert_when_flag_disabled():
         mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=False),
         mock.patch.object(module, "get_schema_if_exists") as schema_lookup,
     ):
-        await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
+        result = await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
 
+    assert result is False
     schema_lookup.assert_not_called()
 
 
@@ -360,6 +363,7 @@ async def test_parent_gate_inert_for_sources_without_requirements():
     source.get_required_parent_schemas.return_value = []
 
     with mock.patch.object(module, "is_fanout_warehouse_reuse_enabled") as flag_check:
-        await module._ensure_required_parents_synced(source, _fanout_child_schema(), uuid.uuid4(), 1)
+        result = await module._ensure_required_parents_synced(source, _fanout_child_schema(), uuid.uuid4(), 1)
 
+    assert result is False
     flag_check.assert_not_called()

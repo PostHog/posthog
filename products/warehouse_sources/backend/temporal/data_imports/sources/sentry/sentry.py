@@ -30,9 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
     IncrementalConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
-    iter_parent_pages_from_warehouse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
@@ -335,8 +332,15 @@ def _iter_issue_tag_values_rows(
     if use_warehouse_parent:
         if team_id is None or source_id is None:
             raise ValueError("team_id and source_id are required when reading the issues parent from the warehouse")
+        # noqa reason: keeps deltalake/pyarrow off the import path of this module (imported
+        # by the API process for schema discovery) — the reader loads only when syncing.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            iter_parent_pages_from_warehouse,
+        )
+
         # Ordered by lastSeen desc to mirror the API's sort=date ordering — both the
-        # incremental early-break and the resume fast-forward below depend on it.
+        # incremental early-break and the resume fast-forward below depend on it. Deduped
+        # by id so an append-mode issues table doesn't fan out once per accumulated row.
         issues = (
             row
             for page in iter_parent_pages_from_warehouse(
@@ -346,6 +350,7 @@ def _iter_issue_tag_values_rows(
                 columns=["id", "lastSeen"],
                 page_size=100,
                 order_by=("lastSeen", "descending"),
+                dedupe_by="id",
             )
             for row in page
         )

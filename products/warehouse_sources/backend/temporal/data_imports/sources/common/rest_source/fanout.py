@@ -12,9 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
     IncrementalConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
-    iter_parent_pages_from_warehouse,
-)
 
 
 class FanoutEndpointLike(Protocol):
@@ -126,6 +123,12 @@ def build_dependent_resource(
     if warehouse_parent:
         if source_id is None:
             raise ValueError("source_id is required when a fan-out reads its parent from the warehouse")
+        # noqa reason: keeps deltalake/pyarrow off the import path of every source module —
+        # the reader stack loads only when a warehouse-parent fan-out actually runs.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            iter_parent_pages_from_warehouse,
+        )
+
         parent_columns = list(dict.fromkeys([fanout.resolve_field, *fanout.include_from_parent]))
         parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
             team_id=team_id,
@@ -133,6 +136,7 @@ def build_dependent_resource(
             parent_name=fanout.parent_name,
             columns=parent_columns,
             page_size=parent_config.page_size,
+            dedupe_by=fanout.resolve_field,
         )
 
     child_path = child_config.path

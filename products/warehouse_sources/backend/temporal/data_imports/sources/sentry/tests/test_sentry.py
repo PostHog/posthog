@@ -1002,7 +1002,7 @@ class TestWarehouseParentReuse:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.iter_parent_pages_from_warehouse"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
     )
     def test_issue_tag_values_reads_issues_from_warehouse(self, mock_reader, mock_get) -> None:
         mock_reader.return_value = iter([[{"id": "100", "lastSeen": "2026-03-05T12:00:00Z"}]])
@@ -1038,11 +1038,12 @@ class TestWarehouseParentReuse:
             columns=["id", "lastSeen"],
             page_size=100,
             order_by=("lastSeen", "descending"),
+            dedupe_by="id",
         )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.iter_parent_pages_from_warehouse"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
     )
     def test_issue_tag_values_warehouse_skips_issue_deleted_upstream(self, mock_reader, mock_get) -> None:
         mock_reader.return_value = iter([[{"id": "100", "lastSeen": None}, {"id": "200", "lastSeen": None}]])

@@ -73,8 +73,36 @@ def test_reader_raises_when_table_missing(tmp_path: Path) -> None:
         _patched_reader(str(tmp_path / "does_not_exist"), columns=["id"], page_size=10)
 
 
-def test_reader_raises_when_no_requested_columns_exist(tmp_path: Path) -> None:
+def test_reader_raises_when_requested_columns_missing(tmp_path: Path) -> None:
     uri = _write_parent_table(tmp_path)
 
-    with pytest.raises(WarehouseParentTableNotFoundError, match="none of the requested columns"):
-        _patched_reader(uri, columns=["definitely_missing"], page_size=10)
+    # A partial miss must fail loudly upfront too — a silently dropped column would surface
+    # later as an opaque resolve error mid-sync.
+    with pytest.raises(
+        WarehouseParentTableNotFoundError, match=r"missing requested column\(s\) \['definitely_missing'\]"
+    ):
+        _patched_reader(uri, columns=["id", "definitely_missing"], page_size=10)
+
+
+def test_reader_dedupes_append_mode_duplicates(tmp_path: Path) -> None:
+    uri = str(tmp_path / "issues")
+    # Append-mode parents accumulate one row per sync per parent id.
+    table = pa.table(
+        {
+            "id": ["1", "2", "1", "3", "2"],
+            "last_seen": ["2026-03-01", "2026-03-02", "2026-03-05", "2026-03-03", "2026-03-04"],
+        }
+    )
+    deltalake.write_deltalake(uri, table)
+
+    pages = _patched_reader(
+        uri, columns=["id", "lastSeen"], page_size=10, order_by=("lastSeen", "descending"), dedupe_by="id"
+    )
+
+    rows = [row for page in pages for row in page]
+    # One row per id, first (freshest, given descending order) occurrence wins.
+    assert [(row["id"], row["lastSeen"]) for row in rows] == [
+        ("1", "2026-03-05"),
+        ("2", "2026-03-04"),
+        ("3", "2026-03-03"),
+    ]
