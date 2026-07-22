@@ -140,6 +140,12 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_group_set",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "invalid_heatmap_data",
       "category": "event",
       "severity": "warning",
