@@ -45,10 +45,10 @@ logger = logging.getLogger(__name__)
 # Per hit we return the first N event timestamps as seek points; event_count carries the true
 # total, so a busier metric shows the real count and the UI notes the seek points are capped.
 MAX_METRIC_EVENT_TIMESTAMPS = 50
-# Ceiling on distinct metric sources aggregated per scan. An experiment's metric count is
-# user-configurable with no server-side cap, so overlapping metric-heavy experiments could
-# otherwise compile an arbitrarily wide query; 50 mirrors MAX_CANDIDATE_EXPERIMENTS in
-# session_context.
+# Ceiling on metrics accepted per scan. An experiment's metric count is user-configurable
+# with no server-side cap, so overlapping metric-heavy experiments could otherwise compile an
+# arbitrarily wide query or emit an unbounded hit list; 50 mirrors MAX_CANDIDATE_EXPERIMENTS
+# in session_context.
 MAX_SCANNED_METRICS = 50
 
 MetricSourceNode = EventsNode | ActionsNode
@@ -184,9 +184,11 @@ def scan_session_for_metric_events(
 
     Metrics with no hits are omitted. Duplicate metric uuids (a saved metric shared by several
     experiments) and metrics with identical source nodes (several experiments measuring the
-    same event) are aggregated once, and at most MAX_SCANNED_METRICS distinct sources are
-    scanned per call (the overflow is logged, not an error). `user` threads through to HogQL
-    for property-level access control — metric source nodes can carry property filters.
+    same event) are aggregated once, and at most MAX_SCANNED_METRICS metrics are accepted per
+    call (the overflow is logged, not an error). The cap counts metrics, not distinct sources:
+    source dedupe only narrows the query, it must not let a metric-heavy experiment emit an
+    unbounded hit list by piling metrics onto one source. `user` threads through to HogQL for
+    property-level access control — metric source nodes can carry property filters.
     """
     names_by_uuid: dict[str, str] = {}
     # Metric uuids grouped by identical source nodes: identical sources compile to identical
@@ -197,13 +199,13 @@ def scan_session_for_metric_events(
     for source in metric_sources:
         if not source.session_linkable or source.metric_uuid in names_by_uuid:
             continue
+        if len(names_by_uuid) >= MAX_SCANNED_METRICS:
+            skipped_over_cap += 1
+            continue
         source_key = tuple(sorted(node.model_dump_json(exclude_none=True) for node in source.nodes))
         if source_key in uuids_by_source:
             names_by_uuid[source.metric_uuid] = source.metric_name
             uuids_by_source[source_key].append(source.metric_uuid)
-            continue
-        if len(uuids_by_source) >= MAX_SCANNED_METRICS:
-            skipped_over_cap += 1
             continue
         conditions = [_node_condition(node, team) for node in source.nodes]
         if not conditions:
@@ -214,7 +216,7 @@ def scan_session_for_metric_events(
 
     if skipped_over_cap:
         logger.warning(
-            "Metric scan for session %s capped at %s distinct sources; %s metrics not scanned",
+            "Metric scan for session %s capped at %s metrics; %s metrics not scanned",
             session_id,
             MAX_SCANNED_METRICS,
             skipped_over_cap,

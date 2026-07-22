@@ -324,15 +324,19 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
         assert all(hit.event_count == 1 for hit in hits)
 
     def test_scan_caps_number_of_scanned_metrics(self) -> None:
-        # Metric counts are user-configurable with no server-side cap; without the branch cap a
-        # metric-heavy experiment would compile an arbitrarily wide scan per player open.
+        # Metric counts are user-configurable with no server-side cap; without the metric cap a
+        # metric-heavy experiment would compile an arbitrarily wide scan per player open. The
+        # cap must count metrics, not distinct sources: a metric sharing an already-accepted
+        # source (`shared`) adds no query width, but letting it through would let many metrics
+        # on one source emit an unbounded hit list.
         first = _metric("mean", name="Purchases", source=_events_node("purchase"))
         second = _metric("mean", name="Signups", source=_events_node("signup"))
+        shared = _metric("mean", name="Purchases too", source=_events_node("purchase"))
         self._create_session_event("purchase", "s1")
         self._create_session_event("signup", "s1")
         flush_persons_and_events()
 
         with patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1):
-            hits = self._scan([first, second], "s1")
+            hits = self._scan([first, second, shared], "s1")
 
         assert [hit.metric_uuid for hit in hits] == [first["uuid"]]
