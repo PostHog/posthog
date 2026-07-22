@@ -32642,11 +32642,67 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface HogFlowPublishImpactMoveTarget {
+      /** Id of the surviving step runs will continue at. */
+      action_id: string;
+      /** Name of the surviving step. */
+      name: string;
+    }
+
+    export interface HogFlowPublishImpactDeletedStep {
+      /** Id of the step this publish deletes. */
+      action_id: string;
+      /** Name of the deleted step. */
+      name: string;
+      /**
+         * About how many in-flight runs are parked on this step. Null when the count is unavailable.
+         * @nullable
+         */
+      runs: number | null;
+      /** Where those runs continue (skip-forward). Null when nothing downstream survives. */
+      moves_to: HogFlowPublishImpactMoveTarget | null;
+      /** True when runs parked here exit the workflow instead of moving forward. */
+      exits: boolean;
+    }
+
+    export interface HogFlowPublishImpactEmptyVariable {
+      /** Variable that renders empty for runs already past its producer. */
+      variable: string;
+      /**
+         * Id of the new action that sets it; null when the draft newly declares it as a workflow variable.
+         * @nullable
+         */
+      set_by: string | null;
+      /** Ids of steps whose content references the variable. */
+      referenced_by: string[];
+    }
+
+    export interface HogFlowPublishImpactScheduleConflict {
+      /** Schedule whose variable overrides reference removed variables. */
+      schedule_id: string;
+      /** Override keys the draft no longer declares as workflow variables. */
+      variables: string[];
+    }
+
+    export interface HogFlowPublishImpact {
+      /** Per deleted step: how many runs are parked there and where they go. Empty for content-only edits. */
+      deleted_steps: HogFlowPublishImpactDeletedStep[];
+      /**
+         * In-flight runs whose current step is unknown. Null when the count is unavailable.
+         * @nullable
+         */
+      position_unknown: number | null;
+      /** Variables that render empty for runs predating their producer. */
+      empty_variables: HogFlowPublishImpactEmptyVariable[];
+      /** Schedules overriding variables the draft removes. */
+      schedule_conflicts: HogFlowPublishImpactScheduleConflict[];
+    }
+
     export interface HogFlowPublishRequest {
-      /** False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow. */
+      /** False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow. */
       confirm?: boolean;
-      /** The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it. */
-      draft_updated_at?: string;
+      /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
+      confirm_token?: string;
     }
 
     export interface HogFlowPublishResponse {
@@ -32658,10 +32714,17 @@ export namespace Schemas {
          */
       in_flight_runs: number | null;
       /**
-         * Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.
+         * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
          * @nullable
          */
       draft_updated_at: string | null;
+      /**
+         * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+         * @nullable
+         */
+      confirm_token: string | null;
+      /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
+      impact: HogFlowPublishImpact | null;
       /** The workflow after publishing (only set when published=true). */
       workflow?: HogFlow | null;
     }
@@ -42170,6 +42233,9 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
+    /**
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
+     */
     export interface ReplayScanner {
       readonly id: string;
       /**
@@ -42242,6 +42308,11 @@ export namespace Schemas {
       readonly updated_at: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -45502,6 +45573,9 @@ export namespace Schemas {
       prompt_guide?: string;
     }
 
+    /**
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+     */
     export interface VisionAction {
       readonly id: string;
       /**
@@ -50797,6 +50871,9 @@ export namespace Schemas {
       person_id?: string;
     }
 
+    /**
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
+     */
     export interface PatchedReplayScanner {
       readonly id?: string;
       /**
@@ -50869,6 +50946,11 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes?: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedReviewBlindSpotsConfigSelect {
@@ -53096,6 +53178,9 @@ export namespace Schemas {
       configuration?: unknown;
     }
 
+    /**
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+     */
     export interface PatchedVisionAction {
       readonly id?: string;
       /**

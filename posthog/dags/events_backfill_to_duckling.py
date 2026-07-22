@@ -2990,6 +2990,44 @@ def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam) -> None:
         logger.exception("duckling_earliest_event_date_cp_push_failed", team_id=bf.team_id)
 
 
+def _reconcile_earliest_event_dates_with_cp(backfills: list[DuckgresServerTeam]) -> None:
+    """Re-push resolved earliest_event_dates whose control-plane mirror is missing or stale.
+
+    The per-row pushes (the provisioning Celery task, the sensor's resolve loop) are
+    best-effort one-shots: a transient control-plane failure would otherwise diverge the
+    two stores forever, because a row with a resolved date is never revisited. One
+    list-teams call per org per tick keeps this bounded; only teams the control plane
+    already knows are pushed (a missing row is the lazy grandfather's job, not this one's).
+    Best-effort in every direction — nothing here may fail the sensor tick.
+    """
+    try:
+        # Deferred like the other control-plane touchpoints: keeps the DRF-importing
+        # adapter off this module's import path.
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+    except Exception:
+        logger.exception("duckling_earliest_event_date_cp_reconcile_import_failed")
+        return
+
+    by_org: dict = {}
+    for bf in backfills:
+        if bf.earliest_event_date is not None:
+            by_org.setdefault(bf.server.organization_id, []).append(bf)
+
+    for org_id, rows in by_org.items():
+        try:
+            teams = managed_warehouse._teams_from_response(managed_warehouse.list_teams(org_id, require_enabled=False))
+            if teams is None:
+                continue
+            cp_dates = {row.get("team_id"): row.get("earliest_event_date") for row in teams}
+            for bf in rows:
+                if bf.team_id not in cp_dates:
+                    continue
+                if cp_dates[bf.team_id] != bf.earliest_event_date.isoformat():
+                    _push_earliest_event_date_to_cp(bf)
+        except Exception:
+            logger.exception("duckling_earliest_event_date_cp_reconcile_failed", organization_id=str(org_id))
+
+
 def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partition_keys: list[str]) -> None:
     """Backfill the status projection for partitions that ran before it existed.
 
@@ -3095,7 +3133,9 @@ def duckling_events_full_backfill_sensor(
     today = timezone.now().date()
     last_month_end = today.replace(day=1) - timedelta(days=1)
 
-    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
+    backfills = list(
+        DuckgresServerTeam.objects.filter(backfill_enabled=True).select_related("server").order_by("team_id")
+    )
     if not backfills:
         context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
@@ -3114,6 +3154,10 @@ def duckling_events_full_backfill_sensor(
             context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
         bf.save(update_fields=["earliest_event_date"])
         _push_earliest_event_date_to_cp(bf)
+
+    # Heal one-shot pushes that failed: re-mirror any resolved date the control plane
+    # is missing or has stale. Never fails the tick.
+    _reconcile_earliest_event_dates_with_cp(backfills)
 
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
@@ -3318,7 +3362,9 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
+    backfills = list(
+        DuckgresServerTeam.objects.filter(backfill_enabled=True).select_related("server").order_by("team_id")
+    )
     if not backfills:
         context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
