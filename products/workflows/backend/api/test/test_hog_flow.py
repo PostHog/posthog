@@ -1,9 +1,12 @@
+import json
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db import connection
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -25,6 +28,29 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
+
+_REVISIONS_FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_revisions"
+_SECRET_TEMPLATE_ID = "template-secret-webhook"
+
+
+def _secret_input_template() -> dict:
+    # A webhook destination with one secret input (api_key) alongside a non-secret one (url).
+    template = deepcopy(webhook_template)
+    template["id"] = _SECRET_TEMPLATE_ID
+    template["name"] = "Secret Webhook"
+    template["inputs_schema"] = [
+        {"key": "url", "type": "string", "label": "URL", "secret": False, "hidden": False, "required": True},
+        {"key": "api_key", "type": "string", "label": "API key", "secret": True, "hidden": False, "required": False},
+    ]
+    return template
+
+
+def _raw_encrypted_inputs(model_id) -> Optional[str]:
+    # The stored (still-encrypted) column value, to prove secrets aren't persisted in plaintext.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT encrypted_inputs FROM posthog_hogflow WHERE id = %s", [str(model_id)])
+        row = cursor.fetchone()
+    return row[0] if row else None
 
 
 class TestHogFlowAPI(APIBaseTest):
@@ -3333,3 +3359,148 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert {r["workflow_id"] for r in res.json()} == {str(self.flow_a.id)}
+
+
+class TestHogFlowSecretInputs(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_template_to_db(_secret_input_template())
+
+    def _flow_payload(self, api_key: str = "SUPER-SECRET") -> dict:
+        return {
+            "name": "Secret Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {
+                        "template_id": _SECRET_TEMPLATE_ID,
+                        "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": api_key}},
+                    },
+                },
+            ],
+        }
+
+    def _function_inputs(self, flow_json: dict) -> dict:
+        return next(a for a in flow_json["actions"] if a["type"] == "function")["config"]["inputs"]
+
+    def _create(self, api_key: str = "SUPER-SECRET") -> str:
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._flow_payload(api_key))
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def test_secret_action_input_is_encrypted_at_rest_and_masked_on_read(self):
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._flow_payload())
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        # Masked on the create response and on retrieve; the non-secret input stays visible.
+        retrieve = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        for body in (create.json(), retrieve.json()):
+            inputs = self._function_inputs(body)
+            assert inputs["api_key"] == {"secret": True}
+            assert inputs["url"]["value"] == "https://example.com"
+
+        # Split out of the plaintext actions blob and stored encrypted.
+        flow = HogFlow.objects.get(id=flow_id)
+        db_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
+        assert "api_key" not in db_inputs
+        assert db_inputs["url"]["value"] == "https://example.com"
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+        assert "SUPER-SECRET" not in (_raw_encrypted_inputs(flow_id) or "")
+
+    @parameterized.expand(
+        [
+            ("resent_mask_preserves", {"secret": True}, "SUPER-SECRET"),
+            ("new_value_replaces", {"value": "ROTATED"}, "ROTATED"),
+        ]
+    )
+    def test_secret_update(self, _name, api_key_input, expected_stored):
+        flow_id = self._create()
+
+        payload = self._flow_payload()
+        self._function_inputs(payload)["api_key"] = api_key_input
+        patch_res = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert patch_res.status_code == 200, patch_res.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == expected_stored
+
+    def test_metadata_only_update_leaves_secret_intact(self):
+        # A PATCH that carries no actions must not clear the stored secret.
+        flow_id = self._create()
+        patch_res = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
+        assert patch_res.status_code == 200, patch_res.json()
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+
+    @patch(_REVISIONS_FLAG_PATH, return_value=True)
+    def test_publish_promotes_draft_secret_to_live_without_wiping(self, _flag):
+        flow_id = self._create()
+        assert (
+            self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
+            == 200
+        )
+
+        # Stage a draft (via MCP) that rotates the secret; live must stay untouched until publish.
+        draft_payload = self._flow_payload(api_key="ROTATED-IN-DRAFT")
+        stage = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": draft_payload["actions"]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.draft_encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED-IN-DRAFT"
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+        assert "ROTATED-IN-DRAFT" not in json.dumps(flow.draft)
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
+        ):
+            confirm_token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        publish = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": confirm_token},
+        )
+        assert publish.status_code == 200, publish.json()
+
+        flow.refresh_from_db()
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED-IN-DRAFT"
+        assert flow.draft is None
+        assert flow.draft_encrypted_inputs is None
+
+    def test_activity_log_masks_secret_changes(self):
+        flow_id = self._create()
+        payload = self._flow_payload(api_key="ROTATED")
+        assert self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload).status_code == 200
+
+        activity = self.client.get(
+            f"/api/projects/{self.team.pk}/activity_log",
+            data={"scope": "HogFlow", "item_id": flow_id, "page": "1", "limit": "20"},
+        )
+        assert activity.status_code == status.HTTP_200_OK
+        results = activity.json()["results"]
+
+        # No secret value, old or new, ever appears in the audit trail.
+        assert "SUPER-SECRET" not in json.dumps(results)
+        assert "ROTATED" not in json.dumps(results)
+        # When the encrypted column is diffed, it's masked rather than shown as ciphertext.
+        for entry in results:
+            for change in entry["detail"].get("changes") or []:
+                if change["field"] in ("encrypted_inputs", "draft_encrypted_inputs"):
+                    assert change["before"] in (None, "masked")
+                    assert change["after"] in (None, "masked")
