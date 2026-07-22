@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IP2WhoisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ip2whois import (
+    IP2WhoisSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.ip2whois import (
     ip2whois_source,
     validate_credentials as validate_ip2whois_credentials,

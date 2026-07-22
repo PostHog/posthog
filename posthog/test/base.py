@@ -136,14 +136,28 @@ from posthog.models.person.sql import (
 )
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
+    DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
     DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
     KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
+    PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL,
     PRECALCULATED_EVENTS_MV_SQL,
     PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
     PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
+)
+from posthog.models.precalculated_person_properties.sql import (
+    DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
+    DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
+    KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_MV_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL,
+    PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL,
 )
 from posthog.models.project import Project
 from posthog.models.raw_sessions.sessions_v2 import (
@@ -1540,6 +1554,19 @@ class BaseTestMigrations(QueryMatchingTest):
     apps: Optional[Any] = None
     assert_snapshots = False
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # An earlier test in the same process can leave a connection's underlying psycopg
+        # connection closed (e.g. dropped server-side) without Django noticing. Every
+        # migration test in the class then fails with "the connection is closed", and
+        # in-process reruns reuse the same dead wrapper, so they can never recover.
+        # Reset unusable connections before the class transaction machinery starts.
+        for conn in connections.all():
+            if conn.connection is not None and not conn.is_usable():
+                conn.close()
+        # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
+        super().setUpClass()  # type: ignore[misc]
+
     def setUp(self):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
@@ -1945,9 +1972,15 @@ def reset_clickhouse_database() -> None:
             DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
             DROP_COHORT_MEMBERSHIP_MV_SQL(),
             DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
             DROP_PRECALCULATED_EVENTS_MV_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE_SQL(),
+            DROP_PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
             DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -1984,6 +2017,7 @@ def reset_clickhouse_database() -> None:
             SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
             SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
         ]
     )
@@ -2007,8 +2041,12 @@ def reset_clickhouse_database() -> None:
             WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+            PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
             KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
+            KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2027,6 +2065,7 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
+            PRECALCULATED_PERSON_PROPERTIES_MV_SQL(),
             QUERY_LOG_ARCHIVE_OPS_MV_SQL(
                 view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
             ),

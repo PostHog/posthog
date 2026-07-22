@@ -310,6 +310,7 @@ class SignupSerializer(serializers.Serializer):
             organization_id=str(self._organization.id),
             distinct_id=user.distinct_id,
             email=user.email,
+            role_at_organization=role_at_organization,
         )
 
         verify_email_or_login(request, user)

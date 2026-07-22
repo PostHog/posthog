@@ -24,7 +24,7 @@ use crate::dom::{
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
 use crate::scan::{self, Span};
 use crate::text::{redact_emails, scrub_text};
-use crate::url::{scrub_url, scrub_url_opts};
+use crate::url::scrub_url;
 
 // rrweb NodeType (mirrors dom.rs).
 const NODE_DOCUMENT: u8 = 0;
@@ -218,15 +218,19 @@ fn scrub_cv_snapshot_value(
         return None;
     }
     let raw = latin1_from_wire(&bytes[data.0 + 1..data.1 - 1])?;
-    let decompressed = ctx.gunzip_cv(&raw).ok()?;
+    let was_zstd = raw.starts_with(&crate::compression::ZSTD_MAGIC);
+    let decompressed = ctx.decompress_cv(&raw).ok()?;
     let mut walked = Vec::with_capacity(decompressed.len() + 64);
-    // Unchanged payloads re-emit too: the whole output is zstd, never mixed-format blocks.
-    let content = if scrub_cv_snapshot(ctx, &decompressed, &mut walked)? {
-        &walked
-    } else {
-        &decompressed
-    };
-    let zs = crate::gzip::compress_cv(content).ok()?;
+    let changed = scrub_cv_snapshot(ctx, &decompressed, &mut walked)?;
+    // An unchanged zstd payload keeps its original bytes (safe: the walk proved it duplicate-key
+    // free), so re-scrubbing already-anonymized data is a no-op. Unchanged gzip payloads re-emit
+    // anyway: the whole output is zstd, never mixed-format blocks.
+    if !changed && was_zstd {
+        out.extend_from_slice(&bytes[data.0..data.1]);
+        return Some(false);
+    }
+    let content = if changed { &walked } else { &decompressed };
+    let zs = crate::compression::compress_cv(content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -897,8 +901,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
             scan::write_json_string(&blurred, out);
         } else {
-            let scrubbed =
-                scrub_url_opts(self.ctx, &existing, true).unwrap_or_else(|| existing.into_owned());
+            let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }
@@ -959,8 +962,9 @@ impl<'c, 'a> Walker<'c, 'a> {
         })
     }
 
-    /// One cv-marked mutation sub-field from the wire: a gzipped string is decoded/walked, a plain
-    /// array walks uncompressed, `null`/empty-string keep verbatim, anything else declines.
+    /// One cv-marked mutation sub-field from the wire: a compressed string (gzip or zstd) is
+    /// decoded/walked, a plain array walks uncompressed, `null`/empty-string keep verbatim,
+    /// anything else declines.
     fn walk_cv_sub(
         &mut self,
         field: CvMutationField,
@@ -982,15 +986,18 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let raw = latin1_from_wire(wire)?;
-                let decompressed = self.ctx.gunzip_cv(&raw).ok()?;
+                let was_zstd = raw.starts_with(&crate::compression::ZSTD_MAGIC);
+                let decompressed = self.ctx.decompress_cv(&raw).ok()?;
                 let mut walked = Vec::with_capacity(decompressed.len() + 64);
-                let content =
-                    if scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)? {
-                        &walked
-                    } else {
-                        &decompressed
-                    };
-                let zs = crate::gzip::compress_cv(content).ok()?;
+                let changed = scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)?;
+                // Unchanged zstd sub-fields keep their original bytes (the walk proved them
+                // duplicate-key free), so a re-scrub is a no-op; gzip always re-emits as zstd.
+                if !changed && was_zstd {
+                    out.extend_from_slice(&self.bytes[vstart..send]);
+                    return Some(send);
+                }
+                let content = if changed { &walked } else { &decompressed };
+                let zs = crate::compression::compress_cv(content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)

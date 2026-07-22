@@ -153,7 +153,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(true)
+                expect(result).toBe('opted_out')
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'test@example.com',
@@ -177,7 +177,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
             })
 
             it('should return false if recipient has no preference', async () => {
@@ -191,7 +191,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
             })
 
             it('should return false if recipient is not found', async () => {
@@ -202,7 +202,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'test@example.com',
@@ -219,7 +219,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(loggerSpy).toHaveBeenCalledWith(
                     'Failed to fetch recipient preferences for test@example.com:',
                     expect.any(Error)
@@ -251,7 +251,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(true)
+                expect(result).toBe('opted_out')
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
 
@@ -272,7 +272,7 @@ describe('RecipientPreferencesService', () => {
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBe(false)
+                    expect(result).toBeNull()
                     // Transactional messages bypass the opt-out lookup entirely
                     expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
                 }
@@ -292,7 +292,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(true)
+                expect(result).toBe('opted_out')
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
 
@@ -310,7 +310,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
 
@@ -327,7 +327,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
 
@@ -342,35 +342,13 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
 
-            describe('when the recipient is on the suppression list (enforce enabled)', () => {
-                // EmailSuppressionService reads EMAIL_SUPPRESSION_ENFORCE_ENABLED once in its
-                // constructor, so we flip the env then rebuild both services so the fresh instance
-                // reads it. Suppression is a deliverability signal that must apply even to
-                // transactional messages — the parameterized case guards that ordering.
-                let originalEnforceEnv: string | undefined
-
-                beforeEach(() => {
-                    originalEnforceEnv = process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
-                    process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = 'true'
-                    mockEmailSuppressionService = new EmailSuppressionService(
-                        hub.postgres,
-                        emailSuppressionConfigFromEnv()
-                    )
-                    service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
-                })
-
-                afterEach(() => {
-                    if (originalEnforceEnv === undefined) {
-                        delete process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
-                    } else {
-                        process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = originalEnforceEnv
-                    }
-                })
-
+            describe('when the recipient is on the suppression list', () => {
+                // Suppression is a deliverability signal that must apply even to transactional
+                // messages — the parameterized case guards that ordering.
                 const insertSuppressionRow = async (email: string): Promise<void> => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
@@ -395,7 +373,7 @@ describe('RecipientPreferencesService', () => {
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBe(true)
+                    expect(result).toBe('suppressed')
                 })
 
                 // A suppressed address placed in cc or bcc must still block the send, because SES
@@ -438,7 +416,7 @@ describe('RecipientPreferencesService', () => {
 
                         const result = await service.shouldSkipAction(invocation, action)
 
-                        expect(result).toBe(true)
+                        expect(result).toBe('suppressed')
                     }
                 )
 
@@ -462,7 +440,7 @@ describe('RecipientPreferencesService', () => {
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBe(false)
+                    expect(result).toBeNull()
                 })
             })
         })
@@ -501,7 +479,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(true)
+                expect(result).toBe('opted_out')
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: '+1234567890',
@@ -521,7 +499,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
             })
 
             it('should throw error if no SMS identifier is found', async () => {
@@ -547,7 +525,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(true)
+                expect(result).toBe('opted_out')
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
 
@@ -565,7 +543,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
         })
@@ -593,27 +571,30 @@ describe('RecipientPreferencesService', () => {
             // Push is keyed by the recipient's distinct_id (from the triggering event), not an email/phone
             // 'to' field — that is the identifier the device token was registered under.
             it.each([
-                ['opted out', 'OPTED_OUT', true],
-                ['opted in', 'OPTED_IN', false],
-            ] as const)('marketing push to a recipient %s of the category → skip=%s', async (_label, status, skip) => {
-                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
-                const invocation = createFunctionStepInvocation(action)
-                const recipient = createRecipient('distinct_id', {
-                    '123e4567-e89b-12d3-a456-426614174000': status,
-                })
+                ['opted out', 'OPTED_OUT', 'opted_out'],
+                ['opted in', 'OPTED_IN', null],
+            ] as const)(
+                'marketing push to a recipient %s of the category → skipReason=%s',
+                async (_label, status, expectedReason) => {
+                    const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                    const invocation = createFunctionStepInvocation(action)
+                    const recipient = createRecipient('distinct_id', {
+                        '123e4567-e89b-12d3-a456-426614174000': status,
+                    })
 
-                mockRecipientsManagerGet.mockResolvedValue(recipient)
-                mockRecipientsManagerGetPreference.mockReturnValue(status)
-                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
+                    mockRecipientsManagerGet.mockResolvedValue(recipient)
+                    mockRecipientsManagerGetPreference.mockReturnValue(status)
+                    mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
 
-                const result = await service.shouldSkipAction(invocation, action)
+                    const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(skip)
-                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
-                    teamId: team.id,
-                    identifier: 'distinct_id',
-                })
-            })
+                    expect(result).toBe(expectedReason)
+                    expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                        teamId: team.id,
+                        identifier: 'distinct_id',
+                    })
+                }
+            )
 
             it('should return false for a transactional push without checking preferences', async () => {
                 const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'transactional')
@@ -621,7 +602,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
 
@@ -643,7 +624,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(true)
+                expect(result).toBe('opted_out')
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'delivered-person',
@@ -670,7 +651,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBe(false)
+                expect(result).toBeNull()
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
         })
