@@ -731,41 +731,42 @@ class HogQLQueryExecutor:
         chase down unbounded queries (they dominate cost on shared/embedded dashboards, where every
         anonymous view re-runs them). Best-effort: never let telemetry affect query execution.
         """
-        try:
-            if not is_cloud():
-                return
-            if not query_reads_events_without_timestamp_filter(self.select_query):
-                return
-            tags = get_query_tags()
-            distinct_id = str(self.team.pk)
-            event = "unbounded events query"
-            properties = {
-                "team_id": self.team.pk,
-                "query_type": self.query_type,
-                "access_method": tags.access_method,
-                "product": tags.product,
-                "feature": tags.feature,
-                "insight_id": tags.insight_id,
-                "dashboard_id": tags.dashboard_id,
-                "session_id": tags.session_id,
-                "client_query_id": tags.client_query_id,
-                "scene": tags.scene,
-                "$process_person_profile": False,
-            }
-            groups = {"organization": str(tags.org_id)} if tags.org_id else None
+        with tracer.start_as_current_span("HogQLQueryExecutor._capture_unbounded_events_query"):
+            try:
+                if not is_cloud():
+                    return
+                if not query_reads_events_without_timestamp_filter(self.select_query):
+                    return
+                tags = get_query_tags()
+                distinct_id = str(self.team.pk)
+                event = "unbounded events query"
+                properties = {
+                    "team_id": self.team.pk,
+                    "query_type": self.query_type,
+                    "access_method": tags.access_method,
+                    "product": tags.product,
+                    "feature": tags.feature,
+                    "insight_id": tags.insight_id,
+                    "dashboard_id": tags.dashboard_id,
+                    "session_id": tags.session_id,
+                    "client_query_id": tags.client_query_id,
+                    "scene": tags.scene,
+                    "$process_person_profile": False,
+                }
+                groups = {"organization": str(tags.org_id)} if tags.org_id else None
 
-            # On the synchronous web-request path capture must never block — this runs before the
-            # ClickHouse query — so use the global client, which enqueues to a background consumer and
-            # returns immediately. Everything else (Celery/Temporal/Dagster) runs where that background
-            # flush may never happen before the worker exits, silently dropping the event — exactly the
-            # shared/embedded-dashboard recalc path this telemetry targets — so flush before exit there.
-            if tags.kind == "request":
-                posthoganalytics.capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
-            else:
-                with ph_scoped_capture() as capture:
-                    capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
-        except Exception as e:
-            capture_exception(e, {"component": "capture_unbounded_events_query", "team_id": self.team.pk})
+                # On the synchronous web-request path capture must never block — this runs before the
+                # ClickHouse query — so use the global client, which enqueues to a background consumer and
+                # returns immediately. Everything else (Celery/Temporal/Dagster) runs where that background
+                # flush may never happen before the worker exits, silently dropping the event — exactly the
+                # shared/embedded-dashboard recalc path this telemetry targets — so flush before exit there.
+                if tags.kind == "request":
+                    posthoganalytics.capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
+                else:
+                    with ph_scoped_capture() as capture:
+                        capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
+            except Exception as e:
+                capture_exception(e, {"component": "capture_unbounded_events_query", "team_id": self.team.pk})
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:

@@ -13,6 +13,9 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -25,6 +28,7 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
+import posthog.hogql.query as query_module
 from posthog.hogql import ast
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -2229,3 +2233,31 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(kwargs["distinct_id"], str(self.team.pk))
         self.assertEqual(kwargs["event"], "unbounded events query")
         self.assertEqual(kwargs["properties"]["team_id"], self.team.pk)
+
+    def test_unbounded_events_capture_emits_span(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        previous_tracer = query_module.tracer
+        query_module.tracer = provider.get_tracer(query_module.__name__)
+
+        executor = HogQLQueryExecutor(query="SELECT event FROM events", team=self.team, query_type="HogQLQuery")
+        executor._parse_query()
+        tags = MagicMock(kind="request", team_id=self.team.pk, org_id=None)
+
+        try:
+            with (
+                patch("posthog.hogql.query.is_cloud", return_value=True),
+                patch("posthog.hogql.query.get_query_tags", return_value=tags),
+                patch("posthog.hogql.query.posthoganalytics"),
+            ):
+                executor._capture_unbounded_events_query()
+        finally:
+            query_module.tracer = previous_tracer
+
+        spans = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "HogQLQueryExecutor._capture_unbounded_events_query"
+        ]
+        self.assertEqual(len(spans), 1)
