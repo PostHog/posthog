@@ -24,6 +24,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    appendExceptionToMessage,
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_MESSAGE_MAX_LENGTH,
     SUPPORT_TICKET_TEMPLATES,
@@ -181,7 +182,12 @@ export function SupportForm(): JSX.Element | null {
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
                 {(props) => {
-                    const messageLength = sendSupportRequest.message?.length ?? 0
+                    // Count the full outgoing payload (message plus any appended exception), matching
+                    // what validation and submission send, so the counter and the too-long error agree.
+                    const messageLength = appendExceptionToMessage(
+                        sendSupportRequest.message,
+                        sendSupportRequest.exception_event
+                    ).length
                     // Warn as the message nears the limit rather than only after it's exceeded, so a
                     // long paste (e.g. a recording URL) is visible before the user hits submit.
                     const showCounter = conversationsFlagEnabled && messageLength > SUPPORT_MESSAGE_MAX_LENGTH * 0.9
