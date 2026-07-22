@@ -534,7 +534,7 @@ class TestWidgetAPI(BaseTest):
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             {
-                "message": "x" * 6000,
+                "message": "x" * 10001,
                 "widget_session_id": self.widget_session_id,
                 "distinct_id": self.distinct_id,
             },
