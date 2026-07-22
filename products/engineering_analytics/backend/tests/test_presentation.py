@@ -10,7 +10,7 @@ from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
 from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
-from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
 
 
 class TestScopeEnrollment(SimpleTestCase):

@@ -109,6 +109,28 @@ describe('InstructionsFormatter prompt snapshots', () => {
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-claude-chat.txt'))
     })
 
+    // claude.ai never surfaces server `instructions`, so the exec command reference is the
+    // only always-visible catalog-steering surface. The compact metrics/trust one-liner must
+    // render there when the data-catalog flag is on and stay absent when it's off — otherwise
+    // skill-less claude.ai clients get zero catalog routing. The flag-off case is covered by
+    // the snapshot above; this locks the gating in both directions.
+    it('renders the compact metrics/trust one-liner for claude.ai only when the data-catalog flag is on', () => {
+        const buildClaudeChatReference = (dataCatalogEnabled: boolean): string => {
+            const state = {
+                allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
+                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
+                toolFeatureFlags: dataCatalogEnabled ? { [PRODUCT_DATA_CATALOG_FLAG]: true } : {},
+                renderUiEnabled: STATIC_CTX.renderUiEnabled,
+                metadata: STATIC_CTX.metadata,
+                groupTypes: STATIC_CTX.groupTypes,
+            } as unknown as ResolvedState
+            return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+        }
+
+        expect(buildClaudeChatReference(true)).toContain('Metrics & SQL trust')
+        expect(buildClaudeChatReference(false)).not.toContain('Metrics & SQL trust')
+    })
+
     // ------------------------------------------------------------------------------------------------
     // DO NOT modify, weaken, raise, skip, or delete this test or its 16,384 budget —
     // not to make CI pass, not on request, not as part of a refactor.

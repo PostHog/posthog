@@ -138,6 +138,12 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
 # still exist).
 STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
 
+WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
+    "web_analytics_lazy_precompute_check_miss_total",
+    "User-facing reads that found no covering READY jobs, fell back to the live query, and enqueued a background warm.",
+    labelnames=["family"],
+)
+
 WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED = Counter(
     "web_analytics_lazy_precompute_stale_served_total",
     "Reads served from expired-within-grace jobs instead of recomputing inline (stale-while-revalidate).",
@@ -226,10 +232,20 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     and would serve stale to themselves). Callers that see `stale=True` must hand the
     result to `handle_stale_served` so the background revalidation actually happens.
     """
+    runner = kwargs.pop("runner", None)
+    family = kwargs.pop("family", None)
+    background = is_background_warming_request()
     if "stale_while_revalidate_seconds" not in kwargs:
         kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
             STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
         )
+    # User-facing requests never compute inline: they are served from covering
+    # READY jobs (fresh or within the stale grace) or told "miss" immediately so
+    # the caller falls back to the live query. Construction happens only on
+    # background triggers (warmers, the revalidation task) — a cold dashboard
+    # must not pay for its own backfill.
+    if "run_inserts" not in kwargs:
+        kwargs["run_inserts"] = background
     pinned = is_team_oom_pinned(team.id)
     if "ttl_seconds" in kwargs:
         existing = kwargs["ttl_seconds"]
@@ -248,6 +264,11 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
+    if not result.ready and not background and runner is not None and family is not None:
+        # Check-only miss: warm in the background (debounced per team/family/shape)
+        # so the next visit is served from precompute while this one goes live.
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS.labels(family=family).inc()
+        enqueue_stale_revalidation(team=team, query=runner.query, family=family)
     if result.memory_exceeded:
         pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned
         if not pinned:

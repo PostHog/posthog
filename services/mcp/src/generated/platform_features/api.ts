@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -35,6 +35,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
         ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
@@ -90,6 +96,10 @@ export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
     user__uuid: zod.string(),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
@@ -103,6 +113,10 @@ export const RolesListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this role.'),
     organization_id: zod
@@ -112,6 +126,10 @@ export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
@@ -268,6 +286,43 @@ export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Approve a change request.
+ * If quorum is reached, automatically applies the change immediately.
+ */
+export const ChangeRequestsApproveCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this change request.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod.string().optional().describe('Optional note recorded with the approval vote explaining the decision.'),
+})
+
+/**
+ * Reject a change request.
+ */
+export const ChangeRequestsRejectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this change request.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .describe(
+            'Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester.'
         ),
 })
 

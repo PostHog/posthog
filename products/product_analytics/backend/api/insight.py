@@ -552,7 +552,7 @@ class InsightFilterOverrideContext(BaseModel):
     dashboard: schema.DashboardFilter | None = PydanticField(
         default=None, description="Dashboard filters that remain active after applying tile precedence."
     )
-    tile: schema.DashboardFilter | None = PydanticField(
+    tile: schema.TileFilters | None = PydanticField(
         default=None, description="Tile filters applied above the dashboard filters."
     )
     overridden_dashboard: schema.DashboardFilter | None = PydanticField(
