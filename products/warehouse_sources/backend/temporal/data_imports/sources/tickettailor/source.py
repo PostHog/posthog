@@ -101,13 +101,18 @@ You can create an API key under **Settings → API** in your [Ticket Tailor](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty) — see settings.py for
         # why there is no reliable incremental cursor to advance.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TicketTailorSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TicketTailorSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is box-office-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

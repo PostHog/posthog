@@ -8,6 +8,7 @@ import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -325,6 +326,7 @@ function SignupProfilePanel(): JSX.Element {
     } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const { setTurnstileToken, setPanel } = useActions(signupLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const submitLabel = !preflight?.demo
         ? 'Create account'
@@ -374,6 +376,26 @@ function SignupProfilePanel(): JSX.Element {
             {signupPanelOnboardingManualErrors?.generic && (
                 <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                     <span>{signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}</span>
+                    {preflight?.cloud && (
+                        <>
+                            {' '}
+                            <Link
+                                data-attr="login-error-contact-support"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    openSupportForm({
+                                        kind: 'support',
+                                        target_area: 'login',
+                                        email: signupPanelEmail.email,
+                                    })
+                                }}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Contact us
+                            </Link>{' '}
+                            <span>to resolve this.</span>
+                        </>
+                    )}
                 </div>
             )}
             <Form

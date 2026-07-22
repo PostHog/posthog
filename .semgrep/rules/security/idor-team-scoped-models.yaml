@@ -73,6 +73,8 @@ rules:
                               |Alert
                               |AlertConfiguration
                               |Annotation
+                              |Announcement
+                              |AnnouncementDelivery
                               |ApprovalPolicy
                               |BatchExport
                               |BatchExportBackfill
@@ -84,9 +86,6 @@ rules:
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
-                              |CodePrSnapshot
-                              |CodeWorkflowConfig
-                              |CodeWorkstream
                               |Cohort
                               |CohortBackfillChunk
                               |CohortBackfillRun
@@ -170,6 +169,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowRevision
                               |HogFlowSchedule
                               |HogFlowTemplate
                               |HogFunction
@@ -241,6 +241,7 @@ rules:
                               |ReviewUserSettings
                               |SandboxCustomImage
                               |SandboxEnvironment
+                              |SandboxSession
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
@@ -386,6 +387,8 @@ rules:
                         |Alert
                         |AlertConfiguration
                         |Annotation
+                        |Announcement
+                        |AnnouncementDelivery
                         |ApprovalPolicy
                         |BatchExport
                         |BatchExportBackfill
@@ -397,9 +400,6 @@ rules:
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
-                        |CodePrSnapshot
-                        |CodeWorkflowConfig
-                        |CodeWorkstream
                         |Cohort
                         |CohortBackfillChunk
                         |CohortBackfillRun
@@ -483,6 +483,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowRevision
                         |HogFlowSchedule
                         |HogFlowTemplate
                         |HogFunction
@@ -549,6 +550,7 @@ rules:
                         |ReviewUserSettings
                         |SandboxCustomImage
                         |SandboxEnvironment
+                        |SandboxSession
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
