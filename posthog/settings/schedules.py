@@ -109,7 +109,7 @@ REALTIME_COHORT_CALCULATION_P99_P100_INTERVAL_MINUTES: int = get_from_env(
 # How often precalculated_events is reconciled against person_distinct_id_overrides to
 # repair rows made stale by person merges. Runs at the realtime calculation cadence so a
 # merge is reconciled by the next calculation run; each run is incremental over overrides
-# from the last RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS (48 by default), which must stay
+# from the last RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS (6 by default), which must stay
 # well above this interval and well below the overrides squash cadence
 # (SQUASH_PERSON_OVERRIDES_SCHEDULE, weekly by default) — the squash deletes override rows
 # after folding them into events, and reconciliation needs to see them before then.
