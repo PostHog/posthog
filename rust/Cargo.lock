@@ -2239,6 +2239,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "chrono-tz",
+ "clap",
  "clickhouse",
  "cohort-core",
  "common-alloc",

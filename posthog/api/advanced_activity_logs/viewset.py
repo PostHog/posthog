@@ -39,6 +39,48 @@ from .filters import AdvancedActivityLogFilterManager
 from .utils import get_activity_log_lookback_restriction
 
 
+def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
+    """Keep personal loops' config out of the team-wide activity feed.
+
+    Loop activity is team-scoped in the log, but a personal loop is owner-only (see
+    products/tasks/docs/LOOPS.md "Access control"). The static visibility manager can't express
+    per-user ownership, so restrict `Loop`-scoped rows to the loops this user may actually see.
+    Lazy import keeps the tasks product off this module's import path.
+    """
+    from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
+
+    visible_ids = loops_facade.visible_loop_ids(team_id, user)
+    return queryset.exclude(Q(scope="Loop") & ~Q(item_id__in=visible_ids))
+
+
+def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
+    """Org-wide equivalent of `restrict_loop_activity`. The org route has no single `team_id`, so it
+    can't build a per-team allowlist; instead deny other users' personal-loop rows across the org.
+
+    Two filters, both required. The persisted per-row context (`detail.context.visibility` /
+    `created_by_user_id`, snapshotted at log time) is the primary one: `ActivityLog` outlives its
+    loop (project deletion cascades `Loop` rows away while the log keeps plain `team_id` /
+    `organization_id`), so a live-row denylist alone would open another user's deleted personal-loop
+    history to org admins. The live-row denylist stays on top so a currently-personal loop hides ALL
+    its rows, including ones logged back when it was team-visible.
+
+    No object-level loop RBAC here, deliberately: this route is restricted to org admins and owners
+    (`OrganizationActivityLogPermission`), who pass the RBAC precheck for every object, so the
+    filter the team route applies via `visible_loop_ids` would be a no-op on this one."""
+    from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
+
+    user_id = getattr(user, "id", None)
+    persisted_personal = Q(scope="Loop") & Q(detail__context__visibility="personal")
+    if user_id is not None:
+        persisted_personal &= ~Q(detail__context__created_by_user_id=str(user_id))
+    queryset = queryset.exclude(persisted_personal)
+
+    hidden_ids = loops_facade.hidden_personal_loop_ids_for_org(organization_id, user)
+    if not hidden_ids:
+        return queryset
+    return queryset.exclude(Q(scope="Loop") & Q(item_id__in=hidden_ids))
+
+
 def apply_organization_scoped_filter(
     queryset: QuerySet[ActivityLog], include_org_scoped: bool, team_id: int, organization_id
 ) -> QuerySet[ActivityLog]:
@@ -192,6 +234,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
+        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
 
         return queryset
 
@@ -438,6 +481,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
+        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
 
         return queryset.order_by("-created_at")
 
@@ -584,6 +628,8 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
+        # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
+        queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by("-created_at")
 

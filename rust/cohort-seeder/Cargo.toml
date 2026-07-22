@@ -9,11 +9,16 @@ workspace = true
 [features]
 pg-test-support = []
 
+[[bin]]
+name = "reconcile_dispatch"
+path = "src/bin/reconcile_dispatch.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
+clap = { workspace = true }
 clickhouse = { workspace = true }
 cohort-core = { path = "../cohort-core" }
 common-alloc = { path = "../common/alloc" }

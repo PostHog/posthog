@@ -98,13 +98,18 @@ You can create an API key under **Settings → Developers → API Keys** in [Inv
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every list endpoint documents a server-side `updated_after` UNIX-timestamp filter, so
         # each schema advertises `updated_at` as a genuine incremental cursor.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: InvoicedSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InvoicedSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Invoiced API keys are account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

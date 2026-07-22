@@ -28,7 +28,7 @@ def _build_replay_scanner(**overrides) -> ReplayScanner:
         "name": "test-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "did the user export?"},
-        "model": ScannerModel.GEMINI_3_FLASH,
+        "model": ScannerModel.GEMINI_3_6_FLASH,
         "emits_signals": False,
     }
     defaults.update(overrides)

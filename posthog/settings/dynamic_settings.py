@@ -287,8 +287,9 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "WEB_ANALYTICS_WARMING_DAYS": (
-        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7, type_cast=int),
-        "Number of days to look back for frequently-run web analytics queries",
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=2, type_cast=int),
+        "Number of days of system.query_log to look back for frequently-run web analytics queries. "
+        "Selection scans log_comment fleet-wide (terabytes per day), so keep this small.",
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
