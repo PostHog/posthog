@@ -305,7 +305,8 @@ def get_survey_conditions_with_actions(
         # serializer would never expose — notably `created_by` on the public /surveys and /decide
         # payload — so project each value down to the serializer's own fields. Never surface more
         # than the serializer itself would.
-        allowed_fields = getattr(action_serializer_class.Meta, "fields", None)
+        meta = getattr(action_serializer_class, "Meta", None)
+        allowed_fields = getattr(meta, "fields", None)
         if isinstance(allowed_fields, list | tuple):
             allowed = set(allowed_fields)
             values = conditions["actions"].get("values") or []
