@@ -86,6 +86,34 @@ def _optional_string(raw: Any) -> Optional[str]:
     return raw if isinstance(raw, str) and raw else None
 
 
+def _record_marker(
+    message: dict[str, Any],
+    cohort_id: Any,
+    last_updated: Optional[datetime],
+    since: datetime,
+    stats: FoldStats,
+) -> None:
+    run_id = _parse_marker_run_id(message.get("run_id"))
+    partition = message.get("partition")
+    if (
+        run_id is None
+        or not isinstance(cohort_id, int)
+        or isinstance(cohort_id, bool)
+        or not isinstance(partition, int)
+        or isinstance(partition, bool)
+        or not 0 <= partition < RECONCILE_PARTITION_COUNT
+        or last_updated is None
+    ):
+        stats.dropped_malformed += 1
+        return
+    if last_updated < since:
+        stats.dropped_before_since += 1
+        return
+    stats.reconcile_markers.setdefault((run_id, cohort_id), set()).add(partition)
+    stats.reconcile_markers_recorded += 1
+    stats.cohorts_seen.add(cohort_id)
+
+
 def fold_membership_changes(
     messages: Iterable[dict[str, Any]],
     *,
@@ -109,25 +137,7 @@ def fold_membership_changes(
         last_updated = parse_last_updated(message.get("last_updated"))
 
         if message.get("type") == RECONCILE_COMPLETE_TYPE:
-            run_id = _parse_marker_run_id(message.get("run_id"))
-            partition = message.get("partition")
-            if (
-                run_id is None
-                or not isinstance(cohort_id, int)
-                or isinstance(cohort_id, bool)
-                or not isinstance(partition, int)
-                or isinstance(partition, bool)
-                or not 0 <= partition < RECONCILE_PARTITION_COUNT
-                or last_updated is None
-            ):
-                stats.dropped_malformed += 1
-                continue
-            if last_updated < since:
-                stats.dropped_before_since += 1
-                continue
-            stats.reconcile_markers.setdefault((run_id, cohort_id), set()).add(partition)
-            stats.reconcile_markers_recorded += 1
-            stats.cohorts_seen.add(cohort_id)
+            _record_marker(message, cohort_id, last_updated, since, stats)
             continue
 
         person_id = message.get("person_id")
@@ -163,17 +173,19 @@ def fold_membership_changes(
     return state, stats
 
 
+def reconcile_completeness_by_cohort(stats: FoldStats) -> dict[int, tuple[ReconcileRunCompleteness, ...]]:
+    """Group deterministic per-run marker completeness by cohort in a single sorted pass."""
+    by_cohort: dict[int, list[ReconcileRunCompleteness]] = {}
+    for (run_id, cohort_id), partitions in sorted(stats.reconcile_markers.items()):
+        by_cohort.setdefault(cohort_id, []).append(
+            ReconcileRunCompleteness(run_id=run_id, cohort_id=cohort_id, partitions_seen=len(partitions))
+        )
+    return {cohort_id: tuple(runs) for cohort_id, runs in by_cohort.items()}
+
+
 def reconcile_completeness(stats: FoldStats, cohort_id: int) -> tuple[ReconcileRunCompleteness, ...]:
     """Return deterministic per-run marker completeness for one cohort."""
-    return tuple(
-        ReconcileRunCompleteness(
-            run_id=run_id,
-            cohort_id=marker_cohort_id,
-            partitions_seen=len(partitions),
-        )
-        for (run_id, marker_cohort_id), partitions in sorted(stats.reconcile_markers.items())
-        if marker_cohort_id == cohort_id
-    )
+    return reconcile_completeness_by_cohort(stats).get(cohort_id, ())
 
 
 def members(state: dict[str, MembershipRecord]) -> set[str]:

@@ -24,7 +24,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortComparison, classify_cohort, summarize
 from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, screen_team
-from products.cohorts.backend.parity.fold import fold_membership_changes, reconcile_completeness
+from products.cohorts.backend.parity.fold import fold_membership_changes, reconcile_completeness_by_cohort
 from products.cohorts.backend.parity.kafka_io import DEFAULT_SHADOW_TOPIC, DrainStats, consumer_config, drain_topic
 from products.cohorts.backend.parity.report import (
     format_notes,
@@ -197,6 +197,7 @@ class Command(BaseCommand):
             classify=not options["no_classify"],
             activity_probe=make_activity_probe(team_id),
         )
+        completeness_by_cohort = reconcile_completeness_by_cohort(fold_stats)
         rows: list[CohortComparison] = []
         for cid in sorted(selected_ids):
             s = screened[cid]
@@ -209,7 +210,7 @@ class Command(BaseCommand):
                     new_state=new_state.get(cid, {}),
                     last_realtime_calculation_at=last_calc[cid],
                     config=classifier_config,
-                    notes=format_reconcile_notes(reconcile_completeness(fold_stats, cid)),
+                    notes=format_reconcile_notes(completeness_by_cohort.get(cid, ())),
                 )
             )
 

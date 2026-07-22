@@ -46,6 +46,12 @@ def _marker(
     }
 
 
+def _marker_without(field: str) -> dict:
+    marker = _marker(1)
+    del marker[field]
+    return marker
+
+
 class TestFold(SimpleTestCase):
     def test_last_message_wins_per_pair(self) -> None:
         state, stats = fold_membership_changes(
@@ -150,6 +156,10 @@ class TestFold(SimpleTestCase):
         messages = [*(_marker(partition, run_id=RUN_2) for partition in range(64))]
         messages.extend(_marker(partition, run_id=RUN_1) for partition in range(41))
         messages.append(_marker(0, run_id=RUN_1))
+        # A second cohort shares RUN_1 and covers exactly the partitions cohort 10 is missing
+        # (41..64); its markers must stay under their own cohort so RUN_1 does not read as a
+        # false 64/64 for cohort 10.
+        messages.extend(_marker(partition, run_id=RUN_1, cohort_id=20) for partition in range(41, 64))
 
         _state, stats = fold_membership_changes(messages, team_id=2, since=SINCE)
 
@@ -158,15 +168,22 @@ class TestFold(SimpleTestCase):
             [(run.run_id, run.partitions_seen, run.complete) for run in completeness],
             [(RUN_1, 41, False), (RUN_2, 64, True)],
         )
-        # Counts every accepted marker message, including the RUN_1 partition-0 duplicate — 106,
-        # not the 105 distinct partitions the completeness sets hold. Keeps the summary's
+        self.assertEqual(
+            [(run.run_id, run.partitions_seen, run.complete) for run in reconcile_completeness(stats, cohort_id=20)],
+            [(RUN_1, 23, False)],
+        )
+        # Counts every accepted marker message, including the RUN_1 partition-0 duplicate — 129,
+        # not the 128 distinct partitions the completeness sets hold. Keeps the summary's
         # folded + drops + markers == total accounting exact.
-        self.assertEqual(stats.reconcile_markers_recorded, 106)
+        self.assertEqual(stats.reconcile_markers_recorded, 129)
 
     @parameterized.expand(
         [
             ("bad_run_id", _marker(1, run_id="not-a-uuid"), 2, 1, 0),
+            ("missing_run_id", _marker_without("run_id"), 2, 1, 0),
             ("out_of_range_partition", _marker(64), 2, 1, 0),
+            ("missing_partition", _marker_without("partition"), 2, 1, 0),
+            ("missing_timestamp", _marker_without("last_updated"), 2, 1, 0),
             ("float_team_id", _marker(1) | {"team_id": 2.0}, 2, 1, 0),
             ("boolean_team_id", _marker(1, team_id=True), 1, 1, 0),
             ("before_since", _marker(1, ts="2026-07-07 18:59:59.999999"), 2, 0, 1),

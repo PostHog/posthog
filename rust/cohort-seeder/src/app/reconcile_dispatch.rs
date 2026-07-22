@@ -312,7 +312,7 @@ pub enum ReconcileDispatchError {
     #[error("joining the seed-topic partition verification task")]
     PartitionVerificationTask(#[source] tokio::task::JoinError),
     #[error("verifying the seed-topic partition count")]
-    PartitionCount(#[from] PartitionCountError),
+    TopicPartitionCount(#[from] PartitionCountError),
     #[error("enqueuing a reconcile control tile")]
     Enqueue(#[source] EnqueueError),
     #[error(transparent)]

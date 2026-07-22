@@ -446,7 +446,7 @@ struct PinnedParticipationRow {
 }
 
 #[derive(Debug, FromRow)]
-struct ParticipationRow {
+struct ReconcileParticipationRow {
     team_id: i32,
     cohort_id: i32,
     behavioral_filters_shape_hash: String,
@@ -491,7 +491,7 @@ pub async fn load_reconcile_run(
         });
     }
 
-    let rows = sqlx::query_as::<_, ParticipationRow>(READ_ACTIVE_RECONCILE_PARTICIPATIONS)
+    let rows = sqlx::query_as::<_, ReconcileParticipationRow>(READ_ACTIVE_RECONCILE_PARTICIPATIONS)
         .bind(run_id)
         .fetch_all(pool)
         .await
