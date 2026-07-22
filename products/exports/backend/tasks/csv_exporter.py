@@ -23,6 +23,7 @@ from rest_framework_csv.renderers import CSVRenderer
 from posthog.schema import QuerySchemaRoot
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import LimitContext
 
 from posthog.api.services.query import process_query_dict
@@ -695,6 +696,12 @@ def export_tabular(
         else:
             team_id = "unknown"
 
-        capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
-        logger.error("csv_exporter.failed", exception=e, exc_info=True)
+        # A malformed HogQL query is a user error, not a code defect — don't treat it as a tracked
+        # internal exception. Downgrade to a warning and skip capture, but still re-raise so the
+        # export is marked failed.
+        if isinstance(e, ExposedHogQLError):
+            logger.warning("csv_exporter.user_query_error", exception=e, team_id=team_id)
+        else:
+            capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
+            logger.error("csv_exporter.failed", exception=e, exc_info=True)
         raise
