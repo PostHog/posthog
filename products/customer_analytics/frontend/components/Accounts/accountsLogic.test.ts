@@ -355,10 +355,6 @@ describe('accountsLogic', () => {
             expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
         })
 
-        // Hybrid sort: while the whole matching set is loaded the query stays free of
-        // orderBy, so toggling a header re-sorts the loaded rows client-side without a
-        // refetch. Once the list is paginated ("Load more") the query carries orderBy so
-        // ClickHouse returns the globally-sorted page.
         it('leaves orderBy off while the full list is loaded, for instant client-side sort', () => {
             expect(logic.values.canSortClientSide).toBe(true)
             logic.actions.toggleSort('notebook_count')
@@ -382,7 +378,6 @@ describe('accountsLogic', () => {
             logic.actions.listLoadNextData()
             logic.actions.toggleSort('name')
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name'])
-            // A fresh load (filter change / refresh) resets the paginated flag.
             logic.actions.listLoadData()
             expect(logic.values.canSortClientSide).toBe(true)
             expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
@@ -424,8 +419,6 @@ describe('accountsLogic', () => {
                 'sorts a %s column by its value cast to a float',
                 (displayType) => {
                     selectCustomProperty(displayType)
-                    // Server-side orderBy only applies when the list is paginated; otherwise
-                    // the fully-loaded rows sort client-side and carry no orderBy.
                     logic.actions.listLoadNextData()
                     logic.actions.toggleSort(alias)
                     expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([floatExpr])

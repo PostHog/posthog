@@ -433,8 +433,6 @@ export const accountsLogic = kea<accountsLogicType>([
             ['metrics as overviewMetrics', 'tileFilter'],
             customerAnalyticsSceneLogic,
             ['mineOnly'],
-            // Pagination state of the list rows, to decide whether the whole
-            // matching set is loaded (sort client-side) or not (sort server-side).
             dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY } as DataNodeLogicProps),
             ['hasMoreData as listHasMoreData'],
         ],
@@ -451,8 +449,6 @@ export const accountsLogic = kea<accountsLogicType>([
             ['loadUserSuccess'],
             membersLogic,
             ['ensureAllMembersLoaded'],
-            // List load lifecycle — a fresh load resets the paginated flag, "Load
-            // more" sets it (see the listPaginated reducer).
             dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY } as DataNodeLogicProps),
             ['loadData as listLoadData', 'loadNextData as listLoadNextData'],
         ],
@@ -546,11 +542,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 setSortOrder: (_, { sortOrder }) => sortOrder,
             },
         ],
-        // True when the currently-loaded rows were built by paging past the first
-        // page ("Load more"). Keeps the list in server-side sort mode so paginating
-        // to the end never drops the query's `orderBy` (which would reset back to
-        // page one and discard the accumulated rows). Reset on every fresh load, so
-        // a filtered-down set is re-evaluated and can return to instant client sort.
+        // Keeps server-side sort while paging, so reaching the last page never drops the
+        // orderBy and collapses the accumulated rows back to page one.
         listPaginated: [
             false,
             {
@@ -669,15 +662,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 return state
             },
         ],
-        // When the whole matching set is already loaded in the browser, sorting can
-        // happen client-side (instant, no refetch). Otherwise the query carries an
-        // `orderBy` so ClickHouse sorts the full set and returns the global top page.
         canSortClientSide: [
             (s) => [s.listHasMoreData, s.listPaginated],
             (listHasMoreData: boolean, listPaginated: boolean): boolean => !listHasMoreData && !listPaginated,
         ],
-        // Passed to the DataTable's `dataTableRowsTransformer` context seam; undefined
-        // while the list is paginated (the server already returned globally sorted rows).
         sortedRowsTransformer: [
             (s) => [s.canSortClientSide, s.sortOrder, s.visibleColumnNames],
             (
@@ -735,10 +723,6 @@ export const accountsLogic = kea<accountsLogicType>([
                     customPropertyFilters,
                     customPropertyDefinitionsById,
                 })
-                // Only sort on the server when the list is paginated — otherwise the
-                // rows are all loaded and the table sorts them client-side (instant, no
-                // refetch), so leaving `orderBy` off keeps the query semantically stable
-                // and toggling sort doesn't re-fetch.
                 // HogQL ORDER BY resolves SELECT aliases by name, so the visible column
                 // name works directly. Skip sorts on columns the translation dropped
                 // (a legacy role with no matching definition) — the alias wouldn't resolve.
