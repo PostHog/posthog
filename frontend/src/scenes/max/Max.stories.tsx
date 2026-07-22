@@ -23,8 +23,8 @@ import conversationList from './__mocks__/conversationList.json'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
-import { maxThreadLogic } from './maxThreadLogic'
 import { Template, sharedMeta, useAutoSendOnce } from './maxStoriesShared'
+import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/PostHog AI',

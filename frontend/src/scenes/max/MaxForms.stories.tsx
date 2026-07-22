@@ -13,8 +13,8 @@ import {
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxThreadLogic } from './maxThreadLogic'
 import { Template, generateChunk, sharedMeta, useAutoSendOnce } from './maxStoriesShared'
+import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/PostHog AI/Forms',
