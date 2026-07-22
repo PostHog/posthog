@@ -29,13 +29,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DecagonSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
+    DecagonSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DecagonSource(ResumableSource[DecagonSourceConfig, DecagonResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.decagon.ai/api-reference/getting-started"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -67,7 +70,6 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

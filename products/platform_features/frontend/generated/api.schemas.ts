@@ -959,6 +959,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -981,6 +982,7 @@ export type ActivityLogListParams = {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -996,6 +998,9 @@ export type ActivityLogListParams = {
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
+     * * `Loop` - Loop
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1043,6 +1048,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
@@ -1065,6 +1071,7 @@ export const ActivityLogListScope = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1080,6 +1087,9 @@ export const ActivityLogListScope = {
     SignalScoutConfig: 'SignalScoutConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
+    TableCertification: 'TableCertification',
+    Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 /**
@@ -1114,6 +1124,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
  * * `UserGroup` - UserGroup
@@ -1136,6 +1147,7 @@ export const ActivityLogListScope = {
  * * `ExternalDataSource` - ExternalDataSource
  * * `ExternalDataSchema` - ExternalDataSchema
  * * `Evaluation` - Evaluation
+ * * `LLMPromptLabel` - LLMPromptLabel
  * * `LLMTrace` - LLMTrace
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -1151,6 +1163,9 @@ export const ActivityLogListScope = {
  * * `SignalScoutConfig` - SignalScoutConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
+ * * `TableCertification` - TableCertification
+ * * `Billing` - Billing
+ * * `Loop` - Loop
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1186,6 +1201,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
@@ -1208,6 +1224,7 @@ export const ActivityLogListScopesItem = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1223,6 +1240,9 @@ export const ActivityLogListScopesItem = {
     SignalScoutConfig: 'SignalScoutConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
+    TableCertification: 'TableCertification',
+    Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 export type AdvancedActivityLogsListParams = {

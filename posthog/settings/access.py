@@ -142,6 +142,15 @@ TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERN
 # agent-proxy in production; unset (local/CI) disables the check.
 AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
 
+# ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
+# CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
+# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is the
+# team the review runs and publishes under; REVIEWHOG_RUN_USER_ID is the user the sandbox tasks run as
+# (falls back to the team's GitHub integration creator when unset).
+REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
+REVIEWHOG_TEAM_ID: int | None = get_from_env("REVIEWHOG_TEAM_ID", optional=True, type_cast=int)
+REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
+
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 # We provide a default as it is needed for hobby deployments. Each entry must be exactly 32 bytes

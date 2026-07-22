@@ -22,16 +22,15 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
     const { push } = useActions(router)
     const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
     const { alerts } = useValues(logic)
-    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
+    const metricsAlertsEnabled = useFeatureFlag('METRICS')
 
-    const supported = areAlertsSupportedForInsight(insight.query, { hogqlAlertsEnabled, funnelAlertsEnabled })
+    const supported = areAlertsSupportedForInsight(insight.query, { metricsAlertsEnabled })
     // Existing alerts must stay manageable even if the gating flag is later disabled —
     // they keep evaluating server-side, so the user needs a way in to edit or disable them.
     const disabledReason =
         supported || (alerts?.length ?? 0) > 0
             ? undefined
-            : alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled }, insight.query)
+            : alertsUnsupportedReason({ metricsAlertsEnabled }, insight.query)
 
     return (
         <LemonButton

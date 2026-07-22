@@ -302,6 +302,37 @@ export interface S3CompatibleDestinationConfigApi {
     type: S3CompatibleDestinationConfigApiType
 }
 
+export type SnowflakeDestinationConfigApiType =
+    (typeof SnowflakeDestinationConfigApiType)[keyof typeof SnowflakeDestinationConfigApiType]
+
+export const SnowflakeDestinationConfigApiType = {
+    Snowflake: 'Snowflake',
+} as const
+
+/**
+ * Typed configuration for a Snowflake batch-export destination.
+ *
+ * Account, user, authentication type and credentials may live in a linked Integration (when one is
+ * provided) or inline in this config (legacy). Mirrors the non-credential fields of
+ * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ */
+export interface SnowflakeDestinationConfigApi {
+    /** Snowflake database to write to. */
+    database: string
+    /** Snowflake compute warehouse to use. */
+    warehouse: string
+    /** Schema inside the database containing the destination table. */
+    schema: string
+    /** Destination table name. */
+    table_name?: string
+    /**
+     * Optional Snowflake role to assume for the session.
+     * @nullable
+     */
+    role?: string | null
+    type: SnowflakeDestinationConfigApiType
+}
+
 export type BatchExportDestinationConfigApi =
     | DatabricksDestinationConfigApi
     | AzureBlobDestinationConfigApi
@@ -309,14 +340,15 @@ export type BatchExportDestinationConfigApi =
     | PostgresDestinationConfigApi
     | AwsS3DestinationConfigApi
     | S3CompatibleDestinationConfigApi
+    | SnowflakeDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
  *
  * The `config` field is polymorphic and typed only for destinations that keep
  * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
- * AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
- * OpenAPI schema. Secret fields are stripped from `config` on read.
+ * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
+ * typed OpenAPI schema. Secret fields are stripped from `config` on read.
  */
 export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
@@ -335,7 +367,7 @@ export interface BatchExportDestinationApi {
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -343,7 +375,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -1261,6 +1293,23 @@ export interface S3CompatibleDestinationRequestApi {
     config: S3CompatibleDestinationConfigApi
 }
 
+export type SnowflakeDestinationRequestApiType =
+    (typeof SnowflakeDestinationRequestApiType)[keyof typeof SnowflakeDestinationRequestApiType]
+
+export const SnowflakeDestinationRequestApiType = {
+    Snowflake: 'Snowflake',
+} as const
+
+/**
+ * Request shape for creating or updating a Snowflake batch-export destination.
+ */
+export interface SnowflakeDestinationRequestApi {
+    type: SnowflakeDestinationRequestApiType
+    /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+    integration_id?: number
+    config: SnowflakeDestinationConfigApi
+}
+
 export type BatchExportDestinationRequestApi =
     | DatabricksDestinationRequestApi
     | AzureBlobDestinationRequestApi
@@ -1268,6 +1317,7 @@ export type BatchExportDestinationRequestApi =
     | PostgresDestinationRequestApi
     | AwsS3DestinationRequestApi
     | S3CompatibleDestinationRequestApi
+    | SnowflakeDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1813,6 +1863,16 @@ export type S3CompatibleDestinationRequestTypeEnumApi =
 
 export const S3CompatibleDestinationRequestTypeEnumApi = {
     S3Compatible: 'S3Compatible',
+} as const
+
+/**
+ * * `Snowflake` - Snowflake
+ */
+export type SnowflakeDestinationRequestTypeEnumApi =
+    (typeof SnowflakeDestinationRequestTypeEnumApi)[keyof typeof SnowflakeDestinationRequestTypeEnumApi]
+
+export const SnowflakeDestinationRequestTypeEnumApi = {
+    Snowflake: 'Snowflake',
 } as const
 
 export type BatchExportsListParams = {

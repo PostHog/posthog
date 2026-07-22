@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostmarkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postmark import (
+    PostmarkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.postmark import (
     PostmarkResumeConfig,
     postmark_source,
@@ -32,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PostmarkSource(ResumableSource[PostmarkSourceConfig, PostmarkResumeConfig]):
+    api_docs_url = "https://postmarkapp.com/developer"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -130,6 +134,7 @@ The token grants read access to the following server-level resources:
         return postmark_source(
             server_token=config.server_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

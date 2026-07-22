@@ -8,7 +8,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HarveySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -59,7 +59,6 @@ class TestHarveySource:
 
         assert config.name.value == "Harvey"
         assert config.label == "Harvey"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/harvey.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/harvey"

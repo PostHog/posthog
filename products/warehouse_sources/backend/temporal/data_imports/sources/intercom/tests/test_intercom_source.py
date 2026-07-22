@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import SourceFieldOauthConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IntercomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
+    IntercomSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -59,6 +61,21 @@ class TestIntercomSource:
         # prefixes of the raised messages (the integration ID / job ID are volatile).
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in error_msg for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "404 Client Error: Not Found for url: https://api.intercom.io/companies/scroll?scroll_param=c77e46e6-6344-4ada-a0c7-fba26d6af725",
+            "404 Client Error: Not Found for url: https://api.intercom.io/companies/scroll",
+        ],
+    )
+    def test_companies_scroll_expiry_is_retryable(self, error_msg):
+        # A companies scroll cursor expiring mid-walk (idle timeout, or a concurrent sync
+        # stealing the workspace's single scroll slot) 404s on continuation. `companies` is
+        # full-refresh, so a fresh Temporal attempt restarts cleanly — this should stay out
+        # of error tracking as noise rather than be flagged as a real failure.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
 
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -29,12 +29,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshsalesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshsales import (
+    FreshsalesSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FreshsalesSource(ResumableSource[FreshsalesSourceConfig, FreshsalesResumeConfig]):
+    api_docs_url = "https://developers.freshworks.com/crm/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -118,7 +118,9 @@ def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
         if pa.types.is_decimal(field.type) and any(
             (values := chunk.buffers()[1]) is not None and values.address % 16 for chunk in column.chunks
         ):
-            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)], type=field.type)
+            # concat_arrays preserves the chunks' (decimal) type; pyarrow-stubs has no
+            # chunked_array overload for an explicit decimal type=.
+            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)])
             realigned = True
         else:
             new_columns[field.name] = column
@@ -150,7 +152,7 @@ def _first_per_pk_table(
     # We use numpy for the final sort because pyarrow's type stubs for
     # `pc.sort_indices` / `Array.take` are currently broken — numpy's stubs work.
     idx_col_name = "__ph_cdc_row_idx"
-    aggregate = "min" if keep == "first" else "max"
+    aggregate: Literal["min", "max"] = "min" if keep == "first" else "max"
 
     # 1. Add a row-position column: [0, 1, 2, ..., n-1]
     indexed = pa_table.append_column(idx_col_name, pa.array(range(pa_table.num_rows), type=pa.int64()))
@@ -420,7 +422,7 @@ class DeltaTableHelper:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = list(pc.unique(data[PARTITION_KEY]))  # type: ignore
+                unique_partitions = list(pc.unique(data[PARTITION_KEY]))
 
                 await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
 
@@ -745,8 +747,8 @@ class DeltaTableHelper:
         `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
 
         Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
-        decide. Returns the current version to persist as the new watermark when it vacuumed, or on first
-        encounter (seeding the watermark without vacuuming, to avoid a synchronized vacuum wave on deploy);
+        decide. Returns the current version to persist as the new watermark when it vacuumed, on first
+        encounter, or when the table was recreated (both reseed the watermark without vacuuming);
         None when nothing changed.
         """
         table = await self.get_delta_table()
@@ -754,9 +756,12 @@ class DeltaTableHelper:
             return None
 
         version = await asyncio.to_thread(table.version)
-        if last_vacuum_version is None:
+        if last_vacuum_version is None or version < last_vacuum_version:
             # First encounter: seed the watermark without vacuuming so existing tables clean up gradually
             # over the next `commit_threshold` commits rather than all vacuuming at once on deploy.
+            # A version below the watermark means the table was reset/recreated (delta versions are
+            # monotonic within one incarnation) and no reset path clears the persisted watermark —
+            # left alone it would block the cadence until the new table out-versioned the old one.
             return version
 
         commits_since = version - last_vacuum_version
@@ -803,6 +808,11 @@ class DeltaTableHelper:
         time tracks total files — a high partition_count must not let a table accumulate
         tens of thousands of files while staying under the per-partition bar.
 
+        When `partition_count` is None it is derived from the table's actual layout (the
+        distinct file directories in the delta log, no extra I/O) — only md5 partitioning
+        persists a count on the schema, so datetime/numerical-partitioned tables always
+        arrive here with None.
+
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
         healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
         so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
@@ -814,6 +824,11 @@ class DeltaTableHelper:
 
         file_uris = await self.get_file_uris()
         total_files = len(file_uris)
+        if partition_count is None:
+            # One directory per partition value; unpartitioned tables collapse to the single
+            # table root. Without this, a partitioned table with no persisted count reads as
+            # one giant partition and trips the per-partition threshold on every run.
+            partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris})
         # Treat unpartitioned tables as one "partition" for the threshold math.
         effective_partitions = max(partition_count or 1, 1)
         files_per_partition = total_files / effective_partitions
@@ -845,8 +860,9 @@ class DeltaTableHelper:
         vacuums as part of compaction, so when it runs it supersedes the cadence vacuum (no double vacuum
         in one run) and the watermark advances to the post-compaction version. When nothing was fragmented,
         fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
-        `last_vacuum_version` watermark, or None when nothing changed; the caller is the sole writer of
-        the watermark so it lives in exactly one place.
+        `last_vacuum_version` watermark, or None when nothing changed. Callers persist the watermark
+        via `update_sync_type_config_keys` (row-locked merge): the pre-write defensive path in
+        `common/extract.py` and the CDC post-load path in `common/load.py`.
         """
         compacted = await self.compact_if_fragmented(partition_count=partition_count)
         if compacted:

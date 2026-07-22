@@ -1,15 +1,22 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_ORGANIZATION_MEMBER,
+    MOCK_DEFAULT_USER,
+} from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Region, UserType } from '~/types'
+import { OrganizationMemberType, Region, UserType } from '~/types'
 
 import { impersonationNoticeLogic } from './impersonationNoticeLogic'
 
@@ -21,6 +28,7 @@ jest.mock('@posthog/lemon-ui', () => {
             ...actual.lemonToast,
             success: jest.fn(),
             error: jest.fn(),
+            info: jest.fn(),
         },
     }
 })
@@ -35,14 +43,40 @@ const MOCK_IMPERSONATED_USER: UserType = {
     },
 }
 
+function mockMember(
+    firstName: string,
+    level: OrganizationMembershipLevel,
+    id: number,
+    uuid: string
+): OrganizationMemberType {
+    return {
+        ...MOCK_DEFAULT_ORGANIZATION_MEMBER,
+        id: `member-${id}`,
+        user: {
+            ...MOCK_DEFAULT_BASIC_USER,
+            id,
+            uuid,
+            first_name: firstName,
+            last_name: '',
+            distinct_id: `distinct-${id}`,
+            email: `${firstName.toLowerCase()}@example.com`,
+        },
+        level,
+    }
+}
+
 describe('impersonationNoticeLogic', () => {
     let logic: ReturnType<typeof impersonationNoticeLogic.build>
 
     beforeEach(() => {
+        // returnToTicketContext is a persisted reducer; clear storage so a value set
+        // in one test doesn't leak into the next.
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/users/@me/': () => [200, MOCK_DEFAULT_USER],
                 '/admin/auth_check': () => [200, {}],
+                '/api/organizations/:org/members/': () => [200, { results: [], count: 0 }],
             },
             post: {
                 '/admin/login/user/:id/': () => [200, {}],
@@ -50,6 +84,7 @@ describe('impersonationNoticeLogic', () => {
         })
         initKeaTests()
         userLogic.mount()
+        membersLogic.mount()
         logic = impersonationNoticeLogic()
         logic.mount()
     })
@@ -131,47 +166,260 @@ describe('impersonationNoticeLogic', () => {
                 isReadOnly: true,
             })
         })
+    })
 
-        describe('adminLoginUrls', () => {
-            it('returns no urls when there is no ticket context', async () => {
-                await expectLogic(logic).toMatchValues({ adminLoginUrls: [] })
-            })
+    describe('initiateImpersonation listener', () => {
+        const TICKET_ID = 'b6d0f1e2-0000-4000-8000-000000000000'
 
-            it('returns no urls when the ticket has no email', async () => {
-                logic.actions.setTicketContext({ ticketId: '1', email: '', region: Region.US })
-
-                await expectLogic(logic).toMatchValues({ adminLoginUrls: [] })
-            })
-
-            it('returns a single region url when the region is known', async () => {
-                logic.actions.setTicketContext({ ticketId: '1', email: 'a+b@example.com', region: Region.EU })
-
-                await expectLogic(logic).toMatchValues({
-                    adminLoginUrls: [
-                        {
-                            region: Region.EU,
-                            url: 'https://eu.posthog.com/admin/posthog/user/?q=a%2Bb%40example.com',
-                        },
+        it('opens the other region admin and clears loading when the ticket is cross-region', async () => {
+            logic.actions.setTicketContext({ ticketId: TICKET_ID, email: 'a@example.com', region: Region.EU })
+            useMocks({
+                get: { '/admin/auth_check': () => [200, {}] },
+                post: {
+                    '/admin/impersonation/from-ticket/': () => [
+                        200,
+                        { redirect_region: 'EU', redirect_url: 'https://eu.posthog.com/admin/posthog/user/?q=a' },
                     ],
-                })
+                },
             })
+            const openSpy = jest.spyOn(window, 'open').mockReturnValue({} as Window)
 
-            it('falls back to both production regions when the region is unknown', async () => {
-                logic.actions.setTicketContext({ ticketId: '1', email: 'slack@example.com' })
+            await expectLogic(logic, () => {
+                logic.actions.initiateImpersonation()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isInitiatingImpersonation: false })
 
-                await expectLogic(logic).toMatchValues({
-                    adminLoginUrls: [
-                        {
-                            region: Region.US,
-                            url: 'https://us.posthog.com/admin/posthog/user/?q=slack%40example.com',
-                        },
-                        {
-                            region: Region.EU,
-                            url: 'https://eu.posthog.com/admin/posthog/user/?q=slack%40example.com',
-                        },
+            expect(openSpy).toHaveBeenCalledWith('https://eu.posthog.com/admin/posthog/user/?q=a', '_blank')
+            expect(lemonToast.info).toHaveBeenCalled()
+            openSpy.mockRestore()
+        })
+
+        it('surfaces a manual open action instead of a success toast when the cross-region popup is blocked', async () => {
+            logic.actions.setTicketContext({ ticketId: TICKET_ID, email: 'a@example.com', region: Region.EU })
+            useMocks({
+                get: { '/admin/auth_check': () => [200, {}] },
+                post: {
+                    '/admin/impersonation/from-ticket/': () => [
+                        200,
+                        { redirect_region: 'EU', redirect_url: 'https://eu.posthog.com/admin/posthog/user/?q=a' },
                     ],
-                })
+                },
             })
+            const openSpy = jest.spyOn(window, 'open').mockReturnValue(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.initiateImpersonation()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isInitiatingImpersonation: false })
+
+            expect(lemonToast.info).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                expect.stringContaining('Popup blocked'),
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Open' }) })
+            )
+            openSpy.mockRestore()
+        })
+
+        it('shows an error toast and clears loading when the endpoint fails', async () => {
+            logic.actions.setTicketContext({ ticketId: TICKET_ID, email: 'a@example.com', region: Region.US })
+            useMocks({
+                get: { '/admin/auth_check': () => [200, {}] },
+                post: {
+                    '/admin/impersonation/from-ticket/': () => [404, { error: 'No user found for this email' }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.initiateImpersonation()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isInitiatingImpersonation: false })
+
+            expect(lemonToast.error).toHaveBeenCalledWith('No user found for this email')
+        })
+
+        it('does nothing without a ticket context', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.initiateImpersonation()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ isInitiatingImpersonation: false })
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('persists the return-to-ticket context on the same-region success path', async () => {
+            logic.actions.setTicketContext({
+                ticketId: TICKET_ID,
+                ticketNumber: 42,
+                email: 'a@example.com',
+                region: Region.US,
+            })
+            useMocks({
+                get: { '/admin/auth_check': () => [200, {}] },
+                post: {
+                    '/admin/impersonation/from-ticket/': () => [
+                        200,
+                        // The backend returns the resolved account's email, which can differ
+                        // from the ticket trait — the stored context must use the resolved one.
+                        { success: true, ticket_id: TICKET_ID, email: 'resolved@example.com' },
+                    ],
+                },
+            })
+            const originalLocation = window.location
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: { ...originalLocation, replace: jest.fn() },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.initiateImpersonation()
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        returnToTicketContext: { ticketNumber: 42, email: 'resolved@example.com' },
+                    })
+
+                expect(window.location.replace).toHaveBeenCalledWith('/')
+            } finally {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    writable: true,
+                    value: originalLocation,
+                })
+            }
+        })
+    })
+
+    describe('returnToTicket listener', () => {
+        it('logs out of impersonation back to the ticket and shows a loading state', async () => {
+            logic.actions.setReturnToTicketContext({ ticketNumber: 42, email: 'a@example.com' })
+
+            const originalLocation = window.location
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: { ...originalLocation, href: originalLocation.href },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.returnToTicket()
+                })
+                    .toFinishAllListeners()
+                    // Context is intentionally kept so the button doesn't flip variants
+                    // before navigating; isReturningToTicket drives the loading state.
+                    .toMatchValues({
+                        returnToTicketContext: { ticketNumber: 42, email: 'a@example.com' },
+                        isReturningToTicket: true,
+                    })
+
+                expect(window.location.href).toBe('/admin/logout/?next=%2Fsupport%2Ftickets%2F42')
+            } finally {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    writable: true,
+                    value: originalLocation,
+                })
+            }
+        })
+
+        it('does nothing when there is no stored ticket context', async () => {
+            const originalLocation = window.location
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: { ...originalLocation, href: 'sentinel' },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.returnToTicket()
+                }).toFinishAllListeners()
+
+                expect(window.location.href).toBe('sentinel')
+            } finally {
+                Object.defineProperty(window, 'location', {
+                    configurable: true,
+                    writable: true,
+                    value: originalLocation,
+                })
+            }
+        })
+    })
+
+    describe('canReturnToTicket selector', () => {
+        const matchingEmail = MOCK_IMPERSONATED_USER.email
+
+        it.each([
+            { name: 'no stored context', context: null as any, user: MOCK_IMPERSONATED_USER, expected: false },
+            {
+                name: 'not impersonated',
+                context: { ticketNumber: 42, email: matchingEmail },
+                user: MOCK_DEFAULT_USER,
+                expected: false,
+            },
+            {
+                name: 'impersonating a different email',
+                context: { ticketNumber: 42, email: 'someone-else@example.com' },
+                user: MOCK_IMPERSONATED_USER,
+                expected: false,
+            },
+            {
+                name: 'impersonating the stored email',
+                context: { ticketNumber: 42, email: matchingEmail },
+                user: MOCK_IMPERSONATED_USER,
+                expected: true,
+            },
+        ])('is $expected when $name', async ({ context, user, expected }) => {
+            userLogic.actions.loadUserSuccess(user)
+            if (context) {
+                logic.actions.setReturnToTicketContext(context)
+            }
+
+            await expectLogic(logic).toMatchValues({ canReturnToTicket: expected })
+        })
+    })
+
+    describe('expiredSessionFromTicket selector', () => {
+        it.each([
+            {
+                name: 'no expired session',
+                expired: null as any,
+                context: { ticketNumber: 42, email: 'a@x.com' },
+                expected: false,
+            },
+            {
+                name: 'no stored context',
+                expired: { email: 'a@x.com', userId: 1, isImpersonatedUntil: null },
+                context: null as any,
+                expected: false,
+            },
+            {
+                name: 'emails differ',
+                expired: { email: 'a@x.com', userId: 1, isImpersonatedUntil: null },
+                context: { ticketNumber: 42, email: 'b@x.com' },
+                expected: false,
+            },
+            {
+                name: 'emails match',
+                expired: { email: 'a@x.com', userId: 1, isImpersonatedUntil: null },
+                context: { ticketNumber: 42, email: 'a@x.com' },
+                expected: true,
+            },
+        ])('is $expected when $name', async ({ expired, context, expected }) => {
+            if (expired) {
+                logic.actions.setSessionExpired(expired)
+            }
+            if (context) {
+                logic.actions.setReturnToTicketContext(context)
+            }
+
+            await expectLogic(logic).toMatchValues({ expiredSessionFromTicket: expected })
         })
     })
 
@@ -392,6 +640,31 @@ describe('impersonationNoticeLogic', () => {
             })
 
             expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+
+        it('drops a stored ticket when loading as a non-impersonated user', async () => {
+            logic.actions.setReturnToTicketContext({ ticketNumber: 42, email: 'a@example.com' })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            }).toMatchValues({ returnToTicketContext: null })
+        })
+
+        it('drops a stored ticket when impersonating a different customer', async () => {
+            logic.actions.setReturnToTicketContext({ ticketNumber: 42, email: 'someone-else@example.com' })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+            }).toMatchValues({ returnToTicketContext: null })
+        })
+
+        it('keeps a stored ticket while still impersonating its customer', async () => {
+            const context = { ticketNumber: 42, email: MOCK_IMPERSONATED_USER.email }
+            logic.actions.setReturnToTicketContext(context)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+            }).toMatchValues({ returnToTicketContext: context })
         })
     })
 
@@ -649,6 +922,178 @@ describe('impersonationNoticeLogic', () => {
                 })
 
             expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('orderedMembers selector', () => {
+        it('sorts the current user in place by power then name, not hoisted to the top', async () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_IMPERSONATED_USER,
+                first_name: 'Casey',
+                last_name: '',
+                organization: { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Admin },
+            })
+
+            membersLogic.actions.loadAllMembersSuccess([
+                mockMember('Zed', OrganizationMembershipLevel.Owner, 10, 'uuid-zed'),
+                mockMember('Ash', OrganizationMembershipLevel.Admin, 11, 'uuid-ash'),
+                mockMember('Bea', OrganizationMembershipLevel.Member, 12, 'uuid-bea'),
+            ])
+
+            // Owner first (Zed), then Admins A→Z (Ash before the current user Casey), then Member (Bea).
+            const names = logic.values.orderedMembers.map((member) => member.user.first_name)
+            expect(names).toEqual(['Zed', 'Ash', 'Casey', 'Bea'])
+            expect(logic.values.hasOtherMembers).toBe(true)
+        })
+
+        // Covers both that the current user shows before the members list loads (via `me`, guarding
+        // the instant-display behavior) and that they remain when no one else is in the org.
+        it.each([
+            { scenario: 'before the members list has loaded', loadSelfOnly: false },
+            { scenario: 'when they are the only member', loadSelfOnly: true },
+        ])('lists just the current user $scenario', async ({ loadSelfOnly }) => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, first_name: 'Casey', last_name: '' })
+
+            if (loadSelfOnly) {
+                membersLogic.actions.loadAllMembersSuccess([
+                    mockMember('Casey', OrganizationMembershipLevel.Member, 1, MOCK_DEFAULT_USER.uuid),
+                ])
+            }
+
+            expect(logic.values.orderedMembers.map((member) => member.user.first_name)).toEqual(['Casey'])
+            expect(logic.values.hasOtherMembers).toBe(false)
+        })
+    })
+
+    describe('changeUser listener', () => {
+        function mockLocationReload(): { reload: jest.Mock; restore: () => void } {
+            const originalLocation = window.location
+            const reload = jest.fn()
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: { ...originalLocation, reload },
+            })
+            return {
+                reload,
+                restore: () =>
+                    Object.defineProperty(window, 'location', {
+                        configurable: true,
+                        writable: true,
+                        value: originalLocation,
+                    }),
+            }
+        }
+
+        it.each([
+            { readOnly: true, expected: 'true' },
+            { readOnly: false, expected: 'false' },
+        ])('sends read_only=$expected matching the current mode', async ({ readOnly, expected }) => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_IMPERSONATED_USER,
+                is_impersonated_read_only: readOnly,
+            })
+
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
+            const { reload, restore } = mockLocationReload()
+
+            useMocks({
+                get: {
+                    '/admin/auth_check': () => [200, {}],
+                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                },
+                post: {
+                    '/admin/login/user/:id/': () => [200, {}],
+                },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.changeUser(456, 'support ticket #123')
+                }).toFinishAllListeners()
+
+                const loginCall = fetchSpy.mock.calls.find(
+                    ([url]) => typeof url === 'string' && url.includes('/admin/login/user/456/')
+                )
+                expect(loginCall).toBeTruthy()
+                const body = new URLSearchParams(loginCall![1]?.body as string)
+                expect(body.get('reason')).toBe('support ticket #123')
+                expect(body.get('read_only')).toBe(expected)
+                expect(reload).toHaveBeenCalled()
+            } finally {
+                restore()
+                fetchSpy.mockRestore()
+            }
+        })
+
+        it('uses an explicitly passed reason over the persisted one', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, is_impersonated_reason: 'persisted reason' })
+
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
+            const { restore } = mockLocationReload()
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.changeUser(456, 'fresh reason')
+                }).toFinishAllListeners()
+
+                const loginCall = fetchSpy.mock.calls.find(
+                    ([url]) => typeof url === 'string' && url.includes('/admin/login/user/456/')
+                )
+                const body = new URLSearchParams(loginCall![1]?.body as string)
+                expect(body.get('reason')).toBe('fresh reason')
+            } finally {
+                restore()
+                fetchSpy.mockRestore()
+            }
+        })
+
+        it('does not call the endpoint when no reason is available', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
+
+            await expectLogic(logic, () => {
+                logic.actions.changeUser(456)
+            })
+                .toDispatchActions(['changeUserFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({ isChangingUser: false })
+
+            const loginCall = fetchSpy.mock.calls.find(
+                ([url]) => typeof url === 'string' && url.includes('/admin/login/user/')
+            )
+            expect(loginCall).toBeUndefined()
+            expect(lemonToast.error).toHaveBeenCalled()
+            fetchSpy.mockRestore()
+        })
+
+        it('shows an error toast and resets state on failure', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+
+            const { reload, restore } = mockLocationReload()
+
+            useMocks({
+                get: {
+                    '/admin/auth_check': () => [200, {}],
+                },
+                post: {
+                    '/admin/login/user/:id/': () => [403, { detail: 'Forbidden' }],
+                },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.changeUser(456, 'support ticket #123')
+                })
+                    .toDispatchActions(['changeUserFailure'])
+                    .toFinishAllListeners()
+                    .toMatchValues({ isChangingUser: false })
+
+                expect(lemonToast.error).toHaveBeenCalled()
+                expect(reload).not.toHaveBeenCalled()
+            } finally {
+                restore()
+            }
         })
     })
 })

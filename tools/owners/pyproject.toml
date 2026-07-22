@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "posthog-owners"
+version = "0.1.0"
+description = "Distributed owners.yaml ownership resolver, linter, and formatter"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "PostHog", email = "engineering@posthog.com" }
+]
+keywords = ["ownership", "codeowners", "devex", "yaml"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "pyyaml>=6.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+owners = "posthog_owners.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PostHog/posthog"
+Documentation = "https://github.com/PostHog/posthog/tree/master/tools/owners"
+Repository = "https://github.com/PostHog/posthog"
+
+[tool.hatch.build.targets.wheel]
+packages = ["posthog_owners"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:warnings -p no:django"

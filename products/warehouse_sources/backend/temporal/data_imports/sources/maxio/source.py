@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MaxioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.maxio import MaxioSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio import (
     MaxioResumeConfig,
     maxio_source,
@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developers.maxio.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -191,6 +192,5 @@ class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )

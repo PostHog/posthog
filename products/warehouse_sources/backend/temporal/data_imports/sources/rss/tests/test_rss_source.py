@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RssSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rss import RssSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.rss import RssResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.source import RssSource
@@ -28,7 +28,6 @@ class TestRssSource:
         assert config.label == "RSS.com"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Intentionally unreleased until validated against a live RSS.com Network-plan account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/rss"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

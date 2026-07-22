@@ -11,7 +11,7 @@ from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_paral
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
-except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath
     apply_quarantine_markers = None
 
 from django.conf import settings
@@ -96,7 +96,11 @@ def reset_clickhouse_tables():
     from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
-    from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
+    from posthog.models.event.sql import (
+        TRUNCATE_EVENTS_JSON_TABLE_SQL,
+        TRUNCATE_EVENTS_RECENT_TABLE_SQL,
+        TRUNCATE_EVENTS_TABLE_SQL,
+    )
     from posthog.models.exchange_rate.sql import TRUNCATE_EXCHANGE_RATE_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
@@ -121,6 +125,7 @@ def reset_clickhouse_tables():
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
         TRUNCATE_EVENTS_TABLE_SQL(),
+        TRUNCATE_EVENTS_JSON_TABLE_SQL(),
         TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,

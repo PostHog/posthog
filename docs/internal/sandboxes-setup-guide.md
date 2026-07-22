@@ -177,15 +177,15 @@ SANDBOX_MCP_URL=https://<mcp-8787-subdomain>.ngrok-free.app/mcp
 
 `SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
 
-### MCP server `.dev.vars`
+### MCP server `.env`
 
-`MODAL_DOCKER` (and the local Docker provider) both depend on the MCP Worker running at `localhost:8787`. The Worker reads its config from `services/mcp/.dev.vars` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the Worker will either refuse to start or return broken responses to the sandbox.
+`MODAL_DOCKER` (and the local Docker provider) both depend on the MCP server running at `localhost:8787`. The server reads its config from `services/mcp/.env` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the server will either refuse to start or return broken responses to the sandbox.
 
 ```bash
-cd services/mcp && cp .dev.vars.example .dev.vars
+cd services/mcp && cp .env.example .env
 ```
 
-Then fill in the secrets. `INKEEP_API_KEY` (for the `docs-search` tool) lives in 1Password under **"Inkeep API key - mcp"**. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.dev.vars`.
+Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
 ### Local agent packages
 

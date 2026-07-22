@@ -15,9 +15,22 @@
 
 import { createHash } from 'node:crypto'
 
-import { ApprovalType, AssistantMessageRecord } from '../spec/spec'
+import { ApprovalType, ApprovalTypeSchema, AssistantMessageRecord, legacyApproversToApprovalType } from '../spec/spec'
 
-export type ApprovalRequestState = 'queued' | 'approving' | 'dispatched' | 'dispatched_failed' | 'rejected' | 'expired'
+/**
+ * Source of truth for the approval-request state vocabulary: Django's DRF
+ * `choices` and the DB `CheckConstraint` derive from the emitted JSON (see
+ * `spec/spec-codegen.ts`), not a hand-copy. Lifecycle order; terminal last.
+ */
+export const APPROVAL_REQUEST_STATES = [
+    'queued',
+    'approving',
+    'dispatched',
+    'dispatched_failed',
+    'rejected',
+    'expired',
+] as const
+export type ApprovalRequestState = (typeof APPROVAL_REQUEST_STATES)[number]
 
 export interface ApprovalRequest {
     id: string
@@ -53,21 +66,21 @@ export interface ApprovalRequest {
 /**
  * Effective approval authority for a stored row. New rows carry `type`; rows
  * queued before the principal/agent rebuild carry the legacy `approvers[]`
- * scope with no `type`, so `scope.type` is `undefined` on them. Map a legacy
- * `team_admins` scope → `agent` so an in-flight old row stays gated to the
- * console (and isn't mistaken for a principal request) for its whole TTL during
- * the migration window. Mirrors the Django `approvals_decide` fallback — every
- * surface that gates on type MUST resolve through this, not read `.type` raw.
+ * scope with no `type`, so `scope.type` is `undefined` on them. Every surface
+ * that gates on type MUST resolve through this, not read `.type` raw.
+ *
+ * Uses `ApprovalTypeSchema` (not a hardcoded check) so a new enum authority isn't
+ * silently downgraded to the weakest gate; legacy rows map via
+ * `legacyApproversToApprovalType`; last-resort `principal` mirrors Django's
+ * `approvals_decide` fallback.
  */
 export function effectiveApprovalType(scope: ApprovalRequest['approver_scope']): ApprovalType {
     const s = scope as unknown as { type?: unknown; approvers?: unknown }
-    if (s.type === 'agent' || s.type === 'principal') {
-        return s.type
+    const parsed = ApprovalTypeSchema.safeParse(s.type)
+    if (parsed.success) {
+        return parsed.data
     }
-    if (Array.isArray(s.approvers) && s.approvers.includes('team_admins')) {
-        return 'agent'
-    }
-    return 'principal'
+    return legacyApproversToApprovalType(s.approvers) ?? 'principal'
 }
 
 /**

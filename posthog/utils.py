@@ -531,7 +531,17 @@ def _build_template_context(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        if posthoganalytics.api_key:
+        # posthog-js uses this token to evaluate PostHog's own gating flags, so it must point at the
+        # team those flags are synced to — the dogfood-flags team (first team by PK), the same team
+        # the server-side bootstrap evaluates against via _build_flag_provider(). Do NOT use the
+        # self-capture team here (posthoganalytics.api_key = most-recently-active user's current_team):
+        # it drifts onto demo teams that hold no internal flags, so flags load from the bootstrap and
+        # then vanish the moment posthog-js reloads them against that team.
+        dogfood_team = resolve_dogfood_flags_team()
+        if dogfood_team is not None:
+            context["js_posthog_api_key"] = dogfood_team.api_token
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
+        elif posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
@@ -659,6 +669,8 @@ def _build_template_context(
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
+    if "oauth_mcp_consent" in context:
+        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -814,6 +826,9 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
     initialize_self_capture_api_token() (ASGI). Callers assign the result to
     posthoganalytics.flag_definition_cache_provider and handle loading themselves.
     """
+    from products.feature_flags.backend.cache_keys import (
+        EU_CROSS_REGION_MIRROR_CACHE_KEY,  # noqa: PLC0415 — this core module doesn't otherwise depend on product code
+    )
     from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
         HyperCacheFlagProvider,
     )
@@ -830,7 +845,11 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
         # Intentionally the FIRST team, not self-capture's current_team — see
         # resolve_dogfood_flags_team().
         return HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
-    # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+    if get_instance_region() == "EU":
+        # EU has no rows for PostHog's own team — reads go to the sentinel-keyed
+        # mirror that cross_region_flag_sync writes (see the key's definition).
+        return HyperCacheFlagProvider.for_static_team(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+    # Cloud (SELF_CAPTURE off) or E2E, non-EU: the canonical PostHog-internal team is 2.
     return HyperCacheFlagProvider.for_static_team(2)
 
 
@@ -1073,6 +1092,17 @@ def get_ip_address(request: HttpRequest) -> str:
         return ""
 
     return ip
+
+
+def sanitize_ip_address(ip: Any) -> Optional[str]:
+    """Return the value only if it is a valid IP address string, otherwise None.
+
+    Use this before persisting an externally supplied IP so a malformed or non-string
+    value can't reach an IP database column and fail the write.
+    """
+    if not isinstance(ip, str):
+        return None
+    return _normalize_ip(ip)
 
 
 def _normalize_ip(ip: str) -> Optional[str]:
