@@ -27,6 +27,7 @@ from products.replay_vision.backend.temporal.state import (
 from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
+    NavigationEntry,
     ScannerLlmInputs,
     SessionMetadata,
 )
@@ -56,6 +57,9 @@ _WINDOW_PREFIX = "window"
 _MAX_FIELD_LEN = 2000
 # Fixed-size dedup key — keeps `seen_hashes` bounded on chatty sessions where each row can carry ~KB-sized truncated exception text.
 _DEDUP_HASH_BYTES = 8
+# The preamble's navigation timeline stays a skim-able digest, not a second event dump.
+_MAX_NAVIGATION_ENTRIES = 30
+_MAX_NAVIGATION_URL_LEN = 300
 
 
 @activity.defn
@@ -150,8 +154,8 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     if columns is None or not all_rows:
         return None
 
-    processed_columns, processed_rows, url_mapping, window_mapping, event_timestamps = _process_events(
-        columns, all_rows, session_start=metadata["start_time"]
+    processed_columns, processed_rows, url_mapping, window_mapping, event_timestamps, navigation, navigation_dropped = (
+        _process_events(columns, all_rows, session_start=metadata["start_time"])
     )
     # Derive from duration; clamp because CH can yield active > duration (tab visibility, clock skew).
     inactive_seconds = max(0.0, duration_seconds - active_seconds)
@@ -163,6 +167,8 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         url_mapping=url_mapping,
         window_mapping=window_mapping,
         event_timestamps=event_timestamps,
+        navigation=navigation,
+        navigation_dropped=navigation_dropped,
         distinct_id=metadata.get("distinct_id"),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
@@ -181,8 +187,9 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
 
 def _process_events(
     raw_columns: list[str], raw_rows: list[list[Any]], *, session_start: dt.datetime
-) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str], dict[str, int]]:
-    """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, and build the uuid → relative-ms lookup."""
+) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str], dict[str, int], list[NavigationEntry], int]:
+    """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, build the uuid → relative-ms
+    lookup, and derive the per-window URL-change timeline the preamble renders."""
     uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
     timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
     # All other indexes are over the LLM-visible column set (uuid stripped); compute once.
@@ -195,6 +202,8 @@ def _process_events(
     event_timestamps: dict[str, int] = {}
     seen_hashes: set[str] = set()
     processed: list[list[Any]] = []
+    # (relative_ms, window token, actual URL) sightings; collapsed into the navigation timeline after the loop.
+    navigation_points: list[tuple[int, str | None, str]] = []
 
     for row in raw_rows:
         visible = list(row)
@@ -206,23 +215,48 @@ def _process_events(
             continue
         seen_hashes.add(dedup_key)
 
+        relative_ms = _relative_ms(row[timestamp_index] if timestamp_index is not None else None, session_start)
         uuid_str = str(uuid_value) if uuid_value is not None else ""
         if uuid_str:
-            event_timestamps[uuid_str] = _relative_ms(
-                row[timestamp_index] if timestamp_index is not None else None, session_start
-            )
+            event_timestamps[uuid_str] = relative_ms
 
+        raw_url = visible[url_index] if url_index is not None else None
         # Intern before truncate so the token map keys on the full value, not a clipped prefix.
         if url_index is not None:
             visible[url_index] = _intern(visible[url_index], url_tokens, _URL_PREFIX)
         if window_index is not None:
             visible[window_index] = _intern(visible[window_index], window_tokens, _WINDOW_PREFIX)
+        if isinstance(raw_url, str) and raw_url:
+            window_token = visible[window_index] if window_index is not None else None
+            navigation_points.append((relative_ms, window_token if isinstance(window_token, str) else None, raw_url))
         processed.append([uuid_str, *(_truncate(v) for v in visible)])
 
     output_columns = ["event_uuid", *visible_columns]
     url_mapping = {token: actual for actual, token in url_tokens.items()}
     window_mapping = {token: actual for actual, token in window_tokens.items()}
-    return output_columns, processed, url_mapping, window_mapping, event_timestamps
+    navigation, navigation_dropped = _build_navigation(navigation_points)
+    return output_columns, processed, url_mapping, window_mapping, event_timestamps, navigation, navigation_dropped
+
+
+def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[NavigationEntry], int]:
+    """Collapse per-event URL sightings into the ordered URL-change timeline: one entry each time a window's URL
+    changes, capped so a bouncy session can't flood the preamble (the count of dropped tail entries is returned)."""
+    points.sort(key=lambda point: point[0])
+    entries: list[NavigationEntry] = []
+    last_url_by_window: dict[str | None, str] = {}
+    seen_windows: set[str | None] = set()
+    for relative_ms, window, url in points:
+        if last_url_by_window.get(window) == url:
+            continue
+        new_window = bool(seen_windows) and window not in seen_windows
+        seen_windows.add(window)
+        last_url_by_window[window] = url
+        display_url = url if len(url) <= _MAX_NAVIGATION_URL_LEN else url[:_MAX_NAVIGATION_URL_LEN] + "…"
+        entries.append(
+            NavigationEntry(rec_t=relative_ms // 1000, window=window, url=display_url, new_window=new_window)
+        )
+    dropped = max(0, len(entries) - _MAX_NAVIGATION_ENTRIES)
+    return entries[:_MAX_NAVIGATION_ENTRIES], dropped
 
 
 def _relative_ms(event_timestamp: Any, session_start: dt.datetime) -> int:
