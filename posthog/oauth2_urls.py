@@ -9,6 +9,7 @@ from posthog.api.oauth import (
     OAuthIntrospectTokenView,
     OAuthJwksInfoView,
     OAuthProtectedResourceMetadataView,
+    OAuthPushedAuthorizationRequestView,
     OAuthRevokeTokenView,
     OAuthTokenView,
     OAuthUserInfoView,
@@ -19,6 +20,7 @@ app_name = "oauth2_provider"  # We need this to match the namepace of django-oau
 
 urlpatterns = [
     opt_slash_path("oauth/authorize", OAuthAuthorizationView.as_view(), name="authorize"),
+    opt_slash_path("oauth/par", OAuthPushedAuthorizationRequestView.as_view(), name="pushed-authorization-request"),
     opt_slash_path("oauth/token", OAuthTokenView.as_view(), name="token"),
     opt_slash_path("oauth/revoke", OAuthRevokeTokenView.as_view(), name="revoke"),
     opt_slash_path("oauth/introspect", OAuthIntrospectTokenView.as_view(), name="introspect"),
