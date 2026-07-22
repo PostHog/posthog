@@ -8,7 +8,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1231_duckgresserverteam"),
-        ("tasks", "0068_loop_creator_backfill"),
+        ("tasks", "0069_remove_code_home_models"),
     ]
 
     operations = [
