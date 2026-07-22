@@ -22,6 +22,12 @@ use crate::{
     trial::{parser::build_trial_parser, sink::TrialSink, TrialRecord},
 };
 
+/// User-facing message for infrastructure failures on the trial output path
+/// (bucket config, page/summary writes, progress flushes) — never something
+/// that suggests a problem with the user's data.
+const TRIAL_UNAVAILABLE_MSG: &str =
+    "Trial runs are temporarily unavailable. Please try again later.";
+
 /// A bounded trial run of an import: same source, format, and transforms as the
 /// real thing, but each source record is paired with its would-be output (or the
 /// reason it failed) and written to the trial output bucket instead of being
@@ -65,12 +71,7 @@ impl TrialJob {
         // worker has no trial bucket configured, before any source work starts.
         let store = create_trial_output_store(&context.config)
             .await
-            .map_err(|e| {
-                ensure_user_message(
-                    e,
-                    "Trial runs are temporarily unavailable. Please try again later.",
-                )
-            })?;
+            .map_err(|e| ensure_user_message(e, TRIAL_UNAVAILABLE_MSG))?;
         let prefix = format!(
             "{}/team_{}/job_{}",
             context.config.trial_bucket_prefix.trim_matches('/'),
@@ -139,9 +140,14 @@ impl TrialJob {
             .await;
 
             let outcome = match fetched {
-                Ok(Some((key, parsed, reset_backoff))) => {
-                    self.commit_chunk(&key, parsed, reset_backoff).await
-                }
+                Ok(Some((key, parsed, reset_backoff))) => self
+                    .commit_chunk(&key, parsed, reset_backoff)
+                    .await
+                    // Commit failures (page writes, progress flushes) are on
+                    // our side, never the user's data: transient ones still
+                    // back off below, but a pause must surface the infra
+                    // message rather than implying a data problem.
+                    .map_err(|e| ensure_user_message(e, TRIAL_UNAVAILABLE_MSG)),
                 Ok(None) => break, // Source exhausted before the record limit
                 Err(e) => Err(e),
             };
