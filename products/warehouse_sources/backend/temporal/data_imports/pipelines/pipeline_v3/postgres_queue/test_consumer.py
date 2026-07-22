@@ -361,6 +361,66 @@ class TestProcessGroup:
         process_mock.assert_not_called()
         mock_unlock.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_renews_lease_each_batch_so_short_batch_backlog_drains(self):
+        # Regression for the between-batch renewal gap: a group of batches each
+        # shorter than the heartbeat's first tick (grace/3) renews only once, at
+        # dispatch, so the lease expires at cumulative TTL and the group is
+        # abandoned mid-drain even while this pod owns it. Entry renewal keeps it
+        # alive. Modeled against the real lease semantics + a logical clock the
+        # per-batch work advances; a pure-verify entry check drops the tail.
+        consumer = _make_consumer(recovery_grace_seconds=300, lease_ttl_seconds=300)
+        clock = {"now": 0.0}
+        lease: dict[str, Any] = {"owner": None, "expires_at": 0.0}
+        order: list[int] = []
+
+        async def fake_renew(conn, *, team_id, schema_id, owner_token, lease_ttl_seconds):
+            # Mirrors "UPDATE ... WHERE owner_token = ours": succeeds while this pod
+            # still holds the row (reviving an expired-but-unclaimed lease), pushing
+            # expiry to now + ttl; fails once another pod has reclaimed it.
+            if lease["owner"] in (None, owner_token):
+                lease["owner"] = owner_token
+                lease["expires_at"] = clock["now"] + lease_ttl_seconds
+                return True
+            return False
+
+        async def fake_verify(conn, *, team_id, schema_id, owner_token):
+            return lease["owner"] == owner_token and lease["expires_at"] > clock["now"]
+
+        async def process(batch):
+            order.append(batch.batch_index)
+            clock["now"] += 80.0  # each batch < grace/3 (100s); 5 x 80 = 400 > 300s TTL
+
+        consumer._process_batch = process
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(5)]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+                side_effect=fake_renew,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                side_effect=fake_verify,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        # Whole group drains. With a pure-verify entry check the lease (renewed
+        # only at dispatch) expires once cumulative work passes 300s and the group
+        # is abandoned, leaving the tail unprocessed.
+        assert order == [0, 1, 2, 3, 4]
+
 
 class TestRecoverySweep:
     @pytest.mark.asyncio
@@ -1547,10 +1607,19 @@ class TestOwnershipVerification:
         consumer = _make_consumer()
         processed: list[int] = []
 
+        # Another pod reclaims the lease during batch 0. The batch-entry renewal is
+        # the ownership check now, so batch 1's entry renewal fails and the group is
+        # abandoned instead of processing the rest.
+        owned = {"held": True}
+
         async def track_and_lose_lock(batch):
             processed.append(batch.batch_index)
+            owned["held"] = False
 
         consumer._process_batch = track_and_lose_lock
+
+        async def fake_renew(conn, *, team_id, schema_id, owner_token, lease_ttl_seconds):
+            return owned["held"]
 
         batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
 
@@ -1564,17 +1633,20 @@ class TestOwnershipVerification:
                 new_callable=AsyncMock,
             ) as mock_unlock,
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+                side_effect=fake_renew,
+            ),
+            patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
                 new_callable=AsyncMock,
-                side_effect=[True, True, False],
+                return_value=True,
             ),
             patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
-        # Batch 0 processes (verify returns True before batch 0, True before succeeded write),
-        # batch 1 fails on verify (returns False) and the group is abandoned.
-        assert len(processed) <= 2
+        # Only batch 0 runs; batch 1's entry renewal sees the lease gone and abandons.
+        assert processed == [0]
         mock_unlock.assert_called_once()
 
     @pytest.mark.asyncio
