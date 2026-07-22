@@ -4,6 +4,8 @@ from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, patch
 
+from django.db import IntegrityError, transaction
+from django.db.models.query import QuerySet
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -14,6 +16,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.facade.api import set_task_run_output, update_task_run
 from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
@@ -23,8 +26,9 @@ from products.tasks.backend.logic.services.living_artifacts import (
     edit_living_artifact,
     get_task_artifact_for_run,
     get_task_artifacts_for_run,
+    record_github_pr_artifact,
 )
-from products.tasks.backend.models import Task, TaskArtifact, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskRun
 
 
 def _xlsx_bytes() -> bytes:
@@ -632,3 +636,191 @@ class TestLivingArtifacts(TestCase):
         mock_integration_for_mapping.assert_not_called()
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
+
+
+class TestRecordGithubPrArtifact(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    channel: ClassVar[Channel]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    PR_URL = "https://github.com/posthog/posthog/pull/1234"
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="pr-artifact@example.com", distinct_id="pr-artifact-user")
+        # Direct instantiation sidesteps the fail-closed TeamScopedManager (see test_presence.py).
+        cls.channel = Channel(team=cls.team, name="growth", created_by=cls.user)
+        cls.channel.save()
+        cls.task = Task.objects.create(
+            team=cls.team,
+            title="Fix the login redirect",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=cls.user,
+            channel=cls.channel,
+        )
+        cls.task_run = TaskRun.objects.create(task=cls.task, team=cls.team, status=TaskRun.Status.IN_PROGRESS)
+
+    def _rows(self):
+        return TaskArtifact.objects.for_team(self.team.id).filter(artifact_type=TaskArtifact.ArtifactType.GITHUB_PR)
+
+    def test_create_stamps_ownership_and_reference_fields(self):
+        artifact = record_github_pr_artifact(
+            self.task_run, self.PR_URL, state="open", title="Fix login redirect", repository="posthog/posthog"
+        )
+        assert artifact is not None
+        self.assertEqual(artifact.task_id, self.task.id)
+        self.assertEqual(artifact.task_run_id, self.task_run.id)
+        self.assertEqual(artifact.channel_id, self.channel.id)
+        self.assertEqual(artifact.created_by_id, self.user.id)
+        self.assertEqual(artifact.name, "Fix login redirect")
+        self.assertEqual(artifact.artifact_type, TaskArtifact.ArtifactType.GITHUB_PR)
+        self.assertEqual(artifact.adapter, TaskArtifact.Adapter.GITHUB_PR)
+        self.assertEqual(artifact.location, {"url": self.PR_URL})
+        self.assertEqual(
+            artifact.metadata,
+            {"title": "Fix login redirect", "repository": "posthog/posthog", "number": 1234, "state": "open"},
+        )
+        self.assertEqual(artifact.versions, [])
+
+    def test_name_falls_back_to_repo_number_reference(self):
+        artifact = record_github_pr_artifact(self.task_run, self.PR_URL, state="open")
+        assert artifact is not None
+        self.assertEqual(artifact.name, "posthog/posthog#1234")
+
+    def test_upsert_updates_state_and_name_without_duplicating(self):
+        record_github_pr_artifact(self.task_run, self.PR_URL, state="open")
+        updated = record_github_pr_artifact(self.task_run, self.PR_URL, state="merged", title="Fix login redirect")
+        assert updated is not None
+        self.assertEqual(self._rows().count(), 1)
+        self.assertEqual(updated.metadata["state"], "merged")
+        self.assertEqual(updated.name, "Fix login redirect")
+
+    def test_stale_open_event_does_not_reopen_finished_pr(self):
+        record_github_pr_artifact(self.task_run, self.PR_URL, state="merged")
+        artifact = record_github_pr_artifact(self.task_run, self.PR_URL, state="open")
+        assert artifact is not None
+        self.assertEqual(artifact.metadata["state"], "merged")
+
+    def test_unique_index_rejects_duplicate_rows(self):
+        record_github_pr_artifact(self.task_run, self.PR_URL, state="open")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            TaskArtifact.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                task=self.task,
+                name="duplicate",
+                artifact_type=TaskArtifact.ArtifactType.GITHUB_PR,
+                adapter=TaskArtifact.Adapter.GITHUB_PR,
+                location={"url": self.PR_URL},
+            )
+
+    def test_losing_the_insert_race_falls_back_to_winners_row(self):
+        winner = record_github_pr_artifact(self.task_run, self.PR_URL, state="open")
+        assert winner is not None
+
+        # Simulate the check-then-insert race: the existence check misses (as if the other
+        # recorder's insert hadn't committed yet), the insert hits the unique index, and the
+        # IntegrityError fallback must land on the winner's row instead of raising.
+        real_first = QuerySet.first
+        calls = {"n": 0}
+
+        def miss_once(qs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None
+            return real_first(qs)
+
+        with patch.object(QuerySet, "first", miss_once):
+            artifact = record_github_pr_artifact(self.task_run, self.PR_URL, state="merged")
+
+        assert artifact is not None
+        self.assertEqual(artifact.id, winner.id)
+        self.assertEqual(self._rows().count(), 1)
+        self.assertEqual(artifact.metadata["state"], "merged")
+
+    def test_failures_never_raise(self):
+        self.assertIsNone(record_github_pr_artifact(self.task_run, None))  # type: ignore[arg-type]
+        self.assertEqual(self._rows().count(), 0)
+
+    @patch("products.tasks.backend.facade.api._record_github_pr_artifact_for_run")
+    def test_set_task_run_output_records_only_on_pr_url_transition(self, mock_record):
+        set_task_run_output(self.task_run.id, self.task.id, self.team.id, output={"pr_url": self.PR_URL})
+        set_task_run_output(
+            self.task_run.id, self.task.id, self.team.id, output={"pr_url": self.PR_URL, "summary": "done"}
+        )
+        self.assertEqual(mock_record.call_count, 1)
+        self.assertEqual(mock_record.call_args[0][1], self.PR_URL)
+
+    @patch("products.tasks.backend.facade.api._record_github_pr_artifact_for_run")
+    def test_update_task_run_records_only_on_pr_url_transition(self, mock_record):
+        update_task_run(
+            self.task_run.id, self.task.id, self.team.id, validated_data={"output": {"pr_url": self.PR_URL}}
+        )
+        update_task_run(
+            self.task_run.id,
+            self.task.id,
+            self.team.id,
+            validated_data={"output": {"pr_url": self.PR_URL, "summary": "done"}},
+        )
+        self.assertEqual(mock_record.call_count, 1)
+
+    def test_set_task_run_output_creates_the_artifact_row(self):
+        set_task_run_output(self.task_run.id, self.task.id, self.team.id, output={"pr_url": self.PR_URL})
+        artifact = self._rows().get()
+        self.assertEqual(artifact.channel_id, self.channel.id)
+        self.assertEqual(artifact.metadata["state"], "open")
+
+    def test_same_pr_touched_by_another_task_gets_its_own_row(self):
+        # The unique key is (task, url), not (team, url): a follow-up task in another
+        # channel touching the same PR keeps its own provenance row, which is also what
+        # surfaces the PR in that channel's artifact list.
+        other_channel = Channel(team=self.team, name="mobile", created_by=self.user)
+        other_channel.save()
+        other_task = Task.objects.create(
+            team=self.team,
+            title="Follow up on the login redirect",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            channel=other_channel,
+        )
+        other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        record_github_pr_artifact(self.task_run, self.PR_URL, state="open")
+        second = record_github_pr_artifact(other_run, self.PR_URL, state="open")
+
+        assert second is not None
+        self.assertEqual(self._rows().count(), 2)
+        self.assertEqual(second.task_id, other_task.id)
+        self.assertEqual(second.channel_id, other_channel.id)
+
+    def test_terminal_state_fans_out_to_sibling_rows(self):
+        # The webhook resolves a merge to one run/task; the other tasks' rows for the
+        # same PR must not claim an open PR forever.
+        other_task = Task.objects.create(
+            team=self.team,
+            title="Follow up",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            channel=self.channel,
+        )
+        other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        unrelated_url = "https://github.com/posthog/posthog/pull/9999"
+
+        mine = record_github_pr_artifact(self.task_run, self.PR_URL, state="open")
+        sibling = record_github_pr_artifact(other_run, self.PR_URL, state="open")
+        unrelated = record_github_pr_artifact(other_run, unrelated_url, state="open")
+        assert mine is not None and sibling is not None and unrelated is not None
+
+        record_github_pr_artifact(self.task_run, self.PR_URL, state="merged")
+
+        sibling.refresh_from_db()
+        unrelated.refresh_from_db()
+        self.assertEqual(sibling.metadata["state"], "merged")
+        self.assertEqual(unrelated.metadata["state"], "open")

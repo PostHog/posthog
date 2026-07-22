@@ -1835,6 +1835,15 @@ def signal_workflow_completion(run_id: str | UUID, status: str, error_message: s
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
 
 
+def _record_github_pr_artifact_for_run(run: TaskRun, pr_url: str) -> None:
+    """Upsert the PR's living-artifact registry row when a run first reports it (never raises)."""
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        record_github_pr_artifact,
+    )
+
+    record_github_pr_artifact(run, pr_url, state="open")
+
+
 def _post_slack_update_for_pr(run: TaskRun) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if not pr_url:
@@ -2071,6 +2080,7 @@ def update_task_run(
 
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
+        _record_github_pr_artifact_for_run(run, new_pr_url)
         _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
@@ -2113,11 +2123,15 @@ def set_task_run_output(
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
     # so a bare `= output` would drop output.pr_url recorded out of band.
     existing = run.output if isinstance(run.output, dict) else {}
+    old_pr_url = existing.get("pr_url")
     merged = {**output}
     if not merged.get("pr_url") and existing.get("pr_url"):
         merged["pr_url"] = existing["pr_url"]
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
+    new_pr_url = run.output.get("pr_url")
+    if new_pr_url and new_pr_url != old_pr_url:
+        _record_github_pr_artifact_for_run(run, new_pr_url)
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()

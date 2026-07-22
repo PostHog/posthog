@@ -18,8 +18,8 @@ from posthog.models.user import User
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
-from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.webhooks import _account_type, find_task_run
+from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskRun
+from products.tasks.backend.webhooks import _account_type, find_task_run, handle_pull_request_event
 
 
 class TestAccountType(TestCase):
@@ -1251,3 +1251,107 @@ class TestGitHubWebhookFanout(TestCase):
     def test_unified_url_get_returns_405(self):
         response = self.client.get("/webhooks/github/")
         self.assertEqual(response.status_code, 405)
+
+
+class TestGitHubPRWebhookArtifacts(TestCase):
+    """The webhook side of the github_pr living-artifact registry (record_github_pr_artifact)."""
+
+    PR_URL = "https://github.com/posthog/posthog/pull/777"
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="pr-webhook@example.com", distinct_id="pr-webhook-user")
+        # Direct instantiation sidesteps the fail-closed TeamScopedManager (see test_presence.py).
+        self.channel = Channel(team=self.team, name="growth", created_by=self.user)
+        self.channel.save()
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            channel=self.channel,
+            title="Fix the login redirect",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        self.task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/login-redirect",
+            output={},
+        )
+
+    def _payload(self, action="opened", merged=False, title="Fix login redirect", head_repo="posthog/posthog"):
+        pull_request = {"html_url": self.PR_URL, "merged": merged, "title": title}
+        if head_repo is not None:
+            pull_request["head"] = {"ref": "feature/login-redirect", "repo": {"full_name": head_repo}}
+        return {"action": action, "pull_request": pull_request, "repository": {"full_name": "posthog/posthog"}}
+
+    def _rows(self):
+        return TaskArtifact.objects.for_team(self.team.id).filter(artifact_type=TaskArtifact.ArtifactType.GITHUB_PR)
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_opened_records_artifact(self, _mock_capture):
+        response = handle_pull_request_event(self._payload())
+        self.assertEqual(response.status_code, 200)
+
+        artifact = self._rows().get()
+        self.assertEqual(artifact.task_id, self.task.id)
+        self.assertEqual(artifact.task_run_id, self.task_run.id)
+        self.assertEqual(artifact.channel_id, self.channel.id)
+        self.assertEqual(artifact.name, "Fix login redirect")
+        self.assertEqual(artifact.location, {"url": self.PR_URL})
+        self.assertEqual(artifact.metadata["state"], "open")
+        self.assertEqual(artifact.metadata["number"], 777)
+        self.assertEqual(artifact.metadata["repository"], "posthog/posthog")
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_opened_redelivery_is_idempotent(self, _mock_capture):
+        handle_pull_request_event(self._payload())
+        handle_pull_request_event(self._payload())
+        self.assertEqual(self._rows().count(), 1)
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merged_creates_row_when_missing(self, _mock_capture):
+        # A PR opened before the artifact writer shipped has no row; the merge event
+        # must create it, not silently update nothing (upsert-on-any-event).
+        self.task_run.output = {"pr_url": self.PR_URL}
+        self.task_run.save(update_fields=["output"])
+
+        handle_pull_request_event(self._payload(action="closed", merged=True, head_repo=None))
+
+        artifact = self._rows().get()
+        self.assertEqual(artifact.metadata["state"], "merged")
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merged_updates_the_opened_row_in_place(self, _mock_capture):
+        handle_pull_request_event(self._payload())
+        handle_pull_request_event(self._payload(action="closed", merged=True))
+
+        self.assertEqual(self._rows().count(), 1)
+        self.assertEqual(self._rows().get().metadata["state"], "merged")
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_closed_without_merge_records_closed_state(self, _mock_capture):
+        handle_pull_request_event(self._payload())
+        handle_pull_request_event(self._payload(action="closed", merged=False))
+        self.assertEqual(self._rows().get().metadata["state"], "closed")
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_fork_pr_does_not_record_artifact(self, _mock_capture):
+        # head.ref on a fork PR is attacker-controlled while repository.full_name stays the
+        # base repo, so a branch+repo match must not bind the PR — same rule as the
+        # output.pr_url backstop above it.
+        handle_pull_request_event(self._payload(head_repo="attacker/fork"))
+        self.assertEqual(self._rows().count(), 0)
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_fork_pr_claimed_by_the_run_is_recorded(self, _mock_capture):
+        # But when the run's own output claims the URL (the agent reported it), the fork
+        # origin doesn't matter — the run vouches for the PR.
+        self.task_run.output = {"pr_url": self.PR_URL}
+        self.task_run.save(update_fields=["output"])
+
+        handle_pull_request_event(self._payload(head_repo="attacker/fork"))
+        self.assertEqual(self._rows().count(), 1)

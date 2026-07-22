@@ -184,6 +184,12 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
 
+    run_output = task_run.output if task_run is not None and isinstance(task_run.output, dict) else {}
+    claims_pr = run_output.get("pr_url") == pr_url
+
+    if task_run is not None and (is_internal_branch or claims_pr):
+        _record_pr_artifact(task_run, pr_url, payload, "open" if event_action == "created" else event_action)
+
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
     _capture_pr_event(payload, task_run, analytics_event, event_uuid)
@@ -192,8 +198,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        run_output = task_run.output if isinstance(task_run.output, dict) else {}
-        if run_output.get("pr_url") == pr_url:
+        if claims_pr:
             _record_run_pr_merged(task_run)
         _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
@@ -223,6 +228,22 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
         task_run.publish_stream_state_event()
     except Exception:
         logger.warning("github_pr_webhook_pr_events_failed", run_id=str(task_run.id), exc_info=True)
+
+
+def _record_pr_artifact(task_run: TaskRun, pr_url: str, payload: dict, state: str) -> None:
+    """Upsert the PR's living-artifact row from webhook facts (never raises)."""
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the webhook import path
+        record_github_pr_artifact,
+    )
+
+    pull_request = payload.get("pull_request") or {}
+    record_github_pr_artifact(
+        task_run,
+        pr_url,
+        state=state,
+        title=pull_request.get("title"),
+        repository=(payload.get("repository") or {}).get("full_name"),
+    )
 
 
 def _record_run_pr_merged(task_run: TaskRun) -> None:

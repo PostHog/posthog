@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import json
 import uuid
 import zipfile
@@ -11,7 +12,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import requests
@@ -354,6 +355,134 @@ def get_task_artifact_for_run(run: TaskRun, artifact_id: str | UUID) -> TaskArti
 
 def open_task_artifact(artifact: TaskArtifact) -> str | None:
     return _adapter_for_existing_artifact(artifact).open(artifact)
+
+
+_GITHUB_PR_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
+_GITHUB_PR_TERMINAL_STATES = ("merged", "closed")
+
+
+def parse_github_pr_reference(pr_url: str) -> tuple[str | None, int | None]:
+    """``(owner/repo, number)`` parsed from a GitHub PR URL, ``(None, None)`` if it doesn't look like one."""
+    match = _GITHUB_PR_URL_RE.search(pr_url or "")
+    if not match:
+        return None, None
+    return match.group(1), int(match.group(2))
+
+
+def record_github_pr_artifact(
+    run: TaskRun,
+    pr_url: str,
+    *,
+    state: str | None = None,
+    title: str | None = None,
+    repository: str | None = None,
+) -> TaskArtifact | None:
+    """Idempotently upsert the registry row for a run's GitHub PR.
+
+    Reference-only artifact: ``location.url`` is the deliverable, there are no content
+    versions. Keyed by (task, url): several tasks touching the same PR each keep their own
+    provenance row (and channel presence), while the partial unique index makes the insert
+    race between the two independent recorders of one run's PR (agent server via run
+    output, GitHub webhook) resolve to a single row. Best-effort by contract: both callers
+    sit on paths that must not fail (the webhook's 2xx contract, the run-output write), so
+    failures log and return ``None`` rather than raise.
+    """
+    try:
+        return _record_github_pr_artifact(run, pr_url, state=state, title=title, repository=repository)
+    except Exception:
+        logger.exception("github_pr_artifact_record_failed", run_id=str(run.id), pr_url=pr_url)
+        return None
+
+
+def _record_github_pr_artifact(
+    run: TaskRun, pr_url: str, *, state: str | None, title: str | None, repository: str | None
+) -> TaskArtifact:
+    parsed_repository, number = parse_github_pr_reference(pr_url)
+    repository = repository or parsed_repository
+    fallback_name = f"{repository}#{number}" if repository and number else pr_url
+
+    def _existing() -> TaskArtifact | None:
+        return (
+            TaskArtifact.objects.for_team(run.team_id)
+            .filter(task_id=run.task_id, artifact_type=TaskArtifact.ArtifactType.GITHUB_PR, location__url=pr_url)
+            .first()
+        )
+
+    artifact = _existing()
+    created = False
+    if artifact is None:
+        try:
+            # Own savepoint so losing the unique race doesn't poison a caller's transaction.
+            with transaction.atomic():
+                artifact = TaskArtifact.objects.for_team(run.team_id).create(
+                    team_id=run.team_id,
+                    task=run.task,
+                    task_run=run,
+                    channel_id=run.task.channel_id,
+                    created_by_id=run.task.created_by_id,
+                    name=(title or fallback_name)[:255],
+                    artifact_type=TaskArtifact.ArtifactType.GITHUB_PR,
+                    adapter=TaskArtifact.Adapter.GITHUB_PR,
+                    location={"url": pr_url},
+                    metadata=_github_pr_metadata({}, state=state, title=title, repository=repository, number=number),
+                    versions=[],
+                )
+                created = True
+        except IntegrityError:
+            artifact = _existing()
+            if artifact is None:
+                raise
+
+    if not created:
+        update_fields: list[str] = []
+        metadata = _github_pr_metadata(
+            artifact.metadata or {}, state=state, title=title, repository=repository, number=number
+        )
+        if metadata != (artifact.metadata or {}):
+            artifact.metadata = metadata
+            update_fields.append("metadata")
+        if title and artifact.name != title[:255]:
+            artifact.name = title[:255]
+            update_fields.append("name")
+        if update_fields:
+            artifact.save(update_fields=[*update_fields, "updated_at"])
+
+    if state in _GITHUB_PR_TERMINAL_STATES:
+        _fan_out_github_pr_state(run.team_id, pr_url, state, exclude_pk=artifact.pk)
+    return artifact
+
+
+def _fan_out_github_pr_state(team_id: int, pr_url: str, state: str, *, exclude_pk) -> None:
+    """Propagate a PR's terminal state to every other task's row for the same URL.
+
+    Rows are per touching task, but the webhook resolves a merge/close to one run — without
+    this, the other tasks' rows would claim an open PR forever.
+    """
+    siblings = (
+        TaskArtifact.objects.for_team(team_id)
+        .filter(artifact_type=TaskArtifact.ArtifactType.GITHUB_PR, location__url=pr_url)
+        .exclude(pk=exclude_pk)
+    )
+    for sibling in siblings:
+        metadata = dict(sibling.metadata or {})
+        if metadata.get("state") == state:
+            continue
+        metadata["state"] = state
+        sibling.metadata = metadata
+        sibling.save(update_fields=["metadata", "updated_at"])
+
+
+def _github_pr_metadata(
+    current: dict[str, Any], *, state: str | None, title: str | None, repository: str | None, number: int | None
+) -> dict[str, Any]:
+    metadata = dict(current)
+    for key, value in (("title", title), ("repository", repository), ("number", number)):
+        if value is not None:
+            metadata[key] = value
+    # State only moves forward: a replayed/out-of-order "open" event must not reopen a finished PR.
+    if state is not None and not (state == "open" and metadata.get("state") in _GITHUB_PR_TERMINAL_STATES):
+        metadata["state"] = state
+    return metadata
 
 
 def _find_source_artifact(
