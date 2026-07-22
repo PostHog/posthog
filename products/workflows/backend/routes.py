@@ -4,10 +4,10 @@ from products.workflows.backend.api import hog_flow, hog_flow_template
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.projects.register(r"hog_flows", hog_flow.HogFlowViewSet, "project_hog_flows", ["team_id"])
-    routers.projects.register(
+    routers.register_legacy_dual_route(r"hog_flows", hog_flow.HogFlowViewSet, "environment_hog_flows", ["team_id"])
+    routers.register_legacy_dual_route(
         r"hog_flow_templates",
         hog_flow_template.HogFlowTemplateViewSet,
-        "project_hog_flow_templates",
+        "environment_hog_flow_templates",
         ["team_id"],
     )

@@ -35,6 +35,7 @@ from posthog.api.github_callback.views import github_oauth_callback, github_setu
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
+from posthog.api.query import progress
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
@@ -382,7 +383,7 @@ def integration_connect_redirect(request: HttpRequest, kind: str) -> HttpRespons
     next_path = "/account-connected/{}-integration?{}".format(
         kind, urlencode({"provider": kind, "project_id": project_id, "connect_from": connect_from})
     )
-    authorize_url = "/api/projects/{}/integrations/authorize/?{}".format(
+    authorize_url = "/api/environments/{}/integrations/authorize/?{}".format(
         project_id, urlencode({"kind": kind, "next": next_path})
     )
     return HttpResponseRedirect(authorize_url)
@@ -474,6 +475,12 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
+    path("api/environments/<int:team_id>/progress/", progress),
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path(
@@ -486,6 +493,10 @@ urlpatterns = [
         signals_user_autonomy_view.as_view(),
         name="user_signal_autonomy",
     ),
+    # Dual-served on both prefixes while the Customer.io dispatcher is repointed from the
+    # legacy /api/environments/ URL to the canonical /api/projects/ one.
+    # nosemgrep: no-environments-url-path -- customerio posts to this fixed env URL; dispatcher migrating to projects
+    path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path(
         "api/user_interviews/vapi_webhook/",
@@ -500,9 +511,19 @@ urlpatterns = [
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
+    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
+    path(
+        "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
+        include("products.mcp_analytics.backend.presentation.urls"),
+    ),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
+    ),
+    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
+    path(
+        "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
+        include("products.access_control.backend.presentation.urls"),
     ),
     path(
         "api/projects/<int:parent_lookup_team_id>/property_access_controls/",
