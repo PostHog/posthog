@@ -276,6 +276,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['timezone', 'utc', 'locale', 'week start'],
             },
             {
+                // Project-wide, not product analytics specific: these filters apply to insights,
+                // web analytics, revenue analytics, session replay, and CDP destinations alike.
+                id: 'internal-user-filtering',
+                title: 'Filter out internal and test users',
+                description:
+                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
+                docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
+                component: <ProjectAccountFiltersSetting />,
+                keywords: ['test account', 'internal', 'exclude', 'filter'],
+            },
+            {
                 id: 'business-model',
                 title: 'Business model',
                 description:
@@ -861,15 +872,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Product analytics',
         group: 'Products',
         settings: [
-            {
-                id: 'internal-user-filtering',
-                title: 'Filter out internal and test users',
-                description:
-                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
-                docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
-                component: <ProjectAccountFiltersSetting />,
-                keywords: ['test account', 'internal', 'exclude', 'filter'],
-            },
             {
                 id: 'data-theme',
                 title: 'Chart color themes',
