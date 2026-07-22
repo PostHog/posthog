@@ -49,7 +49,7 @@ export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
         overflowRedirectKeysTotal.labels(type, 'passed').inc(batch.length)
 
         // Record event-level metrics - sum up all event counts
-        const totalEvents = batch.reduce((sum, event) => sum + event.eventCount, 0)
+        const totalEvents = batch.reduce((sum, event) => sum + event.eventHeaders.length, 0)
         overflowRedirectEventsTotal.labels(type, 'passed').inc(totalEvents)
 
         // Never redirect from overflow lane - return empty set

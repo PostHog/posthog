@@ -26,7 +26,10 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
         }
 
         // Group events by token:distinct_id for batch TTL refresh
-        const keyStats = new Map<string, { token: string; distinctId: string; count: number; firstTimestamp: number }>()
+        const keyStats = new Map<
+            string,
+            { token: string; distinctId: string; eventHeaders: EventHeaders[]; firstTimestamp: number }
+        >()
 
         for (const { headers, event } of inputs) {
             const token = headers.token ?? ''
@@ -36,16 +39,16 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
 
             const existing = keyStats.get(eventKey)
             if (existing) {
-                existing.count++
+                existing.eventHeaders.push(headers)
             } else {
-                keyStats.set(eventKey, { token, distinctId, count: 1, firstTimestamp: timestamp })
+                keyStats.set(eventKey, { token, distinctId, eventHeaders: [headers], firstTimestamp: timestamp })
             }
         }
 
         const batches: OverflowEventBatch[] = Array.from(keyStats.values()).map(
-            ({ token, distinctId, count, firstTimestamp }) => ({
+            ({ token, distinctId, eventHeaders, firstTimestamp }) => ({
                 key: { token, distinctId },
-                eventCount: count,
+                eventHeaders,
                 firstTimestamp,
             })
         )

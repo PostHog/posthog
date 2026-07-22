@@ -1,3 +1,4 @@
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { HealthCheckResultError, HealthCheckResultOk } from '~/types'
 
 import { OverflowLaneOverflowRedirect } from './overflow-lane-overflow-redirect'
@@ -18,7 +19,7 @@ const createBatch = (
     firstTimestamp: number = Date.now()
 ): OverflowEventBatch => ({
     key: { token, distinctId },
-    eventCount,
+    eventHeaders: Array.from({ length: eventCount }, () => createTestEventHeaders({ token, distinct_id: distinctId })),
     firstTimestamp,
 })
 

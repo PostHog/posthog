@@ -1,4 +1,4 @@
-import { HealthCheckResult } from '~/types'
+import { EventHeaders, HealthCheckResult } from '~/types'
 
 // Re-export OverflowType so consumers of the interface
 // don't need to know about the repository layer
@@ -11,7 +11,8 @@ export interface OverflowEventKey {
 
 export interface OverflowEventBatch {
     key: OverflowEventKey
-    eventCount: number
+    /** Headers of each event for this key in the batch; strategies count their tokens from these. */
+    eventHeaders: EventHeaders[]
     firstTimestamp: number
 }
 

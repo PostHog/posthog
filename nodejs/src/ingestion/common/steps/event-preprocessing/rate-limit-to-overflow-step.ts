@@ -28,7 +28,10 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
     }
 
     const perInputKeys: (string | null)[] = []
-    const keyStats = new Map<string, { token: string; distinctId: string; count: number; firstTimestamp: number }>()
+    const keyStats = new Map<
+        string,
+        { token: string; distinctId: string; eventHeaders: EventHeaders[]; firstTimestamp: number }
+    >()
 
     for (const input of inputs) {
         const derived = deriveKey(input)
@@ -43,9 +46,9 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
         const timestamp = input.headers.now?.getTime() ?? Date.now()
         const existing = keyStats.get(eventKey)
         if (existing) {
-            existing.count++
+            existing.eventHeaders.push(input.headers)
         } else {
-            keyStats.set(eventKey, { ...derived, count: 1, firstTimestamp: timestamp })
+            keyStats.set(eventKey, { ...derived, eventHeaders: [input.headers], firstTimestamp: timestamp })
         }
     }
 
@@ -54,9 +57,9 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
     }
 
     const batches: OverflowEventBatch[] = Array.from(keyStats.values()).map(
-        ({ token, distinctId, count, firstTimestamp }) => ({
+        ({ token, distinctId, eventHeaders, firstTimestamp }) => ({
             key: { token, distinctId },
-            eventCount: count,
+            eventHeaders,
             firstTimestamp,
         })
     )

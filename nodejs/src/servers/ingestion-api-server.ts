@@ -70,6 +70,7 @@ import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/
 import { OverflowLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '../ingestion/common/overflow-redirect/overflow-redis-repository'
+import { EventRateOverflowStrategy } from '../ingestion/common/overflow-redirect/overflow-strategy'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -323,8 +324,13 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                strategies: [
+                    {
+                        strategy: new EventRateOverflowStrategy(),
+                        bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                        replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                    },
+                ],
                 overflowType: 'events',
             })
         }

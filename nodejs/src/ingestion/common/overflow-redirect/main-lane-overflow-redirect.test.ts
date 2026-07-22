@@ -1,8 +1,10 @@
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { HealthCheckResultOk } from '~/types'
 
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
 import { OverflowEventBatch } from './overflow-redirect-service'
 import { OverflowRedisRepository } from './overflow-redis-repository'
+import { EventRateOverflowStrategy } from './overflow-strategy'
 
 const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
     batchCheck: jest.fn().mockResolvedValue(new Map()),
@@ -18,7 +20,7 @@ const createBatch = (
     firstTimestamp: number = Date.now()
 ): OverflowEventBatch => ({
     key: { token, distinctId },
-    eventCount,
+    eventHeaders: Array.from({ length: eventCount }, () => createTestEventHeaders({ token, distinct_id: distinctId })),
     firstTimestamp,
 })
 
@@ -30,8 +32,7 @@ describe('MainLaneOverflowRedirect', () => {
         return new MainLaneOverflowRedirect({
             redisRepository: mockRepository,
             localCacheTTLSeconds: 60,
-            bucketCapacity: 10,
-            replenishRate: 1,
+            strategies: [{ strategy: new EventRateOverflowStrategy(), bucketCapacity: 10, replenishRate: 1 }],
             overflowType: 'events',
             ...overrides,
         })

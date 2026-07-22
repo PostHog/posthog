@@ -14,14 +14,15 @@ import {
 } from './metrics'
 import { OverflowEventBatch, OverflowRedirectService } from './overflow-redirect-service'
 import { OverflowRedisRepository, OverflowType, memberKey } from './overflow-redis-repository'
+import { OverflowStrategy, OverflowStrategyEntry, overflowStrategyLabel } from './overflow-strategy'
 
 export interface MainLaneOverflowRedirectConfig {
     redisRepository: OverflowRedisRepository
     localCacheTTLSeconds: number
     /** Max entries in the in-memory flagged/not-flagged cache before LRU eviction. */
     localCacheMaxSize?: number
-    bucketCapacity: number
-    replenishRate: number
+    /** Overflow conditions to enforce; a key is redirected when any strategy's bucket is exhausted. */
+    strategies: OverflowStrategyEntry[]
     /** Redis keyspace this service operates on. Fixed per pipeline. */
     overflowType: OverflowType
 }
@@ -44,7 +45,7 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 1_000_000
  */
 export class MainLaneOverflowRedirect implements OverflowRedirectService {
     private localCache: LRUCache<string, boolean>
-    private rateLimiter: MemoryRateLimiter
+    private strategies: { label: string; strategy: OverflowStrategy; limiter: MemoryRateLimiter }[]
     private redisRepository: OverflowRedisRepository
     private overflowType: OverflowType
 
@@ -54,7 +55,11 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
             max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
             ttl: config.localCacheTTLSeconds * 1000,
         })
-        this.rateLimiter = new MemoryRateLimiter(config.bucketCapacity, config.replenishRate)
+        this.strategies = config.strategies.map((entry) => ({
+            label: overflowStrategyLabel(entry.strategy),
+            strategy: entry.strategy,
+            limiter: new MemoryRateLimiter(entry.bucketCapacity, entry.replenishRate),
+        }))
         this.overflowType = config.overflowType
     }
 
@@ -134,16 +139,32 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
 
         for (const event of needsRateLimitCheck) {
             const rateLimitKey = memberKey(event.key.token, event.key.distinctId)
-            const allowed = this.rateLimiter.consume(rateLimitKey, event.eventCount, event.firstTimestamp)
+
+            // Consume from every strategy (no short-circuit) so buckets drain
+            // consistently; any exhausted bucket flags the key.
+            let allowed = true
+            for (const { label, strategy, limiter } of this.strategies) {
+                let tokens = 0
+                for (const headers of event.eventHeaders) {
+                    tokens += strategy.countTokens(headers)
+                }
+                if (tokens === 0) {
+                    continue
+                }
+
+                if (limiter.consume(rateLimitKey, tokens, event.firstTimestamp)) {
+                    overflowRedirectRateLimitDecisions.labels(type, label, 'allowed').inc()
+                } else {
+                    allowed = false
+                    overflowRedirectRateLimitDecisions.labels(type, label, 'exceeded').inc()
+                }
+            }
 
             if (!allowed) {
                 // Rate limit exceeded - needs to be flagged
                 newlyFlagged.push(event)
                 toRedirect.add(rateLimitKey)
                 redirectSource.set(rateLimitKey, 'rate_limiter')
-                overflowRedirectRateLimitDecisions.labels(type, 'exceeded').inc()
-            } else {
-                overflowRedirectRateLimitDecisions.labels(type, 'allowed').inc()
             }
         }
 
@@ -175,13 +196,13 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         for (const event of batch) {
             const mKey = memberKey(event.key.token, event.key.distinctId)
             if (toRedirect.has(mKey)) {
-                redirectedEvents += event.eventCount
+                redirectedEvents += event.eventHeaders.length
                 const source = redirectSource.get(mKey)
                 if (source) {
-                    eventsBySource.set(source, (eventsBySource.get(source) ?? 0) + event.eventCount)
+                    eventsBySource.set(source, (eventsBySource.get(source) ?? 0) + event.eventHeaders.length)
                 }
             } else {
-                passedEvents += event.eventCount
+                passedEvents += event.eventHeaders.length
             }
         }
         overflowRedirectEventsTotal.labels(type, 'redirected').inc(redirectedEvents)

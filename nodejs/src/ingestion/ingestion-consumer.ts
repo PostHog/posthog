@@ -60,6 +60,7 @@ import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-o
 import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
+import { EventRateOverflowStrategy } from './common/overflow-redirect/overflow-strategy'
 import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
@@ -189,8 +190,13 @@ export class IngestionConsumer {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                strategies: [
+                    {
+                        strategy: new EventRateOverflowStrategy(),
+                        bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                        replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                    },
+                ],
                 overflowType: 'events',
             })
         }
