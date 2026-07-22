@@ -12,6 +12,8 @@ import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
+    BulkObserveRequestApi,
+    BulkObserveResponseApi,
     CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
@@ -317,7 +319,7 @@ export const getVisionObservationsLabelCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionObservationsLabelCreate = async (
     projectId: string,
@@ -338,7 +340,7 @@ export const getVisionObservationsLabelDestroyUrl = (projectId: string, id: stri
 }
 
 /**
- * Remove the observation's shared label. Requires session recording edit access.
+ * Remove the observation's shared label. Requires editor access to the scanner.
  */
 export const visionObservationsLabelDestroy = async (
     projectId: string,
@@ -507,6 +509,28 @@ export const visionScannersAffectedCohortCreate = async (
     })
 }
 
+export const getVisionScannersBulkObserveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/bulk_observe/`
+}
+
+/**
+ * Apply this scanner to many sessions on demand. Starts as many as fit under the in-flight
+ * caps and monthly credit quota, reporting the rest as skipped rather than failing the batch.
+ */
+export const visionScannersBulkObserveCreate = async (
+    projectId: string,
+    id: string,
+    bulkObserveRequestApi: BulkObserveRequestApi,
+    options?: RequestInit
+): Promise<BulkObserveResponseApi> => {
+    return apiMutator<BulkObserveResponseApi>(getVisionScannersBulkObserveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkObserveRequestApi),
+    })
+}
+
 export const getVisionScannersImpactRetrieveUrl = (
     projectId: string,
     id: string,
@@ -668,7 +692,7 @@ export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, s
 }
 
 /**
- * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelCreate = async (
     projectId: string,
@@ -693,7 +717,7 @@ export const getVisionScannersObservationsLabelDestroyUrl = (projectId: string, 
 }
 
 /**
- * Remove the observation's shared label. Requires session recording edit access.
+ * Remove the observation's shared label. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelDestroy = async (
     projectId: string,
@@ -836,7 +860,7 @@ export const getVisionScannersPromptSuggestionsDismissCreateUrl = (
 }
 
 /**
- * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires session recording edit access.
+ * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires editor access to the scanner.
  */
 export const visionScannersPromptSuggestionsDismissCreate = async (
     projectId: string,
@@ -908,7 +932,7 @@ export const getVisionScannersPromptSuggestionsGenerateCreateUrl = (projectId: s
 }
 
 /**
- * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and session recording edit access.
+ * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and editor access to the scanner.
  */
 export const visionScannersPromptSuggestionsGenerateCreate = async (
     projectId: string,

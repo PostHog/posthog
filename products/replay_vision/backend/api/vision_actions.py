@@ -3,6 +3,7 @@ from typing import Any, NoReturn, cast, get_args
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -10,6 +11,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -36,7 +38,7 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
-from products.replay_vision.backend.scanner_access import readable_scanner_ids
+from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
@@ -194,6 +196,8 @@ MAX_ENABLED_ALERTS_PER_SCANNER = 10
 
 
 class VisionActionSerializer(serializers.ModelSerializer):
+    """A Replay Vision action: a scheduled "and then…" automation over a scanner's observations."""
+
     name = serializers.CharField(
         max_length=255,
         help_text="Human-readable action name. Unique within the team.",
@@ -452,6 +456,32 @@ class VisionActionSerializer(serializers.ModelSerializer):
         raise error
 
 
+def _selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
+    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`."""
+    configured = (selection or {}).get("scanner_ids") or []
+    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
+
+
+def _check_action_scanner_access(
+    view: TeamAndOrgViewSetMixin, scanner: ReplayScanner, selection: dict[str, Any] | None
+) -> None:
+    """Authorize every scanner an action can read from. The bound `scanner` is object-checked at
+    whatever level `view.action` requires (editor to mutate the action, viewer to read it) — unchanged
+    from before. Scanners named only in `selection.scanner_ids` are pure data sources the action never
+    mutates, so they always need just viewer access regardless of `view.action`, the same bar as reading
+    their observations directly — requiring editor there would block legitimately folding a view-only
+    scanner's data into another scanner's summary.
+    """
+    view.check_object_permissions(view.request, scanner)
+    other_ids = _selection_target_ids(scanner.id, selection)
+    if not other_ids:
+        return
+    other_scanners = ReplayScanner.objects.filter(team_id=scanner.team_id, id__in=other_ids)
+    for other_scanner in other_scanners:
+        if not view.user_access_control.check_access_level_for_object(other_scanner, "viewer"):
+            raise PermissionDenied("You don't have access to one or more scanners this action targets.")
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -467,6 +497,10 @@ class VisionActionSerializer(serializers.ModelSerializer):
 class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations."""
 
+    # Deliberately NOT an AccessControlViewSetMixin: vision_action inherits its access level
+    # from replay_scanner (see RESOURCE_INHERITANCE_MAP) so the product is configured via a
+    # single rule. Exposing `/{id}/access_controls` here would let an object-level grant on
+    # one action bypass that shared resource-level setting.
     scope_object = "vision_action"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
@@ -491,8 +525,29 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
 
+    def safely_get_object(self, queryset: QuerySet[VisionAction]) -> VisionAction:
+        action = get_object_or_404(queryset, pk=self.kwargs["pk"])
+        # Per-scanner object-level grants are stored against `replay_scanner` + the scanner's id, not
+        # `vision_action` + the action's id — the generic check_object_permissions() call the base
+        # get_object() makes against `action` itself can only ever see the resource-level default,
+        # never a scanner-specific override. Check the scanner directly too (mirroring the
+        # `retry`/`label` pattern in observations.py), and every other scanner `selection.scanner_ids`
+        # reads from, so a scanner-specific grant or restriction actually applies.
+        _check_action_scanner_access(self, action.scanner, action.selection)
+        return action
+
     def safely_get_queryset(self, queryset: QuerySet[VisionAction]) -> QuerySet[VisionAction]:
         queryset = queryset.filter(team_id=self.team_id).select_related("scanner", "created_by")
+        if self.action == "list":
+            # `vision_action` never carries its own object-level access-control rows (see the class
+            # docstring), so the generic queryset filtering in TeamAndOrgViewSetMixin is a no-op for this
+            # model. Filter to the caller's accessible scanners explicitly instead, mirroring the
+            # `creators`/`stats` pattern in scanners.py, so a scanner-level restriction actually hides
+            # that scanner's actions from the list.
+            accessible_scanners = self.user_access_control.filter_queryset_by_access_level(
+                ReplayScanner.objects.filter(team_id=self.team_id)
+            )
+            queryset = queryset.filter(scanner_id__in=accessible_scanners.values_list("id", flat=True))
         # The per-scanner "Actions" tab scopes the list to one scanner.
         scanner_id = self.request.query_params.get("scanner")
         if scanner_id:
@@ -506,6 +561,12 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("name", "id")
 
     def perform_create(self, serializer: BaseSerializer) -> None:
+        # The resource-level check in `has_permission` only reflects the project-wide default; object-check
+        # the target scanner too (and every other scanner `selection.scanner_ids` reads from) so a
+        # scanner-specific restriction blocks new actions that read from it as well.
+        _check_action_scanner_access(
+            self, serializer.validated_data["scanner"], serializer.validated_data.get("selection")
+        )
         # Atomic so a destination-provisioning failure rolls back the action row rather than leaving an
         # action that looks created but never delivers.
         with transaction.atomic():
@@ -514,6 +575,14 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
+        # A PATCH can rebind `scanner`/`selection` to different ones; object-check whichever scanner (and
+        # selection scanners) the action will end up pointing at — falling back to the current values so
+        # an edit that leaves targeting untouched (e.g. delivery_config only) still revalidates against it.
+        # Without the fallback, an editor of scanner A could freely rewrite delivery_config on an action
+        # whose (unrelated, unchanged) selection reads from a scanner B they've never had access to.
+        new_scanner = serializer.validated_data.get("scanner", instance.scanner)
+        new_selection = serializer.validated_data.get("selection", instance.selection)
+        _check_action_scanner_access(self, new_scanner, new_selection)
         # Snapshot the destination-affecting fields BEFORE save() — DRF mutates `instance` in place, so
         # these must be read pre-save for the change comparison to be meaningful.
         old_delivery = instance.delivery_config
@@ -725,17 +794,42 @@ class VisionActionRunViewSet(
         # The list omits the report body + observations to stay light; retrieve returns the full detail.
         return VisionActionRunListSerializer if self.action == "list" else VisionActionRunSerializer
 
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        run = self.get_object()
+        self._check_run_observation_scanner_access(run)
+        return Response(self.get_serializer(run).data)
+
+    def _check_run_observation_scanner_access(self, run: VisionActionRun) -> None:
+        # A run's observation_ids reflect whatever the action's `selection` was AT RUN TIME — since
+        # selection.scanner_ids can be edited later, a historical run may have drawn from a scanner the
+        # action no longer targets (or the caller never had access to). Authorize the scanners those
+        # observations actually came from before exposing the synthesized report, rather than trusting
+        # the action's current selection. These scanners are read-only data sources for the report, like
+        # the selection check in `_check_action_scanner_access`, so viewer access is enough.
+        ids = run.observation_ids if isinstance(run.observation_ids, list) else []
+        if not ids:
+            return
+        scanner_ids = set(
+            ReplayObservation.objects.filter(team_id=run.team_id, id__in=ids).values_list("scanner_id", flat=True)
+        )
+        for scanner in ReplayScanner.objects.filter(team_id=self.team_id, id__in=scanner_ids):
+            if not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+                raise PermissionDenied("You don't have access to one or more scanners behind this run's report.")
+
     def _action_for_url(self) -> VisionAction:
         try:
             action_id = uuid.UUID(self.kwargs["parent_lookup_vision_action_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        action = VisionAction.objects.for_team(self.team_id).filter(id=action_id).first()
+        action = VisionAction.objects.for_team(self.team_id).select_related("scanner").filter(id=action_id).first()
         if action is None:
             raise NotFound()
         # Runs expose recording-derived summaries, so reading them inherits the action's RBAC and also
-        # requires session_recording read (mirrors the observations endpoint).
-        self.check_object_permissions(self.request, action)
+        # requires session_recording read (mirrors the observations endpoint). Per-scanner object-level
+        # grants are stored against `replay_scanner` + the scanner's id, not `vision_action` + the action's
+        # id, so check the scanner directly (and every other scanner `selection.scanner_ids` reads from) —
+        # checking `action` itself would only ever see the resource-level default.
+        _check_action_scanner_access(self, action.scanner, action.selection)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading vision action runs requires session_recording read access.")
         return action

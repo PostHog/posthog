@@ -3,7 +3,6 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
@@ -188,7 +187,6 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
         # Nothing to deliver to; the run row (synthesized_markdown) is the in-app artifact.
         return
 
-    action_url = f"{settings.SITE_URL}/project/{team.id}/replay/vision-actions/{action.id}"
     # Private internal event (cdp_internal_events topic), NOT the public capture pipeline — an
     # internal_destination HogFunction filtered on vision_action_id delivers it. This is non-forgeable
     # with the public project token, and (unlike capture) it does NOT land in the analytics events
@@ -207,7 +205,6 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
                 # Pre-split section blocks so the full report renders as ONE Slack message; None (not
                 # []) when absent so Slack falls back to slack_text rather than rejecting empty blocks.
                 "slack_blocks": run.output.get("slack_blocks") or None,
-                "action_url": action_url,
             },
         ),
     )

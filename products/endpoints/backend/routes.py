@@ -4,4 +4,4 @@ from products.endpoints.backend.presentation.views.api import EndpointViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.register_legacy_dual_route(r"endpoints", EndpointViewSet, "environment_endpoints", ["team_id"])
+    routers.projects.register(r"endpoints", EndpointViewSet, "project_endpoints", ["team_id"])
