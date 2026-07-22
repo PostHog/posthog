@@ -105,10 +105,14 @@ class TestNonSyncSurfacesUseResolvedPin:
             (None, SHOPIFY_API_VERSION_2026_07),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source.validate_shopify_credentials")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source.validate_shopify_credentials"
+    )
     def test_validate_credentials_passes_resolved_pin(self, mock_validate: Any, pin: str | None, expected: str) -> None:
         mock_validate.return_value = True
-        config = ShopifySourceConfig(shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret")
+        config = ShopifySourceConfig(
+            shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret"
+        )
 
         ShopifySource().validate_credentials(config, team_id=1, api_version=pin)
 
@@ -126,7 +130,9 @@ class TestNonSyncSurfacesUseResolvedPin:
     )
     def test_endpoint_permissions_pass_resolved_pin(self, mock_check: Any, pin: str | None, expected: str) -> None:
         mock_check.return_value = {}
-        config = ShopifySourceConfig(shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret")
+        config = ShopifySourceConfig(
+            shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret"
+        )
 
         ShopifySource().get_endpoint_permissions(config, team_id=1, endpoints=[ORDERS], api_version=pin)
 
@@ -135,9 +141,7 @@ class TestNonSyncSurfacesUseResolvedPin:
     @pytest.mark.parametrize("api_version", [SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.make_tracked_session")
-    def test_authenticated_session_url_carries_version(
-        self, session_cls: Any, token: Any, api_version: str
-    ) -> None:
+    def test_authenticated_session_url_carries_version(self, session_cls: Any, token: Any, api_version: str) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
             _authenticated_session,
         )
