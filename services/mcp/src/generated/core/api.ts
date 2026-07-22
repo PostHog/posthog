@@ -3,29 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * Retrieve a project and its settings.
- */
-export const organizationsProjectsRetrievePathIdMin = -2147483648
-export const organizationsProjectsRetrievePathIdMax = 2147483647
-
-export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod
-        .number()
-        .min(organizationsProjectsRetrievePathIdMin)
-        .max(organizationsProjectsRetrievePathIdMax)
-        .describe('A unique value identifying this project.'),
-    organization_id: zod
-        .string()
-        .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
-        ),
-})
 
 /**
  * Update one or more of a project's settings. Only the fields included in the request body are changed.

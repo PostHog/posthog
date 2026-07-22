@@ -1,5 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {},
+    "properties": {
+        "name": {
+            "description": "Optional case-insensitive substring to filter projects by name. Use this to resolve a project name to its id instead of guessing or enumerating ids.",
+            "type": "string"
+        }
+    },
     "type": "object"
 }
