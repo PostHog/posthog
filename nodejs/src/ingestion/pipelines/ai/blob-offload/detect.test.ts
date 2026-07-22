@@ -224,6 +224,8 @@ describe('extractBlobs', () => {
     })
 
     it('leaves whitespace-wrapped bare base64 inline (blind path is byte-strict)', () => {
+        // slice(60001) drops one char so the inserted newline keeps length % 4 === 0 —
+        // the string must reach the full canonical scan, not die at the cheap length check.
         const wrapped = `${AUDIO_B64.slice(0, 60000)}\n${AUDIO_B64.slice(60001)}`
         const result = extractBlobs({ content: wrapped }, OPTS)
         expect(result.blobs).toHaveLength(0)

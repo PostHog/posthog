@@ -52,6 +52,7 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
     store: BlobStore | null,
     config: OffloadAiBlobsConfig
 ): ProcessingStep<T, T> {
+    const extractionOpts = { minBase64Length: config.minBase64Length }
     return async function offloadAiBlobsStep(input) {
         if (!store || !config.isTeamEnabled(input.team.id)) {
             return ok(input)
@@ -69,7 +70,7 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
             if (value === undefined || value === null) {
                 continue
             }
-            const extraction = extractBlobs(value, { minBase64Length: config.minBase64Length })
+            const extraction = extractBlobs(value, extractionOpts)
             belowFloorCount += extraction.belowFloorCount
             belowFloorBytes += extraction.belowFloorBytes
             if (extraction.blobs.length === 0) {

@@ -67,7 +67,7 @@ export const aiBlobOffloadS3Duration = new Histogram({
     name: 'aio_blob_offload_s3_request_duration_seconds',
     help: 'Latency of S3 requests made by the AI blob offload store',
     labelNames: ['op'],
-    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
 })
 
 export const aiBlobOffloadS3Errors = new Counter({
