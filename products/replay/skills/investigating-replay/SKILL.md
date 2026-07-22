@@ -199,7 +199,7 @@ with a throwaway scanner — but **ask the user's permission before creating any
        "prompt": "Summarize what the user was trying to do, whether they succeeded, and any friction they hit."
      },
      "query": { "kind": "RecordingsQuery" },
-     "model": "gemini-3-flash-preview",
+     "model": "gemini-3.6-flash",
      "enabled": false
    }
    ```

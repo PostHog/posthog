@@ -87,8 +87,10 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
-    const { observationBySession, pendingId, refreshingObservations } = useValues(scannerRunTabLogic({ scannerId }))
-    const { setVisibleSessionIds, startScan } = useActions(scannerRunTabLogic({ scannerId }))
+    const { observationBySession, pendingId, refreshingObservations, bulkScanning } = useValues(
+        scannerRunTabLogic({ scannerId })
+    )
+    const { setVisibleSessionIds, startScan, startBulkScan } = useActions(scannerRunTabLogic({ scannerId }))
 
     // Sync the playlist's visible rows into the logic, which owns the observation lookup and polling.
     const visibleIdsKey = sessionRecordings.map((recording) => recording.id).join(',')
@@ -211,6 +213,35 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 rowKey="id"
                 emptyState="No recordings match these filters."
                 data-attr="vision-run-recordings-table"
+                bulkSelection={{
+                    noun: ['recording', 'recordings'],
+                    // Only not-yet-scanned rows are selectable — a scanned or in-flight session has nothing
+                    // to (re)scan, matching the per-row button that swaps to "View observation".
+                    isRowSelectable: (recording) =>
+                        observationBySession[recording.id] || pendingId === recording.id
+                            ? { disabledReason: 'Already scanned' }
+                            : true,
+                    renderActions: ({ selectedKeys, selectedCount, clearSelection }) => (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconPlay />}
+                                loading={bulkScanning}
+                                onClick={() => {
+                                    startBulkScan(selectedKeys as string[])
+                                    clearSelection()
+                                }}
+                                data-attr="vision-run-bulk-scan"
+                            >
+                                Scan {selectedCount} selected
+                            </LemonButton>
+                        </AccessControlAction>
+                    ),
+                }}
             />
             {hasNext && (
                 <div className="flex justify-center">
@@ -239,8 +270,8 @@ function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
             <div>
                 <h3 className="text-sm font-medium mb-1">Pick from your recordings</h3>
                 <p className="text-muted text-sm m-0">
-                    Filter your session recordings and run this scanner against any of them. Each scan produces one
-                    observation.
+                    Filter your session recordings and run this scanner against any of them. Scan one at a time, or
+                    select several and scan them together. Each scan produces one observation.
                 </p>
             </div>
             <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>

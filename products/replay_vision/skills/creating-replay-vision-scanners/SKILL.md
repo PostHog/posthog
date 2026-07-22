@@ -83,7 +83,7 @@ Call `vision-scanners-create`. Minimal example:
   "scanner_config": { "prompt": "Flag sessions where the user repeatedly clicks the same element in frustration." },
   "query": { "kind": "RecordingsQuery", "events": [{ "id": "$rageclick", "type": "events" }] },
   "sampling_rate": 1.0,
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.6-flash",
   "enabled": true
 }
 ```

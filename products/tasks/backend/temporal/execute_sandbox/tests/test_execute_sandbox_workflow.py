@@ -1174,23 +1174,29 @@ class TestShutdownRejection:
 
 
 class TestRunStatusTransitions:
-    """The TaskRun must remain in_progress on successful completion *and* on
-    inactivity timeout — it stays followable. Only an explicit failure or
-    cancellation propagated via complete_task transitions it out."""
+    """An interactive TaskRun stays in_progress on successful completion *and* on
+    inactivity timeout — it stays followable. A background run (loop / automated)
+    is one-shot and unattended, so its natural end terminalizes it as completed.
+    Failure and cancellation always transition out, in either mode."""
 
     @pytest.mark.parametrize(
-        "completion_status, expected_call",
+        "mode, completion_status, expected",
         [
-            ("completed", None),
-            ("failed", ("failed", "details")),
-            ("cancelled", ("cancelled", "details")),
+            # Background runs terminalize on their natural end.
+            ("background", "completed", ("completed", {})),
+            ("background", "failed", ("failed", {"error_message": "details", "error_type": None})),
+            ("background", "cancelled", ("cancelled", {"error_message": "details", "error_type": None})),
+            # Interactive runs stay followable in_progress on success.
+            ("interactive", "completed", None),
+            ("interactive", "failed", ("failed", {"error_message": "details", "error_type": None})),
+            ("interactive", "cancelled", ("cancelled", {"error_message": "details", "error_type": None})),
         ],
     )
-    async def test_only_records_failed_or_cancelled(
-        self, monkeypatch, silent_workflow_logger, completion_status, expected_call
+    async def test_terminal_status_by_mode(
+        self, monkeypatch, silent_workflow_logger, mode, completion_status, expected
     ):
         workflow = ExecuteSandboxWorkflow()
-        workflow._context = _build_context()
+        workflow._context = _build_context(state={"mode": mode})
         workflow._task_completed = True
         workflow._completion_status = completion_status
         workflow._completion_error = "details"
@@ -1200,11 +1206,11 @@ class TestRunStatusTransitions:
 
         await workflow._maybe_record_terminal_status()
 
-        if expected_call is None:
+        if expected is None:
             update_status_mock.assert_not_awaited()
         else:
-            status, message = expected_call
-            update_status_mock.assert_awaited_once_with(status, error_message=message, error_type=None)
+            status, kwargs = expected
+            update_status_mock.assert_awaited_once_with(status, **kwargs)
 
 
 class TestCompletionStatusOnExceptionPaths:

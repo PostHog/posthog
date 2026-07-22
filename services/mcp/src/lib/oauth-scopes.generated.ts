@@ -125,6 +125,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'llm_skill:write',
     'logs:read',
     'logs:write',
+    'loop:read',
+    'loop:write',
     'marketing_analytics:read',
     'marketing_analytics:write',
     'mcp_analytics:read',
