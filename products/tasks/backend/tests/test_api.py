@@ -9527,6 +9527,9 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         state = run.state or {}
         self.assertEqual(state["custom_image_builder_id"], data["id"])
         self.assertIs(state["use_modal_vm_sandbox"], True)
+        self.assertEqual(state["runtime_adapter"], "claude")
+        self.assertEqual(state["model"], "@cf/zai-org/glm-5.2")
+        self.assertEqual(state["reasoning_effort"], "high")
         self.assertIn("image-spec.yaml", state["pending_user_message"])
         self.assertIn("install pytorch and flox", state["pending_user_message"])
 
