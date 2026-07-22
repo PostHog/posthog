@@ -14075,6 +14075,27 @@ export namespace Schemas {
       readonly user_decision: string | null;
     }
 
+    export interface ChangeRequestApprove {
+      /** Optional note recorded with the approval vote explaining the decision. */
+      reason?: string;
+    }
+
+    export interface ChangeRequestDecisionResponse {
+      /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+      status: string;
+      /** Human-readable summary of what happened. */
+      message: string;
+      /** The change request after the vote was recorded. */
+      change_request: ChangeRequest;
+      /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+      result?: unknown;
+    }
+
+    export interface ChangeRequestReject {
+      /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+      reason: string;
+    }
+
     /**
      * @nullable
      */
@@ -23637,6 +23658,46 @@ export namespace Schemas {
       Snowflake: 'snowflake',
       Redshift: 'redshift',
     } as const;
+
+    export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      branch: string;
+      conclusive_success_rate: number;
+      conclusive_run_count: number;
+      latest_conclusion: string;
+      window_hours: number;
+    }
+
+    export interface EngineeringAnalyticsCIDurationRegressionSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      current_p95_seconds: number;
+      baseline_p95_seconds: number;
+      pct_increase: number;
+      current_p50_seconds: number;
+      baseline_p50_seconds: number;
+      window_days: number;
+    }
+
+    /**
+     * One immutable flaky observation: failed then passed on a later attempt of the same run,
+     * so only non-determinism can explain the flip.
+     */
+    export interface EngineeringAnalyticsCIFlakyCheckSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      job_name: string;
+      run_id: number;
+      head_sha: string;
+      failed_attempt: number;
+      passed_attempt: number;
+      flaky_count: number;
+      window_days: number;
+    }
 
     /**
      * * `open` - OPEN
@@ -43330,6 +43391,7 @@ export namespace Schemas {
      * * `judgeme_reviews` - Judge.me
      * * `intercom` - Intercom
      * * `hubspot` - HubSpot
+     * * `engineering_analytics` - Engineering analytics
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -43382,6 +43444,7 @@ export namespace Schemas {
       JudgemeReviews: 'judgeme_reviews',
       Intercom: 'intercom',
       Hubspot: 'hubspot',
+      EngineeringAnalytics: 'engineering_analytics',
     } as const;
 
     /**
@@ -43400,6 +43463,9 @@ export namespace Schemas {
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
      * * `anomaly_investigation` - Anomaly investigation
+     * * `ci_flaky_check` - CI flaky check
+     * * `ci_broken_default_branch` - CI broken default branch
+     * * `ci_duration_regression` - CI duration regression
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -43420,6 +43486,9 @@ export namespace Schemas {
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
       AnomalyInvestigation: 'anomaly_investigation',
+      CiFlakyCheck: 'ci_flaky_check',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
+      CiDurationRegression: 'ci_duration_regression',
     } as const;
 
     export interface SignalSourceConfig {
@@ -58755,6 +58824,7 @@ export namespace Schemas {
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
      * * `hubspot` - hubspot
+     * * `engineering_analytics` - engineering_analytics
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -58807,6 +58877,7 @@ export namespace Schemas {
       JudgemeReviews: 'judgeme_reviews',
       Intercom: 'intercom',
       Hubspot: 'hubspot',
+      EngineeringAnalytics: 'engineering_analytics',
     } as const;
 
     /**
@@ -58828,6 +58899,9 @@ export namespace Schemas {
      * * `anomaly_investigation` - anomaly_investigation
      * * `feedback` - feedback
      * * `review` - review
+     * * `ci_flaky_check` - ci_flaky_check
+     * * `ci_broken_default_branch` - ci_broken_default_branch
+     * * `ci_duration_regression` - ci_duration_regression
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -58851,6 +58925,9 @@ export namespace Schemas {
       AnomalyInvestigation: 'anomaly_investigation',
       Feedback: 'feedback',
       Review: 'review',
+      CiFlakyCheck: 'ci_flaky_check',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
+      CiDurationRegression: 'ci_duration_regression',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -58975,7 +59052,7 @@ export namespace Schemas {
       createdDate: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -59032,7 +59109,8 @@ export namespace Schemas {
        * * `appfollow` - appfollow
        * * `judgeme_reviews` - judgeme_reviews
        * * `intercom` - intercom
-       * * `hubspot` - hubspot */
+       * * `hubspot` - hubspot
+       * * `engineering_analytics` - engineering_analytics */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -59053,7 +59131,10 @@ export namespace Schemas {
        * * `scanner_finding` - scanner_finding
        * * `anomaly_investigation` - anomaly_investigation
        * * `feedback` - feedback
-       * * `review` - review */
+       * * `review` - review
+       * * `ci_flaky_check` - ci_flaky_check
+       * * `ci_broken_default_branch` - ci_broken_default_branch
+       * * `ci_duration_regression` - ci_duration_regression */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -60626,6 +60707,9 @@ export namespace Schemas {
       interview_url: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface SharingConfiguration {
       readonly created_at: string;
       enabled?: boolean;
@@ -60634,6 +60718,11 @@ export namespace Schemas {
       settings?: unknown;
       password_required?: boolean;
       readonly share_passwords: readonly SharePassword[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface ShipVariant {
