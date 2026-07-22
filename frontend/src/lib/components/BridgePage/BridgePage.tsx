@@ -1,18 +1,10 @@
 import './BridgePage.scss'
 
 import clsx from 'clsx'
-import { useValues } from 'kea'
-import { useState } from 'react'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { WelcomeLogo } from 'scenes/authentication/shared/WelcomeLogo'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { Region } from '~/types'
-
-import { LaptopHog4, LaptopHogEU } from '../hedgehogs'
-
-export type BridgePageCommonProps = {
+export type BridgePageProps = {
     children?: React.ReactNode
     footer?: React.ReactNode
     header?: React.ReactNode
@@ -24,47 +16,21 @@ export type BridgePageCommonProps = {
     style?: React.CSSProperties
 }
 
-interface NoHedgehogProps extends BridgePageCommonProps {
-    hedgehog?: false
-    message?: never
-}
-
-interface YesHedgehogProps extends BridgePageCommonProps {
-    hedgehog: true
-    message?: React.ReactNode
-}
-
-// Only allow setting of the hog message when a hog actually exists
-type BridgePageProps = NoHedgehogProps | YesHedgehogProps
-
 export function BridgePage({
     children,
     header,
     footer,
     view,
-    message,
     noLogo = false,
     sideLogo = false,
     fixedWidth = true,
     leftContainerContent,
-    hedgehog = false,
     style,
 }: BridgePageProps): JSX.Element {
-    const [messageShowing, setMessageShowing] = useState(false)
-    const { preflight } = useValues(preflightLogic)
-
-    useOnMountEffect(() => {
-        const t = setTimeout(() => {
-            setMessageShowing(true)
-        }, 200)
-
-        return () => clearTimeout(t)
-    })
-
     return (
         <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width')} style={style}>
             <div className="BridgePage__main">
-                {leftContainerContent || hedgehog ? (
+                {leftContainerContent ? (
                     <div className="BridgePage__left-wrapper">
                         <div className="BridgePage__left">
                             {!noLogo && sideLogo && (
@@ -73,25 +39,6 @@ export function BridgePage({
                                 </div>
                             )}
                             {leftContainerContent}
-                            {hedgehog && (
-                                <div className="BridgePage__left__art">
-                                    {preflight?.region === Region.EU ? (
-                                        <LaptopHogEU alt="" draggable="false" />
-                                    ) : (
-                                        <LaptopHog4 alt="" draggable="false" />
-                                    )}
-                                    {message ? (
-                                        <div
-                                            className={clsx(
-                                                'BridgePage__left__message',
-                                                messageShowing && 'BridgePage__left__message--visible'
-                                            )}
-                                        >
-                                            {message}
-                                        </div>
-                                    ) : null}
-                                </div>
-                            )}
                         </div>
                     </div>
                 ) : null}

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,13 +9,17 @@ use tokio::sync::Semaphore;
 use crate::{
     error::UnhandledError,
     stages::{
-        pipeline::ExceptionEventPipelineItem,
+        pipeline::ParsedPipelineItem,
         resolution::{
             exception::ExceptionResolver, frame::FrameResolver, remote::pool::EndpointPool,
             ResolutionStage,
         },
     },
-    types::{batch::Batch, exception_properties::ExceptionProperties, Exception, ExceptionList},
+    types::{
+        batch::Batch,
+        exception_event::{ExceptionEvent, Parsed},
+        Exception, ExceptionList,
+    },
 };
 
 use super::config::RemoteResolutionConfig;
@@ -23,7 +28,7 @@ mod chunk;
 mod partition;
 mod retry;
 
-use chunk::group_events_by_key;
+use chunk::routing_keys_for_event;
 use partition::partition_batch;
 use retry::resolve_work_item;
 
@@ -56,17 +61,18 @@ impl RemoteResolutionContext {
 /// Flow:
 /// 1. Partition the batch into errored / empty-passthrough / local / remote.
 /// 2. Resolve local events inline (same path as no-remote mode).
-/// 3. Group remote events by routing key, submit one logical work item per
-///    exception, and let each item reroute independently through the mux.
+/// 3. Build one logical work item per exception, grouped by routing key for
+///    deterministic submission, and let each item reroute independently
+///    through the mux.
 /// 4. Assemble back into the original batch order.
 ///
 /// Each event passes through exactly one bucket and writes itself into the
 /// output exactly once. There is no shared mutation across RPC boundaries.
 pub async fn resolve_batch(
-    batch: Batch<ExceptionEventPipelineItem>,
+    batch: Batch<ParsedPipelineItem>,
     ctx: RemoteResolutionContext,
     local_stage: ResolutionStage,
-) -> Result<Batch<ExceptionEventPipelineItem>, UnhandledError> {
+) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
     let batch_len = batch.len();
     let partition = partition_batch(batch, ctx.config.sample_rate)?;
 
@@ -84,17 +90,16 @@ pub async fn resolve_batch(
 
 fn assemble_output(
     batch_len: usize,
-    errors: Vec<(usize, ExceptionEventPipelineItem)>,
-    empty: Vec<(usize, ExceptionEventPipelineItem)>,
-    local: Vec<(usize, ExceptionEventPipelineItem)>,
-    remote: Vec<(usize, ExceptionEventPipelineItem)>,
-) -> Result<Batch<ExceptionEventPipelineItem>, UnhandledError> {
-    let mut output: Vec<Option<ExceptionEventPipelineItem>> =
-        (0..batch_len).map(|_| None).collect();
+    errors: Vec<(usize, ParsedPipelineItem)>,
+    empty: Vec<(usize, ParsedPipelineItem)>,
+    local: Vec<(usize, ParsedPipelineItem)>,
+    remote: Vec<(usize, ParsedPipelineItem)>,
+) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
+    let mut output: Vec<Option<ParsedPipelineItem>> = (0..batch_len).map(|_| None).collect();
     for (idx, item) in errors.into_iter().chain(empty).chain(local).chain(remote) {
         output[idx] = Some(item);
     }
-    let resolved: Vec<ExceptionEventPipelineItem> = output
+    let resolved: Vec<ParsedPipelineItem> = output
         .into_iter()
         .enumerate()
         .map(|(idx, slot)| {
@@ -118,7 +123,7 @@ fn assemble_output(
 /// batch bookkeeping.
 struct RemoteEvent {
     batch_index: usize,
-    evt: ExceptionProperties,
+    evt: ExceptionEvent<Parsed>,
     /// One serialized exception per `evt.exception_list` entry, in order.
     exception_jsons: Vec<Vec<u8>>,
     /// Shared across this event's exceptions on the wire. The proto carries
@@ -134,7 +139,7 @@ impl RemoteEvent {
 
 struct RemoteEventSlot {
     batch_index: usize,
-    evt: ExceptionProperties,
+    evt: ExceptionEvent<Parsed>,
     resolved: Vec<Option<Exception>>,
 }
 
@@ -168,13 +173,13 @@ struct ResolvedRemoteItem {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn resolve_local_events(
-    local_events: Vec<(usize, ExceptionProperties)>,
+    local_events: Vec<(usize, ExceptionEvent<Parsed>)>,
     local_stage: ResolutionStage,
-) -> Result<Vec<(usize, ExceptionEventPipelineItem)>, UnhandledError> {
+) -> Result<Vec<(usize, ParsedPipelineItem)>, UnhandledError> {
     if local_events.is_empty() {
         return Ok(Vec::new());
     }
-    let (indexes, events): (Vec<usize>, Vec<ExceptionProperties>) =
+    let (indexes, events): (Vec<usize>, Vec<ExceptionEvent<Parsed>>) =
         local_events.into_iter().unzip();
     let batch = Batch::from(events.into_iter().map(Ok).collect::<Vec<_>>())
         .apply_operator(ExceptionResolver, local_stage.clone())
@@ -191,7 +196,7 @@ async fn resolve_local_events(
 async fn resolve_remote_events(
     ctx: &RemoteResolutionContext,
     events: Vec<RemoteEvent>,
-) -> Result<Vec<(usize, ExceptionEventPipelineItem)>, UnhandledError> {
+) -> Result<Vec<(usize, ParsedPipelineItem)>, UnhandledError> {
     if events.is_empty() {
         return Ok(Vec::new());
     }
@@ -246,7 +251,9 @@ async fn resolve_remote_events(
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            event.evt.exception_list = ExceptionList::from(exceptions);
+            event
+                .evt
+                .replace_exception_list(ExceptionList::from(exceptions));
             Ok((event.batch_index, Ok(event.evt)))
         })
         .collect()
@@ -256,27 +263,31 @@ fn build_work_items(
     events: Vec<RemoteEvent>,
 ) -> Result<(Vec<RemoteEventSlot>, Vec<RemoteWorkItem>), UnhandledError> {
     let mut event_slots = Vec::new();
-    let mut work_items = Vec::new();
+    let mut work_items_by_key: BTreeMap<String, Vec<RemoteWorkItem>> = BTreeMap::new();
     let mut next_token = 1u64;
 
-    for (routing_key, events_for_key) in group_events_by_key(events) {
-        for event in events_for_key {
-            let event_slot = event_slots.len();
-            let item_count = event.item_count();
-            let team_id = event.evt.team_id;
+    for event in events {
+        let event_slot = event_slots.len();
+        let item_count = event.item_count();
+        let team_id = event.evt.team_id();
+        let routing_keys = routing_keys_for_event(&event.evt);
 
-            for (exception_slot, exception_json) in
-                event.exception_jsons.iter().cloned().enumerate()
-            {
-                let token = next_token;
-                next_token = next_token.checked_add(1).ok_or_else(|| {
-                    UnhandledError::Other(
-                        "remote resolution work item token overflowed".to_string(),
-                    )
-                })?;
-                work_items.push(RemoteWorkItem {
+        for (exception_slot, exception_json) in event.exception_jsons.iter().cloned().enumerate() {
+            let routing_key = routing_keys.get(exception_slot).cloned().ok_or_else(|| {
+                UnhandledError::Other(format!(
+                    "remote resolution missing routing key for event slot {event_slot} exception slot {exception_slot}",
+                ))
+            })?;
+            let token = next_token;
+            next_token = next_token.checked_add(1).ok_or_else(|| {
+                UnhandledError::Other("remote resolution work item token overflowed".to_string())
+            })?;
+            work_items_by_key
+                .entry(routing_key.clone())
+                .or_default()
+                .push(RemoteWorkItem {
                     token,
-                    routing_key: routing_key.clone(),
+                    routing_key,
                     event_slot,
                     exception_slot,
                     item: ResolveItem {
@@ -287,25 +298,29 @@ fn build_work_items(
                         deadline_ms: 0,
                     },
                 });
-            }
-
-            event_slots.push(RemoteEventSlot {
-                batch_index: event.batch_index,
-                evt: event.evt,
-                resolved: (0..item_count).map(|_| None).collect(),
-            });
         }
+
+        event_slots.push(RemoteEventSlot {
+            batch_index: event.batch_index,
+            evt: event.evt,
+            resolved: (0..item_count).map(|_| None).collect(),
+        });
     }
+
+    let work_items = work_items_by_key.into_values().flatten().collect();
 
     Ok((event_slots, work_items))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use serde_json::json;
     use uuid::Uuid;
 
     use super::*;
+    use crate::types::event::AnyEvent;
 
     #[test]
     fn build_work_items_assigns_client_tokens_and_slots_without_batch_ids() {
@@ -314,32 +329,105 @@ mod tests {
 
         assert_eq!(event_slots.len(), 2);
         assert_eq!(work_items.len(), 3);
+        let mut tokens = work_items.iter().map(|item| item.token).collect::<Vec<_>>();
+        tokens.sort_unstable();
+        assert_eq!(tokens, vec![1, 2, 3]);
         assert_eq!(
-            work_items.iter().map(|item| item.token).collect::<Vec<_>>(),
-            vec![1, 2, 3]
+            work_items
+                .iter()
+                .map(|item| item.routing_key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["team:1", "team:2", "team:2"]
         );
         assert_eq!(
             work_items
                 .iter()
                 .map(|item| (item.event_slot, item.exception_slot))
                 .collect::<Vec<_>>(),
-            vec![(0, 0), (1, 0), (1, 1)]
+            vec![(1, 0), (0, 0), (0, 1)]
         );
         assert!(work_items.iter().all(|item| item.item.deadline_ms == 0));
     }
 
-    fn fake_remote_event(team_id: i32, batch_index: usize, n_exceptions: usize) -> RemoteEvent {
-        let mut evt: ExceptionProperties = serde_json::from_value(json!({
-            "$exception_list": (0..n_exceptions)
-                .map(|i| json!({
+    #[test]
+    fn build_work_items_routes_each_exception_by_symbol_set_ref() {
+        let events = vec![fake_remote_event_from_exceptions(
+            7,
+            3,
+            vec![
+                json!({
                     "type": "Error",
-                    "value": format!("boom-{i}"),
-                }))
-                .collect::<Vec<_>>()
-        }))
+                    "value": "boom-b",
+                    "stacktrace": {
+                        "type": "raw",
+                        "frames": [{
+                            "platform": "web:javascript",
+                            "filename": "https://example.com/app-b.js",
+                            "function": "minified",
+                            "lineno": 1,
+                            "colno": 2,
+                            "chunk_id": "chunk-b"
+                        }]
+                    }
+                }),
+                json!({
+                    "type": "Error",
+                    "value": "boom-a",
+                    "stacktrace": {
+                        "type": "raw",
+                        "frames": [{
+                            "platform": "web:javascript",
+                            "filename": "https://example.com/app-a.js",
+                            "function": "minified",
+                            "lineno": 1,
+                            "colno": 2,
+                            "chunk_id": "chunk-a"
+                        }]
+                    }
+                }),
+            ],
+        )];
+
+        let (_event_slots, work_items) = build_work_items(events).expect("build work items");
+
+        assert_eq!(
+            work_items
+                .iter()
+                .map(|item| (item.exception_slot, item.routing_key.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "team:7:symbol:chunk-a"), (0, "team:7:symbol:chunk-b"),]
+        );
+    }
+
+    fn fake_remote_event(team_id: i32, batch_index: usize, n_exceptions: usize) -> RemoteEvent {
+        fake_remote_event_from_exceptions(
+            team_id,
+            batch_index,
+            (0..n_exceptions)
+                .map(|i| {
+                    json!({
+                        "type": "Error",
+                        "value": format!("boom-{i}"),
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    fn fake_remote_event_from_exceptions(
+        team_id: i32,
+        batch_index: usize,
+        exceptions: Vec<serde_json::Value>,
+    ) -> RemoteEvent {
+        let evt = ExceptionEvent::<Parsed>::try_from(AnyEvent {
+            uuid: Uuid::from_u128(0xABCD_0000_0000_0000 ^ (batch_index as u128)),
+            event: "$exception".to_string(),
+            team_id,
+            timestamp: String::new(),
+            properties: json!({ "$exception_list": exceptions }),
+            others: HashMap::new(),
+        })
         .expect("valid exception properties");
-        evt.team_id = team_id;
-        evt.uuid = Uuid::from_u128(0xABCD_0000_0000_0000 ^ (batch_index as u128));
 
         let exception_jsons = evt
             .exception_list

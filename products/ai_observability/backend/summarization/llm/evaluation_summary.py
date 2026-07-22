@@ -1,13 +1,13 @@
-"""LLM gateway-based evaluation summary generation."""
+"""Evaluation summary generation, routed through the internal Go ai-gateway when
+configured, else the Python LLM gateway."""
 
 from typing import Any, cast
 
 import structlog
-from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from rest_framework import exceptions
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_async_openai_client
 
 from ..constants import SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel
@@ -86,12 +86,7 @@ async def summarize_evaluation_runs(
 
 {runs_text}"""
 
-    sync_client = get_llm_client("llma_eval_summary")
-    client = AsyncOpenAI(
-        base_url=sync_client.base_url,
-        api_key=sync_client.api_key,
-        timeout=SUMMARIZATION_TIMEOUT,
-    )
+    client = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
 
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},
@@ -103,6 +98,7 @@ async def summarize_evaluation_runs(
             model=str(model),
             messages=messages,
             user=user_distinct_id or "llma-evaluation-summarization",
+            timeout=SUMMARIZATION_TIMEOUT,
             response_format=cast(
                 Any,
                 {

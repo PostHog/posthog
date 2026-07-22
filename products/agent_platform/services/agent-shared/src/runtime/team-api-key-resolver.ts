@@ -27,6 +27,13 @@ export interface PgTeamApiKeyResolverOpts {
 }
 
 /**
+ * Exported so the real-SQL isolation oracle runs the actual statement, not a
+ * drifting copy. `WHERE id = $1` is the tenant boundary: drop it and `resolve`
+ * mints another team's `api_token` bearer.
+ */
+export const SELECT_TEAM_API_TOKEN = 'SELECT api_token FROM posthog_team WHERE id = $1'
+
+/**
  * Reads `posthog_team.api_token` from the main PostHog database. The token is
  * the team's public capture key (`phc_...`) — not secret-grade, but treated
  * as the team's bearer to PostHog services. The gateway resolves it to the
@@ -52,10 +59,7 @@ export class PgTeamApiKeyResolver implements TeamApiKeyResolver {
         if (cached && cached.expires > Date.now()) {
             return cached.value
         }
-        const { rows } = await this.pool.query<{ api_token: string | null }>(
-            'SELECT api_token FROM posthog_team WHERE id = $1',
-            [teamId]
-        )
+        const { rows } = await this.pool.query<{ api_token: string | null }>(SELECT_TEAM_API_TOKEN, [teamId])
         if (rows.length === 0) {
             throw new TeamApiKeyNotFoundError(`team_id=${teamId} not found`)
         }

@@ -28,6 +28,8 @@ export const createEvaluation = (evaluation: Partial<Evaluation>): Evaluation =>
                 properties: [],
             },
         ],
+        target: 'generation',
+        target_config: {},
         created_at: DateTime.now().toISO(),
         updated_at: DateTime.now().toISO(),
         ...evaluation,

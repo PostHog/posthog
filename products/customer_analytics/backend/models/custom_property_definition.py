@@ -14,6 +14,12 @@ class DisplayType(StrEnum):
     DATE = "date"
     DATETIME = "datetime"
     BOOLEAN = "boolean"
+    SELECT = "select"
+
+
+class TargetType(StrEnum):
+    ACCOUNT = "account"
+    PERSON = "person"
 
 
 class DataType(StrEnum):
@@ -31,6 +37,7 @@ DATA_TYPE_BY_DISPLAY_TYPE: dict[DisplayType, DataType] = {
     DisplayType.DATE: DataType.DATETIME,
     DisplayType.DATETIME: DataType.DATETIME,
     DisplayType.BOOLEAN: DataType.BOOLEAN,
+    DisplayType.SELECT: DataType.STRING,
 }
 
 NUMERIC_DISPLAY_TYPES = [
@@ -41,6 +48,12 @@ NUMERIC_DISPLAY_TYPES = [
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
+    target_type = models.CharField(
+        choices=[(t.value, t.value) for t in TargetType],
+        default=TargetType.ACCOUNT,
+        max_length=20,
+        help_text="What entity this property is attached to: an account (default) or a person.",
+    )
     name = models.CharField(max_length=400)
     description = models.TextField(null=True)
     display_type = models.CharField(
@@ -48,6 +61,12 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
     )
     is_big_number = models.BooleanField(
         default=False, help_text="Whether the property is a big number and should be abbreviated. E.g.: 10,000 -> 10K"
+    )
+    options = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="For select properties: the allowed options, each {'id', 'label', 'color'}. Null for other types.",
     )
 
     class Meta:

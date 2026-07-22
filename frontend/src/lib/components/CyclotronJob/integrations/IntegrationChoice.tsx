@@ -1,5 +1,8 @@
+// Side-effect import: register all integration setups
+import './integrationSetups'
+
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
@@ -12,9 +15,6 @@ import { urls } from 'scenes/urls'
 
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
-
-// Side-effect import: register all integration setups
-import './integrationSetups'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -47,8 +47,13 @@ export function IntegrationChoice({
     // saves. The UI surfaces a warning below instead so the user picks explicitly.
     const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
 
+    // Fire at most once: the consumer's write may take a full state round-trip before it flows
+    // back into `value`, and re-dispatching on every render in that window can amplify into an
+    // infinite update loop (React #185).
+    const autoSelected = useRef(false)
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+        if (!integrationsLoading && !value && integrationsOfKind?.length && !autoSelected.current) {
+            autoSelected.current = true
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])

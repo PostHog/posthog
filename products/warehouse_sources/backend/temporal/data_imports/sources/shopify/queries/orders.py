@@ -15,8 +15,40 @@ from .fragments import (
 
 ORDERS_SORTKEY = "UPDATED_AT"
 
-# NOTE: 250 is the max allowable query size for nested connections
-ORDERS_QUERY = f"""
+# Fields gated behind scopes beyond `read_orders` -> scopes that unlock them (any one suffices).
+# Lets a `read_orders`-only token still import the rest of the order instead of "Access denied".
+ORDERS_PROTECTED_FIELDS: dict[str, set[str]] = {
+    "fulfillmentOrders": {
+        "read_merchant_managed_fulfillment_orders",
+        "read_third_party_fulfillment_orders",
+        "read_assigned_fulfillment_orders",
+    },
+    "paymentTerms": {"read_payment_terms"},
+}
+
+_FULFILLMENT_ORDERS_BLOCK = f"fulfillmentOrders(first: 250) {NODE_CONNECTION_ID_FRAGMENT}"
+
+_PAYMENT_TERMS_BLOCK = f"""paymentTerms {{
+                due
+                dueInDays
+                id
+                order {ID_NAME_CREATED_UPDATED_FRAGMENT}
+                overdue
+                paymentTermsName
+                paymentTermsType
+                translatedName
+            }}"""
+
+
+def build_orders_query(granted_scopes: set[str]) -> str:
+    """Orders query with each protected-field selection included only when its scope is granted."""
+    fulfillment_orders = (
+        _FULFILLMENT_ORDERS_BLOCK if granted_scopes & ORDERS_PROTECTED_FIELDS["fulfillmentOrders"] else ""
+    )
+    payment_terms = _PAYMENT_TERMS_BLOCK if granted_scopes & ORDERS_PROTECTED_FIELDS["paymentTerms"] else ""
+
+    # NOTE: 250 is the max allowable query size for nested connections
+    return f"""
 query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
     orders(
         first: $pageSize, after: $cursor, sortKey: {ORDERS_SORTKEY},
@@ -88,7 +120,7 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
             estimatedTaxes
             events(first: 250) {NODE_CONNECTION_ID_FRAGMENT}
             fulfillable
-            fulfillmentOrders(first: 250) {NODE_CONNECTION_ID_FRAGMENT}
+            {fulfillment_orders}
             fulfillments(first: 250) {{
                 id
                 createdAt
@@ -129,16 +161,7 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
             originalTotalDutiesSet {MONEY_BAG_FRAGMENT}
             originalTotalPriceSet {MONEY_BAG_FRAGMENT}
             paymentGatewayNames
-            paymentTerms {{
-                due
-                dueInDays
-                id
-                order {ID_NAME_CREATED_UPDATED_FRAGMENT}
-                overdue
-                paymentTermsName
-                paymentTermsType
-                translatedName
-            }}
+            {payment_terms}
             phone
             poNumber
             presentmentCurrencyCode
@@ -210,3 +233,7 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
         }}
     }}
 }}"""
+
+
+# Full query (all scopes granted); the sync path rebuilds it from the token's real scopes.
+ORDERS_QUERY = build_orders_query({scope for scopes in ORDERS_PROTECTED_FIELDS.values() for scope in scopes})

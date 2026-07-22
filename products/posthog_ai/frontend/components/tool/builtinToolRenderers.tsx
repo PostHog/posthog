@@ -1,12 +1,22 @@
-import clsx from 'clsx'
-import { memo } from 'react'
+import { Suspense, memo, useState } from 'react'
 
-import { IconDocument, IconGlobe, IconSearch, IconTerminal, IconWrench } from '@posthog/icons'
+import {
+    IconCheckCircle,
+    IconChevronRight,
+    IconDocument,
+    IconGlobe,
+    IconMagicWand,
+    IconSearch,
+    IconTerminal,
+    IconWrench,
+} from '@posthog/icons'
 
-import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
+import { getPlanPayload, PlanCard } from '../PlanCard'
+import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 import { getPostHogExecDisplay } from './posthogExecDisplay'
@@ -14,6 +24,7 @@ import { ToolActivity } from './ToolActivity'
 import {
     MAX_COMMAND_LENGTH,
     MAX_URL_LENGTH,
+    formatInput,
     getCommandOutput,
     getContentImage,
     getContentText,
@@ -25,9 +36,11 @@ import {
     stripCodeFences,
     truncateText,
 } from './toolContentUtils'
-import { languageFromPath } from './toolDiffContent'
-import { ToolOutput } from './ToolOutput'
+import { ToolBody, ToolBodySection, ToolOutput } from './ToolOutput'
 import type { ToolRendererProps } from './toolRegistry'
+
+// Monaco-backed read-only file view, lazy so monaco stays out of the always-loaded built-in chunk.
+const ReadFileContent = lazyWithRetry(() => import('./ReadFileContent').then((m) => ({ default: m.ReadFileContent })))
 
 function asString(value: unknown): string {
     return typeof value === 'string' ? value : ''
@@ -88,9 +101,9 @@ const ReadToolRenderer = memo(function ReadToolRenderer(props: ToolRendererProps
         )
     } else if (text) {
         body = (
-            <CodeSnippet language={languageFromPath(path)} compact maxLinesWithoutExpansion={20}>
-                {text}
-            </CodeSnippet>
+            <Suspense fallback={<EditorSkeleton />}>
+                <ReadFileContent text={text} path={path} />
+            </Suspense>
         )
     }
 
@@ -104,6 +117,67 @@ const ReadToolRenderer = memo(function ReadToolRenderer(props: ToolRendererProps
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}
         />
+    )
+})
+
+/**
+ * ExitPlanMode — `/code`'s `PlanApprovalView`: while the approval is pending the plan renders as the
+ * tinted document card directly in the thread (the approval actions live in the composer slot); once
+ * resolved it collapses to a status row ("Plan approved…" / "(Plan rejected)") with a show/hide toggle.
+ */
+const ExitPlanModeRenderer = memo(function ExitPlanModeRenderer(props: ToolRendererProps): JSX.Element | null {
+    const { message, turnComplete, turnCancelled } = props
+    const [isPlanExpanded, setIsPlanExpanded] = useState(false)
+    const { plan: planFromInput } = getPlanPayload(message.rawInput)
+    const plan = planFromInput ?? getContentText(message.content)
+
+    const isComplete = message.status === 'completed'
+    const isIncomplete = message.status === 'pending' || message.status === 'in_progress'
+    // A denied plan surfaces as a failed tool call; a cancelled/finished turn leaves it incomplete forever.
+    const wasRejected = message.status === 'failed' || (isIncomplete && !!(turnCancelled || turnComplete))
+    const showResult = isComplete || wasRejected
+
+    if (!plan && !showResult) {
+        return null
+    }
+
+    if (!showResult) {
+        return <div className="my-2">{plan && <PlanCard plan={plan} id={`plan-${message.id}`} />}</div>
+    }
+
+    const statusContent = isComplete ? (
+        <>
+            <IconCheckCircle className="size-4 shrink-0 text-success" />
+            <span className="text-[13px] text-success">Plan approved — proceeding with implementation</span>
+        </>
+    ) : (
+        <span className="text-[13px] text-muted">(Plan rejected)</span>
+    )
+
+    return (
+        <div className="my-2">
+            {plan ? (
+                <button
+                    type="button"
+                    onClick={() => setIsPlanExpanded((expanded) => !expanded)}
+                    aria-expanded={isPlanExpanded}
+                    className="flex items-center gap-2 rounded px-1 text-left hover:bg-fill-button-tertiary-hover"
+                >
+                    <IconChevronRight
+                        className={`size-3 shrink-0 text-muted transition-transform ${isPlanExpanded ? 'rotate-90' : ''}`}
+                    />
+                    {statusContent}
+                    <span className="text-[13px] text-muted">· {isPlanExpanded ? 'hide plan' : 'show plan'}</span>
+                </button>
+            ) : (
+                <div className="flex items-center gap-2 px-1">{statusContent}</div>
+            )}
+            {plan && isPlanExpanded && (
+                <div className="mt-2">
+                    <PlanCard plan={plan} id={`plan-${message.id}`} />
+                </div>
+            )}
+        </div>
     )
 })
 
@@ -145,14 +219,14 @@ const SubagentToolRenderer = memo(function SubagentToolRenderer(props: ToolRende
 
     const body =
         prompt || showOutput ? (
-            <div className="flex flex-col gap-2 min-w-0">
+            <ToolBody>
                 {prompt && <ToolOutput>{prompt}</ToolOutput>}
                 {showOutput && (
-                    <div className={clsx('min-w-0', prompt && 'border-t border-border-secondary pt-2')}>
+                    <ToolBodySection divided={!!prompt}>
                         <ToolOutput>{output}</ToolOutput>
-                    </div>
+                    </ToolBodySection>
                 )}
-            </div>
+            </ToolBody>
         ) : undefined
 
     return (
@@ -229,6 +303,90 @@ const PostHogExecRenderer = memo(function PostHogExecRenderer(props: ToolRendere
 })
 
 /**
+ * Skill — a single line naming the invoked skill. Input and output stay viewable in the body exactly as
+ * the generic card renders them; falls back to the generic card entirely when `skill` isn't a string.
+ */
+const SkillToolRenderer = memo(function SkillToolRenderer(props: ToolRendererProps): JSX.Element {
+    const { message, icon, turnComplete, turnCancelled } = props
+    const skill = asString(message.rawInput.skill)
+    if (!skill) {
+        return <GenericMcpToolRenderer {...props} />
+    }
+
+    const hasInput = Object.keys(message.rawInput).length > 0
+    const formattedInput = hasInput ? formatInput(message.rawInput) : ''
+    const output = stripCodeFences(getContentText(message.content))
+    const body =
+        formattedInput || output ? (
+            <ToolBody>
+                {formattedInput && <ToolOutput>{formattedInput}</ToolOutput>}
+                {output && (
+                    <ToolBodySection divided={!!formattedInput}>
+                        <ToolOutput>{output}</ToolOutput>
+                    </ToolBodySection>
+                )}
+            </ToolBody>
+        ) : undefined
+
+    return (
+        <ToolActivity
+            message={message}
+            icon={icon ?? <IconMagicWand />}
+            title={
+                <span>
+                    Skill <span className="font-mono">{skill}</span>
+                </span>
+            }
+            body={body}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
+    )
+})
+
+/**
+ * ToolSearch — Claude's deferred-tool search, rendered like PostHog's MCP tool search: a "Search tools"
+ * header with the query on the second line and the matched tool schemas in the body. Falls back to the
+ * generic card when the input isn't the expected `{ query, max_results }` shape.
+ */
+const ToolSearchRenderer = memo(function ToolSearchRenderer(props: ToolRendererProps): JSX.Element {
+    const { message, icon, turnComplete, turnCancelled } = props
+    const query = asString(message.rawInput.query)
+    if (!query || typeof message.rawInput.max_results !== 'number') {
+        return <GenericMcpToolRenderer {...props} />
+    }
+    const formattedInput = formatInput(message.rawInput)
+    const output = stripCodeFences(getContentText(message.content))
+    const body =
+        formattedInput || output ? (
+            <ToolBody>
+                {formattedInput && <ToolOutput>{formattedInput}</ToolOutput>}
+                {output && (
+                    <ToolBodySection divided={!!formattedInput}>
+                        <ToolOutput>{output}</ToolOutput>
+                    </ToolBodySection>
+                )}
+            </ToolBody>
+        ) : undefined
+
+    return (
+        <ToolActivity
+            message={message}
+            icon={icon ?? <IconSearch />}
+            title="Search tools"
+            subtitle={
+                <span className="font-mono" title={query}>
+                    {truncateText(query, MAX_COMMAND_LENGTH)}
+                </span>
+            }
+            body={body}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
+    )
+})
+
+/**
  * Single lazy entry covering every Claude built-in plus the generic MCP fallback — mirrors the agent
  * UI's `ToolCallBlock` dispatch. Switches on the resolved tool name; anything unrecognised renders
  * through `GenericMcpToolRenderer`. Registered for each built-in key and as the registry's default.
@@ -256,6 +414,12 @@ export const BuiltinToolRenderer = memo(function BuiltinToolRenderer(props: Tool
         case 'WebFetch':
         case 'WebSearch':
             return <FetchToolRenderer {...props} />
+        case 'Skill':
+            return <SkillToolRenderer {...props} />
+        case 'ToolSearch':
+            return <ToolSearchRenderer {...props} />
+        case 'ExitPlanMode':
+            return <ExitPlanModeRenderer {...props} />
         default:
             return <GenericMcpToolRenderer {...props} />
     }

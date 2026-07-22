@@ -113,7 +113,7 @@ mod tests {
     use crate::config::EnvelopeCompression;
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
-    use crate::v1::analytics::types::{Event, Options};
+    use crate::v1::analytics::types::{Event, Options, RawOptions};
 
     fn test_config() -> Config {
         Config {
@@ -138,6 +138,8 @@ mod tests {
             global_rate_limit_redis_reader_url: None,
             global_rate_limit_redis_response_timeout_ms: None,
             global_rate_limit_redis_connection_timeout_ms: None,
+            global_rate_limit_custom_threshold_key: None,
+            global_rate_limit_custom_threshold_refresh_secs: 60,
             event_restrictions_enabled: false,
             event_restrictions_redis_url: None,
             event_restrictions_refresh_interval_secs: 30,
@@ -234,6 +236,12 @@ mod tests {
             ai_s3_access_key_id: None,
             ai_s3_secret_access_key: None,
             ai_gateway_signing_secret: None,
+            ai_sink_mode: crate::config::AiSinkMode::Primary,
+            ai_secondary_allowlist_tokens: None,
+            ai_secondary_kafka_hosts: None,
+            ai_secondary_kafka_topic: None,
+            ai_secondary_kafka_tls: false,
+            ai_secondary_kafka_client_id: String::new(),
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
@@ -247,6 +255,9 @@ mod tests {
             capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
             capture_v1_scatter_gather_min_batch: 8,
+            capture_ingestion_warnings_enabled: false,
+            capture_ingestion_warnings_kafka_queue_mib: 16,
+            capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
         }
     }
 
@@ -300,15 +311,19 @@ mod tests {
                 timestamp: "2026-03-26T12:00:00.000Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: product_tour_id.map(String::from),
-                    process_person_profile: None,
+                options: match product_tour_id {
+                    Some(id) => RawOptions(serde_json::json!({"product_tour_id": id})),
+                    None => RawOptions::default(),
                 },
                 properties: RawValue::from_string("{}".to_owned()).unwrap(),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: product_tour_id.map(String::from),
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(
                 DateTime::parse_from_rfc3339("2026-03-26T12:00:00Z")
                     .unwrap()

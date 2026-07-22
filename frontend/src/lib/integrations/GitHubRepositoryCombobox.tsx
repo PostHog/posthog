@@ -26,6 +26,8 @@ export interface GitHubRepositoryComboboxProps {
     onChange: (value: string | null) => void
     disabled?: boolean
     placeholder?: string
+    /** When true, prepends a "— No repository —" item so users can explicitly clear the selection. */
+    showNoneOption?: boolean
 }
 
 /**
@@ -34,12 +36,15 @@ export interface GitHubRepositoryComboboxProps {
  * refresh control. Searching and pagination are delegated to {@link githubRepositorySearchLogic} so large
  * accounts never load the full repository list up front.
  */
+const NONE_SENTINEL = '\x00none'
+
 export function GitHubRepositoryCombobox({
     integrationId,
     value,
     onChange,
     disabled = false,
     placeholder = 'Select repository...',
+    showNoneOption = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId })
     const { repositoryNames, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -73,13 +78,15 @@ export function GitHubRepositoryCombobox({
         )
     }
 
+    const items = showNoneOption ? [NONE_SENTINEL, ...repositoryNames] : repositoryNames
+
     return (
         <Combobox
-            items={repositoryNames}
+            items={items}
             // Server-side search already filtered the list; don't let the combobox re-filter by input value.
             filter={null}
             value={value || null}
-            onValueChange={(next: string | null) => onChange(next ? next : null)}
+            onValueChange={(next: string | null) => onChange(next === NONE_SENTINEL ? null : next || null)}
             open={open}
             onOpenChange={(nextOpen: boolean) => {
                 setOpen(nextOpen)
@@ -136,11 +143,17 @@ export function GitHubRepositoryCombobox({
                     {showInlineLoadingState ? 'Loading repositories...' : error ? error : 'No repositories found.'}
                 </ComboboxEmpty>
                 <ComboboxList>
-                    {(repo: string) => (
-                        <ComboboxItem key={repo} value={repo}>
-                            {repo}
-                        </ComboboxItem>
-                    )}
+                    {(repo: string) =>
+                        repo === NONE_SENTINEL ? (
+                            <ComboboxItem key={repo} value={repo}>
+                                No repository
+                            </ComboboxItem>
+                        ) : (
+                            <ComboboxItem key={repo} value={repo}>
+                                {repo}
+                            </ComboboxItem>
+                        )
+                    }
                 </ComboboxList>
 
                 {hasMore && (

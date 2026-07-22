@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WordpressSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wordpress import (
+    WordpressSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -37,6 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.wordpress.org/rest-api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WORDPRESS
@@ -96,6 +102,7 @@ To sync private content or authenticate, create an [Application Password](https:
         return {
             "401 Client Error": "Invalid WordPress username or application password. Create a new application password and reconnect.",
             "403 Client Error": "Your WordPress credentials lack permission to read this data. Check the user's role and try again.",
+            "404 Client Error": "WordPress returned 404 (Not Found) for this collection. The REST API or this specific endpoint (for example /users, which security plugins often block to prevent user enumeration) may be disabled or restricted on your site. Enable REST API access for it, or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The WordPress site URL is not allowed. Please use a publicly reachable site URL.",
             HTTP_NOT_ALLOWED_ERROR: "The WordPress site URL must use HTTPS when credentials are provided. Please update the site URL to use https://.",
         }

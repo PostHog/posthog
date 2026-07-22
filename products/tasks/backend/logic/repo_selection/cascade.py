@@ -22,9 +22,15 @@ async def select_repository_for_message(
     avoid the repo-selection LLM agent here. Messages without an explicit connected `owner/repo`
     mention return `None`, which starts a repo-less sandbox. Selection must never block the
     conversation from starting, so this never raises — every failure degrades to "no repo".
+
+    This is the user-initiated path, so we pass `user_id` as the requester: their own connected
+    GitHub is a valid source even if they aren't an org owner (it's their own credentials, not a
+    cross-account leak), letting them reference repos only they have connected.
     """
     try:
-        github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
+        github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(
+            team_id, requester_user_id=user_id
+        )
         if github is None:
             return None
         candidates = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)

@@ -202,6 +202,7 @@ class OnboardingSkippedReason(models.TextChoices):
     DELEGATED = "delegated", "Delegated to teammate"
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
+    PROVISIONED = "provisioned", "Account provisioned by a partner"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -535,6 +536,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     },
                 )
 
+        # After role assignment, so role-granted project access is included. Covers joins
+        # that don't go through an invite (e.g. domain/SSO auto-join).
+        from posthog.models.file_system.user_product_list import (  # noqa: PLC0415 - avoids a circular import
+            add_default_products_for_accessible_teams,
+        )
+
+        add_default_products_for_accessible_teams(self, organization)
+
         return membership
 
     @property
@@ -632,3 +641,27 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
         from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
 
         revoke_other_sessions(instance, keep_session_key=None)
+
+
+@receiver(pre_save, sender=User)
+def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
+    """Pause every loop owned by a user when they are deactivated (is_active True->False).
+
+    Loops execute as their owner for GitHub authorship and MCP identity (see
+    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
+    security response and must not leave a loop still scheduled, or a sandbox still running,
+    under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
+    Temporal schedule is an irreversible external side effect.
+    """
+    if instance._state.adding or instance.is_active:
+        return
+    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    if not was_active:
+        return
+
+    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
+        pause_loops_for_deactivated_user,
+    )
+
+    user_id = instance.pk
+    transaction.on_commit(lambda: pause_loops_for_deactivated_user(user_id))

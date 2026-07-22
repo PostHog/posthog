@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.",
+            "description": "The workflow (HogFlow) id to edit.",
             "type": "string"
         },
         "operations": {

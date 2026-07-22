@@ -10,21 +10,31 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CheckDatabaseNameResponseApi,
+    CheckSchemaNameResponseApi,
+    CreateTableFromUploadApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
+    DataWarehouseCheckSchemaNameRetrieveParams,
+    DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
+    DataWarehouseSavedQueryColumnAnnotationApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
+    DeleteWarehouseOrgResponseApi,
     DeprovisionWarehouseResponseApi,
-    EnableWarehouseBackfillRequestApi,
-    EnableWarehouseBackfillResponseApi,
+    FileUploadResponseApi,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
+    ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseSourceSchemasResponseApi,
+    OnboardWarehouseTeamRequestApi,
+    OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
+    PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
     PaginatedDataWarehouseSavedQueryMinimalListApi,
     PaginatedInsightVariableListApi,
@@ -34,6 +44,7 @@ import type {
     PaginatedWarehouseColumnAnnotationListApi,
     PaginatedWarehouseColumnStatisticsListApi,
     PatchedDataWarehouseSavedQueryApi,
+    PatchedDataWarehouseSavedQueryColumnAnnotationApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
     PatchedInsightVariableApi,
@@ -46,6 +57,7 @@ import type {
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
+    SavedQueryColumnAnnotationsListParams,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -58,6 +70,7 @@ import type {
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
     WarehouseTablesListParams,
+    WarehouseTablesUploadFileCreateBody,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
 } from './api.schemas'
@@ -194,6 +207,39 @@ export const dataWarehouseCheckDatabaseNameRetrieve = async (
     })
 }
 
+export const getDataWarehouseCheckSchemaNameRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseCheckSchemaNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/check-schema-name/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/check-schema-name/`
+}
+
+/**
+ * Check if a schema name is free within the organization's managed warehouse.
+ */
+export const dataWarehouseCheckSchemaNameRetrieve = async (
+    projectId: string,
+    params: DataWarehouseCheckSchemaNameRetrieveParams,
+    options?: RequestInit
+): Promise<CheckSchemaNameResponseApi> => {
+    return apiMutator<CheckSchemaNameResponseApi>(getDataWarehouseCheckSchemaNameRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/completed_activity/`
 }
@@ -247,6 +293,27 @@ export const dataWarehouseDataOpsDashboardRetrieve = async (
     })
 }
 
+export const getDataWarehouseDeleteOrgDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/delete-org/`
+}
+
+/**
+ * Remove the organization's provisioning record after teardown, freeing its warehouse name.
+ *
+ * Called once the warehouse status reports `deleted`: deprovision tears the warehouse
+ * down, this removes the now-empty org row so the database_name can be reused. Restricted
+ * to organization admins.
+ */
+export const dataWarehouseDeleteOrgDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DeleteWarehouseOrgResponseApi> => {
+    return apiMutator<DeleteWarehouseOrgResponseApi>(getDataWarehouseDeleteOrgDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getDataWarehouseDeprovisionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/deprovision/`
 }
@@ -264,29 +331,6 @@ export const dataWarehouseDeprovisionCreate = async (
     })
 }
 
-export const getDataWarehouseEnableBackfillCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/enable_backfill/`
-}
-
-/**
- * Enable warehouse backfill for this environment with a dedicated set of tables.
- *
- * Requires a table name and records the environment's membership in the
- * organization's managed warehouse. Restricted to organization admins.
- */
-export const dataWarehouseEnableBackfillCreate = async (
-    projectId: string,
-    enableWarehouseBackfillRequestApi: EnableWarehouseBackfillRequestApi,
-    options?: RequestInit
-): Promise<EnableWarehouseBackfillResponseApi> => {
-    return apiMutator<EnableWarehouseBackfillResponseApi>(getDataWarehouseEnableBackfillCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enableWarehouseBackfillRequestApi),
-    })
-}
-
 export const getDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/job_stats/`
 }
@@ -299,6 +343,86 @@ export const dataWarehouseJobStatsRetrieve = async (projectId: string, options?:
     return apiMutator<void>(getDataWarehouseJobStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDataWarehouseManagedWarehouseDataStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-data-status/`
+}
+
+/**
+ * Get events, persons, and imported source readiness for the managed warehouse.
+ */
+export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseDataStatusResponseApi> => {
+    return apiMutator<ManagedWarehouseDataStatusResponseApi>(
+        getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/`
+}
+
+/**
+ * Per-schema backfill and live import status for one source, for the Overview tab's drill-down modal — the main status endpoint only returns a per-source rollup.
+ * @summary Get per-schema detail for one imported source
+ */
+export const dataWarehouseManagedWarehouseSourceSchemasRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseSourceSchemasResponseApi> => {
+    return apiMutator<ManagedWarehouseSourceSchemasResponseApi>(
+        getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseOnboardTeamCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/onboard-team/`
+}
+
+/**
+ * Onboard this project onto the organization's existing managed warehouse.
+ *
+ * Requires a schema name; records the project's membership both in duckgres and in the
+ * Django backfill state. Restricted to organization admins.
+ */
+export const dataWarehouseOnboardTeamCreate = async (
+    projectId: string,
+    onboardWarehouseTeamRequestApi: OnboardWarehouseTeamRequestApi,
+    options?: RequestInit
+): Promise<OnboardWarehouseTeamResponseApi> => {
+    return apiMutator<OnboardWarehouseTeamResponseApi>(getDataWarehouseOnboardTeamCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardWarehouseTeamRequestApi),
     })
 }
 
@@ -388,7 +512,7 @@ export const getDataWarehouseWarehouseStatusRetrieveUrl = (projectId: string) =>
 }
 
 /**
- * Get the current provisioning status of the managed warehouse, with this project's backfill state.
+ * Get the current provisioning status of the managed warehouse, with this project's onboarding state.
  */
 export const dataWarehouseWarehouseStatusRetrieve = async (
     projectId: string,
@@ -588,18 +712,10 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/lineage/get_upstream/`
-}
-
-export const lineageGetUpstreamRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLineageGetUpstreamRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsRetrieveUrl = (
+    projectId: string,
+    kind: 'revenue_analytics' | 'engineering_analytics'
+) => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -609,7 +725,7 @@ export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_
  */
 export const managedViewsetsRetrieve = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
@@ -618,7 +734,7 @@ export const managedViewsetsRetrieve = async (
     })
 }
 
-export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics' | 'engineering_analytics') => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -628,7 +744,7 @@ export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_an
  */
 export const managedViewsetsUpdate = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {
@@ -778,6 +894,173 @@ export const queryTabStateUserRetrieve = async (
     })
 }
 
+export const getSavedQueryColumnAnnotationsListUrl = (
+    projectId: string,
+    params?: SavedQueryColumnAnnotationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/saved_query_column_annotations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/saved_query_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsList = async (
+    projectId: string,
+    params?: SavedQueryColumnAnnotationsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataWarehouseSavedQueryColumnAnnotationListApi> => {
+    return apiMutator<PaginatedDataWarehouseSavedQueryColumnAnnotationListApi>(
+        getSavedQueryColumnAnnotationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryColumnAnnotationApi: NonReadonly<DataWarehouseSavedQueryColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(getSavedQueryColumnAnnotationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryColumnAnnotationApi),
+    })
+}
+
+export const getSavedQueryColumnAnnotationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(
+        getSavedQueryColumnAnnotationsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsUpdate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryColumnAnnotationApi: NonReadonly<DataWarehouseSavedQueryColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(
+        getSavedQueryColumnAnnotationsUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dataWarehouseSavedQueryColumnAnnotationApi),
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseSavedQueryColumnAnnotationApi?: NonReadonly<PatchedDataWarehouseSavedQueryColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryColumnAnnotationApi> => {
+    return apiMutator<DataWarehouseSavedQueryColumnAnnotationApi>(
+        getSavedQueryColumnAnnotationsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedDataWarehouseSavedQueryColumnAnnotationApi),
+        }
+    )
+}
+
+export const getSavedQueryColumnAnnotationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/saved_query_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of data-modelling views and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one view with `?saved_query_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment. Create upserts on `(saved_query, column_name)`; the view cannot be changed after creation.
+ */
+export const savedQueryColumnAnnotationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSavedQueryColumnAnnotationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getWarehouseColumnAnnotationsListUrl = (
     projectId: string,
     params?: WarehouseColumnAnnotationsListParams
@@ -802,7 +1085,7 @@ export const getWarehouseColumnAnnotationsListUrl = (
  *
  * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
- * enrichment.
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
 export const warehouseColumnAnnotationsList = async (
     projectId: string,
@@ -827,7 +1110,7 @@ export const getWarehouseColumnAnnotationsCreateUrl = (projectId: string) => {
  *
  * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
- * enrichment.
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
 export const warehouseColumnAnnotationsCreate = async (
     projectId: string,
@@ -851,7 +1134,7 @@ export const getWarehouseColumnAnnotationsRetrieveUrl = (projectId: string, id: 
  *
  * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
- * enrichment.
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
 export const warehouseColumnAnnotationsRetrieve = async (
     projectId: string,
@@ -873,7 +1156,7 @@ export const getWarehouseColumnAnnotationsUpdateUrl = (projectId: string, id: st
  *
  * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
- * enrichment.
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
 export const warehouseColumnAnnotationsUpdate = async (
     projectId: string,
@@ -898,7 +1181,7 @@ export const getWarehouseColumnAnnotationsPartialUpdateUrl = (projectId: string,
  *
  * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
- * enrichment.
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
 export const warehouseColumnAnnotationsPartialUpdate = async (
     projectId: string,
@@ -923,7 +1206,7 @@ export const getWarehouseColumnAnnotationsDestroyUrl = (projectId: string, id: s
  *
  * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
  * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
- * enrichment.
+ * enrichment. Create upserts on `(table, column_name)`; the table cannot be changed after creation.
  */
 export const warehouseColumnAnnotationsDestroy = async (
     projectId: string,
@@ -1759,6 +2042,33 @@ export const warehouseTablesUpdateSchemaCreate = async (
     })
 }
 
+export const getWarehouseTablesCreateFromUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/create_from_upload/`
+}
+
+/**
+ * Turn a previously uploaded file into a self-managed warehouse table.
+ *
+ * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
+ * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
+ * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
+ * fall back to the node role, never a user-supplied key).
+ * @summary Create a self-managed warehouse table from an uploaded file
+ */
+export const warehouseTablesCreateFromUploadCreate = async (
+    projectId: string,
+    createTableFromUploadApi: CreateTableFromUploadApi,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesCreateFromUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createTableFromUploadApi),
+    })
+}
+
 export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_tables/file/`
 }
@@ -1784,6 +2094,38 @@ export const warehouseTablesFileCreate = async (
     }
 
     return apiMutator<void>(getWarehouseTablesFileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getWarehouseTablesUploadFileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/upload_file/`
+}
+
+/**
+ * Store an uploaded file in object storage so a self-managed table can be created from it.
+ *
+ * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
+ * this returns an `upload_id` the caller passes back to build the table. The file is written under
+ * a team-scoped prefix, so a table can only ever read back its own team's uploads.
+ * @summary Upload a file for a new self-managed warehouse table
+ */
+export const warehouseTablesUploadFileCreate = async (
+    projectId: string,
+    warehouseTablesUploadFileCreateBody?: WarehouseTablesUploadFileCreateBody,
+    options?: RequestInit
+): Promise<FileUploadResponseApi> => {
+    const formData = new FormData()
+    if (warehouseTablesUploadFileCreateBody?.file !== undefined) {
+        formData.append(`file`, warehouseTablesUploadFileCreateBody.file)
+    }
+    if (warehouseTablesUploadFileCreateBody?.file_format !== undefined) {
+        formData.append(`file_format`, warehouseTablesUploadFileCreateBody.file_format)
+    }
+
+    return apiMutator<FileUploadResponseApi>(getWarehouseTablesUploadFileCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,

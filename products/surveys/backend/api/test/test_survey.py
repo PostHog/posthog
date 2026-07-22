@@ -1473,7 +1473,7 @@ class TestSurvey(APIBaseTest):
         assert survey_with_targeting.json() == {
             "type": "validation_error",
             "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort2' with filters on events cannot be used in surveys.",
+            "detail": "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys.",
             "attr": None,
         }
 
@@ -3580,7 +3580,7 @@ class TestSurvey(APIBaseTest):
         )
         assert all(r["name"] != "Totally unrelated" for r in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("feedback survey", "survey feedback", "feeback form", "Engineering survey"):
             Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
 
@@ -3592,11 +3592,7 @@ class TestSurvey(APIBaseTest):
         assert match_type_by_name == {
             "feedback survey": "exact",
             "survey feedback": "exact",
-            "feeback form": "similar",
-        }
-
-        match_types = [r["search_match_type"] for r in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
@@ -4395,6 +4391,21 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["appearance"]["surveyPopupDelaySeconds"] == 6000
+
+    def test_create_survey_with_responses_limit(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "responses_limit": 228,
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["responses_limit"] == 228
+        assert Survey.objects.get(id=response_data["id"]).responses_limit == 228
 
     def test_validate_survey_popup_delay(self):
         response = self.client.post(

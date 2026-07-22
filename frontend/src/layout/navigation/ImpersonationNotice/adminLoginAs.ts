@@ -26,16 +26,29 @@ async function ensureAdminOAuth2(): Promise<void> {
         throw new Error('Popup blocked. Please allow popups for this site and try again.')
     }
 
-    await new Promise<void>((resolve) => {
+    // Resolve ONLY once the popup confirms success via `oauth2_complete`. A popup that closes
+    // without sending it means the admin session was never established — proceeding anyway would
+    // fire the impersonation POST against a stale session, which silently fails and forces a retry.
+    await new Promise<void>((resolve, reject) => {
         let checkClosed: ReturnType<typeof setInterval>
+        let gracePeriodTimeout: ReturnType<typeof setTimeout> | null = null
+        let completed = false
+
+        const cleanup = (): void => {
+            clearInterval(checkClosed)
+            if (gracePeriodTimeout) {
+                clearTimeout(gracePeriodTimeout)
+            }
+            window.removeEventListener('message', handleMessage)
+        }
 
         const handleMessage = (event: MessageEvent): void => {
             if (event.origin !== window.location.origin) {
                 return
             }
             if (event.data?.type === 'oauth2_complete') {
-                clearInterval(checkClosed)
-                window.removeEventListener('message', handleMessage)
+                completed = true
+                cleanup()
                 resolve()
             }
         }
@@ -44,8 +57,14 @@ async function ensureAdminOAuth2(): Promise<void> {
         checkClosed = setInterval(() => {
             if (authWindow.closed) {
                 clearInterval(checkClosed)
-                window.removeEventListener('message', handleMessage)
-                resolve()
+                // The success message can land a tick after the popup closes — give it a brief
+                // grace period before deciding this was a cancellation.
+                gracePeriodTimeout = setTimeout(() => {
+                    if (!completed) {
+                        cleanup()
+                        reject(new Error('Admin authentication was cancelled. Please try impersonating again.'))
+                    }
+                }, 500)
             }
         }, 500)
     })
@@ -77,4 +96,36 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
     if (!loginResponse.ok) {
         throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
     }
+}
+
+export interface LoginAsFromTicketResult {
+    success?: boolean
+    ticket_id?: string
+    // Email of the account actually impersonated — can differ from the ticket's
+    // mutable email trait when the target was resolved from the attested identity.
+    email?: string
+    // Set when the ticket belongs to a different region; staff should be sent there instead.
+    redirect_url?: string
+    redirect_region?: string
+}
+
+export async function loginAsFromTicket(ticketId: string): Promise<LoginAsFromTicketResult> {
+    await ensureAdminOAuth2()
+
+    const response = await fetch('/admin/impersonation/from-ticket/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        mode: 'cors',
+        headers: {
+            'X-CSRFToken': getCookie('posthog_csrftoken') as string,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ticket_id: ticketId }),
+    })
+
+    const data: LoginAsFromTicketResult & { error?: string } = await response.json().catch(() => ({}))
+    if (!response.ok) {
+        throw new Error(data.error || `Impersonation request resulted in status ${response.status}`)
+    }
+    return data
 }

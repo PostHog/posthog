@@ -5,11 +5,12 @@ from .queries.catalogs import CATALOGS_QUERY
 from .queries.collections import COLLECTIONS_QUERY
 from .queries.customers import CUSTOMERS_QUERY
 from .queries.discount_nodes import DISCOUNT_NODES_QUERY
-from .queries.orders import ORDERS_QUERY
+from .queries.orders import ORDERS_QUERY, build_orders_query
 from .queries.products import PRODUCTS_QUERY
 from .utils import ShopifyGraphQLObject
 
 SHOPIFY_ACCESS_TOKEN_URL = "https://{}.myshopify.com/admin/oauth/access_token"
+SHOPIFY_ACCESS_SCOPES_URL = "https://{}.myshopify.com/admin/oauth/access_scopes.json"
 SHOPIFY_ACCESS_TOKEN_GRANT = "client_credentials"
 SHOPIFY_API_VERSION = "2025-10"
 SHOPIFY_API_URL = "https://{}.myshopify.com/admin/api/{}/graphql.json"
@@ -87,6 +88,7 @@ SHOPIFY_GRAPHQL_OBJECTS = {
         name=ORDERS,
         query=ORDERS_QUERY,
         permissions_query="{ orders(first: 1) { nodes { id } } }",
+        protected_query_builder=build_orders_query,
     ),
     PRODUCTS: ShopifyGraphQLObject(
         name=PRODUCTS,

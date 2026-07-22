@@ -10,6 +10,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
+import { BypassRules } from '../bypass_rules/BypassRules'
 import { IssueRateLimitSettings } from './IssueRateLimitSettings'
 import { BUCKET_OPTIONS, rateLimitConfigLogic } from './rateLimitConfigLogic'
 import { RateLimitHistoryChart } from './RateLimitHistoryChart'
@@ -17,11 +19,27 @@ import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimula
 
 export function RateLimitSettings(): JSX.Element {
     const hasPerIssueRateLimit = useFeatureFlag('ERROR_TRACKING_RATE_LIMITING_PER_ISSUE')
+    const hasBypassRules = useFeatureFlag('ERROR_TRACKING_RATE_LIMITING_BYPASS')
 
     return (
         <div className="space-y-8">
             <ProjectRateLimitSection />
             {hasPerIssueRateLimit ? <IssueRateLimitSettings /> : null}
+            {hasBypassRules ? <BypassRulesSection /> : null}
+        </div>
+    )
+}
+
+function BypassRulesSection(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <div>
+                <h3 className="font-semibold text-base mb-1">Bypass rules</h3>
+                <p className="text-muted-foreground">
+                    Exceptions matching a bypass rule are always ingested, skipping the rate limits above.
+                </p>
+            </div>
+            <BypassRules />
         </div>
     )
 }
@@ -96,7 +114,10 @@ function ProjectRateLimitSection(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
-                                disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                                disabledReason={
+                                    errorTrackingEditAccessDisabledReason() ??
+                                    (!configFormChanged ? 'No changes to save' : undefined)
+                                }
                                 loading={isConfigFormSubmitting}
                             >
                                 Save

@@ -6,6 +6,9 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -111,6 +114,78 @@ async def test_retryable_setup_error_is_reraised():
     handle_mock.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_unparseable_config_routes_through_handler():
+    # A corrupt / double-encoded stored config makes parse_config raise deterministically before
+    # source setup. It must be treated as non-retryable instead of crash-looping on every attempt.
+    error = ValueError("invalid literal for int() with base 10: 'not-an-int'")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.side_effect = error
+    source.get_non_retryable_errors.return_value = {}
+
+    with _patched_activity(source) as handle_mock:
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args.args[3] is error
+    source.source_for_pipeline.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_source_classified_retryable_error_logged_as_warning_not_exception():
+    # A rate-limit / transient error the source retries internally reaches _handle_import_error only
+    # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
+    # warning (not aexception, which mints error-tracking noise) while still being re-raised.
+    error = Exception("Mixpanel API error (retryable): status=429, url=https://data.mixpanel.com/api/2.0/export")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"Mixpanel API error (retryable)"}
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(Exception, match="retryable"):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rest_client_non_retryable_error_routes_through_handler_without_source_opt_in():
+    # RESTClientNonRetryableError is the REST engine's "retrying can never help" signal (a non-JSON
+    # body on an otherwise-successful response). It must be honored by type even when the source's
+    # get_non_retryable_errors doesn't list the message, so any REST-based source stops instead of
+    # retrying the deterministic failure to the activity max and minting error-tracking noise.
+    error = RESTClientNonRetryableError("Non-JSON response from https://api.example.com/v1/data/leads")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[3] is error
+    logger.aexception.assert_not_awaited()
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True
@@ -119,6 +194,7 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
     schema.incremental_field_lookback_seconds = lookback_seconds
     schema.incremental_field_earliest_value = None
     schema.row_filters = None
+    schema.api_version = None
     schema.sync_type_config = {
         "incremental_field_last_value": "2026-06-14T15:33:31.802833",
         "incremental_field_type": "timestamp",
@@ -127,10 +203,11 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 
 
 @contextlib.contextmanager
-def _patched_activity_reaching_run(source_mock, schema):
+def _patched_activity_reaching_run(source_mock, schema, api_version=None):
     model = mock.MagicMock()
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
+    model.pipeline.api_version = api_version
     model.folder_path = mock.Mock(return_value="dataset")
 
     with (
@@ -182,3 +259,27 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "schema_override,pinned,expected",
+    [
+        (None, "2020-01-01", "2020-01-01"),  # a stored pin is honored verbatim
+        (None, None, "vdefault"),  # no pin resolves to the source's default_version
+        ("2021-05-05", "2020-01-01", "2021-05-05"),  # a user-managed schema override wins over the source pin
+    ],
+)
+async def test_pinned_api_version_is_resolved_into_source_inputs(schema_override, pinned, expected):
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    source.resolve_api_version = lambda p: p or "vdefault"
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.api_version = schema_override
+
+    with _patched_activity_reaching_run(source, schema, api_version=pinned):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.api_version == expected

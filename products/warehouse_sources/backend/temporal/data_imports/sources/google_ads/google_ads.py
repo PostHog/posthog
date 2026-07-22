@@ -8,6 +8,7 @@ from django.db import OperationalError, close_old_connections
 
 import grpc
 import pyarrow as pa
+from dateutil import parser as dateutil_parser
 from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
@@ -15,6 +16,10 @@ from google.ads.googleads.v23.common import types as ga_common
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
 from google.ads.googleads.v23.services import types as ga_services
+from google.ads.googleads.v23.services.services.google_ads_field_service import (
+    GoogleAdsFieldServiceClient,
+    pagers as field_service_pagers,
+)
 from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient, pagers
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
@@ -29,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsSourceConfigUnion,
@@ -44,6 +51,18 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 # Host used to label the tracked gRPC transport's logs/metrics. Matches
 # `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
 GOOGLE_ADS_HOST = "googleads.googleapis.com"
+
+# Incremental report tables (segments.date-partitioned) are drained in bounded ascending date
+# windows instead of a single open-ended `segments.date >= cursor` scan. A months-long backlog in
+# one run never finishes before the activity heartbeat times out — frequently as collateral when a
+# co-tenant OOM-kills the shared multi-tenant worker pod — so the cursor never advances and every
+# run re-extracts the same window forever (the stuck-cursor death spiral). Bounded windows keep
+# each run short enough to complete and durably advance the cursor a step at a time; empty windows
+# are traversed for free so a gap in the data can never stall the drain. Once caught up to today a
+# single small window covers the tail, so this is a no-op for healthy tables. Tune to trade
+# catch-up speed against per-run size.
+GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
+GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN = 5
 
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
@@ -69,6 +88,11 @@ def _ensure_grpc_receive_limit() -> None:
             options[index] = (key, GRPC_MAX_RECEIVE_MESSAGE_LENGTH)
             return
     options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
+
+
+def _backoff_sleep(attempt: int) -> None:
+    """Sleep before the next retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
 
 
 # ``GoogleAdsClient`` performs an OAuth token refresh at construction, reaching Google's token
@@ -122,26 +146,35 @@ def _load_client_with_transient_retry(
             attempt += 1
             if attempt >= max_attempts or not _is_transient_client_init_error(e):
                 raise
-            time.sleep(min(2 * attempt, 30))
+            _backoff_sleep(attempt)
+
+
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
 def _get_integration(integration_id: int, team_id: int) -> Integration:
-    """Fetch the OAuth ``Integration`` row, retrying once if the DB connection was dropped.
+    """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker that never goes through Django's request
-    cycle, so a pooled Postgres connection can be closed server-side while it sits idle.
-    ``close_old_connections()`` evicts connections already known to be stale, but one can still
-    die in the window before the query runs and surface as a transient ``OperationalError``
-    ("server closed the connection unexpectedly"). The failed query marks the connection
-    unusable, so a second eviction drops it and the retry runs on a fresh connection. This read
-    is idempotent, so it is safe to repeat. ``Integration.DoesNotExist`` is left to propagate.
+    cycle, so a pooled Postgres connection can be closed server-side while it sits idle, or the
+    connection pooler can reject the query with a wait timeout when the pool is saturated. Both
+    surface as a transient ``OperationalError`` and both clear once a healthy connection is used.
+    ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
+    query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
+    backoff also gives a saturated pool time to drain rather than retrying straight back into the
+    same wait timeout. This read is idempotent, so it is safe to repeat. Mirrors the backoff shape
+    of the client-init and search retries. ``Integration.DoesNotExist`` is left to propagate.
     """
-    close_old_connections()
-    try:
-        return Integration.objects.get(id=integration_id, team_id=team_id)
-    except OperationalError:
+    attempt = 0
+    while True:
         close_old_connections()
-        return Integration.objects.get(id=integration_id, team_id=team_id)
+        try:
+            return Integration.objects.get(id=integration_id, team_id=team_id)
+        except OperationalError:
+            attempt += 1
+            if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
@@ -372,8 +405,8 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     """
     client = google_ads_client(config, team_id)
     gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
-    fields_query = gaf_service.search_google_ads_fields(
-        query=f"select name, data_type, is_repeated, type_url where selectable = true"
+    fields_query = _search_fields_with_transient_retry(
+        gaf_service, "select name, data_type, is_repeated, type_url where selectable = true"
     )
     fields_map = {field.name: field for field in fields_query.results}
     table_schemas = {}
@@ -434,6 +467,19 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     return table_schemas
 
 
+def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
+    """Coerce a stored incremental cursor value to a plain date for window arithmetic.
+
+    `process_incremental_value` normalizes a Date cursor to a `datetime.date`, but a raw string is
+    handled too so a value read straight from `sync_type_config` never breaks the windowed drain.
+    """
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    return dateutil_parser.parse(value).date()
+
+
 def google_ads_source(
     config: GoogleAdsSourceConfigUnion,
     resource_name: str,
@@ -462,45 +508,101 @@ def google_ads_source(
         incremental_field = "segments.date"
         incremental_field_type = IncrementalFieldType.Date
 
-    def get_rows() -> collections.abc.Iterator[pa.Table]:
+    def compose_query(lower_literal: str | None, upper_literal: str | None) -> str:
         query = f"SELECT {','.join(f'{field.qualified_name}' for field in table)} FROM {table.name}"
 
-        if should_use_incremental_field:
-            if incremental_field is None or incremental_field_type is None:
-                raise ValueError("incremental_field and incremental_field_type can't be None")
-
-            if db_incremental_field_last_value is None:
-                last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(
-                    incremental_field_type
-                )
-            else:
-                last_value = db_incremental_field_last_value
-
-            if isinstance(last_value, dt.datetime) or isinstance(last_value, dt.date):
-                last_value = f"'{last_value.isoformat()}'"
-
-            query += f" WHERE {incremental_field} >= {last_value}"
-
-            if incremental_field_type == IncrementalFieldType.Date:
-                # Dates require an upper bound too, so we pick something very in the future.
-                # TODO: Make sure to bump this before 2100-01-01.
-                query += f" AND {incremental_field} < '2100-01-01'"
-
+        conditions: list[str] = []
+        if should_use_incremental_field and lower_literal is not None:
+            conditions.append(f"{incremental_field} >= {lower_literal}")
+            if upper_literal is not None:
+                conditions.append(f"{incremental_field} < {upper_literal}")
         if table.extra_where:
-            query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
+            conditions.append(table.extra_where)
 
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        if should_use_incremental_field:
+            # Ascending cursor order is load-bearing, not cosmetic. The pipeline advances
+            # `incremental_field_last_value` after every durably written chunk (sort_mode
+            # defaults to "asc"), so ordered pages make each chunk (a) advance the watermark
+            # monotonically — an OOM/crash mid-sync resumes from the newest landed date instead
+            # of re-extracting the whole window forever (the stuck-cursor death spiral) — and
+            # (b) touch only a narrow band of date partitions per Delta merge, instead of every
+            # partition in the window when pages arrive date-scattered. Unordered pages would
+            # also let the per-chunk watermark skip past older rows Google hadn't returned yet.
+            query += f" ORDER BY {incremental_field} ASC"
+
+        return query
+
+    def get_rows() -> collections.abc.Iterator[pa.Table]:
         client = google_ads_client(config, team_id)
         service: GoogleAdsServiceClient = client.get_service(
             "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
         )
         customer_id = clean_customer_id(config.customer_id)
 
+        if not should_use_incremental_field:
+            yield from _search_as_arrow_tables(
+                service, customer_id, compose_query(None, None), table, resumable_source_manager
+            )
+            return
+
+        if incremental_field is None or incremental_field_type is None:
+            raise ValueError("incremental_field and incremental_field_type can't be None")
+
+        # Bounded windowed drain: only date-partitioned report tables (`requires_filter`) with an
+        # established cursor. A first sync (sentinel value) keeps the open-ended scan below so it
+        # doesn't crawl a window at a time from the 1970 initial value.
+        if (
+            table.requires_filter
+            and incremental_field_type == IncrementalFieldType.Date
+            and db_incremental_field_last_value is not None
+        ):
+            start = _incremental_value_as_date(db_incremental_field_last_value)
+            # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
+            end = dt.date.today() + dt.timedelta(days=1)
+            windows_with_data = 0
+            first_window = True
+
+            while start < end and windows_with_data < GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN:
+                window_end = min(start + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS), end)
+                window_query = compose_query(f"'{start.isoformat()}'", f"'{window_end.isoformat()}'")
+
+                had_data = False
+                for pa_table in _search_as_arrow_tables(
+                    service, customer_id, window_query, table, resumable_source_manager, use_saved_state=first_window
+                ):
+                    had_data = True
+                    yield pa_table
+
+                # Empty windows don't count toward the per-run budget and don't stop the loop, so a
+                # gap in the data is crossed within a single run instead of stalling the cursor on it.
+                if had_data:
+                    windows_with_data += 1
+                first_window = False
+                start = window_end
+
+            # The run walked its bounded set of windows; drop the checkpoint so the next job restarts
+            # cleanly from the (now-advanced) DB cursor rather than a stale mid-window page token.
+            resumable_source_manager.clear_state()
+            return
+
+        # First-ever sync (initial sentinel) or a non-date cursor: single open-ended ascending scan.
+        if db_incremental_field_last_value is None:
+            last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(incremental_field_type)
+        else:
+            last_value = db_incremental_field_last_value
+
+        lower_literal = (
+            f"'{last_value.isoformat()}'" if isinstance(last_value, dt.datetime | dt.date) else str(last_value)
+        )
+        # Dates require an upper bound too, so we pick something very in the future.
+        # TODO: Make sure to bump this before 2100-01-01.
+        upper_literal = "'2100-01-01'" if incremental_field_type == IncrementalFieldType.Date else None
+
         yield from _search_as_arrow_tables(
-            service=service,
-            customer_id=customer_id,
-            query=query,
-            table=table,
-            resumable_source_manager=resumable_source_manager,
+            service, customer_id, compose_query(lower_literal, upper_literal), table, resumable_source_manager
         )
 
     return SourceResponse(
@@ -515,32 +617,76 @@ def google_ads_source(
     )
 
 
-# Google flags both ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request
-# never reached a healthy backend) and ``INTERNAL`` ("Internal error encountered." from the
-# backend) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
+# Google flags ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request never
+# reached a healthy backend), ``INTERNAL`` ("Internal error encountered." from the backend), and
+# ``RESOURCE_EXHAUSTED`` ("Resource has been exhausted (e.g. check quota)." — a quota/rate-limit
+# rejection) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
 # succeeds. Riding the blip out in-process keeps the whole import activity from failing — which
 # would otherwise re-fetch schemas, rebuild the gRPC client, and restart pagination from the last
 # checkpoint — and avoids the captured error-tracking noise.
 _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
-_TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
+_TRANSIENT_GRPC_STATUS_CODES = frozenset(
+    {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL, grpc.StatusCode.RESOURCE_EXHAUSTED}
+)
+
+# A client-side "Received message larger than max" abort also carries ``RESOURCE_EXHAUSTED`` (see the
+# receive-limit note at the top of this module), but it is deterministic — a retry re-requests the
+# same oversized page and fails identically — so it is excluded from the transient set. Raising the
+# receive limit, not retrying, is what addresses it.
+_RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
 
     The gapic transport usually surfaces these as ``google.api_core.exceptions.ServiceUnavailable``
-    / ``InternalServerError``, but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns
-    the ``StatusCode``) can also propagate. The Google Ads SDK additionally re-wraps the transport
-    error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from the trailing metadata
-    (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the gRPC status then lives
-    on the wrapped ``error``, so we unwrap and inspect it too.
+    / ``InternalServerError`` / ``ResourceExhausted``, but the raw ``grpc`` ``_InactiveRpcError``
+    (whose ``code()`` returns the ``StatusCode``) can also propagate. The Google Ads SDK additionally
+    re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from
+    the trailing metadata (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the
+    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too.
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
+    # gapic-wrapped form is matched by type rather than via the ``code()`` check below.
+    if isinstance(candidate, google_api_exceptions.ResourceExhausted):
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
     code = getattr(candidate, "code", None)
-    return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
+    if not callable(code):
+        return False
+    status = code()
+    if status not in _TRANSIENT_GRPC_STATUS_CODES:
+        return False
+    if status == grpc.StatusCode.RESOURCE_EXHAUSTED:
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
+    return True
+
+
+_T = typing.TypeVar("_T")
+
+
+def _call_with_transient_retry(
+    call: collections.abc.Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
+) -> _T:
+    """Run ``call``, retrying a transient gRPC failure (see ``_is_transient_grpc_error``) with backoff.
+
+    A non-transient error re-raises immediately so the caller's handling and Temporal's retry policy
+    still apply; the final attempt re-raises rather than sleeping.
+    """
+    attempt = 0
+    while True:
+        try:
+            return call()
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_grpc_error(e):
+                raise
+            _backoff_sleep(attempt)
 
 
 def _search_with_transient_retry(
@@ -554,30 +700,71 @@ def _search_with_transient_retry(
     Each retry re-requests the same ``page_token``, so there is no partial state to reconcile. The
     transient status may itself arrive wrapped in a ``GoogleAdsException`` (see
     ``_is_transient_grpc_error``). Non-transient errors re-raise immediately so the caller's
-    ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
+    stale-page-token handling and Temporal's retry policy still apply.
     """
-    attempt = 0
-    while True:
-        try:
-            return service.search(request=request)
-        except Exception as e:
-            attempt += 1
-            if attempt >= max_attempts or not _is_transient_grpc_error(e):
-                raise
-            time.sleep(min(2 * attempt, 30))
+    return _call_with_transient_retry(lambda: service.search(request=request), max_attempts=max_attempts)
 
 
-def _is_invalid_page_token_error(exc: GoogleAdsException) -> bool:
-    """Return True if a ``GoogleAdsException`` was caused by an expired/invalid page token.
+def _search_fields_with_transient_retry(
+    service: GoogleAdsFieldServiceClient,
+    query: str,
+    *,
+    max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
+) -> field_service_pagers.SearchGoogleAdsFieldsPager:
+    """Call ``GoogleAdsFieldService.search_google_ads_fields``, retrying a transient gRPC failure.
+
+    Schema discovery hits the same transient ``UNAVAILABLE`` / ``INTERNAL`` blips as the row search
+    (see ``_is_transient_grpc_error``), so riding them out in-process keeps a momentary Google-side
+    error from failing the whole import. Non-transient errors re-raise immediately so the caller's
+    handling and Temporal's retry policy still apply.
+    """
+    return _call_with_transient_retry(lambda: service.search_google_ads_fields(query=query), max_attempts=max_attempts)
+
+
+_STALE_PAGE_TOKEN_REQUEST_ERRORS = ("INVALID_PAGE_TOKEN", "EXPIRED_PAGE_TOKEN")
+
+
+def _is_stale_page_token_error(exc: GoogleAdsException) -> bool:
+    """Return True if a ``GoogleAdsException`` was caused by a stale page token.
 
     Google Ads search page tokens are ephemeral, but our resumption contract
     persists them (see ``_search_as_arrow_tables``). When a sync resumes from a
-    token Google has already expired, the API rejects the request with
-    ``request_error: INVALID_PAGE_TOKEN``. The proto text representation is the
-    same for proto-plus and raw protobuf failures, so we match on it directly.
+    token Google no longer accepts, the API rejects the request with either
+    ``request_error: INVALID_PAGE_TOKEN`` (malformed/unrecognised) or
+    ``request_error: EXPIRED_PAGE_TOKEN`` (a once-valid token aged out between
+    runs) — both mean the same thing for us: restart pagination from the first
+    page. The proto text representation is the same for proto-plus and raw
+    protobuf failures, so we match on it directly.
     """
     failure = getattr(exc, "failure", None)
-    return failure is not None and "INVALID_PAGE_TOKEN" in str(failure)
+    if failure is None:
+        return False
+    failure_text = str(failure)
+    return any(request_error in failure_text for request_error in _STALE_PAGE_TOKEN_REQUEST_ERRORS)
+
+
+def _is_rejected_page_token_error(exc: GoogleAdsException, page_token: str) -> bool:
+    """Return True if the failure names ``page_token`` as the value that triggered it.
+
+    Google sometimes rejects a stale page token with a ``request_error`` code newer than the
+    pinned client library knows, which the SDK surfaces as ``request_error: UNKNOWN`` /
+    "The error code is not in this version." rather than the ``INVALID_PAGE_TOKEN`` /
+    ``EXPIRED_PAGE_TOKEN`` that ``_is_stale_page_token_error`` matches — so that check misses it
+    and the sync fails permanently. The failure still echoes the offending value in an error
+    ``trigger``, so when a trigger equals the token we sent, treat it as a stale token and
+    restart pagination from the first page. Matched on the exact token (not the volatile error
+    code) to stay low-false-positive.
+    """
+    if not page_token:
+        return False
+    failure = getattr(exc, "failure", None)
+    if failure is None:
+        return False
+    for error in getattr(failure, "errors", None) or []:
+        trigger = getattr(error, "trigger", None)
+        if trigger is not None and getattr(trigger, "string_value", None) == page_token:
+            return True
+    return False
 
 
 def _search_as_arrow_tables(
@@ -586,6 +773,7 @@ def _search_as_arrow_tables(
     query: str,
     table: GoogleAdsTable,
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
+    use_saved_state: bool = True,
 ) -> collections.abc.Generator[pa.Table]:
     """Paginate ``GoogleAdsService.search`` and yield each page as a ``pyarrow.Table``.
 
@@ -596,12 +784,17 @@ def _search_as_arrow_tables(
       yielded but never acked by a save is simply re-yielded. Merge semantics
       over ``primary_keys`` dedupe those repeated rows.
     * A resumed token may have expired between runs (Google Ads page tokens are
-      short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` we discard
-      the saved token and restart pagination from the first page — the same
-      merge semantics make re-yielding already-synced rows safe.
+      short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` or
+      ``EXPIRED_PAGE_TOKEN`` — or an unrecognised error code whose ``trigger``
+      names the token we sent (see ``_is_rejected_page_token_error``) — we
+      discard the saved token and restart pagination from the first page. The
+      same merge semantics make re-yielding already-synced rows safe.
     """
+    # `use_saved_state=False` is passed for every window after the first in a windowed drain: the
+    # saved page token belongs to whichever window was in flight last time and is meaningless for a
+    # later window's distinct query, so those windows always start their own pagination fresh.
     page_token = ""
-    if resumable_source_manager.can_resume():
+    if use_saved_state and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
             page_token = resume.page_token
@@ -623,7 +816,7 @@ def _search_as_arrow_tables(
             # Only a non-empty (resumed or mid-stream) token can be stale; an empty
             # token always requests the first page, so the guard also prevents an
             # infinite restart loop if the first page itself were ever rejected.
-            if page_token and _is_invalid_page_token_error(e):
+            if page_token and (_is_stale_page_token_error(e) or _is_rejected_page_token_error(e, page_token)):
                 resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=""))
                 page_token = ""
                 continue

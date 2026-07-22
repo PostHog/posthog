@@ -1,0 +1,159 @@
+# Evaluation create payload reference
+
+Full field reference for `posthog:llma-evaluation-create`. The `evaluation_config` and `output_config`
+schemas below are rendered from the backend Pydantic models at build time, so they can't drift.
+
+## Top-level fields
+
+| Field                 | Required       | Notes                                                                                 |
+| --------------------- | -------------- | ------------------------------------------------------------------------------------- |
+| `name`                | yes            | Up to 400 chars.                                                                      |
+| `description`         | no             | Defaults to `""`.                                                                    |
+| `evaluation_type`     | yes            | `"hog"`, `"llm_judge"`, or `"sentiment"`.                                            |
+| `evaluation_config`   | yes            | Shape depends on `evaluation_type` (below).                                           |
+| `output_type`         | yes            | `"boolean"` for `hog`/`llm_judge`; `"sentiment"` for `sentiment`.                    |
+| `output_config`       | no             | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                             |
+| `model_configuration` | llm_judge only | Provider/model/key. Rejected on `hog`/`sentiment`.                                    |
+| `target`              | no             | `"generation"` (default) or `"trace"`. Sentiment supports only `"generation"`.       |
+| `target_config`       | trace only     | `{ "window_seconds": 10..7200 }`; defaults to 1800 seconds for a trace target.        |
+| `conditions`          | no             | Trigger condition sets (below). For traces, conditions match the triggering generation. |
+| `enabled`             | no             | Defaults to `false`. Create disabled, then flip with `llma-evaluation-update`.         |
+
+Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boolean)`,
+`(sentiment, sentiment)`.
+
+## `target` and `target_config`
+
+- `"target": "generation"` runs once for each matching generation and uses an empty `target_config`.
+- `"target": "trace"` runs once for the whole trace after the first matching generation. Set
+  `target_config.window_seconds` to control how long PostHog waits for the trace to finish before evaluating it.
+- Conditions always match generation properties. For a trace target, that matching generation schedules the
+  eventual whole-trace evaluation.
+- Sentiment evaluations cannot use the trace target.
+
+## `evaluation_config` by type
+
+### `llm_judge`
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.LLMJudgeConfig") }}
+```
+
+### `hog`
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.HogEvalConfig") }}
+```
+
+`bytecode` is compiled and written by the server on save — never pass it. Send only `source`.
+
+### `sentiment`
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.SentimentEvalConfig") }}
+```
+
+## `output_config`
+
+### boolean output
+
+```json
+{{ pydantic_schema("products.ai_observability.backend.models.evaluation_configs.BooleanOutputConfig") }}
+```
+
+`allows_na: true` lets the evaluator return N/A (skip) in addition to pass/fail.
+
+### sentiment output
+
+Empty object: `{}`.
+
+## `model_configuration` (llm_judge only)
+
+| Field             | Required | Notes                                                                          |
+| ----------------- | -------- | ------------------------------------------------------------------------------ |
+| `provider`        | yes      | One of `openai`, `anthropic`, `gemini`, `openrouter`, `fireworks`, `azure_openai`, `together_ai`. |
+| `model`           | yes      | Model id, e.g. `gpt-5-mini`. Validate against `llma-evaluation-judge-models`.  |
+| `provider_key_id` | yes      | UUID of an `ok`-state `LLMProviderKey` from `llma-provider-key-list`. |
+
+Pin `provider_key_id` to an `ok`-state key; the eval runs on that key.
+
+## `conditions`
+
+A **list** of condition sets. **OR between sets, AND within a set's `properties`.** Omitting `conditions`
+(or an empty list) matches every `$ai_generation`. A generation target evaluates each match; a trace target
+evaluates each matching trace once.
+
+| Field                | Required | Notes                                                                 |
+| -------------------- | -------- | --------------------------------------------------------------------- |
+| `id`                 | yes      | Stable string identifier for the set (e.g. `"default"`).             |
+| `rollout_percentage` | no       | 0–100, defaults to 100. The sampling rate the dispatcher reads.       |
+| `properties`         | no       | Flat list of PostHog property filters, AND-ed together.               |
+
+Each property filter: `{ "key": "...", "type": "event" | "person", "operator": "...", "value": ... }`.
+Common operators: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `gt`, `lt`, `is_set`,
+`is_not_set`. There is no time/date field inside conditions — scope by event timestamp upstream if needed,
+and sample volume with `rollout_percentage`.
+
+```json
+"conditions": [
+  {
+    "id": "gpt-only",
+    "rollout_percentage": 50,
+    "properties": [
+      { "key": "$ai_model", "type": "event", "operator": "icontains", "value": "gpt" },
+      { "key": "$ai_is_error", "type": "event", "operator": "exact", "value": ["false"] }
+    ]
+  }
+]
+```
+
+## Full examples
+
+### Hog (no provider key required)
+
+```json
+{
+  "name": "Reply is under 2,000 characters",
+  "evaluation_type": "hog",
+  "evaluation_config": { "source": "for (let i, item in evaluation_events) { if (item.event == '$ai_generation' and length(item.output_text) >= 2000) { return false } } return true" },
+  "output_type": "boolean",
+  "output_config": { "allows_na": false },
+  "target": "generation",
+  "target_config": {},
+  "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],
+  "enabled": false
+}
+```
+
+The same Hog source works for a whole trace. Change only the target fields:
+
+```json
+{
+  "target": "trace",
+  "target_config": { "window_seconds": 1800 }
+}
+```
+
+New Hog source should use the shared `evaluation_events` and `target` globals. Top-level generation globals
+such as `input`, `output`, `properties`, and `event`, plus the trace-only `events` and `trace` globals, remain
+available for compatibility with saved evaluators. `item.input_text` and `item.output_text` are best-effort
+readable projections of common provider payloads; use raw `item.input` and `item.output` when exact structure
+matters.
+
+### LLM judge
+
+```json
+{
+  "name": "Response stays on-topic",
+  "description": "Fails if the assistant changes topic from the user's question",
+  "evaluation_type": "llm_judge",
+  "evaluation_config": { "prompt": "Return true if the assistant's reply stays on the user's topic, false if it changes subject. Return N/A if the user did not ask a question." },
+  "output_type": "boolean",
+  "output_config": { "allows_na": true },
+  "model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<ok-state key uuid from llma-provider-key-list>" },
+  "target": "generation",
+  "target_config": {},
+  "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],
+  "enabled": false
+}
+```

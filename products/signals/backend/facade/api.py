@@ -1,7 +1,5 @@
-import enum
 import dataclasses
 from datetime import timedelta
-from typing import get_args
 
 from django.conf import settings
 
@@ -9,8 +7,7 @@ import pydantic
 import structlog
 import temporalio
 import posthoganalytics
-
-from posthog.schema import SignalInput, SignalRemediation
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -18,6 +15,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
@@ -175,31 +173,6 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
     return blocked
 
 
-def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
-    """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
-    args = get_args(field.annotation)
-    if args:
-        return args
-    if isinstance(field.annotation, type) and issubclass(field.annotation, enum.Enum):
-        return tuple(m.value for m in field.annotation)
-    if field.default is not pydantic.fields.PydanticUndefined:
-        return (field.default,)
-    return ()
-
-
-# Build a lookup from (source_product, source_type) -> variant model class
-# so we can validate signals without needing the synthetic discriminator tag.
-_SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[pydantic.BaseModel]] = {}
-for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
-    _product_field = _variant_type.model_fields.get("source_product")
-    _type_field = _variant_type.model_fields.get("source_type")
-    if _product_field is None or _type_field is None:
-        continue
-    for _product in _get_field_values(_product_field):
-        for _source_type in _get_field_values(_type_field):
-            _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
-
-
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
 # each truncated — never nested lists/dicts. Source `extra` payloads nest *uncurated*
 # customer-derived content (pganalyze `references[].queryText` raw SQL, session-replay
@@ -234,6 +207,7 @@ async def emit_signal(
     weight: float = 0.5,
     extra: dict | None = None,
     remediation: SignalRemediation | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -259,6 +233,8 @@ async def emit_signal(
             (`human` + `agent` combined). When set, the signal is treated as actionable: the guidance
             is surfaced to the research agent as authoritative direction, which it follows instead of
             investigating from scratch. Not required by any existing source.
+        idempotency_key: Optional stable key for callers that may retry. Repeated calls with
+            the same key, source product, and source type start at most one emitter workflow.
 
     Example:
         await emit_signal(
@@ -271,6 +247,9 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+    if idempotency_key is not None and not idempotency_key.strip():
+        raise ValueError("idempotency_key must not be empty")
+
     # Deferred: the temporal package imports the facade back (reingestion -> emit_signal), so
     # importing these workflows at module scope forms a circular import and drags the whole
     # temporal stack onto the Django startup path. Resolved lazily at call time instead.
@@ -304,7 +283,7 @@ async def emit_signal(
             )
 
     # Validate the signal against the matching schema variant
-    variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
     if variant_model is None:
         raise pydantic.ValidationError.from_exception_data(
             title="SignalInput",
@@ -383,13 +362,26 @@ async def emit_signal(
 
     # Fire-and-forget: the emitter workflow will submit the signal to the buffer
     # via update, blocking if the buffer is full (backpressure).
-    await client.start_workflow(
-        SignalEmitterWorkflow.run,
-        SignalEmitterInput(team_id=team.id, signal=signal_input),
-        id=SignalEmitterWorkflow.workflow_id_for(team.id),
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        run_timeout=timedelta(minutes=10),
+    emitter_idempotency_key = (
+        f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
     )
+    try:
+        await client.start_workflow(
+            SignalEmitterWorkflow.run,
+            SignalEmitterInput(team_id=team.id, signal=signal_input),
+            id=SignalEmitterWorkflow.workflow_id_for(team.id, emitter_idempotency_key),
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            run_timeout=timedelta(minutes=10),
+            id_reuse_policy=(
+                WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+                if emitter_idempotency_key is not None
+                else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+            ),
+        )
+    except temporalio.exceptions.WorkflowAlreadyStartedError:
+        if emitter_idempotency_key is None:
+            raise
+        return
 
     # Fire the analytics event only after the signal is definitively queued so
     # Temporal/connection failures don't inflate the "signals emitted" metric.

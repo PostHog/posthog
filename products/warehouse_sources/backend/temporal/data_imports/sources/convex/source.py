@@ -24,12 +24,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     validate_credentials as validate_convex_credentials,
     validate_deploy_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConvexSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convex import ConvexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 
 @SourceRegistry.register
 class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
+    api_docs_url = "https://docs.convex.dev/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CONVEX

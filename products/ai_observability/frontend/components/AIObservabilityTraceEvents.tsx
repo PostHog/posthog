@@ -2,6 +2,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { LLMTrace } from '~/queries/schema/schema-general'
 
+import { operationStartMs } from '../utils'
 import { AIObservabilityEventCard } from './AIObservabilityEventCard'
 
 interface AIObservabilityTraceEventsProps {
@@ -28,7 +29,8 @@ export function AIObservabilityTraceEvents({
     const allEvents =
         trace.events
             ?.filter((e) => e.event === '$ai_generation' || e.event === '$ai_span' || e.event === '$ai_embedding')
-            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || []
+            // Order by operation start (events are captured at completion), matching the timeline
+            .sort((a, b) => operationStartMs(a) - operationStartMs(b)) || []
 
     if (allEvents.length === 0) {
         return (

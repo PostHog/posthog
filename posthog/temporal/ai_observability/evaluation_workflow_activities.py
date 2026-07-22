@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import transaction
 
 import structlog
 import temporalio
@@ -17,14 +17,12 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
 
 SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
-TRIAL_NOTIFICATION_THRESHOLDS = [50, 75, 100]
 
 
 @dataclass
@@ -70,6 +68,8 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
                 "output_config": evaluation.output_config,
                 "team_id": evaluation.team_id,
                 "model_configuration": model_configuration,
+                "enabled": evaluation.enabled,
+                "deleted": evaluation.deleted,
             }
         except Evaluation.DoesNotExist:
             logger.exception("Evaluation not found", evaluation_id=inputs.evaluation_id)
@@ -94,35 +94,25 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
     await database_sync_to_async(_update)()
 
 
+@dataclass
+class SendTrialUsageEmailInputs:
+    team_id: int
+    threshold_pct: int
+
+
 @temporalio.activity.defn
 async def increment_trial_eval_count_activity(team_id: int) -> int | None:
-    """Increment trial eval counter after successful execution with PostHog key."""
-    from django.db import connection
+    """No-op stub kept registered so evaluation runs started on the previous release can finish
+    during the rollout. Returning None means no usage email follows. The follow-up column-drop PR
+    deletes it."""
+    return None
 
-    def _increment() -> int | None:
-        table = EvaluationConfig._meta.db_table
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                UPDATE {table}
-                SET trial_evals_used = trial_evals_used + 1
-                WHERE team_id = %s
-                RETURNING trial_evals_used, trial_eval_limit
-                """,
-                [team_id],
-            )
-            row = cursor.fetchone()
-            if row is None:
-                logger.warning("No EvaluationConfig found for team during trial increment", team_id=team_id)
-                return None
-            trial_evals_used, trial_eval_limit = row
 
-        for pct in TRIAL_NOTIFICATION_THRESHOLDS:
-            if trial_evals_used == round(trial_eval_limit * pct / 100):
-                return pct
-        return None
-
-    return await database_sync_to_async(_increment)()
+@temporalio.activity.defn
+async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
+    """No-op stub kept registered so evaluation runs started on the previous release can finish
+    during the rollout. The follow-up column-drop PR deletes it."""
+    return None
 
 
 @temporalio.activity.defn
@@ -137,7 +127,7 @@ async def disable_evaluation_activity(
     """
 
     def _disable() -> bool:
-        reason = status_reason or "trial_limit_reached"
+        reason = status_reason or "provider_key_required"
         with transaction.atomic():
             evaluation = Evaluation.objects.select_for_update().filter(id=evaluation_id, team_id=team_id).first()
             if evaluation is None:
@@ -153,89 +143,6 @@ async def disable_evaluation_activity(
 
 
 @dataclass
-class SendTrialUsageEmailInputs:
-    team_id: int
-    threshold_pct: int
-
-
-@temporalio.activity.defn
-async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
-    """Send an email to org members about trial evaluation usage."""
-
-    def _send() -> None:
-        from posthog.email import EmailMessage, is_email_available
-
-        if not is_email_available(with_absolute_urls=True):
-            logger.info(
-                "Email not available, skipping trial usage notification",
-                team_id=inputs.team_id,
-                threshold_pct=inputs.threshold_pct,
-            )
-            return
-
-        try:
-            team = Team.objects.select_related("organization").get(id=inputs.team_id)
-        except Team.DoesNotExist:
-            logger.warning("Team not found for trial usage email", team_id=inputs.team_id)
-            return
-
-        config = EvaluationConfig.objects.filter(team_id=inputs.team_id).first()
-        if not config:
-            return
-
-        max_listed = 20
-        affected_qs = Evaluation.objects.filter(
-            team_id=inputs.team_id,
-            enabled=True,
-            deleted=False,
-        ).filter(models.Q(model_configuration__isnull=True) | models.Q(model_configuration__provider_key__isnull=True))
-        total_affected = affected_qs.count()
-        affected_evals = list(affected_qs.values_list("name", flat=True)[:max_listed])
-        affected_evals_overflow = max(0, total_affected - max_listed)
-
-        settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
-        campaign_key = f"llm_analytics_trial_{inputs.threshold_pct}pct_{team.id}"
-        is_exhausted = inputs.threshold_pct >= 100
-
-        if is_exhausted:
-            subject = "Your AI observability trial evaluations have been used up"
-            template_name = "ai_observability_trial_exhausted"
-        else:
-            subject = f"You've used {inputs.threshold_pct}% of your AI observability trial evaluations"
-            template_name = "ai_observability_trial_warning"
-
-        message = EmailMessage(
-            campaign_key=campaign_key,
-            subject=subject,
-            template_name=template_name,
-            template_context={
-                "trial_eval_limit": config.trial_eval_limit,
-                "trial_evals_used": config.trial_evals_used,
-                "trial_evals_remaining": config.trial_evals_remaining,
-                "threshold_pct": inputs.threshold_pct,
-                "settings_url": settings_url,
-                "affected_evals": affected_evals,
-                "affected_evals_overflow": affected_evals_overflow,
-            },
-        )
-
-        for user in team.organization.members.all():
-            message.add_user_recipient(user)
-
-        if message.to:
-            message.send()
-            logger.info(
-                "Sent trial usage email",
-                team_id=inputs.team_id,
-                org_id=str(team.organization_id),
-                threshold_pct=inputs.threshold_pct,
-                recipient_count=len(message.to),
-            )
-
-    await database_sync_to_async(_send)()
-
-
-@dataclass
 class SendEvaluationDisabledEmailInputs:
     team_id: int
     evaluation_id: str
@@ -246,7 +153,7 @@ class SendEvaluationDisabledEmailInputs:
 
 
 _STATUS_REASON_SUBJECTS = {
-    "model_not_allowed": "Your AI observability evaluation was disabled because its model isn't supported on the trial plan",
+    "provider_key_required": "Your AI observability evaluation was disabled because it has no provider API key",
     "no_default_model": "Your AI observability evaluation was disabled because no default model is configured",
     "provider_key_deleted": "Your AI observability evaluation was disabled because its provider API key was removed",
     "provider_key_invalid": "Your AI observability evaluation was disabled because its provider API key is invalid",
@@ -260,7 +167,7 @@ _STATUS_REASON_SUBJECTS = {
 
 @temporalio.activity.defn
 async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
-    """Email org members when an evaluation enters the ERROR state for a reason other than trial exhaustion."""
+    """Email org members when an evaluation enters the ERROR state."""
 
     def _send() -> None:
         from posthog.email import EmailMessage, is_email_available
@@ -331,6 +238,60 @@ class EmitEvaluationEventInputs:
         }
 
 
+def build_evaluation_event_properties(
+    evaluation: dict[str, Any], result: EvaluationActivityResult, start_time: datetime
+) -> dict[str, Any]:
+    """Assemble the target-independent `$ai_evaluation` properties shared by all emit paths.
+
+    Callers add the target linkage on top ($ai_target_id / $ai_target_type and friends) —
+    generation evals point at the source event UUID, trace evals at the trace id.
+    """
+    allows_na = result.get("allows_na", False)
+    evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+
+    properties: dict[str, Any] = {
+        "$ai_evaluation_id": evaluation["id"],
+        "$ai_evaluation_name": evaluation["name"],
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": evaluation_type,
+        "$ai_evaluation_result_type": result["result_type"],
+        "$ai_evaluation_start_time": start_time.isoformat(),
+        "$ai_evaluation_reasoning": result["reasoning"],
+    }
+
+    if result.get("skipped"):
+        properties["$ai_evaluation_skipped"] = True
+        properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
+
+    if evaluation_type == "llm_judge" and not result.get("skipped"):
+        properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
+        properties["$ai_provider"] = result.get("provider", "openai")
+        properties["$ai_input_tokens"] = result.get("input_tokens", 0)
+        properties["$ai_output_tokens"] = result.get("output_tokens", 0)
+        properties["$ai_evaluation_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
+        properties["$ai_evaluation_provider"] = result.get("provider", "openai")
+        properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
+        properties["$ai_evaluation_key_id"] = result.get("key_id")
+
+    if result["result_type"] == "sentiment":
+        properties["$ai_sentiment_label"] = result.get("sentiment_label")
+        properties["$ai_sentiment_score"] = result.get("sentiment_score")
+        properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
+        properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
+        properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
+    else:
+        properties["$ai_evaluation_allows_na"] = allows_na
+        if allows_na:
+            applicable = result.get("applicable", True)
+            properties["$ai_evaluation_applicable"] = applicable
+            if applicable:
+                properties["$ai_evaluation_result"] = result["verdict"]
+        else:
+            properties["$ai_evaluation_result"] = result["verdict"]
+
+    return properties
+
+
 @temporalio.activity.defn
 async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
     """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation."""
@@ -346,64 +307,27 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             logger.exception("Team not found", team_id=event_data["team_id"])
             raise ValueError(f"Team {event_data['team_id']} not found")
 
-        allows_na = result.get("allows_na", False)
-        evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-
         source_props = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
             else event_data["properties"]
         )
 
-        properties: dict[str, Any] = {
-            "$ai_evaluation_id": evaluation["id"],
-            "$ai_evaluation_name": evaluation["name"],
-            "$ai_evaluation_type": "online",
-            "$ai_evaluation_runtime": evaluation_type,
-            "$ai_evaluation_result_type": result["result_type"],
-            "$ai_evaluation_start_time": start_time.isoformat(),
-            "$ai_evaluation_reasoning": result["reasoning"],
-            "$ai_target_event_id": event_data["uuid"],
-            "$ai_target_event_type": event_data["event"],
-            "$ai_target_id": event_data["uuid"],
-            "$ai_target_type": "generation_uuid",
-            "$ai_trace_id": source_props.get("$ai_trace_id"),
-            "$session_id": source_props.get("$session_id"),
-        }
+        properties = build_evaluation_event_properties(evaluation, result, start_time)
+        properties.update(
+            {
+                "$ai_target_event_id": event_data["uuid"],
+                "$ai_target_event_type": event_data["event"],
+                "$ai_target_id": event_data["uuid"],
+                "$ai_target_type": "generation_uuid",
+                "$ai_trace_id": source_props.get("$ai_trace_id"),
+                "$session_id": source_props.get("$session_id"),
+            }
+        )
 
         for property_name in SOURCE_AI_PROPERTIES_TO_COPY:
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
-
-        if result.get("skipped"):
-            properties["$ai_evaluation_skipped"] = True
-            properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
-
-        if evaluation_type == "llm_judge" and not result.get("skipped"):
-            properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
-            properties["$ai_provider"] = result.get("provider", "openai")
-            properties["$ai_input_tokens"] = result.get("input_tokens", 0)
-            properties["$ai_output_tokens"] = result.get("output_tokens", 0)
-            properties["$ai_evaluation_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
-            properties["$ai_evaluation_provider"] = result.get("provider", "openai")
-            properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
-            properties["$ai_evaluation_key_id"] = result.get("key_id")
-
-        if result["result_type"] == "sentiment":
-            properties["$ai_sentiment_label"] = result.get("sentiment_label")
-            properties["$ai_sentiment_score"] = result.get("sentiment_score")
-            properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
-            properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
-            properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
-        else:
-            properties["$ai_evaluation_allows_na"] = allows_na
-            if allows_na:
-                applicable = result.get("applicable", True)
-                properties["$ai_evaluation_applicable"] = applicable
-                if applicable:
-                    properties["$ai_evaluation_result"] = result["verdict"]
-            else:
-                properties["$ai_evaluation_result"] = result["verdict"]
 
         event_timestamp = datetime.now(UTC)
 

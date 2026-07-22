@@ -7,6 +7,115 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface StaffCohortApi {
+    /** Cohort id. */
+    id: number
+    /**
+     * Cohort name.
+     * @nullable
+     */
+    name: string | null
+    /** Id of the team the cohort belongs to. */
+    team_id: number
+    /** Name of the team the cohort belongs to. */
+    team_name: string
+    /** Project id the cohort's team belongs to, for building /project/<id>/cohorts/<id> links. */
+    project_id: number
+    /** Whether the cohort is soft-deleted. */
+    deleted: boolean
+    /** Whether the cohort is static (populated once from a source rather than recalculated). */
+    is_static: boolean
+    /** Whether a calculation is currently marked as in flight. */
+    is_calculating: boolean
+    /**
+     * When the last calculation completed, or null if never calculated.
+     * @nullable
+     */
+    last_calculation: string | null
+    /**
+     * Duration of the last completed calculation in milliseconds.
+     * @nullable
+     */
+    last_calculation_duration_ms: number | null
+    /** Consecutive calculation failures; above 20 the cohort is excluded from periodic recalculation. */
+    errors_calculating: number
+    /**
+     * When the last calculation error was recorded.
+     * @nullable
+     */
+    last_error_at: string | null
+    /**
+     * Version of the last completed calculation.
+     * @nullable
+     */
+    version: number | null
+    /**
+     * Version most recently requested; greater than `version` while a calculation is pending or stuck.
+     * @nullable
+     */
+    pending_version: number | null
+    /**
+     * Number of persons in the cohort as of the last completed calculation.
+     * @nullable
+     */
+    count: number | null
+    /**
+     * When the cohort was created.
+     * @nullable
+     */
+    created_at: string | null
+}
+
+export interface StaffCohortLookupResponseApi {
+    /** Requested cohorts, in request order. */
+    results: StaffCohortApi[]
+    /** Requested cohort ids that do not exist. */
+    not_found_cohort_ids: number[]
+}
+
+export interface StaffCohortRecalculateApi {
+    /**
+     * Cohort ids to force-recalculate (max 10 per request).
+     * @minItems 1
+     * @maxItems 10
+     */
+    cohort_ids: number[]
+}
+
+export interface StaffCohortFailedApi {
+    /** Cohort id that raised while being enqueued. */
+    cohort_id: number
+    /** Error message from the failed enqueue attempt. */
+    error: string
+}
+
+export interface StaffCohortSkippedApi {
+    /** Cohort id that was skipped. */
+    cohort_id: number
+    /** Why the cohort was not enqueued for recalculation. */
+    reason: string
+}
+
+export interface StaffCohortRecalculateResponseApi {
+    /** Cohort ids for which a recalculation was enqueued (including their dependency chains). */
+    queued_cohort_ids: number[]
+    /** Subset of queued_cohort_ids whose dependency chain failed to resolve, so only the cohort itself (not its dependents/dependencies) was enqueued. Those related cohorts are still stale; re-request recalculation for them explicitly once the dependency issue is fixed. */
+    partial_cohort_ids: number[]
+    /** Cohort ids that raised while being enqueued and were not queued at all. Cohorts listed elsewhere in this response already had their enqueue attempted; retry only these ids rather than the whole batch. */
+    failed_cohort_ids: StaffCohortFailedApi[]
+    /** Cohorts that exist but were not enqueued, with the reason. */
+    skipped: StaffCohortSkippedApi[]
+    /** Requested cohort ids that do not exist. */
+    not_found_cohort_ids: number[]
+}
+
+export interface StaffStuckCohortsResponseApi {
+    /** Stuck cohorts, oldest last_calculation first (max 100). */
+    results: StaffCohortApi[]
+    /** Total number of stuck cohorts instance-wide. */
+    total_count: number
+}
+
 export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
 
 export const PropertyGroupOperatorApi = {
@@ -69,13 +178,28 @@ export interface CohortFilterApi {
 }
 
 export interface PersonFilterApi {
+    operator?: string | null
+    value?: unknown
     bytecode?: unknown[] | null
     bytecode_error?: string | null
     conditionHash?: string | null
     type: 'person'
     key: string
+    negation?: boolean
+}
+
+/**
+ * Filter on a top-level persons-table column (e.g. created_at) rather than the
+ * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+ */
+export interface PersonMetadataFilterApi {
     operator?: string | null
     value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person_metadata'
+    key: string
     negation?: boolean
 }
 
@@ -84,7 +208,7 @@ export interface PersonFilterApi {
  */
 export interface CohortFilterGroupApi {
     type: PropertyGroupOperatorApi
-    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | CohortFilterGroupApi)[]
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
 }
 
 export interface CohortFiltersApi {
@@ -163,6 +287,24 @@ export const CohortTypeEnumApi = {
     Analytical: 'analytical',
 } as const
 
+export interface CohortConditionTypeFlagsApi {
+    /** The filters include a person property or person_metadata condition. */
+    person_properties: boolean
+    /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
+    behavioral: boolean
+    /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+    lifecycle: boolean
+    /** The filters include a nested reference to another cohort. */
+    cohorts: boolean
+}
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 export interface CohortApi {
     readonly id: number
     /**
@@ -202,7 +344,11 @@ export interface CohortApi {
      * * `realtime` - realtime
      * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
+    /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+    readonly condition_type: CohortConditionTypeFlagsApi | null
     readonly experiment_set: readonly number[]
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
     _create_static_person_ids?: string[]
 }
@@ -255,7 +401,11 @@ export interface PatchedCohortApi {
      * * `realtime` - realtime
      * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
+    /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+    readonly condition_type?: CohortConditionTypeFlagsApi | null
     readonly experiment_set?: readonly number[]
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
     _create_static_person_ids?: string[]
 }
@@ -374,6 +524,15 @@ export interface CohortUsedInResponseApi {
     cohorts: CohortUsedInCohortsBlockApi
 }
 
+export type CohortsStaffListParams = {
+    /**
+     * Cohort ids to look up (max 50 per request). Repeat the param (?cohort_ids=1&cohort_ids=2) or pass one comma-separated value (?cohort_ids=1,2).
+     * @minItems 1
+     * @maxItems 50
+     */
+    cohort_ids: number[]
+}
+
 export type CohortsListParams = {
     /**
      * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
@@ -391,6 +550,10 @@ export type CohortsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string
 }
 
 export type CohortsPersonsRetrieveParams = {

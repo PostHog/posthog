@@ -48,6 +48,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    error_notifications:
+        description: 'Error tracking ingestion notifications consumer'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     flag_evaluation:
         description: 'Fast feature flag evaluation service'
         requires: [core_infra]
@@ -95,7 +100,7 @@ capabilities:
 
     ai_capture:
         description: 'AI event capture service'
-        requires: [event_ingestion, llm_gateway]
+        requires: [event_ingestion, llm_gateway, personhog]
         docker_profiles: []
 
     embedding_service:
@@ -244,6 +249,7 @@ intents:
             [
                 event_ingestion,
                 error_symbolication,
+                error_notifications,
                 embedding_service,
                 property_definitions,
                 property_values,

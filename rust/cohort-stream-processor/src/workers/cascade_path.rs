@@ -9,7 +9,7 @@
 //! **Produce-before-state.** A referrer's new `cf_stage2` bit is committed only after both produces
 //! ack; a failure holds without writing, so replay re-detects the still-old bit and re-emits (the
 //! downstream UPSERT is idempotent). The cascade input is a fixed message that recomputes the same
-//! flip on replay — unlike Stage 2 composition, which dedupes by `cf_stage1`'s applied-offset and
+//! flip on replay — unlike Stage 2 composition, which dedupes by `cf_behavioral`'s applied-offset and
 //! writes state-before-produce (at-most-once).
 
 use std::sync::Arc;
@@ -30,7 +30,7 @@ use crate::observability::metrics::{
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{CohortMembershipChange, MembershipSink};
 use crate::stage2::state::Stage2State;
-use crate::store::{CohortStore, Stage2Key};
+use crate::store::{ReadLane, Stage2Key, StagedBatch, StoreHandle};
 use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::stage2_path::recompute_and_diff;
 use crate::workers::worker::{produce_cascades, produce_membership};
@@ -40,7 +40,7 @@ use crate::workers::worker::{produce_cascades, produce_membership};
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_cascade(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
@@ -106,7 +106,16 @@ pub(crate) async fn handle_cascade(
         let Some(tree) = filters.cohorts.get(&referrer) else {
             continue;
         };
-        let diff = match recompute_and_diff(partition_id, person_id, tree, filters, store) {
+        let diff = match recompute_and_diff(
+            partition_id,
+            person_id,
+            tree,
+            filters,
+            handle,
+            ReadLane::Event,
+        )
+        .await
+        {
             Ok(diff) => diff,
             Err(error) => {
                 warn!(
@@ -120,6 +129,15 @@ pub(crate) async fn handle_cascade(
                 return;
             }
         };
+        if diff.requires_write() {
+            writes.push((
+                diff.stage2_key,
+                Stage2State {
+                    in_cohort: diff.new_bit,
+                    last_evaluated_at_ms: evaluated_at_ms,
+                },
+            ));
+        }
         if !diff.flipped() {
             continue;
         }
@@ -130,14 +148,9 @@ pub(crate) async fn handle_cascade(
             person_id: message.change.person_id.clone(),
             last_updated: last_updated.to_string(),
             status,
+            origin: None,
+            run_id: None,
         });
-        writes.push((
-            diff.stage2_key,
-            Stage2State {
-                in_cohort: diff.new_bit,
-                last_evaluated_at_ms: evaluated_at_ms,
-            },
-        ));
         // The external flip above is unconditional; only the onward hop is depth/cycle bounded.
         match should_emit(
             message,
@@ -169,38 +182,40 @@ pub(crate) async fn handle_cascade(
         }
     }
 
-    if changes.is_empty() {
+    if changes.is_empty() && writes.is_empty() {
         mark_processed(&merge.cascade_tracker, partition_id, offset);
         return;
     }
 
-    // Produce-before-state: both legs must ack before the bits commit (see the module doc).
-    let membership_errors = produce_membership(sink, changes).await;
-    if membership_errors > 0 {
-        warn!(
-            partition_id,
-            errors = membership_errors,
-            "cascade membership produce failed; holding the cascade offset for redelivery",
-        );
-        hold(&merge.cascade_tracker, partition_id, offset);
-        return;
-    }
-    let cascade_errors = produce_cascades(merge, outgoing).await;
-    if cascade_errors > 0 {
-        warn!(
-            partition_id,
-            errors = cascade_errors,
-            "cascade onward produce failed; holding the cascade offset for redelivery",
-        );
-        hold(&merge.cascade_tracker, partition_id, offset);
-        return;
+    if !changes.is_empty() {
+        // Produce-before-state: both legs must ack before flipped bits commit (see the module doc).
+        let membership_errors = produce_membership(sink, changes).await;
+        if membership_errors > 0 {
+            warn!(
+                partition_id,
+                errors = membership_errors,
+                "cascade membership produce failed; holding the cascade offset for redelivery",
+            );
+            hold(&merge.cascade_tracker, partition_id, offset);
+            return;
+        }
+        let cascade_errors = produce_cascades(merge, outgoing).await;
+        if cascade_errors > 0 {
+            warn!(
+                partition_id,
+                errors = cascade_errors,
+                "cascade onward produce failed; holding the cascade offset for redelivery",
+            );
+            hold(&merge.cascade_tracker, partition_id, offset);
+            return;
+        }
     }
 
-    if let Err(error) = store.write_batch(|batch| {
-        for (key, state) in &writes {
-            batch.put_stage2(key, &state.encode());
-        }
-    }) {
+    let mut staged = StagedBatch::default();
+    for (key, state) in &writes {
+        staged.put_stage2(key, &state.encode());
+    }
+    if let Err(error) = handle.commit(staged).await {
         warn!(
             partition_id,
             error = %error,
@@ -244,6 +259,8 @@ fn clickhouse_millis(ts: &str) -> i64 {
 }
 
 #[cfg(test)]
+// Tests seed and assert against `CohortStore` directly, the sanctioned direct-store surface for tests.
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use chrono_tz::UTC;
@@ -257,8 +274,13 @@ mod tests {
         MembershipStatus,
     };
     use crate::stage1::key::LeafStateKey;
+    use crate::stage1::person_record::{MatchedSet, PersonRecord};
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
-    use crate::store::{Stage1Key, StoreConfig};
+    use crate::stage2::state::Stage2Ownership;
+    use crate::store::{
+        Behavioral, BehavioralKey, CohortStore, OffloadConfig, OffloadMode, PersonRecordKey,
+        PersonRecords, StoreConfig,
+    };
     use crate::workers::{CascadeConfig, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT};
 
     const TEAM: i32 = 7;
@@ -276,6 +298,18 @@ mod tests {
         })
         .unwrap();
         (dir, store)
+    }
+
+    /// Wraps the store so `handle_cascade` exercises the same blocking-pool transport as production.
+    fn handle(store: &CohortStore) -> StoreHandle {
+        StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        )
     }
 
     fn behavioral_leaf() -> Value {
@@ -322,24 +356,24 @@ mod tests {
             .by_condition_to_lsk[&HASH][0]
     }
 
-    fn person_lsk() -> LeafStateKey {
-        LeafStateKey::for_person_property(&PERSON_HASH)
-    }
-
     fn person(n: u128) -> Uuid {
         Uuid::from_u128(n)
     }
 
-    fn write_stage1(store: &CohortStore, lsk: LeafStateKey, who: Uuid, state: Stage1State) {
-        let key = Stage1Key {
-            partition_id: PARTITION,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: who,
-        };
+    fn write_behavioral(store: &CohortStore, lsk: LeafStateKey, who: Uuid, state: Stage1State) {
+        let key = BehavioralKey::new(PARTITION, TEAM as u64, who, lsk);
         let record = StatefulRecord::new(state, AppliedOffsets::default());
         store
-            .write_batch(|b| b.put_stage1(&key, &record.encode()))
+            .write_batch(|b| b.put::<Behavioral>(&key, &record.encode()))
+            .unwrap();
+    }
+
+    fn write_person_record(store: &CohortStore, who: Uuid, matched: &[[u8; 16]]) {
+        let key = PersonRecordKey::new(PARTITION, TEAM as u64, who);
+        let mut record = PersonRecord::absent();
+        record.matched = MatchedSet::from_iter(matched.iter().copied());
+        store
+            .write_batch(|b| b.put::<PersonRecords>(&key, &record.encode()))
             .unwrap();
     }
 
@@ -385,14 +419,6 @@ mod tests {
         }
     }
 
-    fn person_match() -> Stage1State {
-        Stage1State::PersonProperty {
-            matches: true,
-            last_updated_at_ms: 1,
-            last_updated_offset: 0,
-        }
-    }
-
     /// Worker deps with the cascade gate on, capturing both the membership and cascade sinks.
     fn deps(
         membership: &CaptureSink,
@@ -417,6 +443,11 @@ mod tests {
                 fanout_cap,
             },
             partition_count: crate::partitions::partitioner::COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            register_transfer_enabled: false,
+            reconcile: crate::workers::ReconcileDeps::default(),
         };
         // The cascade was dispatched this tenure, so its ceiling is raised — mirrors the dispatcher.
         deps.cascade_tracker
@@ -432,6 +463,8 @@ mod tests {
                 person_id: who.to_string(),
                 last_updated: TS.to_string(),
                 status: MembershipStatus::Entered,
+                origin: None,
+                run_id: None,
             },
             source_offset: 99,
             depth,
@@ -460,15 +493,25 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         let changes = membership.changes();
         assert_eq!(changes.len(), 1, "B's external flip");
@@ -502,8 +545,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
         write_stage2(&store, 1, alice, true); // B already a member
 
         let membership = CaptureSink::new();
@@ -511,11 +554,85 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(membership.changes().is_empty(), "no flip, no membership");
         assert!(cascade.messages().is_empty(), "no flip, no onward cascade");
         assert_eq!(committed(&deps), Some(OFFSET + 1), "still advances");
+    }
+
+    #[tokio::test]
+    async fn cascade_noop_claims_a_transferred_fallback_without_emitting() {
+        let (_dir, store) = temp_store();
+        let catalog = catalog(
+            vec![
+                (2, vec![behavioral_leaf()]),
+                (1, vec![person_leaf(), cohort_ref(2)]),
+            ],
+            true,
+        );
+        let alice = person(1);
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
+        let key = Stage2Key {
+            partition_id: PARTITION,
+            team_id: TEAM as u64,
+            cohort_id: 1,
+            person_id: alice,
+        };
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(
+                    &key,
+                    &Stage2State {
+                        in_cohort: true,
+                        last_evaluated_at_ms: 0,
+                    }
+                    .encode_transferred_fallback(),
+                );
+            })
+            .unwrap();
+
+        let membership = CaptureSink::new();
+        let cascade = CaptureCascadeSink::new();
+        let (sink, deps) = deps(&membership, &cascade, true, 1000);
+        let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
+
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
+
+        let bytes = store.get_stage2(&key).unwrap().unwrap();
+        let (state, ownership) = Stage2State::decode_with_ownership(&bytes).unwrap();
+        assert!(state.in_cohort);
+        assert_eq!(ownership, Stage2Ownership::Local);
+        assert!(
+            membership.changes().is_empty(),
+            "ownership settlement is not a flip"
+        );
+        assert!(
+            cascade.messages().is_empty(),
+            "ownership settlement does not cascade"
+        );
+        assert_eq!(committed(&deps), Some(OFFSET + 1));
     }
 
     #[tokio::test]
@@ -524,14 +641,24 @@ mod tests {
         // Cohort 2 is single-leaf and referenced by nothing.
         let catalog = catalog(vec![(2, vec![behavioral_leaf()])], true);
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(membership.changes().is_empty());
         assert!(cascade.messages().is_empty());
@@ -549,15 +676,25 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
         let (sink, deps) = deps(&membership, &cascade, false, 1000); // gate OFF
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(membership.changes().is_empty(), "gate off: no re-eval");
         assert!(cascade.messages().is_empty());
@@ -576,8 +713,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -585,7 +722,17 @@ mod tests {
         // Incoming depth == cap (8): the external flip still emits, the onward cascade drops.
         let msg = incoming(2, alice, 8, vec![2, 90, 91, 92, 93, 94, 95, 96]);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert_eq!(
             membership.changes().len(),
@@ -615,8 +762,8 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
@@ -624,7 +771,17 @@ mod tests {
         // B (cohort 1) is already in the chain: the onward hop is a runtime cycle.
         let msg = incoming(2, alice, 2, vec![2, 1]);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert_eq!(
             membership.changes().len(),
@@ -653,15 +810,25 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
         let (sink, deps) = deps(&membership, &cascade, true, 2); // cap 2 of 4 referrers
         let msg = first_cascade(incoming(100, alice, 1, vec![100]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         let cohorts: Vec<i32> = membership.changes().iter().map(|c| c.cohort_id).collect();
         assert_eq!(
@@ -687,18 +854,38 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::new();
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
         assert_eq!(membership.changes().len(), 1, "first pass emits");
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
         assert_eq!(
             membership.changes().len(),
             1,
@@ -717,15 +904,25 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::failing_first(1);
         let cascade = CaptureCascadeSink::new();
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(
             membership.changes().is_empty(),
@@ -752,15 +949,25 @@ mod tests {
             true,
         );
         let alice = person(1);
-        write_stage1(&store, behavioral_lsk(&catalog), alice, behavioral_match());
-        write_stage1(&store, person_lsk(), alice, person_match());
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
 
         let membership = CaptureSink::new();
         let cascade = CaptureCascadeSink::failing_always();
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert_eq!(
             membership.changes().len(),

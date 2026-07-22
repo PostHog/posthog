@@ -29,6 +29,15 @@ jest.mock('lib/components/MonacoDiffEditor', () => ({
     ),
 }))
 
+// A newly created file renders the single-pane read view, not a diff — stand it in for a marker that
+// echoes the content + path so jsdom never instantiates real Monaco (and never pulls monaco-editor).
+jest.mock('./ReadFileContent', () => ({
+    __esModule: true,
+    ReadFileContent: ({ text, path }: { text: string; path?: string }) => (
+        <div data-attr="read-file" data-text={text} data-path={path} />
+    ),
+}))
+
 // Force the lazy-mount gate open so the editor instantiates.
 jest.mock('react-intersection-observer', () => ({
     useInView: () => ({ ref: () => {}, inView: true }),
@@ -112,7 +121,7 @@ describe('EditDiffRenderer', () => {
         expect(screen.getAllByTestId('monaco-diff')).toHaveLength(2)
     })
 
-    it('reads "Created a file" with all-added stats and an empty original for a new file (Write)', () => {
+    it('renders a single-pane read view (not a diff) with all-added stats for a new file (Write)', () => {
         const message = makeMessage({
             resolvedKey: 'Write',
             content: [{ type: 'diff', path: 'new.py', oldText: null, newText: 'print(1)\nprint(2)' }],
@@ -121,9 +130,11 @@ describe('EditDiffRenderer', () => {
         expect(screen.getByText('Created a file')).toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('button'))
-        const editor = screen.getByTestId('monaco-diff')
-        expect(editor).toHaveAttribute('data-original', '')
-        expect(editor).toHaveAttribute('data-language', 'python')
+        expect(screen.queryByTestId('monaco-diff')).not.toBeInTheDocument()
+        const readView = screen.getByTestId('read-file')
+        expect(readView).toHaveAttribute('data-text', 'print(1)\nprint(2)')
+        expect(readView).toHaveAttribute('data-path', 'new.py')
+        expect(screen.getByText('new.py')).toBeInTheDocument()
         expect(screen.getByText('+2')).toBeInTheDocument()
     })
 

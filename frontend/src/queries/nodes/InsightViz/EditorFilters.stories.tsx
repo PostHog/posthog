@@ -6,6 +6,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __editorFiltersLongValue from '../../../mocks/fixtures/api/projects/team_id/insights/editorFiltersLongValue.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Components/EditorFilters',
@@ -37,10 +39,7 @@ const meta: Meta = {
 export default meta
 
 /* eslint-disable @typescript-eslint/no-var-requires */
-export const WithLongFilterValue: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/editorFiltersLongValue.json'),
-    'edit'
-)
+export const WithLongFilterValue: Story = createInsightStory(__editorFiltersLongValue as any, 'edit')
 WithLongFilterValue.parameters = {
     testOptions: {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',

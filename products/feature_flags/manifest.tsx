@@ -12,14 +12,22 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Feature flag templates',
         },
+        FeatureFlagsStaffTools: {
+            import: () => import('./frontend/staff/FeatureFlagsStaffToolsScene'),
+            instanceLevel: true,
+            name: 'Flags staff tools',
+        },
     },
     routes: {
         '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+        '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     },
     urls: {
         featureFlag: (id: string | number): string => `/feature_flags/${id}`,
         featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
         featureFlagTemplates: (): string => '/feature_flags/templates',
+        featureFlagsStaffTools: (teamId?: number): string =>
+            `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
         featureFlagNew: ({
             type,
             sourceId,

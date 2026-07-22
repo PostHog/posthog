@@ -88,7 +88,7 @@ class TestMasterFlagEnabled:
             },
             group_properties={
                 "organization": {"id": str(TEST_ORG_UUID)},
-                "project": {"id": "2"},
+                "project": {"id": "2", "uuid": str(TEST_TEAM_UUID)},
             },
             only_evaluate_locally=False,
             send_feature_flag_events=False,
@@ -319,6 +319,50 @@ class TestCollectEligibleScanWindow:
             item_context={"author_type": "customer", "is_private": False},
         )
         Comment.objects.filter(id=comment.id).update(created_at=msg_at)
+
+        result = _collect_eligible()
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_collected else [])
+
+
+class TestCollectEligibleStatus:
+    @parameterized.expand(
+        [
+            ("new", "new", True),
+            ("open", "open", True),
+            ("pending", "pending", False),
+            ("on_hold", "on_hold", False),
+            ("resolved", "resolved", False),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_only_new_and_open_tickets_collected(
+        self,
+        _name,
+        ticket_status,
+        expected_collected,
+        mock_master_flag,
+    ):
+        from posthog.models import Organization, Team
+
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(
+            organization=org, name="Team", conversations_settings={"ai_suggestions_enabled": True}
+        )
+        ticket = TicketModel.objects.create_with_number(
+            team=team,
+            widget_session_id=f"aabbccdd-0000-0000-0000-{uuid.uuid4().hex[:12]}",
+            distinct_id="u1",
+            channel_source="widget",
+            status=ticket_status,
+        )
+        settled_at = timezone.now() - timedelta(minutes=3)
+        TicketModel.objects.filter(id=ticket.id).update(
+            created_at=settled_at,
+            last_message_at=settled_at,
+        )
 
         result = _collect_eligible()
         assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_collected else [])

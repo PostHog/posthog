@@ -1,8 +1,9 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -46,9 +47,10 @@ const meta: Meta<StoryProps> = {
         }),
     ],
     render: ({ sectionId }) => {
-        useEffect(() => {
-            router.actions.push(urls.settings(sectionId))
-        }, [sectionId])
+        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
+        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
+        // can race and capture the homepage frame instead.
+        router.actions.push(urls.settings(sectionId))
 
         return <App />
     },
@@ -75,4 +77,12 @@ export const SettingsUserCustomization: Story = {
 
 export const SettingsUserDangerZone: Story = {
     args: { sectionId: 'user-danger-zone' },
+}
+
+export const SettingsUserRemindersModal: Story = {
+    args: { sectionId: 'user-reminders' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('New reminder'))
+    },
 }

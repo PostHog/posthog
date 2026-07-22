@@ -1,23 +1,30 @@
-import clsx from 'clsx'
 import { memo } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
 import { ToolActivity } from './ToolActivity'
 import { compactInput, formatInput, getContentText, stripCodeFences } from './toolContentUtils'
-import { ToolOutput } from './ToolOutput'
+import { ToolBody, ToolBodySection, ToolOutput } from './ToolOutput'
 import type { ToolRendererProps } from './toolRegistry'
 
-/**
- * The catch-all tool card — user-installed MCP tools, unmapped PostHog `exec` inner tools, and Claude
- * built-ins without a bespoke renderer. PostHog `exec` inner tools read `Call <tool>`; other MCP tools
- * read `Call <server> – <tool> (MCP)`; non-MCP built-ins show their friendly title. A compact input
- * preview sits on the second line and the body shows any text output. Replaces the old
- * `FallbackMcpToolRenderer`.
- */
-export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(props: ToolRendererProps): JSX.Element {
-    const { message, icon, displayName, turnComplete, turnCancelled } = props
+export interface McpToolPresentation {
+    title: string
+    /** Compact mono input preview for the header's second line. */
+    subtitle: JSX.Element | undefined
+    /** Collapsible input/output accordion body. */
+    body: JSX.Element | undefined
+}
 
+/**
+ * The shared MCP tool-card presentation: PostHog `exec` inner tools read `Call <tool>`; other MCP
+ * tools read `Call <server> – <tool> (MCP)`; non-MCP built-ins show their friendly title. The
+ * subtitle is a compact input preview and the body shows the full input plus any text output.
+ * Used by the generic card and by `DataToolRow`, so data-tool widgets keep the same header/accordion.
+ */
+export function getMcpToolPresentation(
+    message: ToolRendererProps['message'],
+    displayName?: string
+): McpToolPresentation {
     const isPostHogExec = !!message.innerToolName
     const isMcp =
         isPostHogExec || (!!message.rawServerName && !!message.rawToolName && message.rawServerName !== 'claude')
@@ -37,26 +44,41 @@ export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(props
           ? `Call ${serverName} – ${toolLabel} (MCP)`
           : message.title || displayName || toolLabel
 
-    // Subagent / MCP / unmapped tools show both the full input and the text output in the body.
     const formattedInput = hasInput ? formatInput(inputForPreview) : ''
     const body =
         formattedInput || output ? (
-            <div className="flex flex-col gap-2 min-w-0">
+            <ToolBody>
                 {formattedInput && <ToolOutput>{formattedInput}</ToolOutput>}
                 {output && (
-                    <div className={clsx('min-w-0', formattedInput && 'border-t border-border-secondary pt-2')}>
+                    <ToolBodySection divided={!!formattedInput}>
                         <ToolOutput>{output}</ToolOutput>
-                    </div>
+                    </ToolBodySection>
                 )}
-            </div>
+            </ToolBody>
         ) : undefined
+
+    return {
+        title,
+        subtitle: preview ? <span className="font-mono">{preview}</span> : undefined,
+        body,
+    }
+}
+
+/**
+ * The catch-all tool card — user-installed MCP tools, unmapped PostHog `exec` inner tools, and Claude
+ * built-ins without a bespoke renderer. Renders the shared MCP presentation with no always-visible
+ * content. Replaces the old `FallbackMcpToolRenderer`.
+ */
+export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(props: ToolRendererProps): JSX.Element {
+    const { message, icon, displayName, turnComplete, turnCancelled } = props
+    const { title, subtitle, body } = getMcpToolPresentation(message, displayName)
 
     return (
         <ToolActivity
             message={message}
             icon={icon ?? <IconWrench />}
             title={title}
-            subtitle={preview ? <span className="font-mono">{preview}</span> : undefined}
+            subtitle={subtitle}
             body={body}
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}

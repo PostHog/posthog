@@ -316,7 +316,7 @@ class TestValidateAlertConfig:
                 _funnels_config(),
                 _base_threshold(),
                 "daily",
-                "Funnel alerts only support absolute value conditions",
+                "This funnel only supports absolute value conditions",
             ),
             (
                 "funnels_relative_increase_rejected",
@@ -325,7 +325,7 @@ class TestValidateAlertConfig:
                 _funnels_config(),
                 _base_threshold(),
                 "daily",
-                "Funnel alerts only support absolute value conditions",
+                "This funnel only supports absolute value conditions",
             ),
             (
                 "funnels_from_previous_at_step_zero_rejected",
@@ -355,13 +355,49 @@ class TestValidateAlertConfig:
                 r"funnel_step 5 is out of range \(funnel has 2 steps\)",
             ),
             (
-                "funnels_non_steps_viz_rejected",
+                "funnels_trends_viz_accepted",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "trends"}},
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "funnels_time_to_convert_viz_rejected",
                 {**_funnels_query(), "funnelsFilter": {"funnelVizType": "time_to_convert"}},
                 _base_condition("absolute_value"),
                 _funnels_config(),
                 _base_threshold(),
                 "daily",
-                "Funnel alerts require a steps funnel",
+                "aren't supported for the",
+            ),
+            (
+                "funnels_flow_viz_rejected",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "flow"}},
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "aren't supported for the",
+            ),
+            (
+                "funnels_trends_relative_condition_accepted",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "trends"}},
+                _base_condition("relative_increase"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "funnels_steps_relative_condition_rejected",
+                _funnels_query(),  # defaults to a steps funnel
+                _base_condition("relative_increase"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "only supports absolute value conditions",
             ),
         ]
     )
@@ -406,6 +442,17 @@ class TestValidateAlertConfig:
             "daily",
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
         )
+
+    def test_detector_alert_rejects_non_time_series_trend(self) -> None:
+        with pytest.raises(ValueError, match="Anomaly detection isn't supported for non time series trends"):
+            validate_alert_config(
+                _base_query(display="ActionsPie"),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                "daily",
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            )
 
     def test_any_row_hogql_alert_rejects_relative_conditions(self) -> None:
         with pytest.raises(ValueError, match="Any-row SQL alerts only support absolute value conditions"):

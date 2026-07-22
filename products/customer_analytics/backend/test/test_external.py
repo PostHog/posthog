@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,8 +11,14 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, Team, User
 from posthog.models.utils import generate_random_token_secret
 
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.models import (
+    AccountRelationship,
+    AccountRelationshipDefinition,
+    CustomPropertyValue,
+    DisplayType,
+)
+from products.customer_analytics.backend.models.account import AccountProperties
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 
 
 class TestExternalAccountAPI(APIBaseTest):
@@ -20,6 +29,10 @@ class TestExternalAccountAPI(APIBaseTest):
         # Fresh client so requests are unauthenticated unless they carry the Bearer token.
         self.client = APIClient()
         self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+        self.csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
+        self.csm_key = str(self.csm_definition.id)
         self.url = "/api/customer_analytics/external/account"
         csp_enabled = patch(
             "products.customer_analytics.backend.presentation.views.external.posthoganalytics.feature_enabled",
@@ -36,6 +49,18 @@ class TestExternalAccountAPI(APIBaseTest):
 
     def _patch(self, payload, token=None):
         return self.client.patch(self.url, data=payload, format="json", **self._auth_headers(token))
+
+    def _assign_csm(self, user):
+        return AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, definition=self.csm_definition, account=self.account, user=user
+        )
+
+    def _active_csm_user_ids(self):
+        return list(
+            AccountRelationship.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=self.csm_definition, ended_at__isnull=True)
+            .values_list("user_id", flat=True)
+        )
 
     # -- Authentication ---------------------------------------------------
 
@@ -89,20 +114,43 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(data["id"], str(self.account.id))
         self.assertEqual(data["external_id"], "acme-1")
         self.assertEqual(data["name"], "Acme Corp")
-        self.assertIn("properties", data)
-        self.assertIsNone(data["properties"]["csm"])
+        self.assertEqual(data["relationships"], {})
 
-    def test_get_account_returns_role_properties(self):
-        self.account.properties = AccountProperties(
-            csm=AccountAssignment(id=self.user.id, email=self.user.email),
-        )
-        self.account.save(update_fields=["_properties"])
+    def test_get_account_returns_active_relationships(self):
+        self._assign_csm(self.user)
 
         response = self._get()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        csm = response.json()["properties"]["csm"]
-        self.assertEqual(csm["id"], self.user.id)
-        self.assertEqual(csm["email"], self.user.email)
+        self.assertEqual(
+            response.json()["relationships"],
+            {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
+        )
+
+    def test_get_account_returns_custom_properties(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+        renewal = create_custom_property_definition(
+            team_id=self.team.id, name="Renewal", display_type=DisplayType.DATETIME
+        )
+        CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=plan,
+            value_str="enterprise",
+        )
+        CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=renewal,
+            value_datetime=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
+        )
+
+        response = self._get()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["custom_properties"],
+            {"Plan": "enterprise", "Seats": None, "Renewal": "2026-07-01T12:00:00+00:00"},
+        )
 
     def test_does_not_leak_accounts_from_other_team(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
@@ -126,48 +174,61 @@ class TestExternalAccountAPI(APIBaseTest):
         response = self._patch({"external_id": "does-not-exist", "tags": ["enterprise"]})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_patch_assigns_role_and_resolves_email(self):
-        response = self._patch({"external_id": "acme-1", "csm": {"type": "user", "id": self.user.id}})
+    def test_patch_assigns_relationship_and_returns_it(self):
+        response = self._patch(
+            {"external_id": "acme-1", "relationships": {self.csm_key: {"type": "user", "id": self.user.id}}}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["relationships"],
+            {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
+        )
+        self.assertEqual(self._active_csm_user_ids(), [self.user.id])
 
-        self.account.refresh_from_db()
-        csm = self.account.properties.csm
-        assert csm is not None
-        self.assertEqual(csm.id, self.user.id)
-        self.assertEqual(csm.email, self.user.email)
+    def test_patch_null_ends_active_assignment(self):
+        self._assign_csm(self.user)
 
-    def test_patch_clears_role_with_null(self):
-        self.account.properties = AccountProperties(csm=AccountAssignment(id=self.user.id, email=self.user.email))
-        self.account.save(update_fields=["_properties"])
-
-        response = self._patch({"external_id": "acme-1", "csm": None})
+        response = self._patch({"external_id": "acme-1", "relationships": {self.csm_key: None}})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.account.refresh_from_db()
-        self.assertIsNone(self.account.properties.csm)
+        self.assertEqual(response.json()["relationships"], {})
+        self.assertEqual(self._active_csm_user_ids(), [])
 
-    def test_patch_preserves_unmentioned_properties(self):
+    def test_patch_relationships_do_not_touch_properties(self):
         self.account.properties = AccountProperties(stripe_customer_id="cus_123")
         self.account.save(update_fields=["_properties"])
 
-        response = self._patch({"external_id": "acme-1", "csm": {"type": "user", "id": self.user.id}})
+        response = self._patch(
+            {"external_id": "acme-1", "relationships": {self.csm_key: {"type": "user", "id": self.user.id}}}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.account.refresh_from_db()
-        csm = self.account.properties.csm
-        assert csm is not None
-        self.assertEqual(self.account.properties.stripe_customer_id, "cus_123")
-        self.assertEqual(csm.id, self.user.id)
+        self.assertEqual(response.json()["properties"]["stripe_customer_id"], "cus_123")
 
-    def test_patch_rejects_role_assignee(self):
-        response = self._patch({"external_id": "acme-1", "csm": {"type": "role", "id": "some-role-uuid"}})
+    @parameterized.expand(
+        [
+            ("role_assignee", {"type": "role", "id": "some-role-uuid"}),
+            ("not_an_object", "someone@example.com"),
+            ("bad_id", {"type": "user", "id": {"nested": True}}),
+        ]
+    )
+    def test_patch_rejects_invalid_assignee(self, _name, assignee):
+        response = self._patch({"external_id": "acme-1", "relationships": {self.csm_key: assignee}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._active_csm_user_ids(), [])
+
+    def test_patch_rejects_non_uuid_key(self):
+        response = self._patch({"external_id": "acme-1", "relationships": {"AE": {"type": "user", "id": self.user.id}}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "AE: no relationship definition with this ID")
 
     def test_patch_rejects_non_member_user(self):
         other_org = Organization.objects.create(name="Outsiders")
         outsider = User.objects.create_and_join(other_org, "outsider@example.com", None)
-        response = self._patch({"external_id": "acme-1", "csm": {"type": "user", "id": outsider.id}})
+        response = self._patch(
+            {"external_id": "acme-1", "relationships": {self.csm_key: {"type": "user", "id": outsider.id}}}
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.account.refresh_from_db()
-        self.assertIsNone(self.account.properties.csm)
+        self.assertEqual(response.json()["error"], f"{self.csm_key}: user is not a member of this organization")
+        self.assertEqual(self._active_csm_user_ids(), [])
 
     def test_patch_adds_tags_by_default(self):
         self._patch({"external_id": "acme-1", "tags": ["enterprise"]})
@@ -187,6 +248,22 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], ["enterprise"])
 
+    @patch("products.customer_analytics.backend.events.capture_batch_internal")
+    def test_patch_with_workflow_header_attributes_tag_added_event(self, mock_capture):
+        workflow_id = str(uuid4())
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                self.url,
+                data={"external_id": "acme-1", "tags": ["vip"]},
+                format="json",
+                HTTP_X_POSTHOG_HOG_FLOW_ID=workflow_id,
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        (event,) = mock_capture.call_args.kwargs["events"]
+        self.assertEqual(event["properties"]["actor_type"], "workflow")
+        self.assertEqual(event["properties"]["workflow_id"], workflow_id)
+
     def test_patch_does_not_update_other_team_account(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_team.secret_api_token = generate_random_token_secret()
@@ -195,22 +272,136 @@ class TestExternalAccountAPI(APIBaseTest):
         response = self._patch({"external_id": "acme-1", "tags": ["enterprise"]}, token=other_team.secret_api_token)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_patch_rolls_back_role_assignment_when_tags_fail(self):
+    def test_patch_rolls_back_relationship_assignment_when_tags_fail(self):
         with patch(
             "products.customer_analytics.backend.facade.api._apply_external_tags",
             side_effect=Exception("boom"),
         ):
             response = self._patch(
-                {"external_id": "acme-1", "csm": {"type": "user", "id": self.user.id}, "tags": ["enterprise"]}
+                {
+                    "external_id": "acme-1",
+                    "relationships": {self.csm_key: {"type": "user", "id": self.user.id}},
+                    "tags": ["enterprise"],
+                }
             )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.account.refresh_from_db()
-        self.assertIsNone(self.account.properties.csm)
+        self.assertEqual(self._active_csm_user_ids(), [])
 
     def test_patch_cannot_change_external_id_or_name(self):
         # external_id only identifies the account; renaming/rebinding is not exposed to workflows.
-        response = self._patch({"external_id": "acme-1", "name": "Renamed", "new_external_id": "acme-2", "csm": None})
+        response = self._patch({"external_id": "acme-1", "name": "Renamed", "new_external_id": "acme-2"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.account.refresh_from_db()
         self.assertEqual(self.account.external_id, "acme-1")
         self.assertEqual(self.account.name, "Acme Corp")
+
+    def test_patch_unexpected_exception_captures_with_team_and_external_id(self):
+        with (
+            patch(
+                "products.customer_analytics.backend.facade.api._apply_external_tags",
+                side_effect=RuntimeError("db exploded"),
+            ),
+            patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture,
+        ):
+            self._patch({"external_id": "acme-1", "tags": ["enterprise"]})
+
+        mock_capture.assert_called_once()
+        _exc, context = mock_capture.call_args[0]
+        self.assertEqual(context["team_id"], self.team.id)
+        self.assertEqual(context["external_id"], "acme-1")
+
+    def test_patch_relationship_definition_not_found_does_not_capture(self):
+        with patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture:
+            response = self._patch(
+                {"external_id": "acme-1", "relationships": {"AE": {"type": "user", "id": self.user.id}}}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_capture.assert_not_called()
+
+    def test_patch_rejects_unknown_uuid_key(self):
+        unknown_uuid = "00000000-0000-0000-0000-000000000099"
+        response = self._patch(
+            {"external_id": "acme-1", "relationships": {unknown_uuid: {"type": "user", "id": self.user.id}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(unknown_uuid, response.json()["error"])
+
+
+class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save(update_fields=["secret_api_token"])
+        self.client = APIClient()
+        self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+        self.plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        self.seats = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER
+        )
+        self.url = "/api/customer_analytics/external/account/custom_property_values"
+        csp_enabled = patch(
+            "products.customer_analytics.backend.presentation.views.external.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        csp_enabled.start()
+        self.addCleanup(csp_enabled.stop)
+
+    def _auth_headers(self, token=None):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
+
+    def _patch(self, payload, token=None):
+        return self.client.patch(self.url, data=payload, format="json", **self._auth_headers(token))
+
+    def test_requires_auth(self):
+        response = self.client.patch(self.url, data={"external_id": "acme-1", "properties": {}}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_sets_values_by_definition_id(self):
+        response = self._patch(
+            {"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise", str(self.seats.id): 42}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        active = CustomPropertyValue.objects.for_team(self.team.id).filter(account=self.account, is_deleted=False)
+        self.assertEqual(
+            {(v.definition.name, v.value_str, v.value_num) for v in active},
+            {
+                ("Plan", "enterprise", None),
+                ("Seats", None, 42.0),
+            },
+        )
+
+    def test_unknown_external_id_returns_404(self):
+        response = self._patch({"external_id": "missing", "properties": {str(self.plan.id): "x"}})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unknown_definition_id_returns_400(self):
+        response = self._patch({"external_id": "acme-1", "properties": {str(uuid4()): "x"}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_non_scalar_value(self):
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): {"nested": "object"}}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unexpected_exception_captures_with_team_and_external_id(self):
+        with (
+            patch(
+                "products.customer_analytics.backend.logic.custom_property_values.set_account_custom_properties_by_id",
+                side_effect=RuntimeError("db exploded"),
+            ),
+            patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture,
+        ):
+            self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}})
+
+        mock_capture.assert_called_once()
+        _exc, context = mock_capture.call_args[0]
+        self.assertEqual(context["team_id"], self.team.id)
+        self.assertEqual(context["external_id"], "acme-1")
+
+    def test_unknown_definition_does_not_capture(self):
+        with patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture:
+            response = self._patch({"external_id": "acme-1", "properties": {str(uuid4()): "x"}})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_capture.assert_not_called()

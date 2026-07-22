@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
-use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
-use common_kafka::kafka_producer::send_iter_to_kafka;
 use common_redis::Client;
 use std::collections::HashMap;
 use tracing::warn;
@@ -10,20 +8,19 @@ use uuid::Uuid;
 
 use crate::app_context::AppContext;
 use crate::error::UnhandledError;
-use crate::issue_resolution::Issue;
+use crate::issue_resolution::{send_issue_spiking_notification, Issue};
 use crate::metric_consts::{
-    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
-    SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
-    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
+    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME, SPIKE_INCREMENT_ISSUE_BUCKETS_TIME,
+    SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
+    SPIKE_ISSUES_SPIKING,
 };
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
 const NUM_BUCKETS: usize = 12;
 
-const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
 
 fn issue_bucket_key(issue_id: &Uuid, timestamp: &str) -> String {
@@ -45,7 +42,7 @@ fn cooldown_key(issue_id: &Uuid) -> String {
 #[derive(Debug, Clone)]
 pub struct SpikingIssue {
     pub issue: Issue,
-    pub props: OutputErrProps,
+    pub props: ProcessedExceptionProperties,
     pub computed_baseline: f64,
     pub current_bucket_value: i64,
 }
@@ -171,7 +168,7 @@ async fn try_increment_team_buckets(
 pub async fn do_spike_detection(
     context: Arc<AppContext>,
     issues_by_id: HashMap<Uuid, Issue>,
-    issue_props_by_id: HashMap<Uuid, OutputErrProps>,
+    issue_props_by_id: HashMap<Uuid, ProcessedExceptionProperties>,
     issue_counts: HashMap<Uuid, u32>,
 ) -> Result<(), UnhandledError> {
     if issue_counts.is_empty() {
@@ -302,84 +299,22 @@ async fn emit_spiking_events(
         return;
     }
 
-    // Persist spike events to Postgres and emit a signal
+    // Publish spike side effects out of the processing hot path.
+    let mut failed_keys = Vec::new();
     for spike in &acquired_locks {
-        let id = Uuid::now_v7();
-        let now = Utc::now();
-        if let Err(e) = sqlx::query(
-            r#"INSERT INTO posthog_errortrackingspikeevent
-               (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
-               VALUES ($1, $2, $3, $4, $5, $6)"#,
-        )
-        .bind(id)
-        .bind(spike.issue.team_id)
-        .bind(spike.issue.id)
-        .bind(now)
-        .bind(spike.computed_baseline)
-        .bind(spike.current_bucket_value as i32)
-        .execute(&context.posthog_pool)
-        .await
-        {
-            warn!("Failed to persist spike event: {e}");
-        }
-
-        context.signal_client.emit_issue_spiking(
+        if let Err(e) = send_issue_spiking_notification(
+            context,
             &spike.issue,
-            &spike.props,
+            spike.props.clone(),
             spike.computed_baseline,
             spike.current_bucket_value as f64,
-        );
+        )
+        .await
+        {
+            warn!("Failed to publish spike notification: {e}");
+            failed_keys.push(cooldown_key(&spike.issue.id));
+        }
     }
-
-    let emit_timer = common_metrics::timing_guard(SPIKE_EMIT_EVENTS_TIME, &[]);
-    let events: Vec<(Uuid, InternalEvent)> = acquired_locks
-        .iter()
-        .map(|spike| {
-            let mut event =
-                InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue.id, Utc::now(), None);
-            event
-                .insert_prop("name", spike.issue.name.clone())
-                .expect("insert_prop for name should never fail");
-            event
-                .insert_prop("description", spike.issue.description.clone())
-                .expect("insert_prop for description should never fail");
-            event
-                .insert_prop("computed_baseline", spike.computed_baseline)
-                .expect("insert_prop for computed_baseline should never fail");
-            event
-                .insert_prop("current_bucket_value", spike.current_bucket_value)
-                .expect("insert_prop for current_bucket_value should never fail");
-            (
-                spike.issue.id,
-                InternalEvent {
-                    team_id: spike.issue.team_id,
-                    event,
-                    person: None,
-                },
-            )
-        })
-        .collect();
-
-    let kafka_events: Vec<&InternalEvent> = events.iter().map(|(_, e)| e).collect();
-    let results = send_iter_to_kafka(
-        &context.cyclotron_producer,
-        &context.config.internal_events_topic,
-        &kafka_events,
-    )
-    .await;
-
-    let failed_keys: Vec<String> = results
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, result)| {
-            if let Err(e) = result {
-                warn!("Failed to emit spiking event: {e}");
-                Some(cooldown_key(&events[i].0))
-            } else {
-                None
-            }
-        })
-        .collect();
 
     if !failed_keys.is_empty() {
         if let Err(e) = context
@@ -390,7 +325,6 @@ async fn emit_spiking_events(
             warn!("Failed to release cooldown locks after Kafka failure: {e}");
         }
     }
-    emit_timer.fin();
 }
 
 fn get_bucket_timestamps() -> Vec<String> {
@@ -445,7 +379,7 @@ fn is_spiking(current_value: i64, baseline: f64, config: &SpikeDetectionConfig) 
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
     issues_by_id: &HashMap<Uuid, Issue>,
-    issue_props_by_id: &HashMap<Uuid, OutputErrProps>,
+    issue_props_by_id: &HashMap<Uuid, ProcessedExceptionProperties>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
 ) -> Result<Vec<SpikingIssue>, UnhandledError> {
     if issues_by_id.is_empty() {
@@ -485,12 +419,18 @@ async fn get_spiking_issues(
         })?;
 
         if is_spiking(current_value, baseline, config) {
+            let props = issue_props_by_id
+                .get(&bucket.issue_id)
+                .cloned()
+                .ok_or_else(|| {
+                    UnhandledError::Other(format!(
+                        "No processed exception properties for issue {}",
+                        bucket.issue_id
+                    ))
+                })?;
             spiking.push(SpikingIssue {
                 issue: issue.clone(),
-                props: issue_props_by_id
-                    .get(&bucket.issue_id)
-                    .cloned()
-                    .unwrap_or_default(),
+                props,
                 computed_baseline: baseline,
                 current_bucket_value: current_value,
             });
@@ -595,6 +535,21 @@ mod tests {
         v.to_string().into_bytes()
     }
 
+    fn processed_properties(issue_id: Uuid) -> ProcessedExceptionProperties {
+        serde_json::from_value(serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom"}],
+            "$exception_fingerprint": "test-fingerprint",
+            "$exception_fingerprint_record": [{"type": "manual"}],
+            "$exception_issue_id": issue_id,
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+        }))
+        .unwrap()
+    }
+
     struct TestContext {
         redis: MockRedisClient,
         issue_id: Uuid,
@@ -670,8 +625,8 @@ mod tests {
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
             let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
-            let empty_props = HashMap::new();
-            get_spiking_issues(&self.redis, &self.issues_by_id(), &empty_props, &configs)
+            let properties = HashMap::from([(self.issue_id, processed_properties(self.issue_id))]);
+            get_spiking_issues(&self.redis, &self.issues_by_id(), &properties, &configs)
                 .await
                 .unwrap()
         }
@@ -1099,8 +1054,11 @@ mod tests {
             (team_1, SpikeDetectionConfig::default()),
             (team_2, SpikeDetectionConfig::default()),
         ]);
-        let empty_props = HashMap::new();
-        let result = get_spiking_issues(&redis, &issues_by_id, &empty_props, &configs)
+        let properties = issues_by_id
+            .keys()
+            .map(|issue_id| (*issue_id, processed_properties(*issue_id)))
+            .collect();
+        let result = get_spiking_issues(&redis, &issues_by_id, &properties, &configs)
             .await
             .unwrap();
 

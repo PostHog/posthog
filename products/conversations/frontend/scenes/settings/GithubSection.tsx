@@ -47,9 +47,9 @@ function GithubConnectionSection(): JSX.Element {
                         First, install the PostHog GitHub App from the integrations page, then come back here to select
                         which repositories to monitor.
                     </p>
-                    <Link to="/settings/project-integrations" className="mt-1">
+                    <Link to="/integrations/github" className="mt-1">
                         <LemonButton type="primary" size="small" disabledReason={adminRestrictionReason}>
-                            Go to integrations
+                            Go to GitHub integration
                         </LemonButton>
                     </Link>
                 </div>

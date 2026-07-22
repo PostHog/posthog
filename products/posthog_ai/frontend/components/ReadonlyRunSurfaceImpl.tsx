@@ -16,8 +16,14 @@ export interface ReadonlyRunSurfaceProps {
  * Prepackaged read-only run surface — the common inbox embed, owned by the library. Composes the
  * `RunSurface` compound and never renders `<RunSurface.Composer>`, so there is no composer and no approval
  * prompt (you don't act on a run from the inbox). It still streams fresh frames while the run is in progress
- * when `interaction='live'`, surfacing the meta bars (resources + context usage); a terminal run replays the
- * snapshot once and shows only the thread.
+ * when `interaction='live'`, surfacing the resources bar (context usage rides the thread footer between
+ * turns); a terminal run replays the snapshot once and shows only the thread.
+ *
+ * A live embed is deliberately a background consumer of the permission flow: it never registers as a
+ * foreground stream, so its `runStreamLogic` instance answers non-destructive permission requests
+ * (including persist tools) with the auto-approve path — an unattended run (e.g. a scout) must keep
+ * making progress with only this surface watching. Run-level approval enforcement across consumers
+ * is a server-side concern, not this embed's.
  */
 export default function ReadonlyRunSurfaceImpl({
     taskId,
@@ -39,7 +45,6 @@ export default function ReadonlyRunSurfaceImpl({
                         <RunSurface.Thread listClassName={threadListClassName} rowClassName={threadRowClassName} />
                     </div>
                     <RunSurface.Resources />
-                    <RunSurface.ContextUsage />
                 </div>
             )}
         </RunSurface.Root>

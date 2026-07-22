@@ -18,6 +18,15 @@ first facade serves the read consumers and the framework-free helpers.
 
 from uuid import UUID
 
+# Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
+from products.warehouse_sources.backend.file_uploads import (
+    FILE_FORMAT_TO_TABLE_FORMAT,
+    MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
+    SUPPORTED_FILE_FORMATS,
+    build_file_upload_s3_key,
+    build_file_upload_s3_path,
+    build_file_upload_url_pattern,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -29,6 +38,7 @@ from products.warehouse_sources.backend.models.util import (
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
+    snowflake_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
@@ -49,8 +59,16 @@ __all__ = [
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
     "postgres_columns_to_dwh_columns",
+    "snowflake_columns_to_dwh_columns",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
+    # file-upload storage contract
+    "FILE_FORMAT_TO_TABLE_FORMAT",
+    "MAX_FILE_UPLOAD_SIZE_BYTES",
+    "SUPPORTED_FILE_FORMATS",
+    "build_file_upload_s3_key",
+    "build_file_upload_s3_path",
+    "build_file_upload_url_pattern",
 ]
 
 # --- Mappers (ORM -> contract) ---

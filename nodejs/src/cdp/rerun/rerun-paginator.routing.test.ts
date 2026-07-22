@@ -63,6 +63,8 @@ describe('RerunPaginatorService queue routing', () => {
     })
 
     // Stub the CH query + rehydration so the test exercises only the routing.
+    // `fetchRunningInvocationIds` (the kafka-path in-flight guard) defaults to
+    // "nothing in flight" so routing tests aren't affected by it.
     const stubPage = (ids: string[]): void => {
         jest.spyOn(paginator as any, 'fetchPage').mockResolvedValue([])
         jest.spyOn(paginator as any, 'rehydrateBatch').mockResolvedValue({
@@ -70,6 +72,7 @@ describe('RerunPaginatorService queue routing', () => {
             skipped: 0,
             queuedInvocations: ids.map((id) => ({ id })),
         })
+        jest.spyOn(paginator as any, 'fetchRunningInvocationIds').mockResolvedValue(new Set<string>())
     }
 
     const runPage = (state: RerunJobState) =>
@@ -98,6 +101,32 @@ describe('RerunPaginatorService queue routing', () => {
         expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
     })
 
+    it('skips hog_function invocations whose latest lifecycle row is still running', async () => {
+        stubPage(['inv-running', 'inv-done'])
+        // Kafka has no conflict guard, so re-enqueuing an in-flight invocation
+        // would double its side effects — skip the one CH reports as running.
+        jest.spyOn(paginator as any, 'fetchRunningInvocationIds').mockResolvedValue(new Set(['inv-running']))
+
+        const { state: next } = await runPage(buildState('hog_function'))
+
+        expect(hogQueue.queueInvocations).toHaveBeenCalledTimes(1)
+        expect((hogQueue.queueInvocations.mock.calls[0][0] as any[]).map((i) => i.id)).toEqual(['inv-done'])
+        expect((paginator as any).invocationResultsRowsService.dropQueuedRowsFor).toHaveBeenCalledWith(['inv-running'])
+        expect(next.progress.queued).toBe(1)
+        expect(next.progress.skipped).toBe(1)
+    })
+
+    it('does not enqueue on the hog path when every invocation is still in-flight', async () => {
+        stubPage(['inv-running'])
+        jest.spyOn(paginator as any, 'fetchRunningInvocationIds').mockResolvedValue(new Set(['inv-running']))
+
+        const { state: next } = await runPage(buildState('hog_function'))
+
+        expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
+        expect(next.progress.queued).toBe(0)
+        expect(next.progress.skipped).toBe(1)
+    })
+
     it('counts hogflow in-flight conflicts as skipped instead of failing the page', async () => {
         stubPage(['inv-conflict'])
         // The postgres-v2 upsert raises a conflict when the existing row is
@@ -109,5 +138,50 @@ describe('RerunPaginatorService queue routing', () => {
         expect(next.progress.queued).toBe(0)
         expect(next.progress.skipped).toBe(1)
         expect(next.progress.last_error).toBeUndefined()
+    })
+
+    const rehydrate = (type: string, headers: Record<string, string>) => {
+        const hogFunctionManager = {
+            getHogFunction: jest.fn().mockResolvedValue({ id: 'fn-1', team_id: 1, type }),
+        } as unknown as HogFunctionManagerService
+        const webhookPaginator = new RerunPaginatorService(
+            {} as any,
+            hogFunctionManager,
+            {} as unknown as HogFlowManagerService,
+            {} as unknown as HogInvocationResultsService,
+            { hog_function: hogQueue, hog_flow: hogflowQueue },
+            {} as unknown as HogFunctionMonitoringService,
+            10000
+        )
+        const row = {
+            invocation_id: 'inv-1',
+            parent_run_id: '',
+            attempts: 0,
+            last_scheduled_at: '2026-01-01 00:00:00',
+            first_scheduled_at: '2026-01-01 00:00:00',
+            invocation_globals: JSON.stringify({
+                event: { uuid: 'e1' },
+                request: { method: 'POST', headers, query: {}, body: {}, stringBody: '' },
+            }),
+        }
+        return (webhookPaginator as any).rehydrateInvocation(1, 'hog_function', 'fn-1', row)
+    }
+
+    it('strips request.headers from rehydrated globals for source-webhook functions', async () => {
+        const invocation = await rehydrate('source_webhook', {
+            authorization: 'secret',
+            'content-type': 'application/json',
+        })
+        expect(invocation.state.globals.request.headers).toEqual({})
+    })
+
+    it('strips request.headers for warehouse-source-webhook functions too', async () => {
+        const invocation = await rehydrate('warehouse_source_webhook', { 'x-api-key': 'secret' })
+        expect(invocation.state.globals.request.headers).toEqual({})
+    })
+
+    it('leaves request.headers intact for non-webhook functions', async () => {
+        const invocation = await rehydrate('destination', { authorization: 'secret' })
+        expect(invocation.state.globals.request.headers).toEqual({ authorization: 'secret' })
     })
 })

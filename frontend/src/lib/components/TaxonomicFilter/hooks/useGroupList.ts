@@ -34,12 +34,17 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { floatRecentAndPinnedToTop, groupItemKey } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { fetchTaxonomicListPage } from './fetchTaxonomicListPage'
-import { useTaxonomicResource } from './useTaxonomicResource'
+import {
+    TAXONOMIC_LIST_KEY_FAMILY,
+    TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
+    useTaxonomicResource,
+} from './useTaxonomicResource'
 
 export const NO_ITEM_SELECTED = -1
 
@@ -73,6 +78,12 @@ export interface UseGroupListInput {
     autoSelectItem?: boolean
     /** When true, the list initialises with index=0; otherwise index=NO_ITEM_SELECTED. */
     selectFirstItem?: boolean
+    /** Set only when this is the filter's sole substantive group (no separate Recent/Pinned
+     *  tabs lead the filter). Floats these recent (most-recent first) then pinned items to
+     *  the top of the un-searched list. Mirrors legacy infiniteListLogic's `soleGroupHasGetValue`
+     *  path. */
+    promoteRecentItemsToTop?: TaxonomicDefinitionTypes[]
+    promotePinnedItemsToTop?: TaxonomicDefinitionTypes[]
 }
 
 export interface UseGroupListResult {
@@ -122,6 +133,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         enableKeywordShortcuts = false,
         autoSelectItem = true,
         selectFirstItem = true,
+        promoteRecentItemsToTop,
+        promotePinnedItemsToTop,
     } = input
 
     const [isExpanded, setIsExpanded] = useState(false)
@@ -200,9 +213,18 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const clientFilter = !!group.clientFilterFirstPage
     const remoteSearchQuery = clientFilter ? '' : searchQuery
 
+    // The cache is shared across pickers, and two pickers can build the same endpoint with
+    // different group-level exclusions/allowlists (e.g. the MCP tab excludes its schema from
+    // Event properties only when present) — those are fetch-time params, so key on them too.
+    // Sorted so content-equal sets in a different order share an entry: safe because the
+    // backend set-converts these params, so order never changes the response. (The allowlist
+    // also rides order-sensitively inside `group.endpoint`, so it doesn't get the collapse.)
+    const excludedPropertiesKey = JSON.stringify([...(group.excludedProperties ?? [])].sort())
+    const propertyAllowListKey = JSON.stringify([...(group.propertyAllowList ?? [])].sort())
+
     const remoteKey = useMemo(
         () => [
-            'taxonomic-list',
+            TAXONOMIC_LIST_KEY_FAMILY,
             group.type,
             group.endpoint,
             group.scopedEndpoint ?? null,
@@ -212,6 +234,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ],
         [
             group.type,
@@ -223,6 +247,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ]
     )
 
@@ -242,8 +268,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             }),
         // Long staleTime for client-filtered groups — the cached first page
         // is the single source of truth for the whole typing session.
-        // Cohort create/update should invalidate via `invalidateTaxonomicResource`
-        // (TODO) so a fresh fetch picks up the new item.
+        // Cohort mutations invalidate both key families via
+        // `invalidateTaxonomicResourcesWhere` in cohortsModel.
         {
             enabled: remoteEnabled,
             staleTime: clientFilter ? 5 * 60_000 : 60_000,
@@ -265,7 +291,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
 
     const serverSearchKey = useMemo(
         () => [
-            'taxonomic-list-search',
+            TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
             group.type,
             group.endpoint,
             group.scopedEndpoint ?? null,
@@ -275,6 +301,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ],
         [
             group.type,
@@ -286,6 +314,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ]
     )
 
@@ -354,8 +384,29 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (remoteItems.results.length > 0) {
             merged.push(...remoteItems.results)
         }
+        // Sole substantive group: float its own recent/pinned items to the top of the
+        // un-searched list (keyword shortcuts only appear while searching, so they're
+        // never displaced). Mirrors legacy infiniteListLogic's `soleGroupHasGetValue` path.
+        if (!trimmedSearch && (promoteRecentItemsToTop?.length || promotePinnedItemsToTop?.length)) {
+            const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                groupItemKey(group.type, group.getValue?.(item) ?? null)
+            return floatRecentAndPinnedToTop(
+                merged,
+                keyOf,
+                promoteRecentItemsToTop || [],
+                promotePinnedItemsToTop || []
+            ) as TaxonomicDefinitionTypes[]
+        }
         return merged
-    }, [keywordShortcuts, localItems, remoteItems])
+    }, [
+        keywordShortcuts,
+        localItems,
+        remoteItems,
+        trimmedSearch,
+        promoteRecentItemsToTop,
+        promotePinnedItemsToTop,
+        group,
+    ])
 
     const isExpandable = !!(
         group.endpoint &&

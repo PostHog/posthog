@@ -1,0 +1,56 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Sourced from the official Buzzsprout API docs: https://github.com/Buzzsprout/buzzsprout-api
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "episodes": {
+        "description": "Every episode for the configured podcast, including publishing metadata and play counts.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/episodes.md",
+        "columns": {
+            "id": "Unique identifier for the episode.",
+            "title": "Episode title.",
+            "audio_url": "URL of the episode's audio file.",
+            "artwork_url": "URL of the episode's artwork image.",
+            "description": "Full episode description (may contain HTML).",
+            "summary": "Short episode summary.",
+            "artist": "Artist/author name shown for the episode.",
+            "tags": "Comma-separated tags applied to the episode.",
+            "published_at": "ISO 8601 timestamp the episode was (or is scheduled to be) published.",
+            "duration": "Episode length in seconds.",
+            "hq": "Whether the episode audio is high quality.",
+            "magic_mastering": "Whether Buzzsprout Magic Mastering audio post-processing is enabled.",
+            "guid": "Globally unique RSS feed identifier for the episode.",
+            "inactive_at": "ISO 8601 timestamp the episode was deactivated, or null if active.",
+            "episode_number": "Episode number within its season.",
+            "season_number": "Season number the episode belongs to.",
+            "explicit": "Whether the episode is marked as explicit.",
+            "private": "Whether the episode is private (not published to public feeds).",
+            "total_plays": "Cumulative number of plays for the episode.",
+        },
+    },
+    "podcasts": {
+        "description": "Podcasts the API token can access, with their channel-level metadata.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/podcasts.md",
+        "columns": {
+            "id": "Unique identifier for the podcast.",
+            "title": "Podcast title.",
+            "author": "Podcast author/owner name.",
+            "description": "Podcast description.",
+            "website_address": "Podcast website URL.",
+            "contact_email": "Contact email for the podcast.",
+            "keywords": "Comma-separated keywords for the podcast.",
+            "explicit": "Whether the podcast is marked as explicit.",
+            "main_category": "Primary Apple Podcasts category.",
+            "sub_category": "Primary Apple Podcasts subcategory.",
+            "main_category2": "Second Apple Podcasts category.",
+            "sub_category2": "Second Apple Podcasts subcategory.",
+            "main_category3": "Third Apple Podcasts category.",
+            "sub_category3": "Third Apple Podcasts subcategory.",
+            "language": "Podcast language code.",
+            "timezone": "Podcast timezone.",
+            "artwork_url": "URL of the podcast artwork image.",
+            "background_url": "URL of the podcast background image.",
+        },
+    },
+}

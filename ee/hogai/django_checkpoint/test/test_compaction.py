@@ -22,7 +22,7 @@ from products.posthog_ai.backend.models.assistant import (
 
 from ee.hogai.api.serializers import aget_conversation_state
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.django_checkpoint.compaction import compact_thread
+from ee.hogai.django_checkpoint.compaction import compact_conversation, compact_thread
 from ee.hogai.utils.types import AssistantState
 
 
@@ -33,6 +33,14 @@ def _table_counts(thread_id: str) -> dict[str, int]:
         "blobs": ConversationCheckpointBlob.objects.filter(thread_id=thread_id).count(),
         "writes": ConversationCheckpointWrite.objects.filter(checkpoint__thread_id=thread_id).count(),
     }
+
+
+@sync_to_async
+def _namespace_counts(thread_id: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for ns in ConversationCheckpoint.objects.filter(thread_id=thread_id).values_list("checkpoint_ns", flat=True):
+        counts[ns] = counts.get(ns, 0) + 1
+    return counts
 
 
 class TestCheckpointCompaction(NonAtomicBaseTest):
@@ -57,10 +65,62 @@ class TestCheckpointCompaction(NonAtomicBaseTest):
             await graph.ainvoke({"messages": [HumanMessage(content=f"question {turn}")]}, config)
         return conversation, graph, config
 
+    def _build_nested_graph(self, checkpointer: DjangoCheckpointer):
+        subgraph = StateGraph(AssistantState)
+
+        def sub_first(state: AssistantState) -> dict:
+            return {"messages": [AssistantMessage(content="sub first")]}
+
+        def sub_second(state: AssistantState) -> dict:
+            return {"messages": [AssistantMessage(content="sub second")]}
+
+        subgraph.add_node("sub_first", sub_first)
+        subgraph.add_node("sub_second", sub_second)
+        subgraph.add_edge(START, "sub_first")
+        subgraph.add_edge("sub_first", "sub_second")
+        subgraph.add_edge("sub_second", END)
+
+        parent = StateGraph(AssistantState)
+        parent.add_node("child", subgraph.compile())
+        parent.add_edge(START, "child")
+        parent.add_edge("child", END)
+        return parent.compile(checkpointer=checkpointer)
+
     async def _message_contents(self, conversation: Conversation) -> list[str]:
         state, _, _ = await aget_conversation_state(conversation, self.team, self.user)
         assert state is not None, "UI load path returned no state"
         return [m.content for m in state.messages]
+
+    async def test_compaction_handles_nested_subgraphs(self):
+        conversation = await Conversation.objects.acreate(user=self.user, team=self.team)
+        graph = self._build_nested_graph(DjangoCheckpointer())
+        config = {"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}}
+        for turn in range(2):
+            await graph.ainvoke({"messages": [HumanMessage(content=f"question {turn}")]}, config)
+
+        before = await _namespace_counts(str(conversation.id))
+        subgraph_namespaces = [ns for ns in before if ns != ""]
+        assert subgraph_namespaces, "expected subgraph checkpoints under a non-root namespace"
+        assert all(before[ns] > 1 for ns in subgraph_namespaces), "subgraph namespaces should accumulate checkpoints"
+        messages_before = await self._message_contents(conversation)
+
+        # Root-only compaction (the old admin behaviour) leaves every subgraph namespace untouched.
+        await sync_to_async(compact_thread)(str(conversation.id))
+        after_root_only = await _namespace_counts(str(conversation.id))
+        assert {ns: after_root_only[ns] for ns in subgraph_namespaces} == {ns: before[ns] for ns in subgraph_namespaces}
+
+        # compact_conversation collapses every namespace to its tip.
+        result = await sync_to_async(compact_conversation)(str(conversation.id))
+        assert result.compacted is True
+        after = await _namespace_counts(str(conversation.id))
+        assert all(count == 1 for count in after.values()), f"every namespace must collapse to its tip: {after}"
+
+        # The whole conversation — including subgraph state — still loads and resumes unchanged.
+        assert await self._message_contents(conversation) == messages_before
+        await graph.ainvoke({"messages": [HumanMessage(content="after compaction")]}, config)
+        resumed = await self._message_contents(conversation)
+        assert resumed[: len(messages_before)] == messages_before
+        assert "after compaction" in resumed
 
     @parameterized.expand([("two_turns", 2), ("four_turns", 4)])
     async def test_compaction_keeps_conversation_loadable_and_resumable(self, _name: str, n_turns: int):

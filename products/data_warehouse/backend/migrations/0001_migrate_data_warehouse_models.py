@@ -12,8 +12,8 @@ from django.db import migrations, models
 import posthog.models.utils
 import posthog.helpers.encrypted_fields
 
-import products.data_modeling.backend.models.modeling
-import products.data_modeling.backend.models.datawarehouse_saved_query
+import products.data_modeling.backend.facade.models
+import products.data_modeling.backend.facade.modeling
 
 
 class Migration(migrations.Migration):
@@ -100,9 +100,7 @@ class Migration(migrations.Migration):
                             "name",
                             models.CharField(
                                 max_length=128,
-                                validators=[
-                                    products.data_modeling.backend.models.datawarehouse_saved_query.validate_saved_query_name
-                                ],
+                                validators=[products.data_modeling.backend.facade.models.validate_saved_query_name],
                             ),
                         ),
                         ("latest_error", models.TextField(blank=True, default=None, null=True)),
@@ -659,7 +657,7 @@ class Migration(migrations.Migration):
                                 default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                             ),
                         ),
-                        ("path", products.data_modeling.backend.models.modeling.LabelTreeField()),
+                        ("path", products.data_modeling.backend.facade.modeling.LabelTreeField()),
                         (
                             "created_by",
                             models.ForeignKey(

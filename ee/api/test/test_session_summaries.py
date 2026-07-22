@@ -654,7 +654,7 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get("Content-Type"), "text/event-stream")
-        self.assertEqual(response.get("Cache-Control"), "no-cache")
+        self.assertEqual(response.get("Cache-Control"), "no-cache, no-transform")
         self.assertEqual(response.get("X-Accel-Buffering"), "no")
 
     @patch("ee.api.session_summaries.capture_session_summary_generated")

@@ -16,6 +16,12 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
+// Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
+// built after the toolbar app build so it can embed the hashed entry filename). Consumers
+// depend on @posthog/esbuilder, not on esbuild directly, so pnpm's strict node_modules
+// wouldn't let them import 'esbuild' themselves.
+export { build as esbuildBuild } from 'esbuild'
+
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
 
@@ -40,12 +46,14 @@ export function copySnappyWASMFile(absWorkingDir) {
     }
 }
 
-export function copyRRWebWorkerFiles(absWorkingDir) {
-    // Mirror rrweb's image-bitmap worker sourcemap (shipped from posthog-js) into our dist/
-    // so the sourceMappingURL baked into our bundled rrweb resolves under collectstatic.
+export function copyRRWebWorkerFiles(absWorkingDir, distSubdir = 'dist') {
+    // Mirror rrweb's image-bitmap worker sourcemap (shipped from posthog-js) into the output
+    // dir so the sourceMappingURL baked into our bundled rrweb resolves under collectstatic.
+    // ManifestStaticFilesStorage resolves the reference relative to the referencing file's
+    // directory, so every outdir that bundles rrweb needs its own copy.
     try {
         const rrwebSourceDir = path.resolve(absWorkingDir, 'node_modules/posthog-js/dist')
-        const distDir = path.resolve(absWorkingDir, 'dist')
+        const distDir = path.resolve(absWorkingDir, distSubdir)
         const files = fse.readdirSync(rrwebSourceDir)
         const mapFiles = files.filter((f) => f.startsWith('image-bitmap-data-url-worker-') && f.endsWith('.js.map'))
         mapFiles.forEach((file) => {
@@ -193,6 +201,35 @@ export const commonConfig = {
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [
+        // @posthog/brand's PNG stubs locate their image via `new URL("./x.png", import.meta.url)`,
+        // which esbuild leaves verbatim in the output: the URL then resolves relative to the
+        // built chunk's URL, where the PNG doesn't exist (404), and IIFE builds like the toolbar
+        // have no import.meta at all. Rewrite the stub to a static import so the `.png` file
+        // loader emits the image with a hashed name and a correct publicPath URL.
+        {
+            name: 'brand-png-asset-urls',
+            setup(build) {
+                build.onLoad(
+                    { filter: /@posthog[\\/]brand[\\/]dist[\\/].*[\\/]png[\\/][^\\/]+\.mjs$/ },
+                    async (args) => {
+                        const source = await fs.readFile(args.path, 'utf8')
+                        if (!source.includes('.png')) {
+                            // png/index.mjs barrels only re-export the leaf stubs - nothing to rewrite.
+                            return undefined
+                        }
+                        const contents = source.replace(
+                            /const src = new URL\((".*?\.png"), import\.meta\.url\)\.href;?/,
+                            'import src from $1;'
+                        )
+                        if (contents === source) {
+                            // Stub shape changed upstream - fail loudly rather than shipping 404ing URLs.
+                            throw new Error(`brand-png-asset-urls: no rewritable URL stub found in ${args.path}`)
+                        }
+                        return { contents, loader: 'js' }
+                    }
+                )
+            },
+        },
         // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
         // which esbuild can't resolve through monaco-editor's package.json exports map
         {
@@ -348,7 +385,10 @@ export async function buildInParallel(configs, { onBuildStart, onBuildComplete }
                 })
             )
         )
-    } catch {
+    } catch (error) {
+        // esbuild already prints its own compile errors, but onBuildStart/onBuildComplete
+        // failures (e.g. finalizeToolbarBuild) would otherwise die silently here.
+        console.error(error)
         if (!isDev) {
             process.exit(1)
         }

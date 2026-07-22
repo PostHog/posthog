@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -210,6 +210,64 @@ export const McpAnalyticsMissingCapabilitiesCreateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
+ * List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.
+ */
+export const McpAnalyticsSessionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const mcpAnalyticsSessionsListQueryLimitDefault = 100
+export const mcpAnalyticsSessionsListQueryLimitMax = 500
+
+export const mcpAnalyticsSessionsListQueryOffsetDefault = 0
+export const mcpAnalyticsSessionsListQueryOffsetMin = 0
+
+export const mcpAnalyticsSessionsListQueryOrderByDefault = ``
+export const mcpAnalyticsSessionsListQuerySearchDefault = ``
+
+export const McpAnalyticsSessionsListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'."
+        ),
+    date_to: zod
+        .string()
+        .optional()
+        .describe('End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(mcpAnalyticsSessionsListQueryLimitMax)
+        .default(mcpAnalyticsSessionsListQueryLimitDefault)
+        .describe('Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.'),
+    offset: zod
+        .number()
+        .min(mcpAnalyticsSessionsListQueryOffsetMin)
+        .default(mcpAnalyticsSessionsListQueryOffsetDefault)
+        .describe(
+            "Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain."
+        ),
+    order_by: zod
+        .string()
+        .default(mcpAnalyticsSessionsListQueryOrderByDefault)
+        .describe(
+            "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first)."
+        ),
+    search: zod
+        .string()
+        .default(mcpAnalyticsSessionsListQuerySearchDefault)
+        .describe(
+            'Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.'
+        ),
+})
+
+/**
  * Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return the stored summary.
  */
 export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.object({
@@ -227,5 +285,47 @@ export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod
         .optional()
         .describe(
             "Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+        ),
+})
+
+/**
+ * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
+ */
+export const McpAnalyticsSessionsToolCallsParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const mcpAnalyticsSessionsToolCallsQueryLimitDefault = 500
+export const mcpAnalyticsSessionsToolCallsQueryLimitMax = 500
+
+export const mcpAnalyticsSessionsToolCallsQueryOffsetDefault = 0
+export const mcpAnalyticsSessionsToolCallsQueryOffsetMin = 0
+
+export const McpAnalyticsSessionsToolCallsQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(mcpAnalyticsSessionsToolCallsQueryLimitMax)
+        .default(mcpAnalyticsSessionsToolCallsQueryLimitDefault)
+        .describe(
+            "Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected."
+        ),
+    offset: zod
+        .number()
+        .min(mcpAnalyticsSessionsToolCallsQueryOffsetMin)
+        .default(mcpAnalyticsSessionsToolCallsQueryOffsetDefault)
+        .describe(
+            "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain."
         ),
 })

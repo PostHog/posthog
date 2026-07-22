@@ -104,6 +104,44 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{GONG_BASE_URL}{path}?{urlencode(params)}"
 
 
+def _extensive_body(window_start: datetime, window_end: datetime, cursor: Optional[str]) -> dict[str, Any]:
+    """Request body for `POST /v2/calls/extensive`.
+
+    `contentSelector.context = "Extended"` asks Gong to return each call's CRM associations
+    (linked Salesforce/HubSpot objects and their fields); `exposedFields.parties = true` returns
+    the participants (name, email address, affiliation). Neither is available from the basic
+    `/v2/calls` list endpoint. The pagination cursor travels in the body, not the query string.
+    """
+    body: dict[str, Any] = {
+        "filter": {
+            "fromDateTime": _format_datetime(window_start),
+            "toDateTime": _format_datetime(window_end),
+        },
+        "contentSelector": {
+            "context": "Extended",
+            "exposedFields": {"parties": True},
+        },
+    }
+    if cursor:
+        body["cursor"] = cursor
+    return body
+
+
+def _flatten_extensive_call(call: dict[str, Any]) -> dict[str, Any]:
+    """Lift the `metaData` block of an extensive call row to the top level.
+
+    `/v2/calls/extensive` nests the core call fields under `metaData` and returns `parties`
+    and CRM `context` as siblings. Flattening `metaData` up keeps `id` and `started` available
+    at the top level for primary-key merge and datetime partitioning, while preserving the
+    enrichment as nested `parties`/`context` columns.
+    """
+    meta = call.get("metaData") or {}
+    flattened = dict(meta)
+    flattened["parties"] = call.get("parties")
+    flattened["context"] = call.get("context")
+    return flattened
+
+
 def get_rows(
     access_key: str,
     access_key_secret: str,
@@ -122,11 +160,23 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=60),
         reraise=True,
     )
-    def fetch_page(url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(url, headers=headers, timeout=60)
+    def fetch_page(url: str, json_body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        session = make_tracked_session(capture=config.capture_http_samples)
+        # Extensive endpoints POST their filter/pagination in a JSON body; list endpoints GET.
+        # `requests` sets `Content-Type: application/json` automatically for the `json=` kwarg.
+        if json_body is not None:
+            response = session.post(url, headers=headers, json=json_body, timeout=60)
+        else:
+            response = session.get(url, headers=headers, timeout=60)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise GongRetryableError(f"Gong API error (retryable): status={response.status_code}, url={url}")
+
+        # Gong's `/v2/calls` answers a date window with no processed calls using a 404
+        # ("No calls found corresponding to the provided filters") rather than an empty 200.
+        # Treat it as an empty page so the sync skips the window instead of failing.
+        if config.uses_date_window and response.status_code == 404 and "no calls" in response.text.lower():
+            return {}
 
         if not response.ok:
             logger.error(f"Gong API error: status={response.status_code}, body={response.text}, url={url}")
@@ -197,16 +247,23 @@ def _iter_windowed_rows(
         cursor: str | None = None
 
         while True:
-            params: dict[str, Any] = {
-                "fromDateTime": _format_datetime(window_start),
-                "toDateTime": _format_datetime(window_end),
-            }
-            if cursor:
-                params["cursor"] = cursor
+            if config.uses_extensive:
+                data = fetch_page(
+                    _build_url(config.path, {}),
+                    json_body=_extensive_body(window_start, window_end, cursor),
+                )
+                rows = [_flatten_extensive_call(row) for row in data.get(config.response_key, [])]
+            else:
+                params: dict[str, Any] = {
+                    "fromDateTime": _format_datetime(window_start),
+                    "toDateTime": _format_datetime(window_end),
+                }
+                if cursor:
+                    params["cursor"] = cursor
 
-            data = fetch_page(_build_url(config.path, params))
+                data = fetch_page(_build_url(config.path, params))
+                rows = data.get(config.response_key, [])
 
-            rows = data.get(config.response_key, [])
             if rows:
                 yield rows
 

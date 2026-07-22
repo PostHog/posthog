@@ -513,9 +513,6 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
-  view "daily_aggregated_query_log_archive" {
-    query = file("sql/daily_aggregated_query_log_archive.sql")
-  }
   view "custom_metrics" {
     query = file("sql/custom_metrics.sql")
   }

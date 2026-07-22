@@ -48,6 +48,7 @@ def cascade_posthog_code_repository_activity(
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -57,12 +58,12 @@ def cascade_posthog_code_repository_activity(
     all_repos = _get_full_repo_names(integration, user_id=user_id)
 
     if not all_repos:
-        # A connected team install with no personal install is recoverable via the gate prompt;
-        # a team with no install at all is genuinely no-op.
+        # With bot PRs off, a team install means a missing personal install is recoverable via the
+        # gate prompt; with bot PRs on, team repos are already folded into all_repos, so empty is no-op.
         team_has_github = Integration.objects.filter(
             team=integration.team, kind=Integration.IntegrationKind.GITHUB
         ).exists()
-        if team_has_github:
+        if team_has_github and not is_slack_app_bot_prs_enabled(integration.team):
             return PostHogCodeRepoCascadeOutcome(mode="needs_user_github", repository=None, reason="no_user_repos")
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
 

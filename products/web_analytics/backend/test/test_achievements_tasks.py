@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext
-from products.web_analytics.backend.models import WebAnalyticsAchievementProgress
+from products.web_analytics.backend.models import WebAnalyticsAchievementProgress, WebAnalyticsUserConfig
 from products.web_analytics.backend.test.achievements_test_utils import make_evaluators
 
 
@@ -88,17 +88,34 @@ class TestRecomputeTask(BaseTest):
         self.assertEqual(self._progress("loyalty").current_stage, 1)
 
     def test_unlock_fires_best_effort_notification(self) -> None:
-        with patch.object(tasks, "create_notification") as mock_notify:
-            with self.captureOnCommitCallbacks(execute=True):
-                self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
         self.assertEqual(mock_notify.call_count, 1)
 
+    def test_unlock_notification_skipped_when_achievements_flag_disabled(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        mock_notify.assert_not_called()
+
+    def test_unlock_notification_skipped_when_user_opted_out(self) -> None:
+        WebAnalyticsUserConfig(team=self.team, user=self.user, achievements_opt_out=True).save()
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        mock_notify.assert_not_called()
+
     def test_duplicate_recompute_is_idempotent(self) -> None:
-        with patch.object(tasks, "create_notification") as mock_notify:
-            with self.captureOnCommitCallbacks(execute=True):
-                self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
-            with self.captureOnCommitCallbacks(execute=True):
-                self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
         progress = self._progress("loyalty")
         self.assertEqual(progress.state["pending_celebrations"], [1])
         self.assertEqual(mock_notify.call_count, 1)

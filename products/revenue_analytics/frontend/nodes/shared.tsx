@@ -14,7 +14,7 @@ import {
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { extractValidationError, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, extractValidationErrorCode, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
 import { AnyResponseType, GoalLine, RevenueAnalyticsGoal, TrendsFilter } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
@@ -86,7 +86,13 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
         }
 
         if (validationError) {
-            return <InsightValidationError query={query} detail={validationError} />
+            return (
+                <InsightValidationError
+                    query={query}
+                    detail={validationError}
+                    validationErrorCode={extractValidationErrorCode(responseErrorObject)}
+                />
+            )
         }
 
         if (
@@ -96,7 +102,13 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
             'results' in response &&
             response.results.length === 0
         ) {
-            return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+            return (
+                <InsightEmptyState
+                    heading={context?.emptyStateHeading}
+                    detail={context?.emptyStateDetail}
+                    sampleDataVariant="line"
+                />
+            )
         }
 
         if (responseErrorObject) {

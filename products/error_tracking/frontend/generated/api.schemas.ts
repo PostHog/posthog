@@ -99,6 +99,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -250,6 +259,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -274,6 +291,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -288,6 +314,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -303,8 +330,10 @@ export interface PropertyGroupFilterValueApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -372,6 +401,60 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly updated_at?: string
 }
 
+export interface ErrorTrackingBypassRuleApi {
+    /** Unique identifier of the bypass rule. */
+    readonly id: string
+    /** Property-group filters that define which incoming error events bypass rate limiting. */
+    filters: unknown
+    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+    order_key: number
+    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+    disabled_data: unknown
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedErrorTrackingBypassRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingBypassRuleApi[]
+}
+
+export interface ErrorTrackingBypassRuleCreateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+    filters: PropertyGroupFilterValueApi
+}
+
+export interface ErrorTrackingBypassRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+}
+
+export interface PatchedErrorTrackingBypassRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+}
+
+export interface PatchedErrorTrackingBypassRuleApi {
+    /** Unique identifier of the bypass rule. */
+    readonly id?: string
+    /** Property-group filters that define which incoming error events bypass rate limiting. */
+    filters?: unknown
+    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+    order_key?: number
+    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+    disabled_data?: unknown
+    /** When the rule was created. */
+    readonly created_at?: string
+    /** When the rule was last updated. */
+    readonly updated_at?: string
+}
+
 export interface ErrorTrackingExternalReferenceIntegrationResultApi {
     /** ID of the integration backing this external reference. */
     readonly id: number
@@ -411,9 +494,13 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 }
 
 export interface ErrorTrackingFingerprintApi {
+    /** Unique ID of the fingerprint record. */
     readonly id: string
+    /** The fingerprint value. */
     readonly fingerprint: string
+    /** ID of the issue this fingerprint currently belongs to. */
     readonly issue_id: string
+    /** When the fingerprint record was created. */
     readonly created_at: string
 }
 
@@ -874,6 +961,7 @@ export const BlankEnumApi = {
  * * `event_metadata` - event_metadata
  * * `feature` - feature
  * * `person` - person
+ * * `person_metadata` - person_metadata
  * * `cohort` - cohort
  * * `element` - element
  * * `static-cohort` - static-cohort
@@ -891,10 +979,12 @@ export const BlankEnumApi = {
  * * `log` - log
  * * `log_attribute` - log_attribute
  * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
  * * `span` - span
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
  * * `flag` - flag
  * * `workflow_variable` - workflow_variable
  */
@@ -905,6 +995,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',
@@ -922,10 +1013,12 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const
@@ -952,16 +1045,26 @@ export const OrderDirectionEnumApi = {
 } as const
 
 /**
- * * `summary` - summary
- * * `stack` - stack
- * * `raw` - raw
+ * * `exception` - exception
+ * * `stacktrace` - stacktrace
+ * * `code_variables` - code_variables
+ * * `environment` - environment
+ * * `release` - release
+ * * `navigation` - navigation
+ * * `correlation` - correlation
+ * * `diagnostics` - diagnostics
  */
-export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
+export type IncludeEnumApi = (typeof IncludeEnumApi)[keyof typeof IncludeEnumApi]
 
-export const VerbosityEnumApi = {
-    Summary: 'summary',
-    Stack: 'stack',
-    Raw: 'raw',
+export const IncludeEnumApi = {
+    Exception: 'exception',
+    Stacktrace: 'stacktrace',
+    CodeVariables: 'code_variables',
+    Environment: 'environment',
+    Release: 'release',
+    Navigation: 'navigation',
+    Correlation: 'correlation',
+    Diagnostics: 'diagnostics',
 } as const
 
 export interface ErrorTrackingIssueEventsQueryRequestApi {
@@ -994,12 +1097,8 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      * @minimum 0
      */
     offset?: number
-    /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-     *
-     * * `summary` - summary
-     * * `stack` - stack
-     * * `raw` - raw */
-    verbosity?: VerbosityEnumApi
+    /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
+    include?: IncludeEnumApi[]
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }
@@ -1671,6 +1770,17 @@ export type ErrorTrackingAssignmentRulesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingBypassRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -1691,6 +1801,13 @@ export type ErrorTrackingFingerprintsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string
 }
 
 export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {

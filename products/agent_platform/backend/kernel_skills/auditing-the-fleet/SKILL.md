@@ -38,7 +38,7 @@ single-agent flow:
    `promote` / `archive` need explicit consent (a `principal`
    approval) and are out of scope for the sweep itself. Your write
    surface this run is: `new-draft-create`, the bundle edit tools
-   (`agent-md-update`, `skill-refs-set`, `tools-update`,
+   (`agent-md-update`, `skill-refs-update`, `tools-update`,
    `partial-update`), and `validate-create`. Stop at validate. Do
    **not** `freeze` — a frozen revision reads as "ready to ship", and
    these are unreviewed.
@@ -116,7 +116,7 @@ For each fix:
    surgical.
 2. Apply the **smallest** change that addresses the root cause:
    - prompt/loop bug → `agent-md-update`, or revise the skill in the
-     store (`llm-skills-create` a new version) and `skill-refs-set`
+     store (`llm-skills-create` a new version) and `skill-refs-update`
    - missing/over-broad tool, wrong limit, wrong model/reasoning →
      `partial-update` on the spec
    - keep each draft to **one** root cause. Don't bundle unrelated

@@ -19,7 +19,6 @@ WORKFLOW_NAME = "error-tracking-fingerprint-embedding-result"
 
 ACTIVITY_RETRY_POLICY = common.RetryPolicy(maximum_attempts=4)
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
-ACTIVITY_START_DELAY = timedelta(seconds=30)
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -39,8 +38,6 @@ class ErrorTrackingFingerprintEmbeddingResultWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
-        # The embedding result can arrive before ClickHouse has consumed the embedding row.
-        await workflow.sleep(ACTIVITY_START_DELAY)
         return await workflow.execute_activity(
             merge_similar_fingerprints_activity,
             inputs,

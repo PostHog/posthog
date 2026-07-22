@@ -68,6 +68,7 @@ class License(models.Model):
         AvailableFeature.RECORDINGS_FILE_EXPORT,
         AvailableFeature.RECORDINGS_PERFORMANCE,
         AvailableFeature.HIGH_FREQUENCY_ALERTS,
+        AvailableFeature.REAL_TIME_ALERTS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"

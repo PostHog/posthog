@@ -1,11 +1,30 @@
-//! The wire contract for the `error-tracking-ingestion-notifications` Kafka
+//! The wire contract for the `error_tracking_ingestion_notifications` Kafka
 //! topic. The processing mode produces these; the notifications mode consumes
 //! them.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum NotificationValidationError {
+    #[error(
+        "notification issue id {context_issue_id} does not match processed property issue id {property_issue_id}"
+    )]
+    IssueIdMismatch {
+        context_issue_id: Uuid,
+        property_issue_id: Uuid,
+    },
+    #[error(
+        "notification fingerprint {notification_fingerprint:?} does not match processed property fingerprint {property_fingerprint:?}"
+    )]
+    FingerprintMismatch {
+        notification_fingerprint: String,
+        property_fingerprint: String,
+    },
+}
 
 /// A notification emitted by error-tracking ingestion. Serialized as
 /// internally-tagged JSON (`{"type": "issue_created", ...}`) so new variants can
@@ -16,38 +35,145 @@ use crate::types::OutputErrProps;
 pub enum IngestionNotification {
     /// A new issue was created during ingestion.
     IssueCreated(IssueCreated),
+    /// A resolved issue was reopened during ingestion.
+    IssueReopened(IssueReopened),
+    /// An issue crossed the spike threshold during ingestion.
+    IssueSpiking(IssueSpiking),
+}
+
+impl IngestionNotification {
+    pub fn notification_id(&self) -> Uuid {
+        match self {
+            IngestionNotification::IssueCreated(issue_created) => {
+                issue_created.meta.notification_id
+            }
+            IngestionNotification::IssueReopened(issue_reopened) => {
+                issue_reopened.meta.notification_id
+            }
+            IngestionNotification::IssueSpiking(issue_spiking) => {
+                issue_spiking.meta.notification_id
+            }
+        }
+    }
+
+    pub fn team_id(&self) -> i32 {
+        match self {
+            IngestionNotification::IssueCreated(issue_created) => issue_created.meta.team_id,
+            IngestionNotification::IssueReopened(issue_reopened) => issue_reopened.meta.team_id,
+            IngestionNotification::IssueSpiking(issue_spiking) => issue_spiking.meta.team_id,
+        }
+    }
+
+    pub fn partition_key(&self) -> String {
+        match self {
+            IngestionNotification::IssueCreated(issue_created) => {
+                issue_created.issue.partition_key(self.team_id())
+            }
+            IngestionNotification::IssueReopened(issue_reopened) => {
+                issue_reopened.issue.partition_key(self.team_id())
+            }
+            IngestionNotification::IssueSpiking(issue_spiking) => {
+                issue_spiking.issue.partition_key(self.team_id())
+            }
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), NotificationValidationError> {
+        let issue = match self {
+            IngestionNotification::IssueCreated(notification) => &notification.issue,
+            IngestionNotification::IssueReopened(notification) => &notification.issue,
+            IngestionNotification::IssueSpiking(notification) => &notification.issue,
+        };
+        let property_issue_id = issue.event_properties.issue_id();
+        if issue.issue_id != property_issue_id {
+            return Err(NotificationValidationError::IssueIdMismatch {
+                context_issue_id: issue.issue_id,
+                property_issue_id,
+            });
+        }
+
+        if let IngestionNotification::IssueCreated(notification) = self {
+            let property_fingerprint = notification.issue.event_properties.fingerprint();
+            if notification.fingerprint != property_fingerprint {
+                return Err(NotificationValidationError::FingerprintMismatch {
+                    notification_fingerprint: notification.fingerprint.clone(),
+                    property_fingerprint: property_fingerprint.to_string(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Shared metadata for every ingestion notification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationMeta {
+    /// Stable id for retryable side effects produced from this notification.
+    #[serde(default = "Uuid::now_v7")]
+    pub notification_id: Uuid,
+    pub team_id: i32,
+}
+
+/// Shared context for notifications that produce issue side effects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueNotificationContext {
+    pub issue_id: Uuid,
+    pub issue: IssueSnapshot,
+    /// Full final exception event properties after Cymbal processing.
+    pub event_properties: ProcessedExceptionProperties,
+}
+
+impl IssueNotificationContext {
+    pub fn partition_key(&self, team_id: i32) -> String {
+        format!("{}:{}", team_id, self.issue_id)
+    }
 }
 
 /// Payload for [`IngestionNotification::IssueCreated`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueCreated {
-    pub team_id: i32,
-    pub issue_id: Uuid,
+    #[serde(flatten)]
+    pub meta: NotificationMeta,
+    #[serde(flatten)]
+    pub issue: IssueNotificationContext,
     pub fingerprint: String,
     pub event_uuid: Uuid,
     pub event_timestamp: String,
-    /// Full final exception event properties after Cymbal processing.
-    pub event_properties: OutputErrProps,
+    pub assignee: Option<String>,
 }
 
-impl IngestionNotification {
-    pub fn issue_created(
-        team_id: i32,
-        issue_id: Uuid,
-        fingerprint: String,
-        event_uuid: Uuid,
-        event_timestamp: String,
-        event_properties: OutputErrProps,
-    ) -> Self {
-        Self::IssueCreated(IssueCreated {
-            team_id,
-            issue_id,
-            fingerprint,
-            event_uuid,
-            event_timestamp,
-            event_properties,
-        })
-    }
+/// Payload for [`IngestionNotification::IssueReopened`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueReopened {
+    #[serde(flatten)]
+    pub meta: NotificationMeta,
+    #[serde(flatten)]
+    pub issue: IssueNotificationContext,
+    pub event_timestamp: String,
+    pub assignee: Option<String>,
+}
+
+/// Payload for [`IngestionNotification::IssueSpiking`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueSpiking {
+    #[serde(flatten)]
+    pub meta: NotificationMeta,
+    #[serde(flatten)]
+    pub issue: IssueNotificationContext,
+    pub computed_baseline: f64,
+    pub current_bucket_value: f64,
+    #[serde(default)]
+    pub assignee: Option<String>,
+}
+
+/// Issue state captured when the ingestion transition happened.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueSnapshot {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[cfg(test)]
@@ -56,17 +182,39 @@ mod tests {
 
     #[test]
     fn issue_created_round_trips_with_type_tag() {
-        let notification = IngestionNotification::issue_created(
-            42,
-            Uuid::nil(),
-            "abc".to_string(),
-            Uuid::nil(),
-            "1970-01-01T00:00:00Z".to_string(),
-            OutputErrProps {
-                fingerprint: "abc".to_string(),
-                ..Default::default()
+        let notification = IngestionNotification::IssueCreated(IssueCreated {
+            meta: NotificationMeta {
+                notification_id: Uuid::nil(),
+                team_id: 42,
             },
-        );
+            issue: IssueNotificationContext {
+                issue_id: Uuid::nil(),
+                issue: IssueSnapshot {
+                    name: Some("Example".to_string()),
+                    description: Some("Example issue".to_string()),
+                    status: "active".to_string(),
+                    created_at: DateTime::from_timestamp(0, 0).unwrap(),
+                },
+                event_properties: serde_json::from_value(serde_json::json!({
+                    "$exception_list": [{"type": "Error", "value": "boom"}],
+                    "$exception_fingerprint": "abc",
+                    "$exception_fingerprint_record": [{"type": "manual"}],
+                    "$exception_issue_id": Uuid::nil(),
+                    "$exception_handled": false,
+                    "$exception_types": ["Error"],
+                    "$exception_values": ["boom"],
+                    "$exception_sources": [],
+                    "$exception_functions": [],
+                }))
+                .unwrap(),
+            },
+            fingerprint: "abc".to_string(),
+            event_uuid: Uuid::nil(),
+            event_timestamp: "1970-01-01T00:00:00Z".to_string(),
+            assignee: None,
+        });
+
+        assert_eq!(notification.validate(), Ok(()));
 
         let json = serde_json::to_value(&notification).unwrap();
         assert_eq!(json["type"], "issue_created");
@@ -77,5 +225,21 @@ mod tests {
         // Round-trips back to the same JSON through the typed enum.
         let decoded: IngestionNotification = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
+
+        let mut issue_mismatch = json.clone();
+        issue_mismatch["issue_id"] = serde_json::json!(Uuid::now_v7());
+        let decoded: IngestionNotification = serde_json::from_value(issue_mismatch).unwrap();
+        assert!(matches!(
+            decoded.validate(),
+            Err(NotificationValidationError::IssueIdMismatch { .. })
+        ));
+
+        let mut fingerprint_mismatch = json;
+        fingerprint_mismatch["fingerprint"] = serde_json::json!("different");
+        let decoded: IngestionNotification = serde_json::from_value(fingerprint_mismatch).unwrap();
+        assert!(matches!(
+            decoded.validate(),
+            Err(NotificationValidationError::FingerprintMismatch { .. })
+        ));
     }
 }

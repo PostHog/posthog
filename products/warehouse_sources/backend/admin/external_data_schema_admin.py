@@ -16,7 +16,11 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
+from products.data_warehouse.backend.facade.api import (
+    pause_external_data_schedule,
+    sync_external_data_job_workflow,
+    unpause_external_data_schedule,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -148,6 +152,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.unpause_schedule_view),
                 name="external_data_schema_unpause_schedule",
             ),
+            path(
+                "<uuid:schema_id>/recreate-schedule/",
+                self.admin_site.admin_view(self.recreate_schedule_view),
+                name="external_data_schema_recreate_schedule",
+            ),
         ]
         return custom_urls + urls
 
@@ -256,16 +265,30 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             # new mode is ever added.
             assert_never(new_mode)
 
-        change_label = (
-            ", ".join(label_bits) + " (pinned for this reset)" if label_bits else "repartition (pinned for this reset)"
-        )
+        change_label = ", ".join(label_bits) if label_bits else "repartition"
+
+        # Translate the validated operator inputs into a `repartition_pending` target. The next run's
+        # pre-extraction activity rewrites the existing S3 data into this scheme in place — no source
+        # re-pull, no reset. `staged` is reused only as a validated carrier of the chosen knobs.
+        target = {
+            "partition_mode": new_mode,
+            "partition_format": staged.get("partition_format"),
+            "partition_count": staged.get("partition_count_override"),
+            "partition_size": staged.get("partition_size_override"),
+            "partition_keys": (
+                staged.get("partitioning_keys_override") or schema.partitioning_keys or schema.primary_key_columns or []
+            ),
+            "trigger_reason": "admin",
+            "attempts": 0,
+        }
 
         return self._pause_save_and_resync(
             request,
             schema,
-            staged_updates=staged,
+            staged_updates={"repartition_pending": target},
             change_label=change_label,
             workflow_kind="repartition",
+            reset_pipeline=False,
         )
 
     def _pause_save_and_resync(
@@ -276,10 +299,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         staged_updates: dict[str, Any],
         change_label: str,
         workflow_kind: str,
+        reset_pipeline: bool = True,
     ):
         # Shared tail for the partition-tuning admin actions (repartition, change partition mode):
-        # pause the schedule, stage the operator's sync_type_config updates alongside
-        # reset_pipeline, and trigger a single non-billable reset resync.
+        # pause the schedule, stage the operator's sync_type_config updates, and trigger a single
+        # non-billable run. With reset_pipeline=True the run re-pulls from source; with False the run's
+        # pre-extraction activity repartitions in place from S3 (no source pull) before syncing.
         #
         # Pause first so the scheduled workflow doesn't race with the admin one (Temporal's
         # "OnlyOne" overlap policy is per-schedule, not across schedule + ad-hoc workflow). If
@@ -308,7 +333,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         # re-read True and wipe Delta + cursor, restarting from row 0.
         for key, value in staged_updates.items():
             schema.sync_type_config[key] = value
-        schema.sync_type_config["reset_pipeline"] = True
+        if reset_pipeline:
+            schema.sync_type_config["reset_pipeline"] = True
         if admin_paused_now:
             schema.sync_type_config["admin_unpause_schedule_after_run"] = True
         schema.save(update_fields=["sync_type_config"])
@@ -337,7 +363,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                     pass
             messages.error(
                 request,
-                f"Saved {change_label}, but failed to trigger reset resync: {e}. "
+                f"Saved {change_label}, but failed to trigger run: {e}. "
                 f"Trigger one manually before the next scheduled sync.",
             )
             return redirect(_change_url(schema.id))
@@ -347,9 +373,14 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if admin_paused_now
             else " Schedule was already paused; leaving it paused."
         )
+        run_note = (
+            "non-billable reset resync (re-pulls from source)"
+            if reset_pipeline
+            else "non-billable in-place repartition (no source pull)"
+        )
         messages.success(
             request,
-            f"{change_label}. Triggered non-billable reset resync (workflow_id={workflow_id}).{pause_note}",
+            f"{change_label}. Triggered {run_note} (workflow_id={workflow_id}).{pause_note}",
         )
         return redirect(_change_url(schema.id))
 
@@ -472,6 +503,54 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             messages.error(request, f"Failed to unpause schedule: {e}")
         return redirect(_change_url(schema_id))
 
+    def recreate_schedule_view(self, request, schema_id):
+        # Recovery for schemas whose per-schema Temporal schedule is missing (e.g. the source
+        # creation request was killed between committing the rows and creating the schedules,
+        # or the schema was resurrected after a soft-delete). Safe on an existing schedule too:
+        # sync_external_data_job_workflow falls back to updating it in place. Deliberately does
+        # NOT trigger a run: the schedule's stored action is always billable, so operators kick
+        # off an immediate run with the (non-billable by default) "Trigger sync" action instead.
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+
+        # Resolve through the admin's scoped object path (get_queryset) rather than a bare
+        # manager .get(), so any queryset scoping applies to this action exactly as it does
+        # to the change form.
+        schema = self.get_object(request, str(schema_id))
+        if schema is None:
+            messages.error(request, f"Schema {schema_id} not found.")
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
+
+        if not self.has_change_permission(request, schema):
+            raise PermissionDenied
+
+        if not schema.source.supports_scheduled_sync:
+            messages.error(
+                request,
+                "This source is queried directly and does not use per-schema sync schedules.",
+            )
+            return redirect(_change_url(schema_id))
+
+        try:
+            sync_external_data_job_workflow(
+                schema, create=True, should_sync=schema.should_sync, trigger_immediately=False
+            )
+        except Exception as e:
+            messages.error(request, f"Failed to recreate schedule: {e}")
+            return redirect(_change_url(schema_id))
+
+        paused_note = (
+            " The schedule was created paused because sync is disabled for this schema."
+            if not schema.should_sync
+            else ""
+        )
+        messages.success(
+            request,
+            f"Recreated Temporal schedule for {schema.name}. No run was triggered; "
+            f'use "Trigger sync" for an immediate non-billable run.{paused_note}',
+        )
+        return redirect(_change_url(schema_id))
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
@@ -513,6 +592,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["pause_schedule_url"] = reverse("admin:external_data_schema_pause_schedule", args=[obj.id])
             extra_context["unpause_schedule_url"] = reverse(
                 "admin:external_data_schema_unpause_schedule", args=[obj.id]
+            )
+            extra_context["recreate_schedule_url"] = reverse(
+                "admin:external_data_schema_recreate_schedule", args=[obj.id]
             )
 
             # CDC schemas stream via a source-level extraction schedule; the per-schema schedule

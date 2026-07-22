@@ -8,8 +8,10 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
+import { ReadFileContent } from './ReadFileContent'
 import { ToolActivity } from './ToolActivity'
 import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from './toolDiffContent'
 import type { ToolRendererProps } from './toolRegistry'
@@ -43,7 +45,45 @@ const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
     scrollbar: { alwaysConsumeMouseWheel: false, vertical: 'auto', horizontal: 'auto' },
 }
 
-function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }): JSX.Element {
+// The permission card's variant: side-by-side when the container affords it, with Monaco's own
+// space-limited fallback collapsing back to the unified view in narrow embeds. Module-level for the
+// same `updateOptions` identity reason as above.
+const SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
+    ...DIFF_EDITOR_OPTIONS,
+    renderSideBySide: true,
+    useInlineViewWhenSpaceIsLimited: true,
+    renderSideBySideInlineBreakpoint: 560,
+}
+
+// Show-everything variants for evidence cards that cap height themselves — collapsing unchanged
+// regions AND capping would hide the same content twice and make the expand affordance lie.
+const SHOW_ALL_DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
+    ...DIFF_EDITOR_OPTIONS,
+    hideUnchangedRegions: { enabled: false },
+}
+const SIDE_BY_SIDE_SHOW_ALL_DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
+    ...SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS,
+    hideUnchangedRegions: { enabled: false },
+}
+
+function pickDiffEditorOptions(sideBySide: boolean, hideUnchanged: boolean): editor.IDiffEditorConstructionOptions {
+    if (sideBySide) {
+        return hideUnchanged ? SIDE_BY_SIDE_DIFF_EDITOR_OPTIONS : SIDE_BY_SIDE_SHOW_ALL_DIFF_EDITOR_OPTIONS
+    }
+    return hideUnchanged ? DIFF_EDITOR_OPTIONS : SHOW_ALL_DIFF_EDITOR_OPTIONS
+}
+
+export function DiffEditor({
+    diff,
+    path,
+    sideBySide,
+    hideUnchanged = true,
+}: {
+    diff: ToolCallDiffContent
+    path?: string
+    sideBySide?: boolean
+    hideUnchanged?: boolean
+}): JSX.Element {
     // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
     // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme.
@@ -58,7 +98,8 @@ function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }
                     modified={diff.newText ?? ''}
                     language={languageFromPath(path)}
                     theme={isDarkModeOn ? 'vs-dark' : 'vs'}
-                    options={DIFF_EDITOR_OPTIONS}
+                    options={pickDiffEditorOptions(!!sideBySide, hideUnchanged)}
+                    loading={<EditorSkeleton />}
                 />
             ) : (
                 <div className="h-24 rounded border border-border-secondary" />
@@ -68,7 +109,7 @@ function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }
 }
 
 /** +added / -removed mono stat chip for a diff. */
-function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
+export function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
     return (
         <span className="font-mono text-xs shrink-0">
             <span className="text-success">+{added}</span> <span className="text-danger">-{removed}</span>
@@ -78,8 +119,9 @@ function DiffStats({ added, removed }: { added: number; removed: number }): JSX.
 
 /**
  * Renderer for Edit / Write / MultiEdit / NotebookEdit. The header reads "Edited a file" / "Created a
- * file" (or "Edited N files"); expanding the card reveals the filename, line stats, and an inline visual
- * diff per file. Without `type: "diff"` content blocks it degrades to the generic card.
+ * file" (or "Edited N files"); expanding the card reveals the filename, line stats, and a per-file view:
+ * a single-pane read-only editor for a newly created file (no "before" to diff against), an inline visual
+ * diff for a real edit. Without `type: "diff"` content blocks it degrades to the generic card.
  */
 export function EditDiffRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
@@ -104,7 +146,11 @@ export function EditDiffRenderer(props: ToolRendererProps): JSX.Element {
                             {path && <FilePath path={path} />}
                             <DiffStats added={stats.added} removed={stats.removed} />
                         </div>
-                        <DiffEditor diff={diff} path={path} />
+                        {diff.oldText == null ? (
+                            <ReadFileContent text={diff.newText ?? ''} path={path} />
+                        ) : (
+                            <DiffEditor diff={diff} path={path} />
+                        )}
                     </div>
                 )
             })}

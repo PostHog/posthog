@@ -11,7 +11,7 @@ from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_paral
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
-except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath
     apply_quarantine_markers = None
 
 from django.conf import settings
@@ -27,13 +27,13 @@ def create_clickhouse_tables():
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.schema import (
-        CREATE_DATA_QUERIES,
         CREATE_DICTIONARY_QUERIES,
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_KAFKA_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
+        SEED_DATA_TABLES,
         build_query,
         get_table_name,
     )
@@ -74,8 +74,16 @@ def create_clickhouse_tables():
     if dictionary_queries:
         run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
-    run_clickhouse_statement_in_parallel(data_queries)
+    # Building the exchange-rate INSERT parses a 9 MB CSV and renders a ~100k-row VALUES
+    # string on every pytest invocation. With a reused database the seed data is already
+    # there, so skip the reload per-table (mirroring the `missing()` check above for tables).
+    # Derived from SEED_DATA_TABLES in schema.py, which also drives CREATE_DATA_QUERIES,
+    # so a new seed table added there is automatically picked up here.
+    # TRUNCATE-based resets go through reset_clickhouse_tables, which reloads unconditionally.
+    for table_name, query_fn in SEED_DATA_TABLES:
+        count = sync_execute(f"SELECT count() FROM {table_name}")[0][0]
+        if not count:
+            run_clickhouse_statement_in_parallel([build_query(query_fn)])
 
 
 def reset_clickhouse_tables():
@@ -88,7 +96,11 @@ def reset_clickhouse_tables():
     from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
-    from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
+    from posthog.models.event.sql import (
+        TRUNCATE_EVENTS_JSON_TABLE_SQL,
+        TRUNCATE_EVENTS_RECENT_TABLE_SQL,
+        TRUNCATE_EVENTS_TABLE_SQL,
+    )
     from posthog.models.exchange_rate.sql import TRUNCATE_EXCHANGE_RATE_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
@@ -113,6 +125,7 @@ def reset_clickhouse_tables():
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
         TRUNCATE_EVENTS_TABLE_SQL(),
+        TRUNCATE_EVENTS_JSON_TABLE_SQL(),
         TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -149,6 +162,26 @@ def reset_clickhouse_tables():
         )
         # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
         TABLES_TO_CREATE_DROP += [f"DROP TABLE {table[0]}" for table in kafka_tables]
+
+    # Skip truncating tables ClickHouse reports as empty: each truncate costs a keeper
+    # round-trip on replicated engines, and pure-Postgres sessions never write to these
+    # tables at all. Rather than parsing table names out of the statements, construct the
+    # expected statement from each empty table's name (the two forms our TRUNCATE_*_SQL
+    # constants produce) and exact-match. Fail-safe: any statement that doesn't match —
+    # ON CLUSTER clause, unexpected quoting, unknown total_rows (NULL for non-MergeTree
+    # engines) — is kept and truncated as before.
+    empty_table_truncates = {
+        form
+        for (name,) in sync_execute(
+            "SELECT name FROM system.tables WHERE database = %(database)s AND total_rows = 0",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+        for form in (
+            f"TRUNCATE TABLE IF EXISTS {name}",
+            f"TRUNCATE TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`{name}`",
+        )
+    }
+    TABLES_TO_CREATE_DROP = [q for q in TABLES_TO_CREATE_DROP if q.strip() not in empty_table_truncates]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
 
@@ -442,19 +475,19 @@ def mock_two_factor_sso_enforcement_check(request, mocker):
 
 
 @pytest.fixture(autouse=True)
-def mock_email_mfa_verifier(request, mocker):
+def mock_code_based_verifier(request, mocker):
     """
-    Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
-    Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
+    Mock the CodeBasedVerifier.should_send_code_based_verification method to return False for all tests.
+    Can be disabled by using @pytest.mark.disable_mock_code_based_verifier decorator.
     """
-    from posthog.helpers.two_factor_session import EmailMFACheckResult
+    from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult
 
-    if "disable_mock_email_mfa_verifier" in request.keywords:
+    if "disable_mock_code_based_verifier" in request.keywords:
         return
 
     mocker.patch(
-        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification",
-        return_value=EmailMFACheckResult(should_send=False),
+        "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
+        return_value=CodeBasedVerificationCheckResult(should_send=False),
     )
 
 
@@ -472,10 +505,16 @@ class _JUnitTimingsPlugin:
     phase. The backend CI uses `-o junit_duration_report=call`, so session and
     module-scoped fixture setup time is excluded from `<testcase time>` and
     instead lives in this pre-first-call gap.
+
+    Also records pytest-rerunfailures retries as a `<testcase>` property: pytest's
+    junitxml appends children only for passed/failed/skipped reports, so a rerun
+    report leaves no trace and a flaky fail-then-pass serializes as a clean
+    `<testcase/>` — invisible to flaky-test telemetry.
     """
 
     _PROPERTY_SETUP = "posthog.setup_seconds"
     _PROPERTY_COLLECTION = "posthog.collection_seconds"
+    _PROPERTY_RERUNS = "posthog.reruns"
 
     def __init__(self) -> None:
         self._session_start: float | None = None
@@ -496,6 +535,18 @@ class _JUnitTimingsPlugin:
     def pytest_runtest_call(self, item: pytest.Item) -> None:
         if self._first_test_call_start is None:
             self._first_test_call_start = time.monotonic()
+
+    # `tryfirst` so the property is on the report before junitxml's own
+    # logreport consumes `user_properties` into the `<testcase>` element.
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
+        # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
+        if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
+            return
+        # Appended exactly once: intermediate attempts never log a non-rerun teardown,
+        # and each report owns its own copy of `user_properties`.
+        report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:

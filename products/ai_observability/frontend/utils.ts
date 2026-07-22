@@ -326,20 +326,41 @@ export function getSessionID(event: LLMTrace | LLMTraceEvent, childEvents?: LLMT
     return sessionIdFromEvents(childEvents ?? event.events)
 }
 
-export function getEventType(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMEvent(event)) {
-        switch (event.event) {
-            case '$ai_generation':
-                return 'generation'
-            case '$ai_embedding':
-                return 'embedding'
-            case '$ai_trace':
-                return 'trace'
-            default:
-                return 'span'
-        }
+export type LLMEventKind = 'generation' | 'embedding' | 'trace' | 'span'
+
+export function getLLMEventKind(event: LLMTraceEvent): LLMEventKind {
+    switch (event.event) {
+        case '$ai_generation':
+            return 'generation'
+        case '$ai_embedding':
+            return 'embedding'
+        case '$ai_trace':
+            return 'trace'
+        default:
+            return 'span'
     }
-    return 'trace'
+}
+
+export function getEventType(event: LLMTrace | LLMTraceEvent): string {
+    return isLLMEvent(event) ? getLLMEventKind(event) : 'trace'
+}
+
+// Clamp AFTER the seconds-to-ms conversion: a finite-but-huge latency (1e306s)
+// overflows to Infinity when multiplied, which would hang the axis tick loop.
+export function latencyMs(event: LLMTraceEvent): number {
+    const ms = Number(event.properties?.$ai_latency) * 1000
+    return isFinite(ms) && ms > 0 ? ms : 0
+}
+
+/**
+ * Epoch ms when the operation behind an event began. PostHog AI SDKs capture an
+ * event when the operation finishes (timestamp = end, $ai_latency = duration),
+ * while OTel-ingested spans keep the span's start time. Shared by the timeline,
+ * the trace tree, and the drawer's event list so they all order events the same way.
+ */
+export function operationStartMs(event: LLMTraceEvent): number {
+    const t = new Date(event.createdAt).getTime()
+    return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMs(event)
 }
 
 export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
@@ -1136,19 +1157,18 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
 
 export async function queryEvaluationRuns(params: {
     evaluationId?: string
-    generationEventId?: string
     traceId?: string
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, generationEventId, traceId, forceRefresh } = params
+    const { evaluationId, traceId, forceRefresh } = params
 
-    const propertyValue = evaluationId || generationEventId || traceId
+    const propertyValue = evaluationId || traceId
 
     if (!propertyValue) {
-        throw new Error('Either evaluationId, generationEventId, or traceId must be provided')
+        throw new Error('Either evaluationId or traceId must be provided')
     }
 
-    const propertyName = evaluationId ? '$ai_evaluation_id' : generationEventId ? '$ai_target_event_id' : '$ai_trace_id'
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_trace_id'
 
     const query = hogql`
         SELECT
@@ -1180,4 +1200,59 @@ export async function queryEvaluationRuns(params: {
     )
 
     return (response.results || []).map(mapEvaluationRunRow)
+}
+
+export interface EvaluationRunsStats {
+    total: number
+    applicable: number
+    passed: number
+}
+
+// Counts every matching run server-side. queryEvaluationRuns caps its fetch at
+// EVALUATION_SUMMARY_MAX_RUNS, so summary stats can't be derived from that list without
+// undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
+// so both surfaces report the same totals.
+export async function queryEvaluationRunsStats(params: {
+    evaluationId?: string
+    traceId?: string
+    forceRefresh?: boolean
+}): Promise<EvaluationRunsStats> {
+    const { evaluationId, traceId, forceRefresh } = params
+
+    const propertyValue = evaluationId || traceId
+
+    if (!propertyValue) {
+        throw new Error('Either evaluationId or traceId must be provided')
+    }
+
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_trace_id'
+
+    const query = hogql`
+        SELECT
+            count() as total,
+            countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable,
+            countIf(properties.$ai_evaluation_result = 1) as passed
+        FROM events
+        WHERE
+            event = '$ai_evaluation'
+            AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+    `
+
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'AIObservability', productKey: 'llm_analytics' },
+        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+    )
+
+    const row = response.results?.[0]
+
+    if (!row) {
+        return { total: 0, applicable: 0, passed: 0 }
+    }
+
+    return {
+        total: Number(row[0]) || 0,
+        applicable: Number(row[1]) || 0,
+        passed: Number(row[2]) || 0,
+    }
 }

@@ -5,10 +5,14 @@ from products.customer_analytics.backend.presentation.views.organization_members
 )
 from products.customer_analytics.backend.presentation.views.views import (
     AccountNotebookViewSet,
+    AccountNotesViewSet,
+    AccountRelationshipDefinitionViewSet,
+    AccountRelationshipViewSet,
     AccountViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
     CustomPropertyDefinitionViewSet,
+    CustomPropertySourceViewSet,
     CustomPropertyValueViewSet,
 )
 
@@ -20,27 +24,38 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_organization_members",
         ["team_id"],
     )
-    routers.register_legacy_dual_route(
+    routers.projects.register(
         r"customer_profile_configs",
         CustomerProfileConfigViewSet,
         "project_customer_profile_configs",
         ["team_id"],
     )
-    routers.register_legacy_dual_route(
-        r"customer_journeys", CustomerJourneyViewSet, "project_customer_journeys", ["team_id"]
-    )
-    routers.register_legacy_dual_route(
+    routers.projects.register(r"customer_journeys", CustomerJourneyViewSet, "project_customer_journeys", ["team_id"])
+    routers.projects.register(
         r"custom_property_definitions",
         CustomPropertyDefinitionViewSet,
         "project_custom_property_definitions",
         ["team_id"],
     )
-    project_accounts_router, environment_accounts_router = routers.register_legacy_dual_route(
-        r"accounts", AccountViewSet, "project_accounts", ["team_id"]
+    routers.projects.register(
+        r"custom_property_sources",
+        CustomPropertySourceViewSet,
+        "project_custom_property_sources",
+        ["team_id"],
     )
-    environment_accounts_router.register(
-        r"notebooks", AccountNotebookViewSet, "environment_account_notebooks", ["team_id", "account_id"]
+    routers.projects.register(
+        r"account_relationship_definitions",
+        AccountRelationshipDefinitionViewSet,
+        "project_account_relationship_definitions",
+        ["team_id"],
     )
+    routers.projects.register(
+        r"account_notes",
+        AccountNotesViewSet,
+        "project_account_notes",
+        ["team_id"],
+    )
+    project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])
     project_accounts_router.register(
         r"notebooks", AccountNotebookViewSet, "project_account_notebooks", ["team_id", "account_id"]
     )
@@ -48,5 +63,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"custom_property_values",
         CustomPropertyValueViewSet,
         "project_account_custom_property_values",
+        ["team_id", "account_id"],
+    )
+    project_accounts_router.register(
+        r"relationships",
+        AccountRelationshipViewSet,
+        "project_account_relationships",
         ["team_id", "account_id"],
     )

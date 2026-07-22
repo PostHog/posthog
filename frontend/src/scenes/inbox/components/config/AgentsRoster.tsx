@@ -151,21 +151,34 @@ export function AgentsRoster(): JSX.Element {
     const {
         sessionAnalysisConfig,
         conversationsConfig,
+        evalReportsConfig,
+        anomalyInvestigationConfig,
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
         pgAnalyzeIssuesConfig,
+        healthChecksConfig,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isConversationsToggling,
+        isEvalReportsToggling,
+        isAnomalyInvestigationToggling,
         isErrorTrackingToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isPgAnalyzeIssuesToggling,
+        isHealthChecksToggling,
     } = useValues(signalSourcesLogic)
-    const { toggleSessionAnalysis, toggleConversations, toggleErrorTracking, initiateDataWarehouseSourceToggle } =
-        useActions(signalSourcesLogic)
+    const {
+        toggleSessionAnalysis,
+        toggleConversations,
+        toggleErrorTracking,
+        toggleEvalReports,
+        toggleAnomalyInvestigation,
+        toggleHealthChecks,
+        initiateDataWarehouseSourceToggle,
+    } = useActions(signalSourcesLogic)
 
     const stateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {
@@ -198,6 +211,27 @@ export function AgentsRoster(): JSX.Element {
                         requiresSetup: false,
                         syncStatus: sessionAnalysisConfig?.status,
                     }
+                case 'llm_analytics':
+                    return {
+                        armed: !!evalReportsConfig?.enabled,
+                        loading: isEvalReportsToggling,
+                        requiresSetup: false,
+                        syncStatus: null,
+                    }
+                case 'analytics':
+                    return {
+                        armed: !!anomalyInvestigationConfig?.enabled,
+                        loading: isAnomalyInvestigationToggling,
+                        requiresSetup: false,
+                        syncStatus: anomalyInvestigationConfig?.status,
+                    }
+                case 'health_checks':
+                    return {
+                        armed: !!healthChecksConfig?.enabled,
+                        loading: isHealthChecksToggling,
+                        requiresSetup: false,
+                        syncStatus: healthChecksConfig?.status,
+                    }
                 case 'github':
                     return dwState(githubIssuesConfig, isGithubIssuesToggling)
                 case 'linear':
@@ -215,6 +249,12 @@ export function AgentsRoster(): JSX.Element {
             isConversationsToggling,
             sessionAnalysisConfig,
             isSessionAnalysisToggling,
+            evalReportsConfig,
+            isEvalReportsToggling,
+            anomalyInvestigationConfig,
+            isAnomalyInvestigationToggling,
+            healthChecksConfig,
+            isHealthChecksToggling,
             githubIssuesConfig,
             isGithubIssuesToggling,
             linearIssuesConfig,
@@ -238,6 +278,15 @@ export function AgentsRoster(): JSX.Element {
                 case 'session_replay':
                     toggleSessionAnalysis()
                     return
+                case 'llm_analytics':
+                    toggleEvalReports()
+                    return
+                case 'analytics':
+                    toggleAnomalyInvestigation()
+                    return
+                case 'health_checks':
+                    toggleHealthChecks()
+                    return
                 case 'github':
                     initiateDataWarehouseSourceToggle('Github')
                     return
@@ -252,7 +301,15 @@ export function AgentsRoster(): JSX.Element {
                     return
             }
         },
-        [toggleErrorTracking, toggleConversations, toggleSessionAnalysis, initiateDataWarehouseSourceToggle]
+        [
+            toggleErrorTracking,
+            toggleConversations,
+            toggleSessionAnalysis,
+            toggleEvalReports,
+            toggleAnomalyInvestigation,
+            toggleHealthChecks,
+            initiateDataWarehouseSourceToggle,
+        ]
     )
 
     return (

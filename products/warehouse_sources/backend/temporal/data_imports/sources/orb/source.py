@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OrbSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.orb import OrbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb import (
     OrbResumeConfig,
     orb_source,
@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
+    api_docs_url = "https://docs.withorb.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ORB
@@ -61,7 +63,6 @@ You can create an API key in your [Orb account settings](https://app.withorb.com
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

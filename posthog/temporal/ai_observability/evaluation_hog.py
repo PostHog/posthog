@@ -6,6 +6,7 @@ import structlog
 import temporalio
 from temporalio.exceptions import ApplicationError
 
+from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
@@ -13,43 +14,118 @@ from posthog.temporal.ai_observability.evaluation_errors import (
 )
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 
 from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.operation import Operation
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
 
 
-def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
-    """Run compiled Hog bytecode against a single event.
+def coerce_hog_io_value(value: Any) -> str:
+    """Coerce an extracted input/output value into a string for Hog globals.
 
-    Used by both the Temporal activity and the test endpoint.
-    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
-    When allows_na=True, a `return null` is treated as N/A (not an error).
-    Sets "unexpected": True only when the bytecode raised something other than a
-    HogVM error — i.e. a bug in our code rather than in the user's Hog source.
+    String operations (ilike, length, etc.) should work consistently; users can still
+    parse structured data with jsonParse() when needed.
     """
-    properties = event_data["properties"]
-    if isinstance(properties, str):
-        properties = json.loads(properties)
+    if isinstance(value, list | dict):
+        return json.dumps(value)
+    return "" if value is None or value == "" else str(value)
 
-    event_type = event_data["event"]
+
+def _extract_hog_message_text(messages: Any) -> str:
+    if messages is None or isinstance(messages, str | list | dict):
+        return extract_text_from_messages(messages)
+    return str(messages)
+
+
+def _get_hog_output_choice_content(choice: dict[str, Any]) -> Any:
+    for key in ("content", "refusal", "text"):
+        value = choice.get(key)
+        if value is None or (isinstance(value, str | list | dict) and not value):
+            continue
+        return value
+    return None
+
+
+def _normalize_hog_output_choice(choice: dict[str, Any]) -> dict[str, Any] | None:
+    message = choice.get("message")
+    if isinstance(message, dict):
+        choice = message
+
+    if not any(key in choice for key in ("content", "refusal", "text", "tool_calls")):
+        return choice
+
+    content = _get_hog_output_choice_content(choice)
+    if content is None and not choice.get("tool_calls"):
+        return None
+    if content is not None and not isinstance(content, str | list | dict):
+        content = coerce_hog_io_value(content)
+    return {"content": content, "tool_calls": choice.get("tool_calls")}
+
+
+def _extract_hog_output_text(output: Any) -> str:
+    if isinstance(output, dict) and isinstance(output.get("choices"), list):
+        output = output["choices"]
+
+    messages: list[Any] = []
+    for choice in output if isinstance(output, list) else [output]:
+        if isinstance(choice, dict):
+            choice = _normalize_hog_output_choice(choice)
+            if choice is None:
+                continue
+        elif not isinstance(choice, str):
+            choice = coerce_hog_io_value(choice)
+        messages.append(choice)
+    return _extract_hog_message_text(messages)
+
+
+def hog_bytecode_references_global(bytecode: list[Any], global_name: str) -> bool:
+    """Return whether compiled Hog bytecode reads a specific global."""
+    return any(
+        operation == Operation.GET_GLOBAL and index > 0 and bytecode[index - 1] == global_name
+        for index, operation in enumerate(bytecode)
+    )
+
+
+def build_hog_event_global(
+    event_type: str,
+    properties: dict[str, Any],
+    *,
+    event_uuid: Any,
+    timestamp: Any,
+    include_text: bool = True,
+) -> dict[str, Any]:
+    """Build the per-event global shared by generation and trace evaluations.
+
+    With text projections enabled, this is the target-independent event shape exposed through
+    `evaluation_events`. The trace-only `events` compatibility global disables them so saved
+    source keeps its original shape and memory cost.
+    """
     input_raw, output_raw = extract_event_io(event_type, properties)
-
-    input_val = json.dumps(input_raw) if isinstance(input_raw, list | dict) else (input_raw or "")
-    output_val = json.dumps(output_raw) if isinstance(output_raw, list | dict) else (output_raw or "")
-
-    globals_dict: dict[str, Any] = {
-        "input": input_val,
-        "output": output_val,
-        "properties": properties,
-        "event": {
-            "uuid": event_data.get("uuid", ""),
-            "event": event_type,
-            "distinct_id": event_data.get("distinct_id", ""),
-        },
+    event_global: dict[str, Any] = {
+        "uuid": event_uuid,
+        "event": event_type,
+        "timestamp": timestamp,
+        "input": coerce_hog_io_value(input_raw),
+        "output": coerce_hog_io_value(output_raw),
+        "properties": {key: value for key, value in properties.items() if key not in HEAVY_PROPERTY_NAMES},
     }
+    if include_text:
+        event_global["input_text"] = _extract_hog_message_text(input_raw)
+        event_global["output_text"] = _extract_hog_output_text(output_raw)
+    return event_global
 
+
+def execute_hog_eval_bytecode(bytecode: list, globals_dict: dict[str, Any], allows_na: bool) -> dict[str, Any]:
+    """Run compiled Hog eval bytecode against pre-built globals and shape the verdict.
+
+    Shared by the single-event and trace-level Hog activities — only the globals differ.
+    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}, plus "applicable"
+    when allows_na and a `return null` is treated as N/A, and "unexpected": True when the failure
+    was a bug in our code rather than in the user's Hog source.
+    """
     try:
         response = execute_bytecode(
             bytecode,
@@ -89,6 +165,53 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
     if allows_na:
         result["applicable"] = True
     return result
+
+
+def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
+    """Run compiled Hog bytecode against a single event.
+
+    Used by both the Temporal activity and the test endpoint.
+    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
+    When allows_na=True, a `return null` is treated as N/A (not an error).
+    Sets "unexpected": True only when the bytecode raised something other than a
+    HogVM error — i.e. a bug in our code rather than in the user's Hog source.
+    """
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    event_type = event_data["event"]
+    input_raw, output_raw = extract_event_io(event_type, properties)
+
+    globals_dict: dict[str, Any] = {
+        # Generation-only compatibility globals kept for saved Hog source.
+        "input": coerce_hog_io_value(input_raw),
+        "output": coerce_hog_io_value(output_raw),
+        "properties": properties,
+        "event": {
+            "uuid": event_data.get("uuid", ""),
+            "event": event_type,
+            "distinct_id": event_data.get("distinct_id", ""),
+        },
+    }
+    if hog_bytecode_references_global(bytecode, "target"):
+        globals_dict["target"] = {
+            "type": "generation",
+            "id": event_data.get("uuid", ""),
+            "total_cost_usd": properties.get("$ai_total_cost_usd"),
+            "total_latency_seconds": properties.get("$ai_latency"),
+        }
+    if hog_bytecode_references_global(bytecode, "evaluation_events"):
+        globals_dict["evaluation_events"] = [
+            build_hog_event_global(
+                event_type,
+                properties,
+                event_uuid=event_data.get("uuid", ""),
+                timestamp=event_data.get("timestamp"),
+            )
+        ]
+
+    return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
 
 
 @temporalio.activity.defn

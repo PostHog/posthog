@@ -9,6 +9,7 @@ import {
     INBOX_SORT_OPTIONS,
     INBOX_SOURCE_OPTIONS,
     PRIORITY_ACCENT,
+    PRIORITY_MEANING,
     inboxPriorityFilterLabel,
     inboxSortOptionKey,
     inboxSourceFilterLabel,
@@ -115,7 +116,7 @@ export function InboxSearchFilterBar({
     return (
         <div className="flex items-center gap-2 flex-wrap w-full">
             <LemonInput
-                className="flex-1 min-w-[220px]"
+                className="min-w-[220px] max-w-[420px]"
                 type="search"
                 value={searchQuery}
                 onChange={setSearchQuery}
@@ -124,75 +125,85 @@ export function InboxSearchFilterBar({
                 size="small"
             />
 
-            <FilterPopover
-                label="Sort"
-                value={activeSort?.label ?? 'Priority first'}
-                icon={<IconSort />}
-                active={activeSortKey !== 'priority:asc'}
-            >
-                {INBOX_SORT_OPTIONS.map((option) => (
-                    <FilterItem
-                        key={inboxSortOptionKey(option.field, option.direction)}
-                        icon={option.icon}
-                        label={option.label}
-                        active={sortField === option.field && sortDirection === option.direction}
-                        onClick={() => setSort(option.field, option.direction)}
-                    />
-                ))}
-            </FilterPopover>
+            {/* ml-auto right-aligns the cluster; flex-wrap + max-w-full keep the controls from
+                overflowing on narrow viewports — each can wrap within the group rather than the
+                whole row clipping, the behavior the flat (ungrouped) layout had before. */}
+            <div className="flex flex-wrap items-center justify-end gap-2 ml-auto max-w-full">
+                <FilterPopover
+                    label="Sort"
+                    value={activeSort?.label ?? 'Priority first'}
+                    icon={<IconSort />}
+                    active={activeSortKey !== 'priority:asc'}
+                >
+                    {INBOX_SORT_OPTIONS.map((option) => (
+                        <FilterItem
+                            key={inboxSortOptionKey(option.field, option.direction)}
+                            icon={option.icon}
+                            label={option.label}
+                            active={sortField === option.field && sortDirection === option.direction}
+                            onClick={() => setSort(option.field, option.direction)}
+                        />
+                    ))}
+                </FilterPopover>
 
-            <FilterPopover
-                label="Source"
-                value={inboxSourceFilterLabel(sourceProductFilter)}
-                icon={<IconTarget />}
-                active={sourceProductFilter.length > 0}
-            >
-                {INBOX_SOURCE_OPTIONS.map((option) => (
-                    <FilterItem
-                        key={option.value}
-                        icon={option.icon}
-                        label={option.label}
-                        active={sourceProductFilter.includes(option.value)}
-                        onClick={() => toggleSourceProduct(option.value)}
-                    />
-                ))}
-            </FilterPopover>
+                <FilterPopover
+                    label="Source"
+                    value={inboxSourceFilterLabel(sourceProductFilter)}
+                    icon={<IconTarget />}
+                    active={sourceProductFilter.length > 0}
+                >
+                    {INBOX_SOURCE_OPTIONS.map((option) => (
+                        <FilterItem
+                            key={option.value}
+                            icon={option.icon}
+                            label={option.label}
+                            active={sourceProductFilter.includes(option.value)}
+                            onClick={() => toggleSourceProduct(option.value)}
+                        />
+                    ))}
+                </FilterPopover>
 
-            <FilterPopover
-                label="Priority"
-                value={inboxPriorityFilterLabel(priorityFilter)}
-                icon={<IconFlag />}
-                active={priorityFilter.length > 0}
-            >
-                {INBOX_PRIORITY_OPTIONS.map((priority) => (
-                    <FilterItem
-                        key={priority}
-                        icon={
-                            <span
-                                className="size-2 rounded-full"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
-                            />
-                        }
-                        label={priority}
-                        active={priorityFilter.includes(priority)}
-                        onClick={() => togglePriority(priority)}
-                    />
-                ))}
-            </FilterPopover>
+                <FilterPopover
+                    label="Priority"
+                    value={inboxPriorityFilterLabel(priorityFilter)}
+                    icon={<IconFlag />}
+                    active={priorityFilter.length > 0}
+                >
+                    {INBOX_PRIORITY_OPTIONS.map((priority) => (
+                        <FilterItem
+                            key={priority}
+                            icon={
+                                <span
+                                    className="size-2 rounded-full"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
+                                />
+                            }
+                            label={
+                                <span>
+                                    {priority}
+                                    <span className="text-muted"> · {PRIORITY_MEANING[priority].label}</span>
+                                </span>
+                            }
+                            active={priorityFilter.includes(priority)}
+                            onClick={() => togglePriority(priority)}
+                        />
+                    ))}
+                </FilterPopover>
 
-            {onRefresh && (
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    icon={<IconRefresh />}
-                    loading={refreshing}
-                    tooltip="Refresh"
-                    aria-label="Refresh"
-                    onClick={onRefresh}
-                    className="bg-surface-primary ml-auto"
-                />
-            )}
+                {onRefresh && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconRefresh />}
+                        loading={refreshing}
+                        tooltip="Refresh"
+                        aria-label="Refresh"
+                        onClick={onRefresh}
+                        className="bg-surface-primary"
+                    />
+                )}
+            </div>
         </div>
     )
 }

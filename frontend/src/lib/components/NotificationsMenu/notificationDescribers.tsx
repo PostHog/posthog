@@ -1,8 +1,5 @@
-import { useActions } from 'kea'
-
 import { WebAnalyticsDigestNotification } from 'lib/components/NotificationsMenu/WebAnalyticsDigestNotification'
 
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
 
 export interface NotificationDescriberProps {
@@ -15,28 +12,12 @@ export interface NotificationDescriber {
     Component: (props: NotificationDescriberProps) => JSX.Element | null
 }
 
-function WebAnalyticsDigestDescriber({ notification, onNavigate }: NotificationDescriberProps): JSX.Element | null {
-    const { viewWebAnalyticsFromDigest, askMaxAboutDigest } = useActions(sidePanelNotificationsLogic)
-
+function WebAnalyticsDigestDescriber({ notification }: NotificationDescriberProps): JSX.Element | null {
     if (!notification.metadata) {
         return null
     }
 
-    return (
-        <WebAnalyticsDigestNotification
-            metadata={notification.metadata}
-            onOpen={(e) => {
-                e.stopPropagation()
-                viewWebAnalyticsFromDigest(notification)
-                onNavigate?.()
-            }}
-            onAskMax={(e) => {
-                e.stopPropagation()
-                askMaxAboutDigest(notification)
-                onNavigate?.()
-            }}
-        />
-    )
+    return <WebAnalyticsDigestNotification metadata={notification.metadata} />
 }
 
 export const NOTIFICATION_DESCRIBERS: Record<string, NotificationDescriber> = {

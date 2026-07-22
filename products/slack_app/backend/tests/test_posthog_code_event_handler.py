@@ -1115,7 +1115,7 @@ class TestAssistantEvents(TestCase):
             else UserAndIntegrationsResolution(failure_reason="user_not_found")
         )
         resolve = patch("products.slack_app.backend.api.resolve_user_for_workspace", return_value=resolution)
-        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=enabled)
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
         usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         return load, resolve, enabled_p, usp, slack
@@ -1225,7 +1225,7 @@ class TestAssistantInstallWelcome(TestCase):
     def _run(self, *, enabled: bool):
         from products.slack_app.backend.api import _ASSISTANT_INSTALL_WELCOME, send_assistant_install_welcome
 
-        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=enabled)
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         with enabled_p, slack as slack_cls:
             send_assistant_install_welcome(self.integration)
@@ -1248,8 +1248,82 @@ class TestAssistantInstallWelcome(TestCase):
     def test_slack_error_is_swallowed(self):
         from products.slack_app.backend.api import send_assistant_install_welcome
 
-        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=True)
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         with enabled_p, slack as slack_cls:
             slack_cls.return_value.client.chat_postMessage.side_effect = Exception("slack down")
             send_assistant_install_welcome(self.integration)  # must not raise
+
+
+class TestQueueWorkflowDispatch(TestCase):
+    def setUp(self):
+        from django.utils import timezone
+
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+
+        cache.clear()
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="dev@example.com", distinct_id="queue-user-1")
+        OrganizationMembership.objects.create(organization=self.organization, user=self.user)
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-posthog-code-test"},
+        )
+        SlackUserProfileCache.objects.create(
+            integration=self.integration,
+            slack_user_id="U123",
+            email="dev@example.com",
+            display_name="Dev",
+            real_name="Dev User",
+            refreshed_at=timezone.now(),
+        )
+
+    @parameterized.expand(
+        [
+            ("top_level_mention_anchors_on_ts", None, "1234.5678"),
+            ("threaded_mention_anchors_on_thread_root", "1000.0001", "1000.0001"),
+        ]
+    )
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api.is_slack_app_queue_workflow_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_flag_on_signal_with_starts_conversation_workflow(
+        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_flag, mock_slack
+    ):
+        # With the flag on, every message in a conversation must land in ONE
+        # per-thread workflow via signal-with-start — the conversation ID
+        # anchors on the thread root so followups reach the same instance.
+        from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        mock_slack.return_value.missing_scopes.return_value = set()
+        event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
+        if thread_ts:
+            event["thread_ts"] = thread_ts
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        call = mock_sync_connect.return_value.start_workflow.call_args
+        assert call.args[0] == SlackAppMentionWorkflow.run
+        assert call.kwargs["id"] == f"slack-app-mention-T12345:C001:{expected_anchor}"
+        assert call.kwargs["start_signal"] == "new_message"
+        message = call.kwargs["start_signal_args"][0]
+        assert message.user_id == self.user.id
+        assert message.event["ts"] == "1234.5678"
+        # Dispatch adds no reaction — the queue workflow reacts only on
+        # messages that actually wait behind another one.
+        mock_slack.return_value.client.reactions_add.assert_not_called()

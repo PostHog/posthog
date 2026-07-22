@@ -12,7 +12,44 @@ import type {
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
+    ProductPushCampaignActiveRetrieveParams,
+    ProductPushCampaignApi,
+    SdkHealthReportApi,
+    SdkHealthReportRetrieveParams,
 } from './api.schemas'
+
+export const getProductPushCampaignActiveRetrieveUrl = (
+    organizationId: string,
+    params?: ProductPushCampaignActiveRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/product_push_campaign/active/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/product_push_campaign/active/`
+}
+
+/**
+ * The organization's currently active product push campaign. 204 when no campaign is active, or when the given project already uses the campaign's product.
+ */
+export const productPushCampaignActiveRetrieve = async (
+    organizationId: string,
+    params?: ProductPushCampaignActiveRetrieveParams,
+    options?: RequestInit
+): Promise<ProductPushCampaignApi | void> => {
+    return apiMutator<ProductPushCampaignApi | void>(getProductPushCampaignActiveRetrieveUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getIdentityMatchingLinksListUrl = (projectId: string, params?: IdentityMatchingLinksListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -58,6 +95,37 @@ export const identityMatchingLinksRunsRetrieve = async (
     options?: RequestInit
 ): Promise<IdentityMatchingRunsResponseApi> => {
     return apiMutator<IdentityMatchingRunsResponseApi>(getIdentityMatchingLinksRunsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSdkHealthReportRetrieveUrl = (projectId: string, params?: SdkHealthReportRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sdk_health/report/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sdk_health/report/`
+}
+
+/**
+ * Returns a pre-digested health assessment of the PostHog SDKs the project is using. Covers which SDKs are current vs outdated (smart-semver rules with grace periods and traffic-percentage thresholds), per-version breakdown, and a human-readable reason for each assessment. Use this to diagnose SDK version issues, surface upgrade recommendations, or check overall SDK health.
+ * @summary Get SDK health report for a project
+ */
+export const sdkHealthReportRetrieve = async (
+    projectId: string,
+    params?: SdkHealthReportRetrieveParams,
+    options?: RequestInit
+): Promise<SdkHealthReportApi> => {
+    return apiMutator<SdkHealthReportApi>(getSdkHealthReportRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

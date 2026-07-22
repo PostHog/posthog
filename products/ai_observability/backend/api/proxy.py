@@ -13,7 +13,7 @@ from time import perf_counter
 from typing import Any
 
 from django.core.cache import cache
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
@@ -24,6 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
+from posthog.api.streaming import sse_streaming_response
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.rate_limit import (
@@ -39,12 +40,12 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.ai_observability.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.ai_observability.backend.llm import (
+    PLAYGROUND_MODEL_IDS,
     SUPPORTED_MODELS_WITH_THINKING,
-    TRIAL_MODEL_IDS,
     Client,
     CompletionRequest,
     ModelInfo,
-    get_trial_models,
+    get_playground_models,
 )
 from products.ai_observability.backend.llm.errors import UnsupportedProviderError
 from products.ai_observability.backend.models.provider_keys import LLMProvider, LLMProviderKey
@@ -67,6 +68,8 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "openrouter": "OpenRouter",
     "fireworks": "Fireworks",
     "azure_openai": "Azure OpenAI",
+    "minimax": "MiniMax",
+    "zeabur": "Zeabur AI Hub",
 }
 
 
@@ -103,7 +106,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if self.action == "models":
             return []
 
-        # BYOK requests should not count against shared playground trial limits.
+        # BYOK requests should not count against shared playground limits.
         # Check the provider key directly from request data to avoid running the
         # full serializer just for throttle selection.
         if self.action == "completion":
@@ -191,18 +194,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 except Exception:
                     logger.exception("llm_proxy_on_complete_callback_error")
 
-    def _create_streaming_response(self, stream: Generator[bytes]) -> StreamingHttpResponse:
+    def _create_streaming_response(self, stream: Generator[bytes]) -> HttpResponseBase:
         """Creates a properly configured SSE streaming response"""
-        if SERVER_GATEWAY_INTERFACE == "ASGI":
-            astream = SyncIterableToAsync(stream)
-            response = StreamingHttpResponse(streaming_content=astream, content_type=ServerSentEventRenderer.media_type)
-        else:
-            response = StreamingHttpResponse(streaming_content=stream, content_type=ServerSentEventRenderer.media_type)
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
+        return sse_streaming_response(astream, endpoint="ai_observability_proxy")
 
-    def _handle_completion_request(self, request: Request) -> StreamingHttpResponse | Response:
+    def _handle_completion_request(self, request: Request) -> HttpResponseBase | Response:
         """Handler for completion requests using unified Client"""
         try:
             if not request.user or not request.user.is_authenticated:
@@ -240,11 +237,11 @@ class LLMProxyViewSet(viewsets.ViewSet):
             except ValueError:
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
-            # Enforce trial model allowlist when using PostHog-funded keys
-            if provider_key is None and model not in TRIAL_MODEL_IDS:
+            # Enforce playground model allowlist when using PostHog-funded keys
+            if provider_key is None and model not in PLAYGROUND_MODEL_IDS:
                 return Response(
                     {
-                        "error": f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model."
+                        "error": f"Model '{model}' is not available on the PostHog-funded playground. Please add your own API key to use this model."
                     },
                     status=403,
                 )
@@ -393,7 +390,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         """Return a list of available models across providers.
 
         If provider_key_id is specified, returns models available for that key.
-        Otherwise, returns only trial-eligible models (PostHog pays for these).
+        Otherwise, returns only playground-eligible models (PostHog pays for these).
         """
         provider_key_id = request.query_params.get("provider_key_id")
 
@@ -431,8 +428,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     ]
                 )
 
-        # Default: return only trial-eligible models (PostHog pays for these)
-        return Response(get_trial_models())
+        # Default: return only playground-eligible models (PostHog pays for these)
+        return Response(get_playground_models())
 
     @action(detail=False, methods=["POST"])
     @llma_track_latency("llma_proxy_completion")

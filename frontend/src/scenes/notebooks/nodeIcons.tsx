@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconBrackets,
     IconChat,
     IconCheckCircle,
     IconCode,
@@ -7,7 +8,6 @@ import {
     IconFlask,
     IconGraph,
     IconGroups,
-    IconHogQL,
     IconImage,
     IconList,
     IconMapPin,
@@ -29,9 +29,11 @@ import { NotebookNodeType } from './types'
 // back to the generic notebook icon at the consumer site.
 export const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
     [NotebookNodeType.Query]: <IconGraph />,
-    [NotebookNodeType.HogQLSQL]: <IconHogQL />,
-    [NotebookNodeType.DuckSQL]: <IconHogQL />,
+    [NotebookNodeType.HogQLSQL]: <IconBrackets />,
+    [NotebookNodeType.DuckSQL]: <IconBrackets />,
+    [NotebookNodeType.SQLV2]: <IconBrackets />,
     [NotebookNodeType.Python]: <IconPython />,
+    [NotebookNodeType.PythonV2]: <IconPython />,
     [NotebookNodeType.Latex]: <IconSquareRoot />,
     [NotebookNodeType.Recording]: <IconRewindPlay />,
     [NotebookNodeType.RecordingPlaylist]: <IconRewindPlay />,

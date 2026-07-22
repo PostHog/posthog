@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
@@ -593,3 +595,39 @@ class TestProjectionPushdown(BaseTest):
         }, f"Expected event, timestamp, and person_id but got {base_cols}"
 
         assert optimized.to_hogql() == self.snapshot
+
+    def test_cte_shared_by_union_branches_keeps_all_demanded_columns(self):
+        # The WITH lives on the first UNION branch but every sibling branch consumes it, so
+        # pruning before all branches register their demands drops columns the siblings need.
+        optimized = self._optimize(
+            "WITH base AS (SELECT * FROM (SELECT 1 AS a, 2 AS b, 3 AS d)) "
+            "SELECT a FROM base "
+            "UNION ALL SELECT b FROM base "
+            "UNION ALL SELECT d FROM base"
+        )
+
+        first_branch = optimized.initial_select_query
+        assert isinstance(first_branch, ast.SelectQuery)
+        assert first_branch.ctes is not None
+        base_cte = first_branch.ctes["base"].expr
+        assert isinstance(base_cte, ast.SelectQuery)
+        base_cols = {self._col_name(col) for col in base_cte.select}
+        assert base_cols == {"a", "b", "d"}, f"CTE dropped columns demanded by sibling branches: got {base_cols}"
+
+    @parameterized.expand(
+        [
+            ("subquery", "SELECT event, properties.foo FROM (SELECT * FROM events) AS sub"),
+            ("cte", "WITH cte AS (SELECT * FROM events) SELECT event, properties.foo FROM cte"),
+        ]
+    )
+    def test_property_access_keeps_base_column(self, _name: str, query_str: str):
+        # A blob column read only via `properties.foo` still demands `properties`. Its node type is a
+        # PropertyType, not a FieldType, so if demand collection ignores it the `*` pruner drops
+        # `properties` (only `event` is demanded), leaving a dangling reference that later crashes
+        # property lowering with 'Field "properties" not found on table Table'.
+        optimized = self._optimize(query_str)
+
+        inner = optimized.ctes["cte"].expr if optimized.ctes else optimized.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        column_names = {self._col_name(col) for col in inner.select}
+        assert column_names == {"event", "properties"}, f"pruner dropped the property base column: got {column_names}"

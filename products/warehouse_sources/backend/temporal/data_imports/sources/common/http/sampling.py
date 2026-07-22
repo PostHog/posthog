@@ -71,11 +71,13 @@ MAX_CONFIG_TTL_SECONDS = 24 * 60 * 60
 
 _REDACTED_HEADER = "REDACTED"
 _REDACTED_FORM_VALUE = "REDACTED"
+_STREAMED_BODY_OMITTED = "<streamed response body omitted from sample>"
 _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
     {
         "authorization",
         "x-api-key",
         "x-sn-apikey",
+        "x-ck-api-key",
         "x-auth-token",
         "x-metabase-session",
         "ob-token-v1",
@@ -168,11 +170,14 @@ def maybe_capture(
     record: RequestRecord,
     ctx: JobContext,
     redact_values: tuple[str, ...] = (),
+    streamed: bool = False,
 ) -> None:
     """Entry point used by the observer. No-op when no rule matches.
 
     `redact_values` are credential strings masked from the captured sample on
-    top of the name-based header/URL/body scrubbers.
+    top of the name-based header/URL/body scrubbers. `streamed=True` means the
+    caller requested `stream=True` and hasn't read the body yet, so the sample
+    omits it rather than force-buffering a potentially unbounded body.
     """
     if response is None:
         return
@@ -195,7 +200,7 @@ def maybe_capture(
     if not _try_reserve_slot(config.capture_id, rule_index, rule.limit):
         return
 
-    payload = _build_sample_payload(request=request, response=response, record=record, ctx=ctx)
+    payload = _build_sample_payload(request=request, response=response, record=record, ctx=ctx, streamed=streamed)
     if redact_values:
         # Final value-based pass over the fully serialized sample: catches the
         # credential wherever it landed (query param, custom header, cookie,
@@ -245,11 +250,16 @@ def _build_sample_payload(
     response: Response,
     record: RequestRecord,
     ctx: JobContext,
+    streamed: bool = False,
 ) -> str:
     request_headers = _scrub_headers(dict(request.headers or {}))
     response_headers = _scrub_headers(dict(response.headers or {}))
     request_body = _scrub_body(request.body)
-    response_body = _scrub_body(_safe_response_text(response))
+    # A streamed response body hasn't been read yet; reading it here would force a potentially
+    # unbounded, source-controlled body into memory and consume the stream out from under the
+    # caller. The caller size-caps and reads its own body, so the sample records only that it was
+    # omitted (mirrors _response_size, which likewise refuses to touch a streamed .content).
+    response_body = _STREAMED_BODY_OMITTED if streamed else _scrub_body(_safe_response_text(response))
 
     sample = {
         "captured_at_unix_ms": int(time.time() * 1000),

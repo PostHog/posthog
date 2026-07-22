@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import type { RunStatus } from '../logics/runStreamLogic'
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { RunSurface } from './RunSurfaceImpl'
@@ -20,6 +22,8 @@ jest.mock('../logics/runStreamLogic', () => ({
         status != null && ['completed', 'failed', 'cancelled'].includes(status),
 }))
 
+jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
+
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
 jest.mock('./ResourcesBar', () => ({ ResourcesBar: () => <div data-attr="resources" /> }))
 jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
@@ -33,6 +37,7 @@ function setValues(
         pendingPermissionRequest: PermissionRequestRecord | null
         bootstrapLoading: boolean
         threadItems: unknown[]
+        task: { origin_product: string; runtime?: RuntimeEnumApi } | null
     }>
 ): void {
     ;(useValues as jest.Mock).mockReturnValue({
@@ -40,6 +45,10 @@ function setValues(
         threadItems: [],
         pendingPermissionRequest: null,
         currentRunStatus: 'in_progress',
+        task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Acp },
+        taskLoading: false,
+        taskError: null,
+        taskNotFound: false,
         ...overrides,
     })
 }
@@ -64,12 +73,42 @@ function renderLiveWithComposer(statusOrOverrides: RunStatus | null | Parameters
 describe('RunSurface', () => {
     beforeEach(() => {
         jest.clearAllMocks()
-        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun: jest.fn(), reset: jest.fn() })
+        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun: jest.fn(), reset: jest.fn(), loadTask: jest.fn() })
         setValues({})
     })
 
     afterEach(() => {
         cleanup()
+    })
+
+    it('does not mount the ACP run surface for a Pi task', () => {
+        setValues({ task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Pi } })
+
+        render(
+            <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                <RunSurface.Thread />
+                <RunSurface.Composer>
+                    <div data-attr="composer-child" />
+                </RunSurface.Composer>
+            </RunSurface.Root>
+        )
+
+        expect(screen.getByText("Pi session logs aren't available in PostHog yet.")).toBeInTheDocument()
+        expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+    })
+
+    it('keeps the ACP run surface available when an older API response omits runtime', () => {
+        setValues({ task: { origin_product: 'user_created' } })
+
+        render(
+            <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                <RunSurface.Thread />
+            </RunSurface.Root>
+        )
+
+        expect(screen.getByTestId('thread')).toBeInTheDocument()
+        expect(screen.queryByText("Pi session logs aren't available in PostHog yet.")).not.toBeInTheDocument()
     })
 
     describe('Composer slot', () => {

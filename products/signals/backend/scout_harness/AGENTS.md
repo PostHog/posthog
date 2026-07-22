@@ -35,11 +35,48 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
+  Orthogonal to the channel fork, the prompt also forks on the skill's origin
+  (`LoadedSkill.origin`, resolved via `lazy_seed.scout_skill_row_origin`): a _custom_ scout —
+  hand-authored, or a seeded canonical row the team has since edited in place (diverged) —
+  gets a self-improvement section inviting evidence-backed `improve:<skill-name>:<topic>`
+  scratchpad suggestions for its own skill body, which the owner reviews via the
+  `exploring-scouts` / `authoring-scouts` meta skills. When such a scout also holds report
+  tools, the section additionally invites escalating recurring or material suggestions as
+  inbox reports about the scout itself (titled `Scout self-improvement: <skill-name> – <topic>`,
+  `NO_REPO`, `requires_human_input`), authored/edited with the report tools it already holds
+  and pointed to by the `report_id` stashed in the `improve:` entry — so self-improvement
+  suggestions reach the owner through the inbox like any other report, with no extra scope or
+  endpoint (the same per-tool fail-closed gating applies: an emit-only scout is never pointed
+  at `edit_report`, and a signal-channel custom scout keeps the scratchpad-only path). A
+  pristine canonical scout never sees
+  it — applying such a suggestion would mark the seeded row diverged and cut it off from
+  upstream sync. Canonical scouts get the _canonical-improvement_ section instead
+  (`_CANONICAL_IMPROVEMENT`): skill-content gaps observed in the wild route upstream to the
+  PostHog team via the `agent-feedback` MCP tool with `feedback_type="scout"` plus structured
+  fields (`scout_skill_name`, `scout_skill_version`, `scout_category`) so fleet-wide feedback
+  aggregates per skill/version, deduped across runs via `reported:<skill-name>:<topic>`
+  scratchpad entries. The section's generalization rules are load-bearing privacy-wise — the
+  feedback leaves the customer's project, so it must carry the pattern, never the project's
+  data (no PII, values, URLs, numbers, or custom event/property names); tool/harness friction
+  still routes via the shared operational-friction section. A _report-channel_ custom scout's run identity also
+  carries a **skill authors** line (`LoadedSkill.authors`, rendered by `_skill_authors_line`):
+  creator + recent editors resolved server-side from the skill's version rows, which the
+  escalation guidance points `suggested_reviewers` at (creator first, via `scout-members-list`) —
+  without it a scout only sees its pinned version's `created_by`, i.e. the last editor,
+  and would route ownership to whoever most recently touched the skill. The line is gated on
+  the report channel: a signal-channel scout has no `suggested_reviewers` field, so member
+  names/emails (PII) must not reach its prompt.
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
-  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools), plus
+  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin + authors), plus
   `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in
   predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
+  `resolve_skill_authors` aggregates distinct non-null `created_by` across a skill's version rows
+  (creator = earliest first-authored, then editors by last-edit recency, capped), restricted to
+  `team.all_users_with_access()` so a revoked author's profile stops flowing into a privileged
+  prompt. Resolution is opt-in via `load_skill_for_run(..., include_authors=True)` — only the
+  runner's prompt-building path pays for it; the report-authorization gate in `views.py` loads
+  the skill per report write just to check `allowed_tools` and skips it.
 - `lazy_seed.py`
   Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
@@ -106,9 +143,21 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`.
+  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
-  and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
+  it returns the project's members (those with access to the team) with `user_uuid` / `email` /
+  `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
+  is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object
+  (`scope_object = "signal_scout_internal"`, default `list` → `signal_scout_internal:read`, satisfied by
+  the sandbox token's `…:write`) — so, like `emit-signal`, it is reachable only inside a scout run and
+  never enters a customer's public MCP catalog. (The narrower `signal_scout_report` scope was considered
+  but is transient — kept only while emit-signal and emit-report coexist — so the durable tool stays on
+  `signal_scout_internal`.) Membership is resolved server-side via
+  `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`,
+  so private-project access control is honored), the project-nested path that the org-nested
+  `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
   The config viewset is the no-wait creation path: `create` registers (upserts) a
   config for an already-authored skill with its schedule/emit posture in one call.
   `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
@@ -134,6 +183,19 @@ one sandbox session → zero or more emitted signals.
   The skill body is loaded into the system prompt; each scout has its own
   `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
   `run_interval_minutes` schedule the coordinator's per-scout due-check honors.
+- Scout sandbox GitHub credentials are **always read-only**: the runner requests
+  `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped
+  installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never
+  persisted — `get_readonly_github_token` in the tasks product) instead of the write-capable
+  token that task creation would otherwise attach, or injects nothing when the mint isn't
+  possible. The token backs the preinstalled `gh` CLI via `GH_TOKEN`/`GITHUB_TOKEN`.
+  Separately, the **`gh` prompt guidance** for code-derived reviewer evidence — commit history by
+  path, cross-checked against `scout-members-list`, cited in each reviewer's `reason` — renders
+  only for report-channel scouts whose team passes both the `github_read_access` posture in the
+  `signals-scout` flag payload (`team_configs`/`default_team_config`, resolved by
+  `team_limits.github_read_access_for_team`; default ON, an explicit `false` at either layer is
+  the kill switch) AND the mint-feasibility preflight
+  (`tasks_facade.can_mint_readonly_github_token`), so a tokenless run is never steered at `gh`.
 - `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
   sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created
   by the `on_task_run_created` hook before the agent's first turn — this powers the
@@ -148,6 +210,17 @@ one sandbox session → zero or more emitted signals.
   `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
   (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
   with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
+  When the `scouts-model-selection` gate (or a runtime pin) routes the run, `started` and
+  `finished` also carry `model` / `runtime_adapter`, so run outcomes are sliceable by model
+  without joining through `$ai_generation`; absence means the agent-server default served it.
+  The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
+  (plus customer-facing `$scout_report_*` copies), stamped with derived classification
+  properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)
+  via `_report_classification_props` in `tools/report.py` — classified server-side off the
+  prompt's mandated title prefix (`prompt.SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`), so
+  self-improvement reports are separable without downstream title heuristics. That helper
+  is the single extension point for future derived telemetry dimensions on these events —
+  add new flags there (both events pick them up), not as model columns.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path

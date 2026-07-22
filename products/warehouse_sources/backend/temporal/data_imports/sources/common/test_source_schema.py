@@ -103,6 +103,38 @@ class TestBuildDefaultSchemas:
         )
         assert schemas == [{"name": "discounts", "should_sync": False}]
 
+    def test_default_off_table_left_disabled(self) -> None:
+        # A source marks a table should_sync_default=False when syncing it needs grants beyond
+        # what source creation validated (e.g. GitHub org tables). One-shot setup force-enabling
+        # it would make the first sync fail; it must start disabled like the picker leaves it.
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="teams",
+                    supports_incremental=False,
+                    supports_append=False,
+                    should_sync_default=False,
+                )
+            ]
+        )
+        assert schemas == [{"name": "teams", "should_sync": False}]
+
+    def test_incremental_lookback_default_flows_through(self) -> None:
+        # Sources whose recent rows get restated upstream (e.g. Google Ads stats tables) set a
+        # default lookback; dropping it here would freeze restated rows at first-imported values.
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="campaign_stats",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("updated_at")],
+                    default_incremental_lookback_seconds=86400,
+                )
+            ]
+        )
+        assert schemas[0]["incremental_field_lookback_seconds"] == 86400
+
     def test_never_defaults_to_cdc(self) -> None:
         schemas = build_default_schemas(
             [

@@ -1,0 +1,68 @@
+---
+title: Linking BlueTally as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Bluetally
+---
+
+<!--
+This is the user-facing posthog.com source doc. It lives here only because no posthog.com
+checkout was available when the source was implemented. Move it to
+`posthog.com/contents/docs/cdp/sources/bluetally.mdx` and delete this copy, then run
+`python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
+-->
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[BlueTally](https://bluetally.com) is an IT asset management platform for tracking assets, employees,
+licenses, accessories, consumables, and the rest of your hardware and software inventory. Linking it as
+a source syncs that inventory into the PostHog Data warehouse so you can join it with your product data
+— for example, correlating device or license assignments with in-product behavior.
+
+## Prerequisites
+
+To connect BlueTally, you need:
+
+- A BlueTally account with access to **Settings → API Keys**.
+- An API key generated there (used as a bearer token).
+- If your account has multi-tenancy enabled, the tenant ID the key should act on.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+1. Open BlueTally and go to **Settings → API Keys**.
+2. Create a new API key and copy it.
+3. Paste the key into the **API key** field in PostHog.
+4. If your BlueTally account uses multi-tenancy, also enter the **Tenant ID** the key should act on.
+   Leave it blank otherwise.
+
+## Sync modes
+
+<SyncModes />
+
+BlueTally's API has no server-side "updated since" filter, so every table syncs as a **full refresh** —
+each sync re-reads the resource and merges on the primary key. Schedule syncs at a cadence that fits how
+often your inventory changes (BlueTally allows up to 10,000 API requests per hour).
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **"Invalid BlueTally API key"** when connecting: the key is wrong, has been revoked, or (for
+  multi-tenant accounts) the tenant ID is missing or incorrect. Regenerate the key under
+  **Settings → API Keys** and re-enter it, along with the tenant ID if applicable.
+
+<TroubleshootingLink />

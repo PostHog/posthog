@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    ActivityLogListQueryParams,
     AdvancedActivityLogsListQueryParams,
     ApprovalPoliciesListQueryParams,
     ApprovalPoliciesRetrieveParams,
@@ -15,6 +14,8 @@ import {
     ListQueryParams,
     MembersGithubLoginRetrieveParams,
     MembersListQueryParams,
+    PartialUpdateBody,
+    PartialUpdateParams,
     RetrieveParams,
     RolesListQueryParams,
     RolesRetrieveParams,
@@ -24,59 +25,14 @@ import {
     UserHomeSettingsPartialUpdateParams,
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const ActivityLogListSchema = ActivityLogListQueryParams.extend({
-    page_size: z
-        .preprocess(castStringToInt, ActivityLogListQueryParams.shape['page_size'].default(10).optional())
-        .optional(),
-    page: z.preprocess(castStringToInt, ActivityLogListQueryParams.shape['page']).optional(),
-})
-
-const activityLogList = (): ToolBase<
-    typeof ActivityLogListSchema,
-    WithPostHogUrl<Schemas.PaginatedActivityLogList>
-> => ({
-    name: 'activity-log-list',
-    schema: ActivityLogListSchema,
-    handler: async (context: Context, params: z.infer<typeof ActivityLogListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedActivityLogList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/activity_log/`,
-            query: {
-                item_id: params.item_id,
-                page: params.page,
-                page_size: params.page_size,
-                scope: params.scope,
-                scopes: params.scopes,
-                user: params.user,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'user.id',
-                    'user.first_name',
-                    'user.last_name',
-                    'user.email',
-                    'activity',
-                    'scope',
-                    'item_id',
-                    'detail.name',
-                    'detail.short_id',
-                    'detail.type',
-                    'created_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/activity')
-    },
-})
 
 const AdvancedActivityLogsFiltersSchema = z.object({})
 
@@ -99,6 +55,30 @@ const advancedActivityLogsFilters = (): ToolBase<
 
 const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.extend({
     page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional(),
+}).extend({
+    fields: z
+        .array(
+            z.enum([
+                'id',
+                'user.id',
+                'user.first_name',
+                'user.last_name',
+                'user.email',
+                'activity',
+                'scope',
+                'item_id',
+                'detail.name',
+                'detail.short_id',
+                'detail.type',
+                'detail.changes',
+                'created_at',
+            ])
+        )
+        .min(1)
+        .optional()
+        .describe(
+            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+        ),
 })
 
 const advancedActivityLogsList = (): ToolBase<
@@ -134,21 +114,26 @@ const advancedActivityLogsList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'user.id',
-                    'user.first_name',
-                    'user.last_name',
-                    'user.email',
-                    'activity',
-                    'scope',
-                    'item_id',
-                    'detail.name',
-                    'detail.short_id',
-                    'detail.type',
-                    'detail.changes',
-                    'created_at',
-                ])
+                pickResponseFields(
+                    item,
+                    params.fields?.length
+                        ? params.fields
+                        : [
+                              'id',
+                              'user.id',
+                              'user.first_name',
+                              'user.last_name',
+                              'user.email',
+                              'activity',
+                              'scope',
+                              'item_id',
+                              'detail.name',
+                              'detail.short_id',
+                              'detail.type',
+                              'detail.changes',
+                              'created_at',
+                          ]
+                )
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/activity')
@@ -341,6 +326,97 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
     },
 })
 
+const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
+    PartialUpdateBody.omit({
+        name: true,
+        logo_media_id: true,
+        members_can_invite: true,
+        members_can_create_projects: true,
+        members_can_use_personal_api_keys: true,
+        allow_publicly_shared_resources: true,
+        is_ai_data_processing_approved: true,
+        is_ai_training_opted_in: true,
+        default_experiment_stats_method: true,
+        default_anonymize_ips: true,
+        default_role_id: true,
+    }).shape
+).extend({
+    id: PartialUpdateParams.shape['id']
+        .describe('Organization ID. If omitted, targets the active organization.')
+        .optional(),
+    enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
+        .unwrap()
+        .describe(
+            'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
+        ),
+})
+
+const OrganizationEnforce2faSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const organizationEnforce2faPrepare = (): ToolBase<
+    typeof OrganizationEnforce2faSchema,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'organization-enforce-2fa-prepare',
+    schema: OrganizationEnforce2faSchema,
+    handler: async (context: Context, params: z.infer<typeof OrganizationEnforce2faSchema>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const id = params.id ?? (await context.stateManager.getOrgID())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active organization first.')
+        }
+        return await prepareConfirmedAction(context, {
+            args: { ...params, id },
+            purpose: 'organization-enforce-2fa',
+            actionLabel: 'change 2FA enforcement',
+            messageTemplate:
+                "About to set organization-wide two-factor-authentication enforcement to {enforce_2fa}. This immediately affects every member of the organization — when enabled, all members must set up 2FA before they can continue using PostHog. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+        })
+    },
+})
+
+const organizationEnforce2faExecute = (): ToolBase<
+    typeof OrganizationEnforce2faSchemaExecute,
+    Schemas.Organization
+> => ({
+    name: 'organization-enforce-2fa-execute',
+    schema: OrganizationEnforce2faSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof OrganizationEnforce2faSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __guard = await executeConfirmedAction<z.infer<typeof OrganizationEnforce2faSchema>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'organization-enforce-2fa',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const id = params.id ?? (await context.stateManager.getOrgID())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active organization first.')
+        }
+        const body: Record<string, unknown> = {}
+        if (params.enforce_2fa !== undefined) {
+            body['enforce_2fa'] = params.enforce_2fa
+        }
+        const result = await context.api.request<Schemas.Organization>({
+            method: 'PATCH',
+            path: `/api/organizations/${encodeURIComponent(String(id))}/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['enforce_2fa']) as typeof result
+        return filtered
+    },
+})
+
 const OrganizationGetSchema = RetrieveParams.extend({
     id: RetrieveParams.shape['id'].describe('Organization ID. If omitted, uses the active organization.').optional(),
 })
@@ -504,7 +580,6 @@ const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema,
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'activity-log-list': activityLogList,
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
     'advanced-activity-logs-list': advancedActivityLogsList,
     'approval-policies-list': approvalPoliciesList,
@@ -517,6 +592,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comments-list': commentsList,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
+    'organization-enforce-2fa-prepare': organizationEnforce2faPrepare,
+    'organization-enforce-2fa-execute': organizationEnforce2faExecute,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
     'role-get': roleGet,

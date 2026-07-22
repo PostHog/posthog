@@ -29,12 +29,17 @@ from products.web_analytics.backend.achievements.definitions import (
     TrackDefinition,
 )
 from products.web_analytics.backend.achievements.evaluators import EVALUATORS, EvalContext
-from products.web_analytics.backend.models import WebAnalyticsAchievementProgress, WebAnalyticsVisit
+from products.web_analytics.backend.models import (
+    WebAnalyticsAchievementProgress,
+    WebAnalyticsUserConfig,
+    WebAnalyticsVisit,
+)
 
 logger = structlog.get_logger(__name__)
 
 RECOMPUTE_DEBOUNCE_TTL_SECONDS = 26 * 60 * 60
 STREAK_CADENCE_FLAG = "web-analytics-streak-cadence"
+ACHIEVEMENTS_FLAG = "web-analytics-achievements"
 SWEEP_ACTIVE_WINDOW_DAYS = 7
 
 # Only these (ClickHouse-backed) evaluators are gated to once per team-local day. The cheap DB-backed
@@ -55,6 +60,27 @@ def streak_arm_for_user(user: User) -> str | None:
     except Exception:
         return None
     return variant if isinstance(variant, str) else None
+
+
+def _achievements_flag_enabled(distinct_id: str, org_id: str) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                ACHIEVEMENTS_FLAG,
+                distinct_id,
+                groups={"organization": org_id},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning("wa_achievements_flag_eval_failed", distinct_id=distinct_id, org_id=org_id, exc_info=True)
+        capture_exception(e)
+        return False
+
+
+def _user_opted_out(team: Team, user: User) -> bool:
+    return WebAnalyticsUserConfig.objects.for_team(team.id).filter(user_id=user.id, achievements_opt_out=True).exists()
 
 
 def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id: int | None, today: date) -> bool:
@@ -195,9 +221,20 @@ def _apply_progress(ctx: EvalContext, track: TrackDefinition, progress_pk: UUID,
 
         persist_progress(progress, value, new_stage, state)
 
-        for stage in newly_unlocked:
-            transaction.on_commit(partial(_send_unlock_notification, ctx, track, stage))
+        if newly_unlocked:
+            transaction.on_commit(partial(_send_unlock_notifications, ctx, track, newly_unlocked))
     return newly_unlocked
+
+
+def _send_unlock_notifications(ctx: EvalContext, track: TrackDefinition, stages: list[int]) -> None:
+    org_id = str(ctx.team.organization_id)
+    if track.scope == AchievementScope.USER and ctx.user is not None:
+        if _user_opted_out(ctx.team, ctx.user) or not _achievements_flag_enabled(str(ctx.user.distinct_id), org_id):
+            return
+    elif not _achievements_flag_enabled(str(ctx.team.uuid), org_id):
+        return
+    for stage in stages:
+        _send_unlock_notification(ctx, track, stage)
 
 
 def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: int) -> None:

@@ -10,6 +10,7 @@ import temporalio.converter
 from temporalio import activity as temporal_activity
 from temporalio.testing import WorkflowEnvironment
 
+from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 from posthog.ducklake.storage import compute_staging_uri
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
@@ -91,9 +92,6 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
         only_evaluate_locally=False,
         send_feature_flag_events=True,
     ):
-        if key == "duckgres-batch-sink":
-            # The sink-exclusion check runs first; this team is not sink-enabled.
-            return False
         captured["key"] = key
         captured["distinct_id"] = distinct_id
         captured["groups"] = groups
@@ -119,21 +117,73 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_ducklake_copy_data_imports_gate_skips_duckgres_sink_teams(monkeypatch, ateam):
-    """A team on the duckgres batch sink must never also run the copy workflow."""
-
-    def fake_feature_enabled(key, distinct_id, **kwargs):
-        # Both flags enabled: the sink exclusion must win.
-        return True
-
+async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
+    # On a sink-enabled team the duckgres sink owns v3 sources, so the copy workflow
+    # must drop those — but keep copying non-v3 sources the sink never follows. The
+    # exclusion is per-source, not the old wholesale team-level skip.
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["created_at"])
+    monkeypatch.setattr(ducklake_module, "is_dev_mode", lambda: False)
+    # get_duckgres_server_by_team_org resolves the staging URI via its own module-level
+    # is_dev_mode, so it needs the same override or it short-circuits to None in tests.
+    monkeypatch.setattr("posthog.ducklake.common.is_dev_mode", lambda: False)
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
-        fake_feature_enabled,
+        lambda *args, **kwargs: True,  # duckgres-batch-sink on
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import create_job_model
+
+    monkeypatch.setattr(
+        create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
     )
 
-    result = await ducklake_copy_data_imports_gate_activity(DuckLakeCopyWorkflowGateInputs(team_id=ateam.id))
+    server = await database_sync_to_async(DuckgresServer.objects.create)(
+        organization_id=ateam.organization_id,
+        host="h",
+        username="root",
+        password="x",
+        bucket="bucket",
+    )
+    membership = await database_sync_to_async(DuckgresServerTeam.objects.create)(server=server, team=ateam)
 
-    assert result is False
+    credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
+        team=ateam, access_key="k", access_secret="s"
+    )
+    v3_source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam, source_id="v3", connection_id="c1", source_type="Postgres", status="Running"
+    )
+    v3_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(team=ateam, name="pg", source=v3_source)
+    non_v3_source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam, source_id="nv3", connection_id="c2", source_type="Stripe", status="Running"
+    )
+    non_v3_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+        team=ateam,
+        name="charges",
+        format="Delta",
+        url_pattern="s3://bucket/path",
+        credential=credential,
+        external_data_source=non_v3_source,
+        columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+    )
+    non_v3_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+        team=ateam,
+        name="charges",
+        source=non_v3_source,
+        table=non_v3_table,
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "DateTime"},
+    )
+
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job", schema_ids=[v3_schema.id, non_v3_schema.id])
+
+    result = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    # v3 source dropped (sink owns it); non-v3 source still copied.
+    assert [m.source_schema_id for m in result] == [str(non_v3_schema.id)]
+
+    await database_sync_to_async(membership.delete)()
+    result_without_membership = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    assert {m.source_schema_id for m in result_without_membership} == {str(v3_schema.id), str(non_v3_schema.id)}
 
 
 @pytest.mark.asyncio

@@ -129,7 +129,7 @@ class TestMaxHandsFreeAPI(APIBaseTest):
         response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
         assert response.status_code in (401, 403)
 
-    @patch("ee.api.hands_free.StreamingHttpResponse")
+    @patch("posthog.api.streaming.StreamingHttpResponse")
     @patch("ee.api.hands_free.requests.post")
     def test_synthesize_closes_upstream_when_response_construction_fails(
         self, mock_post: MagicMock, mock_streaming_response: MagicMock

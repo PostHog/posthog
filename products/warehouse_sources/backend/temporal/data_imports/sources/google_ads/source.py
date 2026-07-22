@@ -1,6 +1,10 @@
 import re
 from typing import Optional, cast
 
+from django.core.cache import cache
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -8,12 +12,19 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
 
-from posthog.models.integration import Integration
+from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    GoogleAdsIntegration,
+    Integration,
+    OauthIntegration,
+    google_ads_hierarchy_level,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -27,23 +38,54 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+    filter_integration_accounts,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
+    format_customer_id,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Default incremental overlap re-read window for Google Ads stats tables (the 12 schemas
+# carrying a `segments.date` filter). Google reports recent-day cost/conversion data as
+# provisional and keeps revising it for days after the fact (see "About data freshness":
+# https://support.google.com/google-ads/answer/2544985), so an incremental sync that only
+# re-fetches the newest day freezes each day at its first-imported, not-yet-final value.
+# Re-reading a 30-day trailing window each run lets those days catch up as Google finalizes
+# them; merge-by-primary-key makes the overlap idempotent. 30 days also covers the App-
+# campaign conversion attribution window for the conversion metrics in these tables. These
+# tables are small, so the extra re-read is negligible. Tunable; stays under the 60-day cap
+# enforced at the creation/update endpoints.
+GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+
+_OAUTH_ACCOUNTS_CACHE_TTL_SECONDS = 60
+
+
+def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
+    # Keyed on (team, integration) only — never the search term — so distinct searches share one walk.
+    return f"@dwh/google_ads/{team_id}/{integration_id}/oauth_accounts"
 
 
 @SourceRegistry.register
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
+    supported_versions = ("v23",)
+    default_version = "v23"
+    api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -81,6 +123,10 @@ class GoogleAdsSource(
             # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.
             # Retrying cannot recover — the user must reconnect their Google Ads account.
             "Request is missing required authentication credential": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
+            # The other gapic-wrapped Unauthenticated variant, str() "401 Request had invalid authentication
+            # credentials. ..." — raised when the OAuth access token itself is rejected. Same story: no bare
+            # "UNAUTHENTICATED" token, retrying cannot recover, the user must reconnect their Google Ads account.
+            "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -122,6 +168,13 @@ class GoogleAdsSource(
                 ],
                 description=endpoint_config.description,
                 should_sync_default=endpoint_config.should_sync_default,
+                # Only the incremental stats tables (those with a segments.date filter) need the
+                # lookback; the full-refresh dimension tables re-read everything each run anyway.
+                default_incremental_lookback_seconds=(
+                    GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+                    if ads_incremental_fields.get(endpoint, None) is not None
+                    else None
+                ),
             )
             for endpoint, endpoint_config in google_ads_schemas.items()
         ]
@@ -173,16 +226,20 @@ class GoogleAdsSource(
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
+                    SourceFieldOauthConfig(
+                        name="google_ads_integration_id",
+                        label="Google Ads account",
+                        required=True,
+                        kind="google-ads",
+                        requiredScopes="https://www.googleapis.com/auth/adwords",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
                         name="customer_id",
                         label="Customer ID",
-                        type=SourceFieldInputConfigType.TEXT,
+                        integrationField="google_ads_integration_id",
+                        integrationKind="google-ads",
                         required=True,
                         placeholder="123-456-7890",
-                        secret=False,
-                    ),
-                    SourceFieldOauthConfig(
-                        name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
@@ -217,6 +274,65 @@ class GoogleAdsSource(
             ],
         )
 
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # The whole account list comes from one expensive hierarchy walk (listAccessibleCustomers plus a
+        # searchStream per accessible root) that ignores `search`. Cache the unfiltered result keyed only
+        # on (team, integration) — never `search` — so distinct search terms reuse one walk instead of
+        # repeating it and burning shared Google Ads API quota, then filter the cached list in memory.
+        cache_key = _oauth_accounts_cache_key(team_id, integration_id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return filter_integration_accounts(cached, search)
+
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                "The linked Google Ads integration could not be found. Please reconnect your Google Ads integration."
+            ) from e
+
+        oauth = OauthIntegration(integration)
+        if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
+            oauth.refresh_access_token()
+        if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+            raise IntegrationAccountListingError(
+                "Could not refresh the Google Ads credentials. Please reconnect your Google Ads integration."
+            )
+
+        try:
+            accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except ValidationError as e:
+            # Raised only for a 401/403 from Google: revoked credentials, or the connected account
+            # lost access.
+            raise IntegrationAccountListingError(
+                "Google rejected the credentials for this integration. Please reconnect your Google Ads "
+                "integration and make sure the connected account can access your Google Ads accounts."
+            ) from e
+
+        names_by_id = {account["id"]: account["name"] for account in accounts}
+        integration_accounts = [
+            IntegrationAccount(
+                # Dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
+                value=format_customer_id(account["id"]),
+                display_name=account["name"],
+                is_primary=google_ads_hierarchy_level(account) == 0,
+                badges=("Manager",) if account.get("manager") else (),
+                # `parent_id` is the accessible account the walk started from, not the direct manager, so
+                # it only names the true parent one level down. Deeper accounts get no group rather than a
+                # wrong one (the client renders this as "under <group>").
+                group=names_by_id.get(account["parent_id"]) if google_ads_hierarchy_level(account) == 1 else None,
+            )
+            for account in accounts
+        ]
+
+        # Don't cache an empty result: a transient walk that returns [] without raising would otherwise
+        # freeze the picker empty for the whole TTL for every admin on the team.
+        if integration_accounts:
+            cache.set(cache_key, integration_accounts, _OAUTH_ACCOUNTS_CACHE_TTL_SECONDS)
+        return filter_integration_accounts(integration_accounts, search)
+
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         is_valid, errors = super().validate_config(job_inputs)
 
@@ -233,8 +349,11 @@ class GoogleAdsSource(
             )
             is_valid = False
 
-        is_mcc_account = job_inputs.get("is_mcc_account", {})
-        if is_mcc_account.get("enabled"):
+        # The switch-group field is a dict (`{"enabled": ..., "mcc_client_id": ...}`) when
+        # sent from the setup form, but API callers may send a plain bool, so only treat it
+        # as enabled when it's the expected dict shape.
+        is_mcc_account = job_inputs.get("is_mcc_account")
+        if isinstance(is_mcc_account, dict) and is_mcc_account.get("enabled"):
             raw_mcc_client_id = is_mcc_account.get("mcc_client_id", "")
             if raw_mcc_client_id and not re.fullmatch(r"\d{10}", clean_customer_id(raw_mcc_client_id) or ""):
                 errors.append(
@@ -274,8 +393,9 @@ class GoogleAdsSource(
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
-            google_ads_client,  # noqa: PLC0415
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
+            _is_transient_grpc_error,
+            google_ads_client,
         )
 
         try:
@@ -290,9 +410,15 @@ class GoogleAdsSource(
             customer_resource_name = f"customers/{clean_customer_id(config.customer_id)}"
             is_valid = customer_resource_name in accessible_customers.resource_names
             if not is_valid:
+                # `list_accessible_customers` returns only accounts the login can reach directly,
+                # never client accounts nested under a manager. A valid client-account id therefore
+                # lands here when the MCC toggle is off, so point at that toggle rather than telling
+                # the user their (correct) id is wrong. Mirrors the PERMISSION_DENIED message below.
                 return (
                     False,
-                    f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
+                    f"Customer ID {config.customer_id} isn't accessible with the connected Google login. "
+                    "Check the ID is correct, and if it's a client account under a manager (MCC) account, "
+                    'enable "Using MCC account?" and enter your manager\'s customer ID, then try again.',
                 )
             return True, None
         except Integration.DoesNotExist:
@@ -317,5 +443,26 @@ class GoogleAdsSource(
                     False,
                     "Your Google Ads connection is no longer available — it may have been disconnected. "
                     "Please reconnect your Google Ads account.",
+                )
+            # A gRPC PERMISSION_DENIED ("The caller does not have permission") means the connected Google
+            # login can't access this customer ID — the wrong customer/manager (MCC) account, or access
+            # that was never granted. list_accessible_customers raises it as a raw _InactiveRpcError whose
+            # str() is a protobuf dump (with a per-request peer IP) the user can't act on, so surface an
+            # actionable prompt instead of leaking it, mirroring the MCC USER_PERMISSION_DENIED message.
+            if "PERMISSION_DENIED" in error_message or "caller does not have permission" in error_message:
+                return (
+                    False,
+                    "PostHog doesn't have permission to access this Google Ads account. Verify the "
+                    "customer ID (and manager account, if using an MCC) is accessible to the connected "
+                    "Google login, then reconnect your Google Ads account.",
+                )
+            # A transient Google-side blip (INTERNAL / UNAVAILABLE) stringifies as a raw gRPC status and
+            # protobuf failure dump the user can't act on. The sync rides these out in-process; here on
+            # the interactive create path we surface a clean retry prompt instead of leaking the dump.
+            if _is_transient_grpc_error(e):
+                return (
+                    False,
+                    "Google Ads returned a temporary error while validating your credentials. This is "
+                    "usually a transient issue on Google's side — please try again in a moment.",
                 )
             return False, f"Error validating credentials: {error_message}"

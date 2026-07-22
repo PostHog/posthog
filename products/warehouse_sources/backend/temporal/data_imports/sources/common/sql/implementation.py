@@ -308,8 +308,13 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
         try:
             stats = self.fetch_table_stats(cursor, schema, table_name, logger)
         except Exception as e:
+            # Partition sizing is a best-effort optimization: returning None just falls back to
+            # default partition settings and the sync proceeds. Any genuine problem (missing table,
+            # permissions) resurfaces in the real extraction query and is classified through the
+            # normal retryable/non-retryable path, while transient connection drops here stay
+            # retryable there too. Capturing it would only flood error tracking with handled
+            # duplicates, so log at debug and fall back.
             logger.debug(f"get_partition_settings: Error fetching stats: {e}. Returning None", exc_info=e)
-            capture_exception(e)
             return None
 
         if stats is None or stats.row_count == 0:

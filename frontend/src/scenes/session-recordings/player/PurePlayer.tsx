@@ -5,9 +5,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { BuilderHog2, WarningHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -36,6 +38,8 @@ import {
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 export interface PurePlayerProps {
     noMeta?: boolean
@@ -312,7 +316,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     <div className="SessionRecordingPlayer__main flex flex-col h-full w-full">
                         {isRecentAndInvalid ? (
                             <div className="flex flex-1 flex-col items-center justify-center">
-                                <BuilderHog2 height={200} />
+                                <HedgehogConstruction2 height={200} />
                                 <h1>We're still working on it</h1>
                                 <p>
                                     This recording hasn't been fully ingested yet. It should be ready to watch in a few

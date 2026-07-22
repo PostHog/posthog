@@ -11,6 +11,7 @@
 
 import { defineNativeTool, NativeTool, NativeToolSchema, Type } from '@posthog/agent-shared'
 
+import { githubAppRequestV1 } from './tools/github-app-request.v1'
 import { httpRequestV1 } from './tools/http-request.v1'
 import { identityConnectV1 } from './tools/identity-connect.v1'
 import { identityFetchV1 } from './tools/identity-fetch.v1'
@@ -57,7 +58,6 @@ import {
 } from './tools/posthog-agent-management.v1'
 import { posthogListProjectsV1 } from './tools/posthog-projects.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
-import { posthogAgentApplicationsSpecSchemaV1 } from './tools/posthog-spec-schema.v1'
 import {
     slackPostMessageV1,
     slackReactV1,
@@ -84,6 +84,7 @@ import { webSearchV1 } from './tools/web-search/web-search.v1'
  */
 export const nativeToolsCatalogV1 = defineNativeTool({
     id: '@posthog/agent-applications-native-tools-list',
+    approval: 'allow',
     description: [
         'List every native (@posthog/*) tool available to put in an agent spec —',
         'id, description, the credential provider + scopes it needs, and cost hint. Call this to',
@@ -149,13 +150,13 @@ export const ALL_TOOLS: NativeTool[] = [
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSessionLogsV1,
     nativeToolsCatalogV1,
-    posthogAgentApplicationsSpecSchemaV1,
     slackPostMessageV1,
     slackUpdateMessageV1,
     slackReadChannelV1,
     slackReadThreadV1,
     slackReactV1,
     httpRequestV1,
+    githubAppRequestV1,
     identityConnectV1,
     identityFetchV1,
     webSearchV1,

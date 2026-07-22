@@ -17,7 +17,6 @@ interface ComposerStoryArgs {
     disabledReason?: string
     isSticky: boolean
     isThreadVisible: boolean
-    submitShortcut: 'enter' | 'cmd-enter'
 }
 
 type Story = StoryObj<ComposerStoryArgs>
@@ -33,20 +32,16 @@ const meta: Meta<ComposerStoryArgs> = {
         disabledReason: undefined,
         isSticky: false,
         isThreadVisible: false,
-        submitShortcut: 'enter',
     },
-    argTypes: {
-        submitShortcut: { control: 'radio', options: ['enter', 'cmd-enter'] },
-    },
-    render: ({ initialValue, placeholder, submitShortcut, ...rootProps }) => {
+    render: ({ initialValue, placeholder, ...rootProps }) => {
         const [value, setValue] = useState(initialValue)
         return (
-            <div className="max-w-180 mx-auto p-4">
+            <div className="w-180 mx-auto p-4">
                 <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
                     <Composer.Frame>
                         <Composer.Field>
                             <Composer.Placeholder>{placeholder}</Composer.Placeholder>
-                            <Composer.Textarea submitShortcut={submitShortcut} />
+                            <Composer.Textarea />
                         </Composer.Field>
                     </Composer.Frame>
                     <Composer.Submit />
@@ -79,7 +74,7 @@ export const Disabled: Story = {
 
 /** Follow-up variant: tighter frame radius/border and a nudged send button (`isThreadVisible`). */
 export const FollowUp: Story = {
-    args: { initialValue: 'One more thing…', isThreadVisible: true, submitShortcut: 'cmd-enter' },
+    args: { initialValue: 'One more thing…', isThreadVisible: true },
 }
 
 /** Page-level sticky chrome: bordered, blurred, bottom-pinned container around the frame. */
@@ -94,21 +89,24 @@ export const Sticky: Story = {
     ],
 }
 
-/** With a footer row for context chips / actions inside the frame. */
-export const WithFooter: Story = {
-    render: ({ initialValue, placeholder, submitShortcut, ...rootProps }) => {
+/** Real-surface composition: context chips in the Header row at the top of the frame, actions in the Footer. */
+export const WithHeaderAndFooter: Story = {
+    render: ({ initialValue, placeholder, ...rootProps }) => {
         const [value, setValue] = useState(initialValue)
         return (
-            <div className="max-w-180 mx-auto p-4">
+            <div className="w-180 mx-auto p-4">
                 <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
                     <Composer.Frame>
+                        <Composer.Header className="flex flex-wrap items-center gap-1">
+                            <LemonTag type="muted">@ Current dashboard</LemonTag>
+                            <LemonTag type="muted">@ Weekly signups</LemonTag>
+                        </Composer.Header>
                         <Composer.Field>
                             <Composer.Placeholder>{placeholder}</Composer.Placeholder>
-                            <Composer.Textarea submitShortcut={submitShortcut} />
+                            <Composer.Textarea />
                         </Composer.Field>
                         <Composer.Footer>
                             <div className="flex items-center gap-1 pl-2">
-                                <LemonTag type="muted">@ Current dashboard</LemonTag>
                                 <LemonButton size="xsmall" type="tertiary" icon={<IconGear />} tooltip="Settings" />
                             </div>
                         </Composer.Footer>
@@ -122,15 +120,15 @@ export const WithFooter: Story = {
 
 /** Editable "Up next" queue rendered in the Banner slot above the frame (the tasks follow-up surface). */
 export const WithUpNextQueue: Story = {
-    args: { isThreadVisible: true, submitShortcut: 'cmd-enter' },
-    render: ({ initialValue, placeholder, submitShortcut, ...rootProps }) => {
+    args: { isThreadVisible: true },
+    render: ({ initialValue, placeholder, ...rootProps }) => {
         const [value, setValue] = useState(initialValue)
         const [queue, setQueue] = useState([
             { id: '1', content: 'Also break it down by browser' },
             { id: '2', content: 'And add a comparison to the previous period' },
         ])
         return (
-            <div className="max-w-180 mx-auto p-4">
+            <div className="w-180 mx-auto p-4">
                 <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
                     <Composer.Banner>
                         <QueuedMessageList
@@ -144,7 +142,7 @@ export const WithUpNextQueue: Story = {
                     <Composer.Frame>
                         <Composer.Field>
                             <Composer.Placeholder>{placeholder}</Composer.Placeholder>
-                            <Composer.Textarea submitShortcut={submitShortcut} />
+                            <Composer.Textarea />
                         </Composer.Field>
                     </Composer.Frame>
                     <Composer.Submit />

@@ -1,16 +1,40 @@
 from django.db import IntegrityError
+from django.db.models import Prefetch
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
+from social_django.models import UserSocialAuth
 
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
 from ee.models.rbac.role import Role, RoleMembership
+
+
+def role_memberships_prefetch() -> Prefetch:
+    """Prefetch role members with the relations the member serializer reads, so listing roles
+    doesn't fire a per-member social-auth/2FA query.
+    """
+    return Prefetch(
+        "roles",
+        queryset=RoleMembership.objects.select_related("user", "organization_member__user").prefetch_related(
+            Prefetch(
+                "organization_member__user__totpdevice_set",
+                queryset=TOTPDevice.objects.filter(confirmed=True),
+            ),
+            Prefetch("organization_member__user__social_auth", queryset=UserSocialAuth.objects.all()),
+            Prefetch(
+                "organization_member__user__webauthn_credentials",
+                queryset=WebauthnCredential.objects.filter(verified=True),
+            ),
+        ),
+    )
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -46,8 +70,8 @@ class RoleSerializer(serializers.ModelSerializer):
         serializers.ListField(child=serializers.DictField(), help_text="Members assigned to this role")
     )
     def get_members(self, role: Role):
-        members = RoleMembership.objects.filter(role=role)
-        return RoleMembershipSerializer(members, many=True).data
+        # role.roles are the memberships; reuse RoleViewSet's prefetch instead of re-querying per role.
+        return RoleMembershipSerializer(role.roles.all(), many=True).data
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_default(self, role: Role):
@@ -66,7 +90,7 @@ class RoleSerializer(serializers.ModelSerializer):
 class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
-    queryset = Role.objects.all()
+    queryset = Role.objects.prefetch_related(role_memberships_prefetch())
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
 

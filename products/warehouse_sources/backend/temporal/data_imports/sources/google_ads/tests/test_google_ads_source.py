@@ -1,11 +1,18 @@
+import re
+import typing
+import datetime as dt
+import collections.abc
 from types import SimpleNamespace
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
+from django.core.cache import cache
 from django.db import OperationalError
 
 import grpc
+import pyarrow as pa
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
@@ -13,22 +20,30 @@ from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     clean_customer_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+    GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
+    GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN,
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
-    _is_invalid_page_token_error,
+    _is_rejected_page_token_error,
+    _is_stale_page_token_error,
     _is_transient_client_init_error,
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
+    _search_fields_with_transient_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -36,6 +51,17 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+def test_get_source_config_oauth_field_declares_required_scope():
+    oauth_field = next(
+        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
+        None,
+    )
+    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
+    assert isinstance(oauth_field, SourceFieldOauthConfig)
+    assert oauth_field.kind == "google-ads"
+    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:
@@ -97,6 +123,13 @@ class TestGoogleAdsValidateConfig:
             "is_mcc_account": {"enabled": True, "mcc_client_id": "123"},
         }
         assert len(self._manager_id_errors(job_inputs)) == 1
+
+    @pytest.mark.parametrize("is_mcc_account", [False, True, None])
+    def test_non_dict_is_mcc_account_does_not_crash(self, is_mcc_account):
+        # API callers may send is_mcc_account as a plain bool instead of the switch-group dict;
+        # validate_config must not crash trying to read `.get("enabled")` off it.
+        job_inputs = {"customer_id": "1234567890", "is_mcc_account": is_mcc_account}
+        assert self._manager_id_errors(job_inputs) == []
 
 
 class TestGoogleAdsNonRetryableErrors:
@@ -193,14 +226,28 @@ class TestGoogleAdsNonRetryableErrors:
                 "token, login cookie or other valid authentication credential. See "
                 "https://developers.google.com/identity/sign-in/web/devconsole-project."
             ),
+            # The other gapic-wrapped Unauthenticated message, seen on the sync path when the OAuth
+            # access token is rejected — same "401 {message}" shape, no bare UNAUTHENTICATED token.
+            (
+                "401 Request had invalid authentication credentials. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
         ],
     )
     def test_missing_auth_credential_is_non_retryable(self, error_msg):
         is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
 
-    def test_missing_auth_credential_has_friendly_message(self):
-        friendly = self.non_retryable["Request is missing required authentication credential"]
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
+        ],
+    )
+    def test_auth_credential_patterns_have_friendly_message(self, pattern):
+        friendly = self.non_retryable[pattern]
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
@@ -239,6 +286,7 @@ class TestGoogleAdsNonRetryableErrors:
             "invalid_grant",
             "access_not_configured",
             "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -258,6 +306,37 @@ class TestGoogleAdsNonRetryableErrors:
         friendly = self.non_retryable["access_not_configured"]
         assert friendly is not None
         assert "admin" in friendly.lower()
+
+
+class TestGoogleAdsLookbackDefault:
+    _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
+
+    def test_incremental_stats_schemas_get_default_lookback_dimensions_do_not(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import (
+            GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS,
+        )
+
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        # get_schemas() queries the Google Ads API for selectable fields; the static incremental-field
+        # map (real, not mocked) is what marks a table incremental, so stub the network call with one
+        # stats table (has a segments.date filter) and one dimension table (does not).
+        fake_tables = {
+            "campaign_stats": SimpleNamespace(description=None, should_sync_default=True),
+            "campaign": SimpleNamespace(description=None, should_sync_default=True),
+        }
+        with mock.patch(self._SCHEMAS_PATH, return_value=fake_tables):
+            schemas = {s.name: s for s in GoogleAdsSource().get_schemas(config, team_id=1)}
+
+        assert schemas["campaign_stats"].supports_incremental is True
+        assert (
+            schemas["campaign_stats"].default_incremental_lookback_seconds
+            == GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+        )
+        assert schemas["campaign"].supports_incremental is False
+        assert schemas["campaign"].default_incremental_lookback_seconds is None
+        # The default must satisfy the 60-day cap the creation/update endpoints enforce, or creation
+        # would reject it.
+        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS <= 5_184_000
 
 
 class TestGrpcReceiveLimit:
@@ -324,6 +403,45 @@ class TestValidateCredentials:
         assert ok is False
         assert "reconnect your Google Ads account" in (message or "")
 
+    def test_permission_denied_returns_actionable_message(self):
+        # A connected login that can't access the customer ID surfaces as a raw gRPC PERMISSION_DENIED
+        # dump (with a per-request peer IP) at validate time. Surface a clean, actionable prompt rather
+        # than leaking the protobuf dump to the wizard.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.PERMISSION_DENIED\n\tdetails = "The caller does not have permission"\n\t'
+            'debug_error_string = "peer_address:ipv4:216.239.36.223:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "reconnect your Google Ads account" in (message or "")
+        assert "216.239.36.223" not in (message or "")
+        assert "StatusCode" not in (message or "")
+
+    def test_transient_google_side_error_returns_retry_message(self):
+        # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
+        # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = (
+            google_api_exceptions.InternalServerError("500 Internal error encountered.")
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "try again" in (message or "")
+        assert "Internal error encountered" not in (message or "")
+
 
 def _google_ads_exception(request_error: int) -> GoogleAdsException:
     failure = GoogleAdsFailure(
@@ -339,6 +457,18 @@ def _google_ads_exception(request_error: int) -> GoogleAdsException:
     return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
 
 
+def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -> GoogleAdsException:
+    # A failure whose request_error code the pinned library can't decode (surfaced as UNKNOWN /
+    # "The error code is not in this version.") but whose trigger still echoes the offending value.
+    error = GoogleAdsError(
+        error_code=ErrorCode(request_error=request_error),
+        message="The error code is not in this version.",
+    )
+    error.trigger.string_value = trigger_value
+    failure = GoogleAdsFailure(errors=[error])
+    return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
+
+
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
@@ -346,6 +476,11 @@ def _string_column(qualified_name: str) -> GoogleAdsColumn:
         is_repeatable=False,
         type_url="",
     )
+
+
+def _pa_table_with_rows(num_rows: int) -> pa.Table:
+    """A minimal Arrow table standing in for a window's extracted page; only its row count matters."""
+    return pa.table({"campaign_id": [str(i) for i in range(num_rows)], "segments_date": ["2026-01-01"] * num_rows})
 
 
 def _single_row_table() -> GoogleAdsTable:
@@ -399,23 +534,56 @@ class _FakeResumableManager:
         self.saved_states.append(data.page_token)
 
 
-class TestInvalidPageTokenDetection:
+class TestStalePageTokenDetection:
     @pytest.mark.parametrize(
         "exc, expected",
         [
             (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), True),
+            # Google returns a distinct EXPIRED_PAGE_TOKEN when a once-valid token aged out
+            # between runs — the resumption recovery must treat it the same as INVALID_PAGE_TOKEN.
+            (_google_ads_exception(RequestErrorEnum.RequestError.EXPIRED_PAGE_TOKEN), True),
             (_google_ads_exception(RequestErrorEnum.RequestError.RESOURCE_NAME_MISSING), False),
             # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
             (SimpleNamespace(failure=None), False),
         ],
     )
-    def test_is_invalid_page_token_error(self, exc, expected):
-        assert _is_invalid_page_token_error(exc) is expected
+    def test_is_stale_page_token_error(self, exc, expected):
+        assert _is_stale_page_token_error(exc) is expected
+
+
+class TestRejectedPageTokenDetection:
+    @pytest.mark.parametrize(
+        "exc, page_token, expected",
+        [
+            # Google rejected our token with a code the pinned library can't decode, but the
+            # failure trigger echoes the exact token we sent — recognise it as a stale token.
+            (
+                _google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "SAVED_TOKEN"),
+                "SAVED_TOKEN",
+                True,
+            ),
+            # A trigger naming some other value must not be mistaken for a rejected page token.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "other"), "SAVED_TOKEN", False),
+            # An empty page token (first-page request) can never be the rejected value.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, ""), "", False),
+            # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
+            (SimpleNamespace(failure=None), "SAVED_TOKEN", False),
+        ],
+    )
+    def test_is_rejected_page_token_error(self, exc, page_token, expected):
+        assert _is_rejected_page_token_error(exc, page_token) is expected
 
 
 class TestSearchPageTokenResumption:
-    def test_restarts_pagination_when_saved_page_token_expired(self):
-        service = _FakeService(_single_page())
+    @pytest.mark.parametrize(
+        "request_error",
+        [
+            RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN,
+            RequestErrorEnum.RequestError.EXPIRED_PAGE_TOKEN,
+        ],
+    )
+    def test_restarts_pagination_when_saved_page_token_stale(self, request_error):
+        service = _FakeService(_single_page(), error_on_token=_google_ads_exception(request_error))
         manager = _FakeResumableManager(saved_token="STALE_TOKEN")
 
         tables = list(
@@ -433,6 +601,30 @@ class TestSearchPageTokenResumption:
         # The stale token is cleared from saved state so a later resume won't reuse it.
         assert manager.saved_states == [""]
         # Rows are still yielded — the data was never lost.
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+
+    def test_restarts_pagination_when_page_token_rejected_with_unrecognised_code(self):
+        # Google rejected the saved token with a request_error code the pinned library can't
+        # decode (UNKNOWN / "The error code is not in this version."), so the code-text match
+        # misses it; the trigger echoing the token is the only stable signal to restart.
+        service = _FakeService(
+            _single_page(),
+            error_on_token=_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "STALE_TOKEN"),
+        )
+        manager = _FakeResumableManager(saved_token="STALE_TOKEN")
+
+        tables = list(
+            _search_as_arrow_tables(
+                service=service,  # type: ignore[arg-type]
+                customer_id="1234567890",
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        )
+
+        assert service.calls == ["STALE_TOKEN", ""]
+        assert manager.saved_states == [""]
         assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
 
     def test_other_google_ads_errors_propagate(self):
@@ -594,15 +786,23 @@ class TestTransientClientInitErrorDetection:
 class _StatusCodeRpcError(grpc.RpcError):
     """A raw gRPC error whose ``code()`` reports a given ``StatusCode`` (``_InactiveRpcError`` shape)."""
 
-    def __init__(self, status_code: grpc.StatusCode):
+    def __init__(self, status_code: grpc.StatusCode, message: str = ""):
         self._status_code = status_code
+        self._message = message
 
     def code(self) -> grpc.StatusCode:
         return self._status_code
 
+    def __str__(self) -> str:
+        return self._message
+
 
 def _grpc_unavailable_error() -> grpc.RpcError:
     return _StatusCodeRpcError(grpc.StatusCode.UNAVAILABLE)
+
+
+def _grpc_resource_exhausted_error(message: str = "") -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.RESOURCE_EXHAUSTED, message)
 
 
 def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsException:
@@ -629,6 +829,32 @@ class TestTransientGrpcErrorDetection:
             # gapic wrapper and the raw _InactiveRpcError must both be ridden out in-process.
             (google_api_exceptions.InternalServerError("500 Internal error encountered."), True),
             (_grpc_internal_error(), True),
+            # A quota/rate-limit RESOURCE_EXHAUSTED ("Resource has been exhausted (e.g. check
+            # quota).") is Google-flagged retryable — both the gapic wrapper (whose ``code`` is an
+            # HTTP int, not a callable ``StatusCode``) and the raw _InactiveRpcError must be ridden out.
+            (google_api_exceptions.ResourceExhausted("Resource has been exhausted (e.g. check quota)."), True),
+            (_grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota)."), True),
+            # The SDK can also wrap a RESOURCE_EXHAUSTED transport status in a GoogleAdsException — the
+            # unwrapped raw _InactiveRpcError then takes the ``code()`` path with the signature guard.
+            (
+                _google_ads_exception_wrapping(
+                    _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota).")
+                ),
+                True,
+            ),
+            # A client-side "Received message larger than max" abort is RESOURCE_EXHAUSTED too, but is
+            # deterministic — it must not be retried in-process regardless of which shape it arrives as.
+            (
+                google_api_exceptions.ResourceExhausted("Received message larger than max (90000000 vs. 67108864)"),
+                False,
+            ),
+            (_grpc_resource_exhausted_error("Received message larger than max (90000000 vs. 67108864)"), False),
+            (
+                _google_ads_exception_wrapping(
+                    _grpc_resource_exhausted_error("Received message larger than max (90000000 vs. 67108864)")
+                ),
+                False,
+            ),
             # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
             # Google Ads API errors carry no transient gRPC status — they route through the existing
@@ -666,6 +892,11 @@ class TestSearchTransientRetry:
             _google_ads_exception_wrapping(_grpc_unavailable_error()),
             google_api_exceptions.InternalServerError("500 Internal error encountered."),
             _grpc_internal_error(),
+            google_api_exceptions.ResourceExhausted("Resource has been exhausted (e.g. check quota)."),
+            _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota)."),
+            _google_ads_exception_wrapping(
+                _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota).")
+            ),
         ],
     )
     def test_rides_out_transient_error(self, error):
@@ -739,6 +970,71 @@ class TestSearchTransientRetry:
         assert sleep.call_count == 0
 
 
+class _FlakyFieldService:
+    """Raises a transient error for the first ``fail_times`` calls, then returns a fields pager."""
+
+    def __init__(self, pager: object, error: BaseException, fail_times: int):
+        self.pager = pager
+        self.error = error
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def search_google_ads_fields(self, query: str):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.error
+        return self.pager
+
+
+class TestSearchFieldsTransientRetry:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
+            _grpc_unavailable_error(),
+            _google_ads_exception_wrapping(_grpc_unavailable_error()),
+            # The reported failure: gRPC INTERNAL ("Internal error encountered.") during schema
+            # discovery, arriving both as the gapic wrapper and the raw _InactiveRpcError.
+            google_api_exceptions.InternalServerError("500 Internal error encountered."),
+            _grpc_internal_error(),
+        ],
+    )
+    def test_rides_out_transient_error(self, error):
+        pager = object()
+        service = _FlakyFieldService(pager, error=error, fail_times=2)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            result = _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
+        assert result is pager
+        # Two transient failures retried, then the pager was returned.
+        assert service.calls == 3
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_persistent_internal_is_reraised_for_temporal_to_retry(self):
+        service = _FlakyFieldService(
+            object(), error=google_api_exceptions.InternalServerError("500 Internal error encountered."), fail_times=99
+        )
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            with pytest.raises(google_api_exceptions.InternalServerError):
+                _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
+        assert service.calls == 4
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
+
+    def test_non_transient_error_is_not_retried(self):
+        service = _FlakyFieldService(object(), error=ValueError("boom"), fail_times=99)
+
+        with mock.patch(_SLEEP_PATH) as sleep:
+            with pytest.raises(ValueError):
+                _search_fields_with_transient_retry(service, "select name from x")  # type: ignore[arg-type]
+
+        assert service.calls == 1
+        assert sleep.call_count == 0
+
+
 _INTEGRATION_GET_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration.objects.get"
 )
@@ -752,7 +1048,11 @@ class TestGetIntegrationDbResilience:
         integration = object()
         get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH),
+        ):
             result = _get_integration(integration_id=1, team_id=2)
 
         assert result is integration
@@ -760,15 +1060,46 @@ class TestGetIntegrationDbResilience:
         # Evicted up front, then again after the failed query marked the connection unusable.
         assert close.call_count == 2
 
-    def test_reraises_when_retry_also_fails(self):
-        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+    def test_rides_out_pool_wait_timeout_then_succeeds(self):
+        integration = object()
+        # A saturated connection pooler rejects the query with a wait timeout (surfaced as an
+        # OperationalError); the previous immediate single retry hit the same saturation, so we
+        # back off and retry a few times before giving up.
+        get = mock.Mock(
+            side_effect=[
+                OperationalError("query_wait_timeout"),
+                OperationalError("query_wait_timeout"),
+                integration,
+            ]
+        )
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             with pytest.raises(OperationalError):
                 _get_integration(integration_id=1, team_id=2)
 
-        # One retry only — the second failure propagates so Temporal still retries the activity.
-        assert get.call_count == 2
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
+        assert get.call_count == 4
+        # Backed off between each attempt (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
         get = mock.Mock(side_effect=Integration.DoesNotExist())
@@ -814,3 +1145,176 @@ class TestOverviewStatsSchemas:
         assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
         assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
         assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
+
+
+_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source"
+
+
+class TestGetOAuthAccountsCaching:
+    def test_distinct_search_terms_reuse_one_hierarchy_walk(self):
+        # The whole account list comes from one expensive walk (listAccessibleCustomers + a searchStream
+        # per accessible root) that ignores `search`. Keying the cache on the search term would repeat
+        # that walk for every distinct query; the walk must run once and be filtered in memory.
+        cache.clear()
+        source = GoogleAdsSource()
+        accounts = [
+            {"id": "1234567890", "name": "Acme Corp", "level": None, "parent_id": "1234567890", "manager": False},
+            {"id": "9876543210", "name": "Beta Client", "level": None, "parent_id": "9876543210", "manager": False},
+        ]
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            walk = mock_google_ads.return_value.list_google_ads_accessible_accounts
+            walk.return_value = accounts
+
+            first = source.get_oauth_accounts(1, 2, search="acme")
+            second = source.get_oauth_accounts(1, 2, search="beta")
+
+        walk.assert_called_once()
+        assert [account.value for account in first] == ["123-456-7890"]
+        assert [account.value for account in second] == ["987-654-3210"]
+
+
+class TestGoogleAdsQueryConstruction:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
+
+    def _stats_table(self) -> GoogleAdsTable:
+        return GoogleAdsTable(
+            name="campaign_stats",
+            alias="campaign_stats",
+            columns=[_string_column("campaign.id"), _string_column("segments.date")],
+            parents=None,
+            requires_filter=True,
+            primary_key=["campaign_id", "segments_date"],
+            should_sync_default=True,
+            description=None,
+        )
+
+    def _run_source(self, table: GoogleAdsTable, *, window_rows: dict[str, int] | None = None, **source_kwargs):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+            google_ads_source,
+        )
+
+        queries: list[str] = []
+
+        def fake_search(*args, **kwargs):
+            # The production code calls positionally; pull `query` (3rd positional) either way.
+            query = kwargs.get("query", args[2] if len(args) > 2 else "")
+            queries.append(query)
+            rows = 0
+            if window_rows is not None:
+                match = re.search(r">= '(\d{4}-\d{2}-\d{2})'", query or "")
+                if match:
+                    rows = window_rows.get(match.group(1), 0)
+            # `_search_as_arrow_tables` only yields non-empty tables, so an empty window yields nothing.
+            return iter([_pa_table_with_rows(rows)] if rows else [])
+
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{self._MODULE}.google_ads_client"),
+            mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                **source_kwargs,
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+        return response, queries
+
+    def test_established_cursor_drains_in_bounded_windows(self):
+        # An established cursor on a report table is drained in bounded date windows, not the
+        # open-ended `< 2100` scan that re-extracted the whole backlog every run and OOM-spiralled.
+        with freeze_time("2026-07-17"):
+            response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=dt.date(2026, 4, 2),
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '2026-04-02' AND segments.date < '2026-04-09' "
+            "ORDER BY segments.date ASC"
+        )
+        assert all("2100-01-01" not in q for q in queries)
+        assert response.sort_mode == "asc"
+
+    def test_first_sync_uses_open_ended_scan_not_windows(self):
+        # A first sync carries the 1970 sentinel cursor; windowing it would crawl 7 days at a time
+        # from 1970 and never catch up, so first syncs must stay a single open-ended ascending scan.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries == [
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2100-01-01' "
+            "ORDER BY segments.date ASC"
+        ]
+
+    def test_run_stops_after_max_data_windows(self):
+        # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+        # non-empty windows so a single run stays short enough to complete and durably advance the
+        # cursor, instead of re-extracting the whole backlog and dying to a heartbeat timeout.
+        cursor = dt.date(2026, 1, 1)
+        window_rows = {
+            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1
+            for i in range(GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN + 3)
+        }
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert len(queries) == GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+        assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
+
+    def test_empty_windows_are_crossed_within_one_run(self):
+        # Data only appears in the fourth window. The three empty windows before it must be
+        # traversed within the same run (not counted toward the budget, not stopping the loop), so
+        # a gap in the data never permanently stalls the cursor short of the data behind it.
+        cursor = dt.date(2026, 1, 1)
+        data_window_start = cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * 3)
+        window_rows = {data_window_start.isoformat(): 1}
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        lower_bounds = [re.search(r">= '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
+        assert lower_bounds[:4] == ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"]
+
+    def test_dimension_table_query_has_no_order_clause(self):
+        _response, queries = self._run_source(_single_row_table())
+
+        assert "WHERE" not in queries[0]
+        assert "ORDER BY" not in queries[0]

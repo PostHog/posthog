@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import hashlib
+from typing import cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from google.genai.types import GenerateContentConfig, Schema
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -15,6 +18,7 @@ from openai.types.chat import (
 )
 from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import OpenAI
+from prometheus_client import Counter
 from rest_framework import exceptions, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
@@ -23,13 +27,21 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
-from posthog.rate_limit import SetupWizardAuthenticationRateThrottle, SetupWizardQueryRateThrottle
+from posthog.rate_limit import (
+    SetupWizardAuthenticationRateThrottle,
+    SetupWizardCloudRunBurstRateThrottle,
+    SetupWizardCloudRunSustainedRateThrottle,
+    SetupWizardQueryRateThrottle,
+)
 from posthog.user_permissions import UserPermissions
+
+from products.tasks.backend.facade import api as tasks_facade
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
@@ -41,6 +53,12 @@ ERROR_INVALID_OPENAI_JSON = "Invalid JSON response from OpenAI"
 ERROR_PROJECT_NOT_FOUND = "This project does not exist."
 
 OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
+
+WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
+    "posthog_wizard_cloud_run_requests_total",
+    "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied)",
+    labelnames=["outcome"],
+)
 
 # Supported Gemini models
 GEMINI_SUPPORTED_MODELS = {
@@ -80,6 +98,38 @@ class SetupWizardQuerySerializer(serializers.Serializer):
                 f"Model '{value}' is not supported. Supported models: {ALL_SUPPORTED_MODELS}"
             )
         return value
+
+
+class SetupWizardCloudRunSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        help_text="ID of the PostHog project to integrate PostHog into. The authenticated user must have access to it."
+    )
+    repository = serializers.CharField(
+        help_text=(
+            "GitHub repository to set up PostHog in, as 'owner/repo' (e.g. 'posthog/posthog-js'). The user "
+            "must have a connected GitHub integration with access to it."
+        )
+    )
+    branch = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Base branch the wizard's pull request should target. Defaults to the repository's default branch.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        repository = value.strip()
+        parts = repository.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise serializers.ValidationError("Repository must be in 'owner/repo' format.")
+        return repository
+
+
+class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
+    task_id = serializers.CharField(
+        help_text="ID of the created task. Poll the tasks API for its status and the resulting pull request URL."
+    )
+    run_id = serializers.CharField(help_text="ID of the task's run.")
+    status = serializers.CharField(help_text="Initial status of the run (e.g. 'queued').")
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
@@ -341,8 +391,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             project = Project.objects.get(id=project_id)
 
             # Verify user has access to this project
-            visible_teams_ids = UserPermissions(request.user).team_ids_visible_for_user
-            if project.id not in visible_teams_ids:
+            visible_project_ids = UserPermissions(request.user).project_ids_visible_for_user
+            if project.id not in visible_project_ids:
                 raise serializers.ValidationError(
                     {"projectId": ["You don't have access to this project."]}, code="permission_denied"
                 )
@@ -369,3 +419,77 @@ class SetupWizardViewSet(viewsets.ViewSet):
         cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
         return response.Response({"success": True}, status=200)
+
+    @extend_schema(
+        request=SetupWizardCloudRunSerializer,
+        responses={200: SetupWizardCloudRunResponseSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="cloud_run",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+        throttle_classes=[SetupWizardCloudRunBurstRateThrottle, SetupWizardCloudRunSustainedRateThrottle],
+    )
+    def cloud_run(self, request: Request) -> Response:
+        """Run the PostHog setup wizard in the cloud against the user's GitHub repository.
+
+        Provisions a task-run sandbox that runs the published wizard headlessly to integrate PostHog,
+        then hands off to the task agent to open the pull request and keep it green. The wizard
+        authenticates with a dedicated, scoped token minted under the wizard's own OAuth app — distinct
+        from the agent's sandbox token. This is the cloud alternative to copy-pasting the wizard command
+        to run locally; it is intentionally rate limited heavily because each run starts a sandbox.
+        """
+        try:
+            response = self._cloud_run(request)
+        except exceptions.NotFound:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="unavailable").inc()
+            raise
+        except exceptions.PermissionDenied:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="permission_denied").inc()
+            raise
+        except exceptions.ValidationError:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="invalid").inc()
+            raise
+        WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="created").inc()
+        return response
+
+    def _cloud_run(self, request: Request) -> Response:
+        if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
+            raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
+
+        serializer = SetupWizardCloudRunSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        project_id = serializer.validated_data["project_id"]
+        repository = serializer.validated_data["repository"]
+        branch = serializer.validated_data.get("branch") or None
+
+        visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
+        try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
+        if project.id not in visible_project_ids:
+            raise exceptions.PermissionDenied("You don't have access to this project.")
+
+        try:
+            result = tasks_facade.create_wizard_cloud_run(
+                team=project.passthrough_team,
+                user_id=cast(User, request.user).id,
+                repository=repository,
+                branch=branch,
+            )
+        except ValueError as e:
+            # e.g. the team/user has no GitHub integration with access to the repository.
+            raise exceptions.ValidationError(str(e))
+
+        latest_run = result.latest_run
+        return Response(
+            {
+                "task_id": str(result.task_id),
+                "run_id": str(latest_run.id) if latest_run else "",
+                "status": latest_run.status if latest_run else "queued",
+            }
+        )

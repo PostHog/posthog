@@ -1,19 +1,30 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
-use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
-use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
-
-use rdkafka::types::RDKafkaErrorCode;
+use common_kafka::kafka_producer::{
+    send_iter_to_kafka, send_keyed_iter_to_kafka, KafkaProduceError,
+};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use uuid::Uuid;
 
-use crate::modes::processing::rules::assignment::{Assignee, Assignment};
-use crate::types::OutputErrProps;
-use crate::{
-    analytics::capture_issue_reopened, app_context::AppContext, error::UnhandledError,
-    metric_consts::ISSUE_REOPENED,
+use crate::core::types::notification::{
+    IngestionNotification, IssueCreated, IssueNotificationContext, IssueReopened, IssueSnapshot,
+    IssueSpiking, NotificationMeta,
 };
+use crate::modes::processing::rules::assignment::{Assignee, Assignment};
+use crate::types::ProcessedExceptionProperties;
+use crate::{
+    app_context::AppContext,
+    error::UnhandledError,
+    metric_consts::{
+        ISSUE_CREATED_EVENT_PROPERTIES_BYTES, ISSUE_CREATED_EVENT_PROPERTIES_STORED,
+        ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED,
+        ISSUE_REOPENED,
+    },
+};
+
+const ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX: &str = "error_tracking:event_properties:v1";
 
 #[derive(Debug, Clone)]
 pub struct IssueFingerprintOverride {
@@ -68,18 +79,6 @@ pub enum IssueStatus {
     Resolved,
     PendingRelease,
     Suppressed,
-}
-
-impl IssueStatus {
-    fn as_str(&self) -> &'static str {
-        match self {
-            IssueStatus::Archived => "Archived",
-            IssueStatus::Active => "Active",
-            IssueStatus::Resolved => "Resolved",
-            IssueStatus::PendingRelease => "Pending Release",
-            IssueStatus::Suppressed => "Suppressed",
-        }
-    }
 }
 
 impl Issue {
@@ -196,7 +195,6 @@ impl Issue {
             // (fingerprint_issue_state, internal events) are not stale.
             self.status = IssueStatus::Active;
             metrics::counter!(ISSUE_REOPENED).increment(1);
-            capture_issue_reopened(self.team_id, self.id);
         }
 
         Ok(reopened)
@@ -321,6 +319,29 @@ impl IssueFingerprintOverride {
         Ok(res)
     }
 
+    // Batch variant of `load` for fingerprint-version selection: one round-trip
+    // for all candidate values instead of one per version.
+    pub async fn load_many<'c, E>(
+        executor: E,
+        team_id: i32,
+        fingerprints: &[String],
+    ) -> Result<Vec<Self>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let res = sqlx::query_as!(
+            IssueFingerprintOverride,
+            r#"
+            SELECT id, team_id, issue_id, fingerprint, version FROM posthog_errortrackingissuefingerprintv2
+            WHERE team_id = $1 AND fingerprint = ANY($2)
+            "#,
+            team_id,
+            fingerprints
+        ).fetch_all(executor).await?;
+
+        Ok(res)
+    }
+
     pub async fn create_or_load<'c, E>(
         executor: E,
         team_id: i32,
@@ -352,130 +373,176 @@ impl IssueFingerprintOverride {
     }
 }
 
-pub async fn send_issue_created_alert(
+pub async fn send_issue_created_notification(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
-    output_props: OutputErrProps,
+    processed_properties: ProcessedExceptionProperties,
+    event_uuid: Uuid,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(
+    let fingerprint = processed_properties.fingerprint().to_string();
+    store_error_tracking_event_properties(
+        &*context.issue_buckets_redis_client,
+        context.config.event_properties_ttl_seconds,
+        context.config.event_properties_max_bytes,
+        issue.team_id,
+        event_uuid,
+        &processed_properties,
+    )
+    .await;
+    publish_ingestion_notification(
         context,
-        "$error_tracking_issue_created",
-        issue,
-        assignment,
-        output_props,
-        event_timestamp,
+        IngestionNotification::IssueCreated(IssueCreated {
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, processed_properties),
+            fingerprint,
+            event_uuid,
+            event_timestamp: event_timestamp.to_rfc3339(),
+            assignee: assignment_to_string(assignment)?,
+        }),
     )
     .await
 }
 
-pub async fn send_new_fingerprint_event(
+fn error_tracking_event_properties_key(team_id: i32, event_uuid: Uuid) -> String {
+    format!("{ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX}:{team_id}:{event_uuid}")
+}
+
+async fn store_error_tracking_event_properties(
+    redis: &(dyn common_redis::Client + Send + Sync),
+    ttl_seconds: u64,
+    max_bytes: usize,
+    team_id: i32,
+    event_uuid: Uuid,
+    processed_properties: &ProcessedExceptionProperties,
+) {
+    let key = error_tracking_event_properties_key(team_id, event_uuid);
+    let payload = match serde_json::to_vec(processed_properties) {
+        Ok(payload) => payload,
+        Err(error) => {
+            metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "serialization").increment(1);
+            warn!(team_id, event_uuid = %event_uuid, error = %error, "failed to serialize issue-created event properties");
+            return;
+        }
+    };
+
+    metrics::histogram!(ISSUE_CREATED_EVENT_PROPERTIES_BYTES).record(payload.len() as f64);
+    if payload.len() > max_bytes {
+        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED, "reason" => "payload_too_large")
+            .increment(1);
+        return;
+    }
+
+    if let Err(error) = redis
+        .set_bytes(key.clone(), payload, Some(ttl_seconds))
+        .await
+    {
+        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "redis")
+            .increment(1);
+        warn!(team_id, event_uuid = %event_uuid, error = %error, "failed to store issue-created event properties");
+        return;
+    }
+
+    metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORED).increment(1);
+}
+
+pub async fn send_issue_reopened_notification(
     context: &AppContext,
     issue: &Issue,
-    output_props: &OutputErrProps,
+    assignment: Option<Assignment>,
+    processed_properties: ProcessedExceptionProperties,
+    event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
-    let request = output_props.to_fingerprint_embedding_request(issue);
+    publish_ingestion_notification(
+        context,
+        IngestionNotification::IssueReopened(IssueReopened {
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, processed_properties),
+            event_timestamp: event_timestamp.to_rfc3339(),
+            assignee: assignment_to_string(assignment)?,
+        }),
+    )
+    .await
+}
 
-    let res = send_iter_to_kafka(
+pub async fn send_issue_spiking_notification(
+    context: &AppContext,
+    issue: &Issue,
+    processed_properties: ProcessedExceptionProperties,
+    computed_baseline: f64,
+    current_bucket_value: f64,
+) -> Result<(), UnhandledError> {
+    let assignment = issue
+        .get_assignments(&context.posthog_pool)
+        .await?
+        .into_iter()
+        .next();
+
+    publish_ingestion_notification(
+        context,
+        IngestionNotification::IssueSpiking(IssueSpiking {
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, processed_properties),
+            computed_baseline,
+            current_bucket_value,
+            assignee: assignment_to_string(assignment)?,
+        }),
+    )
+    .await
+}
+
+fn notification_meta(issue: &Issue) -> NotificationMeta {
+    NotificationMeta {
+        notification_id: Uuid::now_v7(),
+        team_id: issue.team_id,
+    }
+}
+
+fn issue_notification_context(
+    issue: &Issue,
+    processed_properties: ProcessedExceptionProperties,
+) -> IssueNotificationContext {
+    IssueNotificationContext {
+        issue_id: issue.id,
+        issue: issue_snapshot(issue),
+        event_properties: processed_properties,
+    }
+}
+
+fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
+    IssueSnapshot {
+        name: issue.name.clone(),
+        description: issue.description.clone(),
+        status: issue.status.to_string(),
+        created_at: issue.created_at,
+    }
+}
+
+async fn publish_ingestion_notification(
+    context: &AppContext,
+    notification: IngestionNotification,
+) -> Result<(), UnhandledError> {
+    send_keyed_iter_to_kafka(
         &context.immediate_producer,
-        &context.config.embedding_worker_topic,
-        &[request],
+        &context.config.ingestion_notifications_topic,
+        |notification| Some(notification.partition_key()),
+        std::iter::once(notification),
     )
     .await
     .into_iter()
-    .collect::<Result<Vec<_>, _>>();
-    if let Err(err) = res {
-        return Err(UnhandledError::KafkaProduceError(err));
-    }
+    .collect::<Result<Vec<_>, KafkaProduceError>>()
+    .map_err(UnhandledError::KafkaProduceError)?;
     Ok(())
 }
 
-pub async fn send_issue_reopened_alert(
-    context: &AppContext,
-    issue: &Issue,
-    assignment: Option<Assignment>,
-    output_props: OutputErrProps,
-    event_timestamp: &DateTime<Utc>,
-) -> Result<(), UnhandledError> {
-    send_internal_event(
-        context,
-        "$error_tracking_issue_reopened",
-        issue,
-        assignment,
-        output_props,
-        event_timestamp,
-    )
-    .await
-}
+fn assignment_to_string(assignment: Option<Assignment>) -> Result<Option<String>, UnhandledError> {
+    let Some(assignment) = assignment else {
+        return Ok(None);
+    };
 
-async fn send_internal_event(
-    context: &AppContext,
-    event: &str,
-    issue: &Issue,
-    new_assignment: Option<Assignment>,
-    output_props: OutputErrProps,
-    event_timestamp: &DateTime<Utc>,
-) -> Result<(), UnhandledError> {
-    let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
-    event
-        .insert_prop("name", issue.name.clone())
-        .expect("Strings are serializable");
-    event
-        .insert_prop("description", issue.description.clone())
-        .expect("Strings are serializable");
-    event.insert_prop("status", issue.status.as_str())?;
-    event.insert_prop("fingerprint", &output_props.fingerprint)?;
-    event.insert_prop("exception_timestamp", event_timestamp)?;
-    event.insert_prop("exception_props", output_props)?;
-
-    if let Some(assignment) = new_assignment {
-        let assignee = Assignee::try_from(&assignment)?;
-        let stringified_assignee = serde_json::to_string(&assignee)?;
-
-        event
-            .insert_prop("assignee", stringified_assignee)
-            .expect("Strings are serializable");
-    }
-
-    let iter = [InternalEvent {
-        team_id: issue.team_id,
-        event,
-        person: None,
-    }];
-
-    let res = send_iter_to_kafka(
-        &context.cyclotron_producer,
-        &context.config.internal_events_topic,
-        &iter,
-    )
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, _>>();
-
-    match res {
-        Ok(_) => Ok(()),
-        Err(KafkaProduceError::KafkaProduceError { error })
-            if matches!(
-                error.rdkafka_error_code(),
-                Some(RDKafkaErrorCode::MessageSizeTooLarge)
-            ) =>
-        {
-            let mut iter = iter;
-            iter[0].event.properties.remove("exception_props");
-            iter[0].event.insert_prop("message_was_too_large", true)?;
-            send_iter_to_kafka(
-                &context.cyclotron_producer,
-                &context.config.internal_events_topic,
-                &iter,
-            )
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
-    }
+    let assignee = Assignee::try_from(&assignment)?;
+    Ok(Some(serde_json::to_string(&assignee)?))
 }
 
 impl From<String> for IssueStatus {
@@ -505,7 +572,13 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::{modes::processing::rules::assignment::Assignee, sanitize_string};
+    use common_redis::{MockRedisClient, MockRedisValue};
+    use uuid::Uuid;
+
+    use crate::{
+        modes::processing::rules::assignment::Assignee, sanitize_string,
+        types::ProcessedExceptionProperties,
+    };
 
     #[test]
     fn it_replaces_null_characters() {
@@ -518,5 +591,89 @@ mod test {
         let assignee = Assignee::User(1234);
         let stringified_assignee = serde_json::to_string(&assignee).unwrap();
         assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
+    }
+
+    #[test]
+    fn error_tracking_event_properties_keys_are_tenant_scoped_and_deterministic() {
+        let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
+
+        assert_eq!(
+            super::error_tracking_event_properties_key(42, event_uuid),
+            "error_tracking:event_properties:v1:42:01982721-5e00-7000-8000-000000000001"
+        );
+    }
+
+    #[tokio::test]
+    async fn stores_full_event_properties_as_raw_json_with_a_ttl() {
+        let redis = MockRedisClient::new();
+        let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
+        let properties_json = serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom 💥"}],
+            "$exception_fingerprint": "abc",
+            "$exception_fingerprint_record": [{"type": "manual"}],
+            "$exception_issue_id": Uuid::nil(),
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom 💥"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+            "custom": {"nested": [1, null, true]},
+        });
+        let properties: ProcessedExceptionProperties =
+            serde_json::from_value(properties_json.clone()).unwrap();
+
+        super::store_error_tracking_event_properties(
+            &redis,
+            172_800,
+            1_048_576,
+            42,
+            event_uuid,
+            &properties,
+        )
+        .await;
+
+        let calls = redis.get_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].op, "set_bytes");
+        match &calls[0].value {
+            MockRedisValue::Bytes(payload, Some(172_800)) => {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
+                    properties_json
+                );
+            }
+            value => panic!("unexpected Redis value: {value:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn skips_event_properties_that_exceed_the_size_limit() {
+        let redis = MockRedisClient::new();
+        let properties_json = serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom"}],
+            "$exception_fingerprint": "abc",
+            "$exception_fingerprint_record": [{"type": "manual"}],
+            "$exception_issue_id": Uuid::nil(),
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+            "custom": "x".repeat(1024),
+        });
+        let properties: ProcessedExceptionProperties =
+            serde_json::from_value(properties_json).unwrap();
+
+        super::store_error_tracking_event_properties(
+            &redis,
+            172_800,
+            128,
+            42,
+            Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap(),
+            &properties,
+        )
+        .await;
+
+        assert!(redis.get_calls().is_empty());
     }
 }

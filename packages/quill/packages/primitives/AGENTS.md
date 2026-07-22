@@ -91,12 +91,12 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 
 ### Status and labels
 
-| Component | Use when                                                              |
-| --------- | --------------------------------------------------------------------- |
-| Badge     | Semantic status text — variants info/warning/success/destructive      |
-| Chip      | Removable token (selected tags, active filters) — pair with ChipClose |
-| Dot       | Tiny presence/status indicator next to text; `pulse` for live state   |
-| Kbd       | Keyboard shortcut display, with KbdGroup for combos                   |
+| Component | Use when                                                                   |
+| --------- | -------------------------------------------------------------------------- |
+| Badge     | Semantic status text — variants info/warning/success/completed/destructive |
+| Chip      | Removable token (selected tags, active filters) — pair with ChipClose      |
+| Dot       | Tiny presence/status indicator next to text; `pulse` for live state        |
+| Kbd       | Keyboard shortcut display, with KbdGroup for combos                        |
 
 ### Form controls
 
@@ -133,7 +133,7 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | Component    | Variants                                                 | Sizes                                                | Notes                                                                                                                  |
 | ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
-| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                                                                                                        |
+| Badge        | default, info, destructive, warning, success, completed  | —                                                    | Semantic status                                                                                                        |
 | Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                                                        |
 | Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                                                     |
 | Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
@@ -142,7 +142,8 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
 | Progress     | —                                                        | —                                                    | value: 0-100                                                                                                           |
 | Slider       | —                                                        | —                                                    | value, min, max                                                                                                        |
-| Avatar       | —                                                        | default, sm, xs                                      | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
+| Avatar       | —                                                        | lg, default, sm, xs                                  | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
+| ChatGlobe    | —                                                        | —                                                    | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                      |
 | AvatarGroup  | —                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
 
 ---
@@ -427,6 +428,10 @@ Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGro
 
 Hide close button: `<DialogContent showCloseButton={false}>`
 
+`DialogBody` defaults its `render` to a `ScrollArea` (scroll shadows and a pinned footer for free).
+To style the scrollable viewport (`data-slot="scroll-area-viewport"`), pass `viewportClassName`.
+For example, drop the default `1rem` viewport padding for full-bleed content: `<DialogBody viewportClassName="p-0">`.
+
 ### Alert Dialog (must-resolve confirmation)
 
 Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`, always modal, backdrop clicks never dismiss, and no X button — the user must pick an action (or Esc). Use for destructive/irreversible confirmations; put Cancel first so it takes initial focus.
@@ -680,10 +685,12 @@ Vertical: `<ButtonGroup orientation="vertical">`
 
 Item variants: default, outline, pressable, muted, menuItem
 Item sizes: default, sm, xs
+`<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
+Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, designed to pair with `variant="pressable"` for colored clickable rows (e.g. `<Item variant="pressable" tone="success" render={<a href="…" />}>`)
 
 ### Avatar
 
-Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), or default (2rem).
+Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), default (2rem), or `"lg"` (2.35rem). For a clickable profile avatar, pass `render={<a href="…" />}` (or `<button />`) — the avatar renders as that element and gains pointer + focus ring; the `AvatarImage` `alt` becomes the link's accessible name, so keep it meaningful.
 
 ```tsx
 <Avatar>
@@ -703,6 +710,173 @@ Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bar
     </Avatar>
   ))}
 </AvatarGroup>
+```
+
+### Thread item (chat feed row)
+
+A feed-style message row — Slack-like channel surfaces where every message aligns start. Use `ChatBubble`/`ChatMessage` for conversational back-and-forth instead. The row highlights on hover/focus-within and reveals `ThreadItemActions` (a `role="toolbar"`, hidden with opacity so its buttons stay tabbable). The toolbar is a Base UI Toolbar — one tab stop, arrow keys rove between actions. Fill it with `ThreadItemAction` — a Button wrapped in a Tooltip where `label` is both the `aria-label` and the tooltip content (one source of truth); it forwards all Button props including `render` (`render={<a href="…" />}` for a link action) and forwards its ref, so it also works as a render target (`DropdownMenuTrigger render={<ThreadItemAction …/>}`). `ThreadItemActions` carries its own `TooltipProvider`, so the tooltips work without app-root setup; a `ThreadItemAction` used outside the toolbar (e.g. an add-reaction button in `ThreadItemReactions`) needs a `TooltipProvider` ancestor. Don't hand-roll `Tooltip > Button` pairs inside the toolbar. `ThreadItemReaction` is a Base UI Toggle (`pressed`/`onPressedChange`); give it an `aria-label` with the emoji name + count and wrap the glyph in `ThreadItemReactionEmoji` (aria-hidden). `ThreadItemAuthor` and `ThreadItemReplies` accept `render` (author as profile link/button via `render={<a href="…" />}` — it keeps the foreground name color with underline on hover, never link-tinted; replies as link); `ThreadItemReplies` is a Button (variant `default`) stretched to the content column. On continuation rows (same author), drop the header and put a `ThreadItemTimestamp` in the gutter — it shows only while the row is hovered/focused — and start the body with an `sr-only` author span so screen readers still hear who is speaking.
+
+`ThreadItemHeader` is an open flex row — put author meta (a `Badge`, a bot tag) between the author and timestamp. Inside `ThreadItemBody`, use `ThreadItemMention` for @mentions (a tinted pill; `render={<button />}` to open a profile) and `ThreadItemLink` for inline links. For image/file previews, use `ThreadItemAttachment` (a Base UI Collapsible, open by default) > `ThreadItemAttachmentTrigger` (the filename + rotating chevron, `aria-expanded` built in) + `ThreadItemAttachmentContent` > `ThreadItemAttachmentImage` (framed `img` — `alt` is required by the type).
+
+```tsx
+<ThreadItemBody>
+  <ThreadItemMention render={<button type="button" />}>@Adam L</ThreadItemMention> why this checkbox? See{' '}
+  <ThreadItemLink href="/docs">the docs</ThreadItemLink>.
+</ThreadItemBody>
+<ThreadItemAttachment>
+  <ThreadItemAttachmentTrigger>image.png</ThreadItemAttachmentTrigger>
+  <ThreadItemAttachmentContent>
+    <ThreadItemAttachmentImage src={url} alt="Screenshot of the setting" />
+  </ThreadItemAttachmentContent>
+</ThreadItemAttachment>
+```
+
+```tsx
+<ThreadItemGroup>
+  <ThreadItem>
+    <ThreadItemGutter>
+      <Avatar>…</Avatar>
+    </ThreadItemGutter>
+    <ThreadItemContent>
+      <ThreadItemHeader>
+        <ThreadItemAuthor>Adam L</ThreadItemAuthor>
+        <ThreadItemTimestamp dateTime="2026-07-01T16:23:00">4:23 PM</ThreadItemTimestamp>
+      </ThreadItemHeader>
+      <ThreadItemBody>Message text…</ThreadItemBody>
+      <ThreadItemReactions>
+        <ThreadItemReaction pressed={pressed} onPressedChange={setPressed} aria-label="Victory hand, 1 reaction">
+          <ThreadItemReactionEmoji>✌️</ThreadItemReactionEmoji>1
+        </ThreadItemReaction>
+        <ThreadItemAction label="Add reaction" className="rounded-full">
+          <SmilePlusIcon />
+        </ThreadItemAction>
+      </ThreadItemReactions>
+      <ThreadItemReplies onClick={openThread}>
+        <AvatarGroup size="xs">…</AvatarGroup>
+        <ThreadItemRepliesLabel>1 reply</ThreadItemRepliesLabel>
+        <ThreadItemRepliesMeta>Today at 4:40 PM</ThreadItemRepliesMeta>
+      </ThreadItemReplies>
+    </ThreadItemContent>
+    <ThreadItemActions>
+      <ThreadItemAction label="Add reaction">
+        <SmilePlusIcon />
+      </ThreadItemAction>
+      <ThreadItemAction label="More actions">
+        <EllipsisVerticalIcon />
+      </ThreadItemAction>
+    </ThreadItemActions>
+  </ThreadItem>
+</ThreadItemGroup>
+```
+
+### Chat disclosures — Marker and TaskList
+
+Two primitives share a row, a rail, a chevron, and a shimmer (`chat/lib/disclosure.css`), plus a status bullet (`chat/lib/status.css`):
+
+| Primitive      | Use when                                                                          |
+| -------------- | --------------------------------------------------------------------------------- |
+| `ChatMarker`   | Anything an agent did — a note, one tool call, or a group of them                 |
+| `ChatTaskList` | A plan worked through — many steps, an aggregate count, each with its own outcome |
+
+Two shared classes carry the state vocabulary, and both handle `prefers-reduced-motion`:
+
+- `quill-shimmer` — "this is live". A cross-cutting utility, not a chat class; see Utilities below. `ChatMarkerContent` applies it from `status`, and an active `ChatTask` applies it too.
+- `quill-chat-bullet` — the leading status icon on `ChatSource` and `ChatTask`. Put `data-status` **on the bullet itself**; `done` tints `--success-foreground`, `failed`/`error` tint `--destructive-foreground`.
+- `quill-chat-swap` — a leading slot showing a state icon at rest and a chevron on hover/focus (`ChatTaskList`'s header). Compose `quill-chat-swap` > `quill-chat-swap__icon` + `quill-chat-swap__chevron`; the row supplies `quill-chat-row--interactive` for the hover scope. Cross-fades rather than `display`-swapping, so an icon carrying the bullet's reveal animation doesn't replay it on every hover-out.
+
+**Status tokens are fill/ink pairs, not shades.** `--success`/`--destructive` are backgrounds; the ink that reads on a surface is the `-foreground` half. Tinting an icon `--success` gives you pale-green-on-white.
+
+**Never style a chat row's descendants from the row.** These nest — a group's body holds markers, sources, whole lists — so `.block[data-status] .thing` and `.block a` reach straight into children that own their own state. This has caused real bugs: an errored group painted its succeeded rows' bullets red, and the marker's bare `svg` rule outranked `ChatSource`'s smaller out-arrow. Scope to the row's own slots (`__content`, `__icon`) or put the attribute on the element being styled.
+
+**Base UI triggers are never natively `disabled`** — an inert trigger gets `aria-disabled="true"` and keeps its tab stop, so it stays reachable by screen readers. CSS must gate on `:not([aria-disabled='true'])`, never `:not(:disabled)`, which matches everything and silently does nothing.
+
+### Chat marker (everything an agent did)
+
+One row at three fill levels. Resist splitting them apart again — they were separate primitives once and the seams cost more than they bought.
+
+- A **note** is the flat row: icon + text, nothing to open.
+- A **tool call** adds `status` (`running` shimmers the content, `error` turns the row destructive, `done` keeps the value) and usually a `ChatMarkerValue` for the argument it acted on. The value is quoted by CSS, so it can't ship without its quotes.
+- A **group** passes `body` and drops the icon: the row is the joined-up summary, and the calls behind it are markers of their own inside. No single icon is honest about several tools at once, which is why the icon is a slot you fill rather than a fixture.
+
+With a body the row becomes a Collapsible trigger — the chevron hugs the end of the text and only shows on hover/focus or when open, so a transcript of these doesn't read as a wall of controls. `defaultOpen` is the app's grouping decision; `open`/`onOpenChange` are there for the rare case the app drives it.
+
+**A group's status is its own, not its children's.** An errored group tints only its row; the rows inside keep their outcomes, so the call that succeeded still reads as a success.
+
+```tsx
+<ChatMarker
+  status="done"
+  defaultOpen
+  body={
+    <>
+      <ChatMarker>
+        <ChatMarkerIcon>
+          <FileIcon />
+        </ChatMarkerIcon>
+        <ChatMarkerContent>Read auth/middleware.ts</ChatMarkerContent>
+      </ChatMarker>
+      {/* …one marker per call */}
+    </>
+  }
+>
+  <ChatMarkerContent>Read 2 files · Edited 1 file · Ran 1 command</ChatMarkerContent>
+</ChatMarker>
+```
+
+When the tool returned pages, fill the body with `ChatSourceList` > `ChatSource` instead of markers. `status` walks a row through the fetch — `pending` (dashed ring) → `loading` (`ChatGlobe`) → `done` (green check). The app owns when each row moves. An `href` makes the row a link with a hover out-arrow; without one it's static text.
+
+```tsx
+<ChatMarker
+  status={running ? 'running' : 'done'}
+  defaultOpen
+  body={
+    <ChatSourceList>
+      {sites.map((site) => (
+        <ChatSource key={site.url} status={site.status} href={`https://${site.url}`}>
+          <ChatSourceTitle>{site.title}</ChatSourceTitle>
+          <ChatSourceUrl>{site.url}</ChatSourceUrl>
+        </ChatSource>
+      ))}
+    </ChatSourceList>
+  }
+>
+  <ChatMarkerContent>
+    {running ? 'Searching' : `Searched ${sites.length} sources`}
+    <ChatMarkerValue>{query}</ChatMarkerValue>
+  </ChatMarkerContent>
+</ChatMarker>
+```
+
+`ChatGlobe` is exported on its own: a globe whose meridians sweep, for when you can say _what_ is loading rather than only that something is (`Spinner` covers the rest). It sizes and tints from its container like any icon. It animates with SMIL, which **CSS cannot disable** — it reads `useReducedMotion()` and renders a still globe instead. Reach for that hook only where a media query can't reach; CSS is the right place for everything else.
+
+### Chat task list (a plan, worked through)
+
+The checklist an agent is following. The header shows where it's up to at a glance — a list icon before anything starts, a ring that fills as steps land, a check once they all have — beside a `2/5` count whose digits roll. It doubles as the disclosure affordance: hovering swaps it for a chevron. `ChatTask` carries its own `status`: `pending` (dashed), `active` (arrow, label shimmers), `done` (green check), `failed` (red X, destructive label). `ChatTaskDetail` is what the step produced — a duration, an exit code, the line explaining a failure.
+
+Steps **wrap** by default: a step's text is the point of the row, so clipping it is the caller's call, not the primitive's. Pass `truncate` to clamp one to a single line — the label and its detail clip together, so the ellipsis lands wherever the room runs out. Either way the bullet stays on the first line rather than floating into the middle of a wrapped paragraph.
+
+The list holds no state: `value`/`total` are the app's count, and nothing is inferred from the children, because only the app knows which step is running or why one broke. The header can't drift from the count beside it — both read the same context.
+
+**Setting up a sandbox is this primitive, not a variant of it.** A checklist is a checklist; the sandbox is its own copy plus `ChatTaskDetail` and a `failed` step. Don't add a `variant` prop for a product's wording.
+
+```tsx
+<ChatTaskList value={2} total={5} defaultOpen>
+  <ChatTaskListTrigger>
+    <ChatTaskListProgress />
+    <ChatTaskListLabel>Setting up sandbox</ChatTaskListLabel>
+    <ChatTaskListCount />
+  </ChatTaskListTrigger>
+  <ChatTaskListContent>
+    <ChatTask status="done">
+      Pull image
+      <ChatTaskDetail>node:22 · 1.2s</ChatTaskDetail>
+    </ChatTask>
+    <ChatTask status="failed">
+      Start services
+      <ChatTaskDetail>exit 1: port 8000 already in use</ChatTaskDetail>
+    </ChatTask>
+    <ChatTask status="pending">Run migrations</ChatTask>
+  </ChatTaskListContent>
+</ChatTaskList>
 ```
 
 ### Keyboard Shortcuts
@@ -917,6 +1091,27 @@ Sanctioned escape hatches (the only padding overrides the stories use):
 
 ---
 
+## Utilities
+
+Cross-cutting classes that aren't any component's. They ship with the package (`styles/utilities.css`, loaded from `index.ts`), so they're available to any element in a quill app.
+
+### `quill-shimmer`
+
+Live text: a highlight sweeping a line to say work is still in flight. Put it on any text — a `Text`, a bare `<span>`, a component's label.
+
+```tsx
+<Text size="sm" className="quill-shimmer">
+  Deploying…
+</Text>
+```
+
+- **It owns `color`.** The gradient is clipped to the glyphs, so the text must be transparent for the sweep to show. That's also why the rule is **unlayered** — inside `@layer components` any `text-*` utility beat it and silently painted over the animation. Unlayered beats every layer, so it now composes with utility colors; don't reintroduce a `color` on the same element expecting it to win.
+- **Text only.** `background-clip: text` can't reach an SVG stroke, so an icon needs its own treatment.
+- **Retune** with `--quill-shimmer-base` / `--quill-shimmer-highlight`; defaults read as muted brightening to full.
+- Reduced motion hands the color back rather than just stopping — otherwise the text would stay invisible.
+
+---
+
 ## Icons
 
 Primitives size and lay out their own icons — drop a bare lucide icon in as a child and it just works:
@@ -944,7 +1139,7 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 
 1. **Use Field for forms** — don't compose raw Label + Input, use Field > FieldLabel + Input + FieldDescription/FieldError
 2. **Wrap app with providers** — ThemeProvider at root, TooltipProvider if using tooltips, ToastProvider if using toasts
-3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), destructive (red), default (neutral)
+3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), completed (purple, terminal done state e.g. merged PRs), destructive (red), default (neutral)
 4. **Use `render` on triggers** — DialogTrigger, PopoverTrigger, TooltipTrigger, DrawerTrigger accept `render` to render as the child element
 5. **DropdownMenuItem has variants** — use `variant="destructive"` for dangerous actions; default is `"default"`
 6. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`

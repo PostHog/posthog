@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from django.conf import settings
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
@@ -16,6 +16,7 @@ from rest_framework import exceptions
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
+from posthog.api.streaming import sse_streaming_response
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
@@ -52,7 +53,7 @@ def handle_sandbox_message(
     user: User,
     team: Team,
     is_new_conversation: bool,
-) -> StreamingHttpResponse:
+) -> HttpResponseBase:
     """Handle a sandbox-mode message: create/resume a task run and stream events back."""
     if not settings.DEBUG and not has_sandbox_mode_feature_flag(team, user):
         raise exceptions.PermissionDenied("Sandbox mode is not enabled for this user.")
@@ -184,15 +185,13 @@ def handle_sandbox_message(
 
 def _make_streaming_response(
     async_generator_factory: Callable[[], AsyncGenerator[bytes]],
-) -> StreamingHttpResponse:
+) -> HttpResponseBase:
     """Create a StreamingHttpResponse that works under both ASGI and WSGI."""
-    return StreamingHttpResponse(
-        (
-            async_generator_factory()
-            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(async_generator_factory)
-        ),
-        content_type="text/event-stream",
+    return sse_streaming_response(
+        async_generator_factory()
+        if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+        else async_to_sync(async_generator_factory),
+        endpoint="sandbox_execute",
     )
 
 

@@ -5,13 +5,10 @@ from django.db import transaction
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 
-from products.data_warehouse.backend.tasks import (
-    EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS,
-    EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER,
-    send_external_data_failure_digest_task,
-)
+from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+from products.warehouse_sources.backend.facade.pipelines import (
+    LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
     emit_data_import_app_metrics,
 )
@@ -29,8 +26,16 @@ def update_external_job_status(
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
 
+        # The loader may finish a run after lock takeover force-failed its job; only the
+        # exact takeover sentinel unseals Failed -> Completed — genuine failures stay absorbing.
+        is_takeover_recovery = (
+            model.status == ExternalDataJob.Status.FAILED
+            and status == ExternalDataJob.Status.COMPLETED
+            and model.latest_error == LOCK_TAKEOVER_LATEST_ERROR
+        )
+
         # Terminal states are absorbing: same-status retries pass, different statuses are rejected.
-        if model.status in TERMINAL_JOB_STATUSES and model.status != status:
+        if model.status in TERMINAL_JOB_STATUSES and model.status != status and not is_takeover_recovery:
             logger.warning(
                 "dwh_job_status_transition_rejected",
                 job_id=job_id,
@@ -40,11 +45,20 @@ def update_external_job_status(
             JOB_STATUS_TRANSITION_REJECTED.inc()
             return model
 
+        if is_takeover_recovery:
+            logger.info(
+                "dwh_job_completed_after_lock_takeover",
+                job_id=job_id,
+            )
+
         model.status = status
         model.latest_error = latest_error
 
-        # Only stamp finished_at and emit metrics on the first terminal transition.
-        is_first_terminal_transition = status in TERMINAL_JOB_STATUSES and model.finished_at is None
+        # Only stamp finished_at and emit metrics on the first terminal transition. Takeover
+        # recovery re-stamps: the Failed stamp predates the load and never emitted success metrics.
+        is_first_terminal_transition = status in TERMINAL_JOB_STATUSES and (
+            model.finished_at is None or is_takeover_recovery
+        )
         update_fields = ["status", "latest_error", "updated_at"]
         if is_first_terminal_transition:
             model.finished_at = dt.datetime.now(dt.UTC)
@@ -62,9 +76,22 @@ def update_external_job_status(
             raise ValueError(f"External data job {job_id} is not attached to a schema")
 
         schema = ExternalDataSchema.objects.select_for_update().get(id=model.schema_id, team_id=team_id)
-        schema.status = schema_status
-        schema.latest_error = latest_error
-        schema.save(update_fields=["status", "latest_error", "updated_at"])
+
+        # The CDC halted states are absorbing: a loader finishing an in-flight batch after the
+        # source broke (or a non-retryable error paused extraction) must not repaint the schema
+        # healthy while syncing is stopped. Which markers halt a schema is the model's business
+        # (cdc_halted) — this generic layer only honors the state.
+        if schema.cdc_halted:
+            logger.info(
+                "dwh_schema_status_update_skipped_cdc_halted",
+                job_id=job_id,
+                schema_id=str(schema.id),
+                requested_status=schema_status,
+            )
+        else:
+            schema.status = schema_status
+            schema.latest_error = latest_error
+            schema.save(update_fields=["status", "latest_error", "updated_at"])
 
     model.refresh_from_db()
 
@@ -74,10 +101,7 @@ def update_external_job_status(
 
         if status == ExternalDataJob.Status.FAILED:
             try:
-                send_external_data_failure_digest_task.apply_async(
-                    args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
-                )
-                EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER.labels(trigger="inline").inc()
+                schedule_external_data_failure_digest(team_id)
             except Exception:
                 logger.exception("Failed to schedule external data failure digest")
 

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from parameterized import parameterized
 
 from posthog.models import ActivityLog
+from posthog.models.activity_logging.activity_log import Detail
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
@@ -16,6 +17,7 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
     Node,
     NodeType,
 )
@@ -109,6 +111,7 @@ class TestSavedQuery(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ],
         )
@@ -284,10 +287,36 @@ class TestSavedQuery(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ]
 
             mock_get_columns.assert_not_called()
+
+    def test_column_order_survives_postgres_roundtrip(self):
+        # Columns are stored in a jsonb object, which does not preserve key insertion order. Names
+        # are chosen so jsonb reorders them (by length then bytes -> a, mm, zebra) away from the
+        # SELECT order (zebra, mm, a). A fresh GET must still return SELECT order via column_order.
+        select_order = ["zebra", "mm", "a"]
+        create = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "ordered_view",
+                "query": {"kind": "HogQLQuery", "query": "select 1 as zebra, 2 as mm, 3 as a"},
+                "types": [[name, "Int64"] for name in select_order],
+            },
+        )
+        assert create.status_code == 201, create.json()
+        view_id = create.json()["id"]
+
+        # Refetch from Postgres so the assertion runs against the persisted jsonb, not the
+        # in-memory instance whose dict order is trivially preserved.
+        get = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{view_id}/")
+        assert get.status_code == 200
+        assert [column["name"] for column in get.json()["columns"]] == select_order
+
+        saved_query = DataWarehouseSavedQuery.objects.get(id=view_id)
+        assert saved_query.column_order == select_order
 
     def test_create_name_overlap_error(self):
         response = self.client.post(
@@ -373,6 +402,21 @@ class TestSavedQuery(APIBaseTest):
 
         response_json = response.json()
         assert "Filters and placeholder expressions are not allowed in views" in response_json["detail"]
+
+    def test_create_with_malformed_query_returns_validation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "test_malformed",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select * from events *",
+                },
+            },
+        )
+        assert response.status_code == 400, response.content
+        response_json = response.json()
+        assert "Invalid query" in response_json["detail"]
 
     def test_delete(self):
         query_name = "test_query"
@@ -634,6 +678,140 @@ class TestSavedQuery(APIBaseTest):
             mock_workflow_exists.assert_called_once_with(saved_query)
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
 
+    def _create_saved_query_for_frequency_tests(self) -> dict:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    def _v2_flag_only(self, key, *args, **kwargs):
+        return key == "data-modeling-backend-v2"
+
+    @parameterized.expand(
+        [
+            ("24hour", timedelta(hours=24)),
+            ("never", None),
+        ]
+    )
+    def test_update_sync_frequency_on_tiered_v2_writes_target_through(
+        self, sync_frequency: str, expected_target: timedelta | None
+    ):
+        from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(hours=12))
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"
+            ) as v1_exists,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": sync_frequency},
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        # the node target is the only store of frequency intent; the interval stays NULL
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), expected_target)
+        reconcile.assert_called_once()
+        # a stale v1 schedule from a half-finished migration must not be revived by the PATCH
+        v1_exists.assert_not_called()
+
+    def test_update_sync_frequency_on_tiered_v2_without_node_is_rejected(self):
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        Node.objects.filter(saved_query_id=saved_query["id"]).delete()
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag"),
+            patch("products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("not wired into the data modeling DAG", str(response.json()))
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+
+    def test_update_sync_frequency_on_tiered_v2_rolls_back_invalid_target(self):
+        from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(
+                f"{reconcile_module}.apply_saved_query_frequency_target",
+                side_effect=UnsatisfiableFrequencyError("target is fresher than its sources deliver"),
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "15min"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        # validation happens inside the transaction: the interval write rolls back with it
+        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated.sync_frequency_interval)
+
+    def test_update_sync_frequency_on_untiered_v2_stays_blocked(self):
+        saved_query = self._create_saved_query_for_frequency_tests()
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("managed by the DAG", response.json()["detail"])
+
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
         # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
@@ -794,6 +972,7 @@ class TestSavedQuery(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ],
         )
@@ -1198,6 +1377,48 @@ class TestSavedQuery(APIBaseTest):
 
             self.assertEqual(response.status_code, 400, response.content)
             self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+
+    def test_update_concurrency_ignores_non_query_activity(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "sync_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        query_change_history_id = saved_query["latest_history_id"]
+        self.assertIsNotNone(query_change_history_id)
+
+        # A materialized view's sync/status transitions write newer activity logs that do not change
+        # the query. They must not advance the optimistic-concurrency head.
+        query_activity = ActivityLog.objects.get(id=query_change_history_id)
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.team.organization_id,
+            activity="sync_triggered",
+            scope="DataWarehouseSavedQuery",
+            item_id=str(saved_query["id"]),
+            detail=Detail(changes=[]),
+            created_at=query_activity.created_at + timedelta(minutes=1),
+        )
+
+        # The concurrency head still points at the last query edit, not the newer sync.
+        get_response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/")
+        self.assertEqual(get_response.json()["latest_history_id"], query_change_history_id)
+
+        # Saving again based on that head must succeed despite the newer sync activity.
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            update_response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
+                    "edited_history_id": query_change_history_id,
+                },
+            )
+        self.assertEqual(update_response.status_code, 200, update_response.content)
 
     def test_create_with_activity_log_existing_view(self):
         response = self.client.post(
@@ -1732,3 +1953,79 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         mock_trigger.assert_called_once()
+
+
+class TestSavedQueryDescription(APIBaseTest):
+    def _base(self) -> str:
+        return f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+
+    def _create(self, name: str = "revenue_view", description: str | None = None) -> dict:
+        payload: dict[str, Any] = {"name": name, "query": {"kind": "HogQLQuery", "query": "SELECT 1 AS amount"}}
+        if description is not None:
+            payload["description"] = description
+        response = self.client.post(self._base(), payload)
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
+
+    def _view_level_annotation(self, view_id: str) -> DataWarehouseSavedQueryColumnAnnotation | None:
+        return (
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query_id=view_id, column_name="")
+            .first()
+        )
+
+    def test_create_with_description_writes_user_edited_annotation_and_returns_it(self):
+        view = self._create(description="Revenue per order, one row per order.")
+        assert view["description"] == "Revenue per order, one row per order."
+        annotation = self._view_level_annotation(view["id"])
+        assert annotation is not None
+        assert annotation.description == "Revenue per order, one row per order."
+        assert annotation.is_user_edited is True
+
+    def test_get_returns_view_description(self):
+        view = self._create(description="What this view means.")
+        response = self.client.get(f"{self._base()}{view['id']}/")
+        assert response.status_code == 200, response.content
+        assert response.json()["description"] == "What this view means."
+
+    def test_update_description_only_upserts_and_is_returned(self):
+        view = self._create()
+        assert view["description"] is None
+        patch = self.client.patch(f"{self._base()}{view['id']}/", {"description": "Set via update."})
+        assert patch.status_code == 200, patch.content
+        assert patch.json()["description"] == "Set via update."
+        annotation = self._view_level_annotation(view["id"])
+        assert annotation is not None and annotation.is_user_edited is True
+        get = self.client.get(f"{self._base()}{view['id']}/")
+        assert get.json()["description"] == "Set via update."
+
+    def test_update_empty_description_clears_it(self):
+        view = self._create(description="Initial.")
+        patch = self.client.patch(f"{self._base()}{view['id']}/", {"description": ""})
+        assert patch.status_code == 200, patch.content
+        assert patch.json()["description"] is None
+        assert self._view_level_annotation(view["id"]) is None
+
+    def test_update_without_description_leaves_it_untouched(self):
+        view = self._create(description="Keep me.")
+        patch = self.client.patch(f"{self._base()}{view['id']}/", {"name": "renamed_view"})
+        assert patch.status_code == 200, patch.content
+        assert patch.json()["description"] == "Keep me."
+
+    def test_per_column_description_round_trips_into_columns(self):
+        view = self._create()
+        column_name = self.client.get(f"{self._base()}{view['id']}/").json()["columns"][0]["name"]
+        annotate = self.client.post(
+            f"/api/projects/{self.team.id}/saved_query_column_annotations/",
+            {"saved_query": view["id"], "column_name": column_name, "description": "The order amount in cents."},
+        )
+        assert annotate.status_code == 201, annotate.content
+        columns = self.client.get(f"{self._base()}{view['id']}/").json()["columns"]
+        described = {c["name"]: c.get("description") for c in columns}
+        assert described[column_name] == "The order amount in cents."
+
+    def test_list_includes_view_description(self):
+        self._create(name="described_view", description="Listed description.")
+        results = self.client.get(self._base()).json()["results"]
+        described = {v["name"]: v.get("description") for v in results}
+        assert described["described_view"] == "Listed description."

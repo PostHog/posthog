@@ -12,10 +12,15 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::store::durability::DurabilityConfig;
-use crate::store::StoreConfig;
-use crate::workers::{CascadeConfig, TransferRetryPolicy};
+use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
+use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
+
+/// The smallest person-record TTL that stays safely beyond the replay horizon of the merge and
+/// `clickhouse_events_json` topics (~7 days): a record reclaimed while its events can still replay
+/// loses its replay dedup, so a non-zero TTL below this floor warns at startup.
+const MIN_SAFE_PERSON_RECORD_TTL_DAYS: u32 = 30;
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
@@ -58,10 +63,21 @@ pub struct Config {
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
+    /// Evaluate only the behavioral conditions whose event name matches the incoming event. Default on.
+    #[envconfig(from = "COHORT_EVENT_NAME_GATING_ENABLED", default = "true")]
+    pub cohort_event_name_gating_enabled: bool,
+
     /// Bounded buffer (in sub-batches) per per-partition worker channel.
     /// Routing to a partition this far behind blocks rather than growing memory unbounded.
-    #[envconfig(default = "1024")]
+    #[envconfig(default = "128")]
     pub partition_channel_buffer: usize,
+
+    /// Per-partition ceiling on un-drained events in a worker's channel — the binding intake bound
+    /// (the 128-slot buffer counts sub-batches, not the events inside them). Worst case in channels
+    /// ≈ `cap × owned_partitions × avg_event_bytes`. Tune down if soak RSS runs hot; too low churns
+    /// pause/resume.
+    #[envconfig(from = "PARTITION_INTAKE_MAX_EVENTS", default = "1024")]
+    pub partition_intake_max_events: usize,
 
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
@@ -90,6 +106,16 @@ pub struct Config {
     /// membership, a restart within this window reclaims partitions with no rebalance.
     #[envconfig(default = "60000")]
     pub kafka_session_timeout_ms: u64,
+
+    /// `queued.max.messages.kbytes` (KB). For a `subscribe()` consumer this is an *aggregate* cap
+    /// across all partitions — the ceiling on librdkafka's fetch buffer. 128 MB.
+    #[envconfig(from = "COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", default = "131072")]
+    pub kafka_queued_max_messages_kbytes: u32,
+
+    /// `queued.min.messages` — per-partition prefetch floor. Low so a paused partition hoards fewer
+    /// stragglers; too low risks `fetch.queue.backoff.ms` inter-fetch gaps.
+    #[envconfig(from = "COHORT_KAFKA_QUEUED_MIN_MESSAGES", default = "2000")]
+    pub kafka_queued_min_messages: u32,
 
     /// The person-merge trigger topic, keyed by `hash(team_id, old_person_uuid)` so a merge lands on
     /// P_old's worker.
@@ -192,6 +218,52 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-cascade")]
     pub kafka_cascade_consumer_group: String,
 
+    /// Consume `cohort_stream_seed_events` and apply backfill day-tiles. Default off.
+    #[envconfig(from = "COHORT_SEED_CONSUMER_ENABLED", default = "false")]
+    pub cohort_seed_consumer_enabled: bool,
+
+    /// The backfill seed-tile topic; must be co-partitioned with `cohort_stream_events`.
+    #[envconfig(default = "cohort_stream_seed_events")]
+    pub cohort_stream_seed_events_topic: String,
+
+    /// Group for the seed follower — separate so backfill lag age is observable on its own.
+    #[envconfig(default = "cohort-stream-seeds")]
+    pub kafka_seed_consumer_group: String,
+
+    /// Apply-fence margin (ms) over `s_chunk`: covers shuffler clock skew, lag spread, and
+    /// producer linger.
+    #[envconfig(from = "COHORT_SEED_FENCE_MARGIN_MS", default = "600000")]
+    pub cohort_seed_fence_margin_ms: i64,
+
+    /// How often the seed consumer probes idle live partitions so a quiet partition's fence can
+    /// still open.
+    #[envconfig(
+        from = "COHORT_SEED_WATERMARK_IDLE_PROBE_INTERVAL_MS",
+        default = "30000"
+    )]
+    pub cohort_seed_watermark_idle_probe_interval_ms: u64,
+
+    /// Permit cross-partition membership-register transfer. Local register writers and transfer
+    /// receivers are always active; only drain-side emission is gated. Enable only after every
+    /// processor pod can apply the additive transfer payload. While off, a cross-partition merge ships
+    /// leaves only and never holds, so it cannot wedge live merge consumption.
+    #[envconfig(from = "COHORT_REGISTER_TRANSFER_ENABLED", default = "false")]
+    pub cohort_register_transfer_enabled: bool,
+
+    /// Admit and drain reconcile controls. Default off; enable only once every downstream consumer
+    /// tolerates completion markers. Register transfer is gated separately by
+    /// `COHORT_REGISTER_TRANSFER_ENABLED`.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_ENABLED", default = "false")]
+    pub cohort_seed_reconcile_enabled: bool,
+
+    /// Maximum Stage 2 rows one partition worker evaluates per reconcile tick.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_SCAN_PAGE", default = "256")]
+    pub cohort_seed_reconcile_scan_page: usize,
+
+    /// Cadence for routing one bounded reconcile-drain tick to each active partition worker.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", default = "2000")]
+    pub cohort_seed_reconcile_tick_interval_ms: u64,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -229,14 +301,33 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub offset_commit_interval_ms: u64,
 
+    /// Tokio runtime worker threads. `0` (default) lets Tokio size the pool from
+    /// `available_parallelism()`, which accounts for a CFS CPU *limit* (`cpu.max`) but not CPU
+    /// *requests*/shares — so on a requests-only pod (no `limits.cpu`), or when the cgroup fs isn't
+    /// readable, it returns the *node's* core count and over-subscribes the runtime. Set this to the
+    /// pod's CPU budget to cap the pool regardless of how the limit is expressed.
+    #[envconfig(default = "0")]
+    pub tokio_worker_threads: usize,
+
     /// How often the sweep fires to evict state whose eviction deadline has passed.
     #[envconfig(default = "30000")]
     pub sweep_interval_ms: u64,
+
+    /// Startup delay before the *first* eviction sweep, so its overdue-eviction read burst doesn't
+    /// compete with backlog catch-up on a cold, idle store at boot. Counts from sweep-task spawn
+    /// (≈ process boot), not "backlog drained", so raise it if the burst still lands on catch-up.
+    #[envconfig(from = "COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", default = "120000")]
+    pub first_eviction_sweep_delay_ms: u64,
 
     /// Grace period added to every eviction deadline before the sweep acts. The sweep evicts a key
     /// only once `deadline + safety_margin < now`, absorbing consumer-lag spikes.
     #[envconfig(default = "300000")]
     pub sweep_safety_margin_ms: u64,
+
+    /// How often the store-stats publisher and Tokio runtime monitor sample and emit their gauges
+    /// (seconds).
+    #[envconfig(from = "COHORT_STATS_PUBLISH_INTERVAL_SECS", default = "15")]
+    pub stats_publish_interval_secs: u64,
 
     /// On-disk path for the per-process RocksDB state store.
     #[envconfig(default = "cohort-store")]
@@ -246,6 +337,75 @@ pub struct Config {
     /// serves stale state left by a previous owner.
     #[envconfig(default = "true")]
     pub wipe_store_on_start: bool,
+
+    /// On a store-schema version mismatch, destroy and recreate the store instead of failing fast.
+    /// Off by default: a mismatch is an operator decision (wipe or roll back), not something to eat
+    /// silently.
+    #[envconfig(from = "COHORT_WIPE_ON_SCHEMA_MISMATCH", default = "false")]
+    pub cohort_wipe_on_schema_mismatch: bool,
+
+    /// Enable RocksDB statistics so the store-stats publisher can report cache tickers and per-CF
+    /// sizes. See [`StoreConfig::statistics_enabled`].
+    #[envconfig(from = "COHORT_STORE_STATISTICS_ENABLED", default = "true")]
+    pub store_statistics_enabled: bool,
+
+    /// Sample 1-in-N reads into the read-latency histogram; the read counter stays exact. See
+    /// [`StoreConfig::read_sample_ratio`]. `1` records every read; `0` floors to `1`.
+    #[envconfig(from = "COHORT_STORE_READ_SAMPLE_RATIO", default = "64")]
+    pub store_read_sample_ratio: u32,
+
+    /// RocksDB block-cache size in bytes, shared across all column families.
+    #[envconfig(from = "COHORT_BLOCK_CACHE_BYTES", default = "134217728")]
+    pub cohort_block_cache_bytes: usize,
+
+    /// Cache and partition RocksDB index/filter blocks for faster point lookups.
+    #[envconfig(from = "COHORT_TUNED_BLOCK_OPTIONS_ENABLED", default = "true")]
+    pub cohort_tuned_block_options_enabled: bool,
+
+    /// Mark tombstone-heavy SSTs for compaction so deletions reclaim disk.
+    #[envconfig(from = "COHORT_COMPACT_ON_DELETION_ENABLED", default = "true")]
+    pub cohort_compact_on_deletion_enabled: bool,
+
+    /// Compact SSTs older than this many seconds; opt-in, `0` (the default) disables it so a
+    /// persisted store isn't mass-rewritten on reopen.
+    #[envconfig(from = "COHORT_PERIODIC_COMPACTION_SECONDS", default = "0")]
+    pub cohort_periodic_compaction_seconds: u64,
+
+    /// Cap on RocksDB background compaction/flush jobs. Non-positive leaves RocksDB's default.
+    #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
+    pub cohort_max_background_jobs: i32,
+
+    /// TTL in days for `cf_person_records`: a compaction filter drops a person record whose
+    /// `last_seen_ms` is older than this. `0` (the default) disables it — no filter is installed, so a
+    /// persisted record never ages out. Attached to `cf_person_records` only; `cf_behavioral` eviction
+    /// stays the sweep's contract.
+    ///
+    /// In production this MUST be well beyond the replay horizon of the merge / `clickhouse_events_json`
+    /// topics, so a live-again person's replayed events cannot arrive after their record was reclaimed.
+    /// A non-zero value below [`MIN_SAFE_PERSON_RECORD_TTL_DAYS`] days warns at startup.
+    /// A TTL-dropped dormant person re-derives on their next event and re-emits `Entered` for
+    /// single-leaf person cohorts (at-least-once across dormancy); composable cohorts are suppressed by
+    /// the surviving `cf_stage2` bit.
+    #[envconfig(from = "COHORT_PERSON_RECORD_TTL_DAYS", default = "0")]
+    pub cohort_person_record_ttl_days: u32,
+
+    /// Where store I/O runs relative to the runtime worker threads: `off` (inline on the caller — the
+    /// operator kill switch), `maintenance` (only maintenance-lane reads, the WAL fsync, and sections
+    /// offload; the event path stays inline), or `all` (every op offloads to the blocking pool).
+    /// Default `all`.
+    #[envconfig(from = "COHORT_STORE_OFFLOAD_MODE", default = "all")]
+    pub cohort_store_offload_mode: OffloadMode,
+
+    /// Bound on event-path store reads executing concurrently on the blocking pool. Keeps a burst of
+    /// event reads from saturating the disk queue; `0` disables the bound (unbounded lane).
+    #[envconfig(from = "COHORT_STORE_EVENT_READ_PERMITS", default = "16")]
+    pub cohort_store_event_read_permits: usize,
+
+    /// Bound on maintenance-lane store reads and sections executing concurrently on the blocking
+    /// pool (sweep prefetch, boot rebuild scans, GC). Held lower than the event lane so a
+    /// maintenance storm leaves disk headroom for the event path; `0` disables the bound.
+    #[envconfig(from = "COHORT_STORE_MAINTENANCE_PERMITS", default = "6")]
+    pub cohort_store_maintenance_permits: usize,
 
     /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
     /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
@@ -356,6 +516,14 @@ pub struct Config {
     pub checkpoint_import_timeout_secs: u64,
 }
 
+/// librdkafka consumer fetch-queue bounds: an aggregate byte cap across all partitions and a
+/// per-partition prefetch floor.
+#[derive(Clone, Copy, Debug)]
+pub struct FetchQueueConfig {
+    pub queued_max_messages_kbytes: u32,
+    pub queued_min_messages: u32,
+}
+
 impl Config {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
@@ -397,8 +565,24 @@ impl Config {
         Duration::from_millis(self.sweep_interval_ms)
     }
 
+    pub fn first_eviction_sweep_delay(&self) -> Duration {
+        Duration::from_millis(self.first_eviction_sweep_delay_ms)
+    }
+
+    pub fn fetch_queue_config(&self) -> FetchQueueConfig {
+        FetchQueueConfig {
+            queued_max_messages_kbytes: self.kafka_queued_max_messages_kbytes,
+            queued_min_messages: self.kafka_queued_min_messages,
+        }
+    }
+
     pub fn sweep_safety_margin(&self) -> Duration {
         Duration::from_millis(self.sweep_safety_margin_ms)
+    }
+
+    pub fn stats_publish_interval(&self) -> Duration {
+        // Floor at 1s: `tokio::time::interval` panics on a zero period.
+        Duration::from_secs(self.stats_publish_interval_secs).max(Duration::from_secs(1))
     }
 
     pub fn transfer_retry_policy(&self) -> TransferRetryPolicy {
@@ -421,8 +605,22 @@ impl Config {
         }
     }
 
+    pub fn event_name_gating(&self) -> EventNameGating {
+        EventNameGating::from_enabled(self.cohort_event_name_gating_enabled)
+    }
+
     pub fn merge_gc_interval(&self) -> Duration {
         Duration::from_millis(self.merge_gc_interval_ms)
+    }
+
+    pub fn seed_idle_probe_interval(&self) -> Duration {
+        // Floor at 1s: `tokio::time::interval` panics on a zero period.
+        Duration::from_millis(self.cohort_seed_watermark_idle_probe_interval_ms)
+            .max(Duration::from_secs(1))
+    }
+
+    pub fn reconcile_tick_interval(&self) -> Duration {
+        Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
 
     pub fn checkpoint_interval(&self) -> Duration {
@@ -463,11 +661,29 @@ impl Config {
     /// Refuse unsafe durability startup combinations. Pure (no I/O), so unit-testable without a broker.
     ///
     /// Guards:
+    /// - Reconcile scan and tick limits must be non-zero; a zero page would falsely certify an
+    ///   unscanned snapshot, while Tokio rejects a zero timer interval.
     /// - `checkpoint_enabled` requires `durable_restore_enabled`: without it the restored DB is wiped
     ///   on open, silently discarding the restore.
     /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
     ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
     pub fn validate_durability_startup(&self) -> anyhow::Result<()> {
+        ensure!(
+            self.cohort_seed_reconcile_scan_page > 0,
+            "COHORT_SEED_RECONCILE_SCAN_PAGE must be greater than zero.",
+        );
+        ensure!(
+            self.cohort_seed_reconcile_tick_interval_ms > 0,
+            "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS must be greater than zero.",
+        );
+
+        if self.cohort_seed_reconcile_enabled && !self.cohort_seed_consumer_enabled {
+            warn!(
+                "COHORT_SEED_RECONCILE_ENABLED without COHORT_SEED_CONSUMER_ENABLED: no reconcile \
+                 controls can be consumed; enable the seed consumer or turn reconcile off.",
+            );
+        }
+
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
@@ -495,6 +711,16 @@ impl Config {
             );
         }
 
+        // Not a refusal (dev runs with durability off), but a crash then loses applied tiles
+        // that never replay.
+        if self.cohort_seed_consumer_enabled && !self.durable_restore_enabled {
+            warn!(
+                "COHORT_SEED_CONSUMER_ENABLED without DURABLE_RESTORE_ENABLED: a committed seed \
+                 offset does not imply a durably applied tile across restarts; do not stamp \
+                 backfill readiness against this deployment.",
+            );
+        }
+
         Ok(())
     }
 
@@ -507,10 +733,45 @@ impl Config {
     }
 
     pub fn store_config(&self) -> StoreConfig {
+        if self.person_record_ttl_below_safe_floor() {
+            warn!(
+                cohort_person_record_ttl_days = self.cohort_person_record_ttl_days,
+                safe_floor_days = MIN_SAFE_PERSON_RECORD_TTL_DAYS,
+                "COHORT_PERSON_RECORD_TTL_DAYS is inside the replay horizon: a reclaimed record \
+                 loses its replay dedup, so replayed events for a live-again person re-fold and \
+                 single-leaf person cohorts re-emit Entered; raise it to the safe floor or above",
+            );
+        }
         StoreConfig {
             path: PathBuf::from(&self.store_path),
             wipe_on_start: self.effective_wipe_on_start(),
+            wipe_on_schema_mismatch: self.cohort_wipe_on_schema_mismatch,
+            statistics_enabled: self.store_statistics_enabled,
+            read_sample_ratio: self.store_read_sample_ratio,
+            block_cache_bytes: self.cohort_block_cache_bytes,
+            tuned_block_options: self.cohort_tuned_block_options_enabled,
+            compact_on_deletion: self.cohort_compact_on_deletion_enabled,
+            periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
+            max_background_jobs: self.cohort_max_background_jobs,
+            person_record_ttl_days: self.cohort_person_record_ttl_days,
             ..StoreConfig::default()
+        }
+    }
+
+    /// Whether a configured (non-zero) person-record TTL sits inside
+    /// [`MIN_SAFE_PERSON_RECORD_TTL_DAYS`] — a misconfiguration worth a startup warning, not a
+    /// refusal: the knob is operator-owned and `0` (off) is always safe.
+    fn person_record_ttl_below_safe_floor(&self) -> bool {
+        (1..MIN_SAFE_PERSON_RECORD_TTL_DAYS).contains(&self.cohort_person_record_ttl_days)
+    }
+
+    /// Resolve the store-offload strategy and per-lane concurrency bounds handed to the
+    /// [`StoreHandle`](crate::store::StoreHandle).
+    pub fn offload_config(&self) -> OffloadConfig {
+        OffloadConfig {
+            mode: self.cohort_store_offload_mode,
+            event_read_permits: self.cohort_store_event_read_permits,
+            maintenance_permits: self.cohort_store_maintenance_permits,
         }
     }
 
@@ -544,6 +805,15 @@ impl Config {
             )
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
+
+        // Bound librdkafka's fetch buffer: an aggregate byte ceiling plus a per-partition prefetch floor.
+        let fetch = self.fetch_queue_config();
+        config
+            .set(
+                "queued.max.messages.kbytes",
+                fetch.queued_max_messages_kbytes.to_string(),
+            )
+            .set("queued.min.messages", fetch.queued_min_messages.to_string());
 
         // Static membership; an explicit `kafka_client_id` overrides `client.id` below.
         if let Some(id) = self.pod_identity() {
@@ -618,6 +888,8 @@ impl Config {
             kafka_producer_topic_metadata_refresh_interval_ms: None,
             kafka_producer_message_max_bytes: None,
             kafka_producer_sticky_partitioning_linger_ms: None,
+            kafka_producer_acks: None,
+            kafka_producer_retries: None,
         }
     }
 
@@ -650,7 +922,9 @@ mod tests {
             filter_catalog_refresh_secs: 300,
             filter_catalog_refresh_jitter_secs: 60,
             team_allowlist: TeamAllowlist::All,
-            partition_channel_buffer: 1024,
+            cohort_event_name_gating_enabled: true,
+            partition_channel_buffer: 128,
+            partition_intake_max_events: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
             kafka_client_id: String::new(),
@@ -658,6 +932,8 @@ mod tests {
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
             kafka_consumer_offset_reset: "latest".to_string(),
+            kafka_queued_max_messages_kbytes: 131_072,
+            kafka_queued_min_messages: 2000,
             person_merge_events_topic: "person_merge_events".to_string(),
             cohort_merge_state_transfer_topic: "cohort_merge_state_transfer".to_string(),
             kafka_merge_consumer_group: "cohort-stream-merges".to_string(),
@@ -687,10 +963,25 @@ mod tests {
             recv_batch_size: 1000,
             recv_batch_timeout_ms: 500,
             offset_commit_interval_ms: 5000,
+            tokio_worker_threads: 0,
             sweep_interval_ms: 30000,
+            first_eviction_sweep_delay_ms: 120_000,
             sweep_safety_margin_ms: 300000,
+            stats_publish_interval_secs: 15,
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
+            cohort_wipe_on_schema_mismatch: false,
+            store_statistics_enabled: true,
+            store_read_sample_ratio: 64,
+            cohort_block_cache_bytes: 134_217_728,
+            cohort_tuned_block_options_enabled: true,
+            cohort_compact_on_deletion_enabled: true,
+            cohort_periodic_compaction_seconds: 0,
+            cohort_max_background_jobs: 0,
+            cohort_person_record_ttl_days: 0,
+            cohort_store_offload_mode: OffloadMode::All,
+            cohort_store_event_read_permits: 16,
+            cohort_store_maintenance_permits: 6,
             durable_restore_enabled: false,
             durable_restore_single_pod: false,
             checkpoint_enabled: false,
@@ -714,6 +1005,15 @@ mod tests {
             checkpoint_import_window_hours: 24,
             checkpoint_import_attempt_depth: 10,
             checkpoint_import_timeout_secs: 240,
+            cohort_seed_consumer_enabled: false,
+            cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
+            kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
+            cohort_seed_fence_margin_ms: 600_000,
+            cohort_seed_watermark_idle_probe_interval_ms: 30_000,
+            cohort_register_transfer_enabled: false,
+            cohort_seed_reconcile_enabled: false,
+            cohort_seed_reconcile_scan_page: 256,
+            cohort_seed_reconcile_tick_interval_ms: 2_000,
         }
     }
 
@@ -728,6 +1028,58 @@ mod tests {
             config.filter_catalog_refresh_jitter(),
             Duration::from_secs(60)
         );
+    }
+
+    #[test]
+    fn reconcile_knobs_default_dark_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(!defaults.cohort_seed_reconcile_enabled);
+        assert_eq!(defaults.cohort_seed_reconcile_scan_page, 256);
+        assert_eq!(
+            defaults.reconcile_tick_interval(),
+            Duration::from_millis(2_000)
+        );
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_SEED_RECONCILE_ENABLED", "true"),
+            ("COHORT_SEED_RECONCILE_SCAN_PAGE", "17"),
+            ("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", "345"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.cohort_seed_reconcile_enabled);
+        assert_eq!(config.cohort_seed_reconcile_scan_page, 17);
+        assert_eq!(config.reconcile_tick_interval(), Duration::from_millis(345));
+    }
+
+    #[test]
+    fn reconcile_startup_validation_rejects_zero_work_limits() {
+        let mut config = test_config();
+        config.cohort_seed_reconcile_scan_page = 0;
+        assert!(config
+            .validate_durability_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_RECONCILE_SCAN_PAGE"),);
+
+        config.cohort_seed_reconcile_scan_page = 1;
+        config.cohort_seed_reconcile_tick_interval_ms = 0;
+        assert!(config
+            .validate_durability_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
+    }
+
+    #[test]
+    fn reconcile_without_the_seed_consumer_warns_but_starts() {
+        let mut config = test_config();
+        config.cohort_seed_reconcile_enabled = true;
+        config.cohort_seed_consumer_enabled = false;
+
+        assert!(config.validate_durability_startup().is_ok());
     }
 
     #[test]
@@ -771,6 +1123,47 @@ mod tests {
             Some("cooperative-sticky"),
         );
         assert_eq!(client.get("session.timeout.ms"), Some("45000"));
+    }
+
+    #[test]
+    fn consumer_config_sets_the_fetch_queue_bounds() {
+        let config = test_config();
+        let client = config.consumer_client_config();
+        assert_eq!(client.get("queued.max.messages.kbytes"), Some("131072"));
+        assert_eq!(client.get("queued.min.messages"), Some("2000"));
+    }
+
+    #[test]
+    fn intake_and_boot_ordering_knobs_default_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.partition_intake_max_events, 1024);
+        assert_eq!(defaults.kafka_queued_max_messages_kbytes, 131_072);
+        assert_eq!(defaults.kafka_queued_min_messages, 2000);
+        assert_eq!(
+            defaults.first_eviction_sweep_delay(),
+            Duration::from_millis(120_000),
+        );
+
+        let env: std::collections::HashMap<String, String> = [
+            ("PARTITION_INTAKE_MAX_EVENTS", "512"),
+            ("COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", "65536"),
+            ("COHORT_KAFKA_QUEUED_MIN_MESSAGES", "1000"),
+            ("COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", "30000"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.partition_intake_max_events, 512);
+        assert_eq!(
+            config.fetch_queue_config().queued_max_messages_kbytes,
+            65536
+        );
+        assert_eq!(config.fetch_queue_config().queued_min_messages, 1000);
+        assert_eq!(
+            config.first_eviction_sweep_delay(),
+            Duration::from_millis(30_000),
+        );
     }
 
     #[test]
@@ -822,6 +1215,172 @@ mod tests {
         assert!(config.store_config().wipe_on_start);
         config.wipe_store_on_start = false;
         assert!(!config.store_config().wipe_on_start);
+    }
+
+    #[test]
+    fn register_transfer_gate_defaults_dark_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.cohort_register_transfer_enabled,
+            "register transfer must stay off until the whole fleet can apply the payload",
+        );
+
+        let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
+            "COHORT_REGISTER_TRANSFER_ENABLED".to_owned(),
+            "true".to_owned(),
+        )]))
+        .unwrap();
+        assert!(enabled.cohort_register_transfer_enabled);
+    }
+
+    #[test]
+    fn wipe_on_schema_mismatch_defaults_off_and_threads_into_store_config() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.cohort_wipe_on_schema_mismatch,
+            "a schema mismatch must fail fast unless the operator opts in",
+        );
+        assert!(!defaults.store_config().wipe_on_schema_mismatch);
+
+        let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
+            "COHORT_WIPE_ON_SCHEMA_MISMATCH".to_owned(),
+            "true".to_owned(),
+        )]))
+        .unwrap();
+        assert!(enabled.store_config().wipe_on_schema_mismatch);
+    }
+
+    #[test]
+    fn person_record_ttl_defaults_off_and_threads_into_store_config() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(
+            defaults.cohort_person_record_ttl_days, 0,
+            "the person-record TTL defaults off (no compaction filter)",
+        );
+        assert_eq!(defaults.store_config().person_record_ttl_days, 0);
+
+        let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
+            "COHORT_PERSON_RECORD_TTL_DAYS".to_owned(),
+            "30".to_owned(),
+        )]))
+        .unwrap();
+        assert_eq!(enabled.cohort_person_record_ttl_days, 30);
+        assert_eq!(
+            enabled.store_config().person_record_ttl_days,
+            30,
+            "the TTL reaches StoreConfig",
+        );
+    }
+
+    #[test]
+    fn person_record_ttl_safe_floor_flags_only_non_zero_values_below_it() {
+        let cases = [
+            (0u32, false, "off is always safe"),
+            (1, true, "inside the replay horizon"),
+            (7, true, "the replay horizon itself is unsafe"),
+            (29, true, "one below the floor"),
+            (30, false, "the floor is safe"),
+            (365, false, "well above the floor"),
+        ];
+        for (days, risky, why) in cases {
+            let mut config = test_config();
+            config.cohort_person_record_ttl_days = days;
+            assert_eq!(
+                config.person_record_ttl_below_safe_floor(),
+                risky,
+                "{days} days: {why}",
+            );
+        }
+    }
+
+    #[test]
+    fn stats_knobs_default_on_and_thread_into_store_config() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(defaults.store_statistics_enabled);
+        assert!(defaults.store_config().statistics_enabled);
+        assert_eq!(defaults.stats_publish_interval(), Duration::from_secs(15));
+        assert_eq!(defaults.store_read_sample_ratio, 64);
+        assert_eq!(defaults.store_config().read_sample_ratio, 64);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_STORE_STATISTICS_ENABLED", "false"),
+            ("COHORT_STATS_PUBLISH_INTERVAL_SECS", "30"),
+            ("COHORT_STORE_READ_SAMPLE_RATIO", "8"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(!config.store_statistics_enabled);
+        assert!(
+            !config.store_config().statistics_enabled,
+            "the flag reaches StoreConfig",
+        );
+        assert_eq!(config.stats_publish_interval(), Duration::from_secs(30));
+        assert_eq!(config.store_read_sample_ratio, 8);
+        assert_eq!(
+            config.store_config().read_sample_ratio,
+            8,
+            "the sample ratio reaches StoreConfig",
+        );
+    }
+
+    #[test]
+    fn offload_knobs_default_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        let offload = defaults.offload_config();
+        assert_eq!(offload.mode, OffloadMode::All, "offload defaults to All");
+        assert_eq!(offload.event_read_permits, 16);
+        assert_eq!(offload.maintenance_permits, 6);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_STORE_OFFLOAD_MODE", "maintenance"),
+            ("COHORT_STORE_EVENT_READ_PERMITS", "8"),
+            ("COHORT_STORE_MAINTENANCE_PERMITS", "0"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        let offload = config.offload_config();
+        assert_eq!(offload.mode, OffloadMode::Maintenance);
+        assert_eq!(offload.event_read_permits, 8);
+        assert_eq!(offload.maintenance_permits, 0, "0 = unbounded lane");
+
+        let off_env: std::collections::HashMap<String, String> =
+            [("COHORT_STORE_OFFLOAD_MODE", "off")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        assert_eq!(
+            Config::init_from_hashmap(&off_env)
+                .unwrap()
+                .offload_config()
+                .mode,
+            OffloadMode::Off,
+        );
+
+        let bad_env: std::collections::HashMap<String, String> =
+            [("COHORT_STORE_OFFLOAD_MODE", "occasionally")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        assert!(
+            Config::init_from_hashmap(&bad_env).is_err(),
+            "an invalid offload mode must fail config init",
+        );
+    }
+
+    #[test]
+    fn stats_publish_interval_floors_zero_at_one_second() {
+        // Zero would panic `tokio::time::interval`; the accessor clamps to 1s.
+        let env: std::collections::HashMap<String, String> =
+            [("COHORT_STATS_PUBLISH_INTERVAL_SECS", "0")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.stats_publish_interval(), Duration::from_secs(1));
     }
 
     #[test]
@@ -1208,6 +1767,25 @@ mod tests {
     }
 
     #[test]
+    fn event_name_gating_defaults_on_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            defaults.cohort_event_name_gating_enabled,
+            "the event-name gate defaults on",
+        );
+        assert_eq!(defaults.event_name_gating(), EventNameGating::Enabled);
+
+        let env: std::collections::HashMap<String, String> =
+            [("COHORT_EVENT_NAME_GATING_ENABLED", "false")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(!config.cohort_event_name_gating_enabled);
+        assert_eq!(config.event_name_gating(), EventNameGating::Disabled);
+    }
+
+    #[test]
     fn cascade_caps_default_and_override_from_env() {
         let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(defaults.cohort_cascade_depth_cap, 8);
@@ -1369,6 +1947,53 @@ mod tests {
             .collect();
         let config = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(config.cohort_partition_count, 8);
+    }
+
+    #[test]
+    fn store_tuning_config_defaults_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.cohort_block_cache_bytes, 134_217_728);
+        assert!(defaults.cohort_tuned_block_options_enabled);
+        assert!(defaults.cohort_compact_on_deletion_enabled);
+        assert_eq!(defaults.cohort_periodic_compaction_seconds, 0);
+        assert_eq!(defaults.cohort_max_background_jobs, 0);
+        assert_eq!(defaults.partition_channel_buffer, 128);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_BLOCK_CACHE_BYTES", "3221225472"),
+            ("COHORT_TUNED_BLOCK_OPTIONS_ENABLED", "false"),
+            ("COHORT_COMPACT_ON_DELETION_ENABLED", "false"),
+            ("COHORT_PERIODIC_COMPACTION_SECONDS", "3600"),
+            ("COHORT_MAX_BACKGROUND_JOBS", "2"),
+            ("PARTITION_CHANNEL_BUFFER", "256"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.cohort_block_cache_bytes, 3_221_225_472);
+        assert!(!config.cohort_tuned_block_options_enabled);
+        assert!(!config.cohort_compact_on_deletion_enabled);
+        assert_eq!(config.cohort_periodic_compaction_seconds, 3600);
+        assert_eq!(config.cohort_max_background_jobs, 2);
+        assert_eq!(config.partition_channel_buffer, 256);
+    }
+
+    #[test]
+    fn store_config_threads_the_rocksdb_tuning_knobs() {
+        let mut config = test_config();
+        config.cohort_block_cache_bytes = 3_221_225_472;
+        config.cohort_tuned_block_options_enabled = false;
+        config.cohort_compact_on_deletion_enabled = false;
+        config.cohort_periodic_compaction_seconds = 3600;
+        config.cohort_max_background_jobs = 2;
+
+        let store = config.store_config();
+        assert_eq!(store.block_cache_bytes, 3_221_225_472);
+        assert!(!store.tuned_block_options);
+        assert!(!store.compact_on_deletion);
+        assert_eq!(store.periodic_compaction_seconds, 3600);
+        assert_eq!(store.max_background_jobs, 2);
     }
 
     #[test]

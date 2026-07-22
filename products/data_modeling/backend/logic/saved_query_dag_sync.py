@@ -7,6 +7,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
@@ -97,10 +98,18 @@ def resolve_dependency_to_node(
     return node
 
 
+class ManagedDAGError(Exception):
+    """Raised when a user-initiated sync targets a system-managed DAG (e.g. Revenue Analytics)."""
+
+    pass
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
     dag: DAG | None = None,
+    allow_managed: bool = False,
+    reconcile: bool = True,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -115,9 +124,13 @@ def sync_saved_query_to_dag(
         saved_query: The SavedQuery to sync to the DAG
         extra_properties: Optional dict of properties to merge into created nodes and edges
         dag: Optional DAG to use. If not provided, uses the default team DAG.
+        allow_managed: Whether placement into a system-managed DAG is permitted. Only the
+            internal managed-viewset sync passes this; user-initiated callers must not, so a
+            same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
+    Raises ManagedDAGError if dag is system-managed and allow_managed is False.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -125,6 +138,8 @@ def sync_saved_query_to_dag(
     team = saved_query.team
     if dag is None:
         dag = DAG.get_or_create_default(team)
+    if dag.is_managed and not allow_managed:
+        raise ManagedDAGError(f"Cannot sync saved query into system-managed DAG: dag_id={dag.id}")
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
@@ -171,6 +186,8 @@ def sync_saved_query_to_dag(
 
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
+    if reconcile:
+        maybe_reconcile_dag(dag)
     return target
 
 
@@ -207,9 +224,17 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
     deps = get_dependent_saved_queries(saved_query)
     if deps:
         raise HasDependentsError("Node cannot be deleted because it has dependents")
-    Node.objects.filter(team=saved_query.team, saved_query=saved_query).delete()
+    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
+    dags = {node.dag for node in nodes if node.dag is not None}
+    nodes.delete()
+    for dag in dags:
+        maybe_reconcile_dag(dag)
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:
     """Update a Node's type to MAT_VIEW when materialized."""
-    Node.objects.filter(team=saved_query.team, saved_query=saved_query).update(type=type)
+    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
+    dags = {node.dag for node in nodes if node.dag is not None}
+    nodes.update(type=type)
+    for dag in dags:
+        maybe_reconcile_dag(dag)

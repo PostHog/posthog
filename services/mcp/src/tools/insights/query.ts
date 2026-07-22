@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api/client'
 import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
@@ -16,6 +17,7 @@ type Result = WithPostHogUrl<{
     query: unknown
     insight: Insight & { url: string }
     results: unknown
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }>
 
@@ -111,6 +113,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
                 ...insightResult.data,
             },
             results,
+            ...(queryResult.data.warnings ? { warnings: queryResult.data.warnings } : {}),
             ...(surfaceFormatted
                 ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
                 : {}),

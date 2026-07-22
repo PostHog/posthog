@@ -20,6 +20,7 @@ from collections.abc import Callable
 
 from django.db import close_old_connections
 
+import psycopg
 import pyarrow as pa
 import structlog
 import posthoganalytics
@@ -33,6 +34,7 @@ from posthog.utils import get_machine_id
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    complete_schema_run,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -46,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     build_scd2_table,
     deduplicate_table,
     enrich_delete_rows,
+    enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -53,11 +56,16 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorCategory,
     CDCErrorInfo,
     CDCSchemaMergeError,
+    CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BatchQueue,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
@@ -84,6 +92,26 @@ RETENTION_CAP_SAFETY_FACTOR = 0.8
 # Mirrors maximum_attempts on CDCExtractionWorkflow's retry policy (workflows.py). On the final
 # attempt a failure won't be retried, so it's the last chance to record a visible failed-run row.
 CDC_MAX_EXTRACTION_ATTEMPTS = 3
+
+# Shown as latest_error on prior-run jobs reconciled by _reconcile_orphaned_prior_jobs.
+CDC_ORPHANED_JOB_MESSAGE = (
+    "CDC run ended without finalizing this job (worker timeout or eviction). It was superseded by a "
+    "later run; no data was lost — change capture resumes from the last confirmed replication position."
+)
+# Only reconcile prior RUNNING jobs older than this. A healthy run enqueues its first batch within
+# seconds, so a no-batch job older than this is abandoned; the floor also keeps us clear of any
+# concurrent manual/backfill run of the same source that has only just created its job row.
+CDC_ORPHAN_JOB_MIN_AGE = dt.timedelta(minutes=30)
+# Upper bound: batches are pruned from the queue after PARTITION_PRUNING_INTERVAL (14 days), so a
+# "no batches" verdict is only trustworthy within that window. Never touch older rows — we cannot
+# tell an abandoned run from one whose batches simply aged out.
+CDC_ORPHAN_JOB_MAX_AGE = dt.timedelta(days=14)
+
+# Backpressure guard: past this age a skipped tick is a stuck load, not a slow one — well beyond
+# the loader's recovery-sweep grace (300s) and retry backoffs, so it only trips when a run needs
+# operator attention. Skips past it log at error level; the tick is still skipped (see
+# _previous_load_still_pending for why we never auto-fail the pending run).
+CDC_BACKPRESSURE_STUCK_AGE = dt.timedelta(hours=2)
 
 # Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
 # several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
@@ -582,7 +610,10 @@ class CDCExtractActivity:
             key_columns = self.pk_columns_by_table.get(table_name, [])
             cdc_table_mode = schema.cdc_table_mode
 
-            enriched_table = enrich_delete_rows(raw_table, key_columns)
+            # TOAST fill first so DELETE enrichment copies resolved values, not the
+            # nulls standing in for omitted columns.
+            enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
+            enriched_table = enrich_delete_rows(enriched_table, key_columns)
 
             # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
             # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.
@@ -672,9 +703,20 @@ class CDCExtractActivity:
         if not self._setup():
             return
 
+        if self._previous_load_still_pending():
+            return
+
         self._mark_schemas_running()
+        # Best-effort — must never break the extraction run, so guard the call
+        # site: the method itself has unguarded lines (activity.info(),
+        # conn.close()) and runs before the main try block below.
+        try:
+            self._reconcile_orphaned_prior_jobs()
+        except Exception:
+            self.log.warning("cdc_orphan_reconcile_unexpected_failed", exc_info=True)
 
         try:
+            self._require_configured_slot()
             self.reader.connect()
 
             self._load_pk_columns()
@@ -752,11 +794,120 @@ class CDCExtractActivity:
         except Exception:
             self.log.exception("failed_to_delete_own_schedule")
 
+    def _previous_load_still_pending(self) -> bool:
+        """Backpressure guard: skip this tick while a previous run's batches are still loading.
+
+        CDC ticks don't hold the per-schema pipeline lock the way external-data-job runs do,
+        so without this check every tick enqueues a fresh run regardless of whether the
+        previous one landed. Coexisting runs of one schema can then be claimed out of order
+        by the loader (its head-of-line gate is run-scoped), and an incremental merge applied
+        out of order silently overwrites newer rows with older ones. Skipping keeps at most
+        one active run per schema; nothing has been peeked and the slot is untouched, so WAL
+        accumulates and the next tick catches up.
+
+        Per-source, not per-schema: the slot is read once for all tables, so one table's
+        pending load must hold back the whole source's tick.
+
+        Deliberately no auto-remediation past CDC_BACKPRESSURE_STUCK_AGE: the slot already
+        advanced past the pending runs' events, so failing their batches would leave a
+        permanent gap in the table. The queue-freshness alert fires well before the
+        threshold, and if nobody intervenes the engine eventually invalidates the slot,
+        which triggers the existing full re-sync recovery. Fail-open on probe errors — the
+        producer writes to the same DB, so a run that can't be probed can't enqueue either.
+        """
+        schema_ids = [str(s.id) for s in self.cdc_schemas]
+        try:
+            conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_connect_failed", exc_info=True)
+            return False
+        try:
+            age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                conn, team_id=self.inputs.team_id, schema_ids=schema_ids
+            )
+        except Exception:
+            self.log.warning("cdc_backpressure_probe_failed", exc_info=True)
+            return False
+        finally:
+            conn.close()
+
+        if age is None:
+            return False
+
+        stuck = age >= CDC_BACKPRESSURE_STUCK_AGE.total_seconds()
+        log = self.log.error if stuck else self.log.info
+        log("cdc_tick_skipped_pending_load", oldest_pending_age_seconds=round(age, 1), stuck=stuck)
+        metrics.get_tick_skipped_metric(self.inputs.team_id, str(self.inputs.source_id), stuck).add(1)
+        return True
+
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.RUNNING
             schema.save(update_fields=["status", "updated_at"])
+
+    def _reconcile_orphaned_prior_jobs(self) -> None:
+        """Finalize this source's prior RUNNING jobs that were stranded mid-run.
+
+        A CDC run creates an ExternalDataJob at its first WAL event (RUNNING) and only
+        finalizes it on clean completion (the loader, for streaming) or in its own failure
+        handler. If an activity attempt dies abruptly — a heartbeat/start-to-close timeout
+        or worker eviction — that finalizer never runs and the row is stranded RUNNING; every
+        later run leaks another. Nothing in-process can close it, so the next run does.
+
+        The schedule's SKIP overlap policy means any prior run (a different workflow_run_id)
+        has already ended, so its still-RUNNING rows are safe to close. We only fail rows that
+        enqueued NO queue batches: with nothing queued the loader has no outstanding work, so
+        failing cannot race a late load. Rows that did enqueue batches are left to the loader,
+        which owns their completion. Best-effort — must never break the extraction run.
+        """
+        current_run_id = activity.info().workflow_run_id
+        now = dt.datetime.now(tz=dt.UTC)
+        try:
+            orphans = list(
+                ExternalDataJob.objects.filter(
+                    team_id=self.inputs.team_id,
+                    schema_id__in=[s.id for s in self.cdc_schemas],
+                    status=ExternalDataJob.Status.RUNNING,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V3,
+                    created_at__gt=now - CDC_ORPHAN_JOB_MAX_AGE,
+                    created_at__lt=now - CDC_ORPHAN_JOB_MIN_AGE,
+                )
+                .exclude(workflow_run_id=current_run_id)
+                .order_by("created_at")[:200]
+            )
+        except Exception:
+            self.log.warning("cdc_orphan_reconcile_query_failed", exc_info=True)
+            return
+
+        if not orphans:
+            return
+
+        try:
+            conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        except Exception:
+            self.log.warning("cdc_orphan_reconcile_queue_connect_failed", exc_info=True)
+            return
+
+        reconciled = 0
+        try:
+            for job in orphans:
+                try:
+                    if BatchQueue.count_batches_for_run(conn, job_id=str(job.id)) > 0:
+                        # The run enqueued batches; the loader owns their completion — leave it.
+                        continue
+                    job.status = ExternalDataJob.Status.FAILED
+                    job.latest_error = CDC_ORPHANED_JOB_MESSAGE
+                    job.finished_at = dt.datetime.now(tz=dt.UTC)
+                    job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+                    reconciled += 1
+                except Exception:
+                    self.log.warning("cdc_orphan_reconcile_job_failed", job_id=str(job.id), exc_info=True)
+        finally:
+            conn.close()
+
+        if reconciled:
+            self.log.info("cdc_orphaned_jobs_reconciled", count=reconciled)
 
     # ------------------------------------------------------------------
     # PK column loading
@@ -806,7 +957,10 @@ class CDCExtractActivity:
         if retained is None:
             return event
         filtered = {name: value for name, value in event.columns.items() if name in retained}
-        if filtered.keys() == event.columns.keys():
+        # Omitted (unchanged-TOAST) markers for disabled columns must go too, or the
+        # batcher would materialize a disabled column just to carry the marker.
+        filtered_omitted = frozenset(name for name in event.omitted_columns if name in retained)
+        if filtered.keys() == event.columns.keys() and filtered_omitted == event.omitted_columns:
             return event
         return ChangeEvent(
             operation=event.operation,
@@ -815,24 +969,12 @@ class CDCExtractActivity:
             timestamp=event.timestamp,
             columns=filtered,
             column_types=event.column_types,
+            omitted_columns=filtered_omitted,
         )
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
-        """Resolve a CDC schema row to its source-qualified `schema.table` name.
-
-        Prefers stored schema_metadata, then a dotted display name, then the source's
-        default schema — so a row stored bare (`orders`) still resolves to its real
-        source location (`public.orders`).
-        """
         default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
-        metadata = schema.sync_type_config.get("schema_metadata") or {}
-        src_schema = metadata.get("source_schema")
-        src_table = metadata.get("source_table_name")
-        if isinstance(src_schema, str) and isinstance(src_table, str):
-            return f"{src_schema}.{src_table}"
-        if "." in schema.name:
-            return schema.name
-        return f"{default_schema or 'public'}.{schema.name}"
+        return cdc_qualified_table_name(schema, default_schema)
 
     def _build_event_name_map(self) -> dict[str, str]:
         """Map each schema's source-qualified `schema.table` name to its stored `name`.
@@ -1056,6 +1198,19 @@ class CDCExtractActivity:
         except Exception:
             schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
+    def _pause_cdc_extraction_schedule(self) -> None:
+        """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""
+        assert self.source is not None
+        source_id = str(self.source.id)
+        try:
+            # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+            from products.data_warehouse.backend.facade.api import pause_cdc_extraction_schedule
+
+            pause_cdc_extraction_schedule(source_id)
+            self.log.warning("cdc_extraction_schedule_paused_non_retryable", source_id=source_id)
+        except Exception:
+            self.log.warning("cdc_pause_schedule_failed", source_id=source_id, exc_info=True)
+
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
         if truncated_tables:
@@ -1066,11 +1221,8 @@ class CDCExtractActivity:
 
         now = dt.datetime.now(tz=dt.UTC)
         for schema in self.cdc_schemas:
-            schema.status = ExternalDataSchema.Status.COMPLETED
-            schema.latest_error = None
-            schema.last_synced_at = now
-            schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
-            self._record_run_heartbeat(schema, now)
+            if not self._repaint_schema_healthy(schema, now):
+                continue
             # Per-schema breadcrumb so the Syncs UI shows _why_ the latest run produced no rows.
             self._schema_log(schema).info(
                 "cdc_extract_no_changes",
@@ -1153,6 +1305,19 @@ class CDCExtractActivity:
                 continue
             self._update_schema_sync_type_config(schema, updates={"cdc_last_log_position": self.last_end_lsn})
 
+    def _require_configured_slot(self) -> None:
+        """Fail fast when a CDC-enabled source has no replication slot name stored.
+
+        Streaming an empty slot name surfaces as ``replication slot "" does not exist``, which
+        the invalidation check reads as a recoverable slot drop — so recovery (and Repair CDC)
+        run, only to dead-end because there is no slot name to recreate. Raise the non-retryable
+        misconfiguration up front instead, with guidance that actually resolves it.
+        """
+        assert self.adapter is not None
+        assert self.source is not None
+        if not self.adapter.parse_cdc_config(self.source).slot_name:
+            raise CDCSlotNotConfiguredError()
+
     # ------------------------------------------------------------------
     # Failure / success finalization
     # ------------------------------------------------------------------
@@ -1227,31 +1392,68 @@ class CDCExtractActivity:
         # the per-schema FAILED state + the cdc_broken marker the UI/health check read and pauses the
         # schedule, so it stops firing hourly against a resource that is gone (the same zombie the lag
         # safety net produces). Any other failure just fails this run's schemas.
-        marked_broken = info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING)
+        marked_broken = info.category in (
+            CDCErrorCategory.SLOT_MISSING,
+            CDCErrorCategory.SLOT_NOT_CONFIGURED,
+            CDCErrorCategory.PUBLICATION_MISSING,
+        )
         if marked_broken:
             assert self.source is not None
-            mark_cdc_broken(self.source, info.category.value, friendly)
+            # This run records its own FAILED job rows below; a second set from mark_cdc_broken
+            # would show every incident as two identical failed runs.
+            mark_cdc_broken(self.source, info.category.value, friendly, create_visibility_jobs=False)
+        elif not info.retryable and self.source is not None:
+            # A non-retryable error re-fails every scheduled run, so pause the schedule instead of
+            # looping it. No cdc_broken marker: the slot is intact, so it stays Repair-CDC-ineligible.
+            self._pause_cdc_extraction_schedule()
         for schema in self.cdc_schemas:
             if not marked_broken:
                 schema.status = ExternalDataSchema.Status.FAILED
                 schema.latest_error = friendly
                 schema.save(update_fields=["status", "latest_error", "updated_at"])
+                if not info.retryable:
+                    # Persisted so the failure digest email can tell "paused, action required"
+                    # apart from "will retry" — the schedule pause itself leaves no DB trace.
+                    self._update_schema_sync_type_config(
+                        schema,
+                        updates={
+                            "cdc_extraction_paused": {
+                                "reason": info.category.value,
+                                "at": dt.datetime.now(tz=dt.UTC).isoformat(),
+                            }
+                        },
+                    )
             # User-facing column gets the friendly copy; the raw error still routes to structured
             # logs / the Syncs log viewer for debugging.
             self._schema_log(schema).error(
                 "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
             )
+        terminal = not info.retryable or activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS
         # A failure before the first micro-flush creates no ExternalDataJob, so the Syncs tab stays
-        # empty while the schema reads FAILED. Backfill a terminal FAILED row per schema so the run
-        # is visible — but only once retries are exhausted or the error is non-retryable, otherwise
-        # every transient retry would leave a stray failed row.
-        if not self.created_jobs and (activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS or not info.retryable):
+        # empty while the schema reads FAILED. Backfill a terminal FAILED row per job-less schema so
+        # the run is visible — but only once retries are exhausted or the error is non-retryable,
+        # otherwise every transient retry would leave a stray failed row.
+        if terminal:
             try:
                 self._create_failure_visibility_jobs(friendly)
             except Exception:
                 self.log.warning("cdc_failure_visibility_jobs_failed", exc_info=True)
+        # mark_cdc_broken schedules the digest itself; every other terminal failure schedules it
+        # here, mirroring what update_external_job_status does for non-CDC syncs.
+        if terminal and not marked_broken:
+            self._schedule_failure_digest()
         self._emit_run_duration("failed")
         return info
+
+    def _schedule_failure_digest(self) -> None:
+        try:
+            # Deferred: the tasks module pulls Celery wiring onto the import path.
+            from products.data_warehouse.backend.facade.tasks import schedule_external_data_failure_digest
+
+            schedule_external_data_failure_digest(self.inputs.team_id, trigger="cdc")
+        except Exception:
+            # Best-effort: the daily catch-up still delivers via the FAILED job rows.
+            self.log.warning("cdc_digest_schedule_failed", exc_info=True)
 
     def _capture_non_retryable(self, info: CDCErrorInfo) -> None:
         # Best-effort: analytics must never mask the NonRetryableException the caller is about to raise.
@@ -1269,14 +1471,18 @@ class CDCExtractActivity:
             self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
     def _create_failure_visibility_jobs(self, friendly_error: str) -> None:
-        """Create one terminal FAILED ExternalDataJob per CDC schema for a run that produced none.
+        """Create one terminal FAILED ExternalDataJob per job-less CDC schema for this run.
 
         Mirrors the running-job creation in _get_or_create_tracker (workflow ids, V3, snapshot) so
         the Syncs tab renders these the same way as a job that failed after it started writing.
+        Schemas whose job already exists this run (failed by _fail_created_jobs) are skipped.
         """
         now = dt.datetime.now(tz=dt.UTC)
         activity_info = activity.info()
+        schema_ids_with_jobs = {job.schema_id for job in self.created_jobs}
         for schema in self.cdc_schemas:
+            if schema.id in schema_ids_with_jobs:
+                continue
             ExternalDataJob.objects.create(
                 team_id=self.inputs.team_id,
                 pipeline_id=self.inputs.source_id,
@@ -1302,15 +1508,29 @@ class CDCExtractActivity:
             updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
         )
 
+    def _repaint_schema_healthy(self, schema: ExternalDataSchema, now: dt.datetime) -> bool:
+        """Mark a schema COMPLETED after a successful run, respecting the absorbing broken state.
+
+        The marker check and the repaint run in one locked transaction (complete_schema_run) —
+        checking here on the in-memory copy would race the sweeper marking the source broken and
+        overwrite its FAILED with a stale COMPLETED. Returns whether the repaint happened.
+        """
+        try:
+            # The heartbeat records liveness (this run happened), independent of health.
+            self._record_run_heartbeat(schema, now)
+            if not complete_schema_run(schema, last_synced_at=now):
+                self._schema_log(schema).info("cdc_success_repaint_skipped_broken")
+                return False
+        except ExternalDataSchema.DoesNotExist:
+            return False
+        return True
+
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
         synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
         for schema in self.cdc_schemas:
-            schema.status = ExternalDataSchema.Status.COMPLETED
-            schema.latest_error = None
-            schema.last_synced_at = now
-            schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
-            self._record_run_heartbeat(schema, now)
+            if not self._repaint_schema_healthy(schema, now):
+                continue
             # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
             if schema.name not in synced_tables:
                 self._schema_log(schema).info("cdc_extract_no_changes")

@@ -3,32 +3,31 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
-import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
 import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import {
     buildRetentionBarChartConfig,
     buildRetentionSeries,
     type RetentionSeriesMeta,
     type RetentionTrendSeriesEntry,
 } from '../shared/retentionChartTransforms'
-import { RetentionTooltip } from '../shared/RetentionTooltip'
 
 interface RetentionBarChartProps {
     inSharedMode?: boolean
 }
-
-const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 const EMPTY_GOAL_LINES: GoalLine[] = []
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -53,8 +52,7 @@ function resolveGroupTypeLabel(
 
 export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const {
         hasValidBreakdown,
@@ -101,18 +99,25 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<RetentionSeriesMeta>) => (
-            <RetentionTooltip
-                context={ctx}
-                xAxisLabels={xAxisLabels}
-                period={period}
-                selectedInterval={selectedInterval}
-                shouldShowMeanPerBreakdown={shouldShowMeanPerBreakdown}
-                isPercentage={isPercentage}
-                groupTypeLabel={groupTypeLabel}
-                onRowClick={canClick ? onRowClick : undefined}
-            />
-        ),
+        (ctx: TooltipContext<RetentionSeriesMeta>) => {
+            const altTitle =
+                selectedInterval !== null
+                    ? `${period ?? ''} ${selectedInterval}`
+                    : (xAxisLabels[ctx.dataIndex] ?? ctx.label)
+            return (
+                <InsightSeriesTooltip
+                    context={ctx}
+                    altTitle={altTitle}
+                    renderCount={(value) => (isPercentage ? `${roundToDecimal(value)}%` : `${roundToDecimal(value)}`)}
+                    renderSeriesOverride={(datum) => {
+                        const showCohortPrefix = selectedInterval !== null || !shouldShowMeanPerBreakdown
+                        return showCohortPrefix ? `Cohort ${datum.label ?? ''}` : (datum.label ?? '')
+                    }}
+                    groupTypeLabel={groupTypeLabel}
+                    onRowClick={canClick ? onRowClick : undefined}
+                />
+            )
+        },
         [
             xAxisLabels,
             period,
@@ -142,8 +147,8 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
 
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
-    const barConfig = useMemo(
-        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: TOOLTIP_CONFIG }),
+    const barConfig = useChartConfig(
+        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: INSIGHT_TOOLTIP_CONFIG }),
         [isPercentage, goalLines, series]
     )
 

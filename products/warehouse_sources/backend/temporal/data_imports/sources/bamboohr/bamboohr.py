@@ -1,13 +1,9 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
-from urllib.parse import urlencode
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
@@ -15,14 +11,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.s
     BambooHREndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 # BambooHR's API is served through a single gateway host; the company subdomain is a path segment.
 # Confirmed live: the gateway returns 401 (not 404) for the v1 paths below, so the route shape is correct.
 BAMBOOHR_API_HOST = "https://api.bamboohr.com/api/gateway.php"
 # Basic auth uses the API key as the username and any non-empty string as the password.
 BAMBOOHR_BASIC_AUTH_PASSWORD = "x"
-REQUEST_TIMEOUT_SECONDS = 60
 # Credential validation is a single cheap probe; keep it snappy so source creation doesn't feel hung.
 VALIDATE_TIMEOUT_SECONDS = 10
 # Time-off endpoints require an explicit window; widen it enough to capture all history and pending future requests.
@@ -41,10 +45,6 @@ INVALID_SUBDOMAIN_MESSAGE = (
 )
 
 
-class BambooHRRetryableError(Exception):
-    pass
-
-
 def _validate_subdomain(subdomain: str) -> None:
     if not SUBDOMAIN_PATTERN.fullmatch(subdomain):
         raise ValueError(f"Invalid BambooHR subdomain: {subdomain!r}")
@@ -60,38 +60,11 @@ def _base_url(subdomain: str) -> str:
     return f"{BAMBOOHR_API_HOST}/{subdomain}/v1"
 
 
-def _headers() -> dict[str, str]:
-    return {"Accept": "application/json"}
+class BambooHRBasicAuth(HttpBasicAuth):
+    """Basic auth where the *username* is the secret (the API key), so redact it instead of the password."""
 
-
-def _auth(api_key: str) -> tuple[str, str]:
-    return (api_key, BAMBOOHR_BASIC_AUTH_PASSWORD)
-
-
-def _build_url(subdomain: str, config: BambooHREndpointConfig) -> str:
-    url = f"{_base_url(subdomain)}/{config.path}"
-    params: dict[str, str] = {}
-    if config.requires_date_window:
-        end = (datetime.now(UTC) + timedelta(days=TIME_OFF_FUTURE_DAYS)).strftime("%Y-%m-%d")
-        params["start"] = TIME_OFF_WINDOW_START
-        params["end"] = end
-    if params:
-        return f"{url}?{urlencode(params)}"
-    return url
-
-
-def _extract_records(payload: Any, config: BambooHREndpointConfig) -> list[dict[str, Any]]:
-    records: Any = payload
-    if config.data_key is not None and isinstance(payload, dict):
-        # Direct key access so a missing envelope key (e.g. an API change) fails loudly
-        # rather than silently syncing zero rows.
-        records = payload[config.data_key]
-
-    if config.data_shape == "dict":
-        # e.g. meta/users returns ``{"<id>": {...}}`` — flatten to the list of records.
-        return cast(list[dict[str, Any]], list(records.values())) if isinstance(records, dict) else []
-
-    return cast(list[dict[str, Any]], records) if isinstance(records, list) else []
+    def secret_values(self) -> tuple[str, ...]:
+        return (self.username,) if self.username else ()
 
 
 def _next_url(payload: Any) -> str | None:
@@ -116,6 +89,115 @@ def _next_url(payload: Any) -> str | None:
     return None
 
 
+class BambooHRPaginator(BaseNextUrlPaginator):
+    """Follows the full next-page URL BambooHR returns under ``_links.next`` (or ``links.next``),
+    pinned to the gateway host via ``_next_url``."""
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        next_url = _next_url(payload)
+        if next_url:
+            self._next_url = next_url
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def __str__(self) -> str:
+        return "BambooHRPaginator(_links.next|links.next)"
+
+
+def _selector_for(config: BambooHREndpointConfig) -> tuple[str | None, bool]:
+    """Map an endpoint's response layout to a (data_selector, data_selector_required) pair.
+
+    - "dict" shape (e.g. ``meta/users`` — ``{"<id>": {...}}``): the ``*`` wildcard flattens the
+      object to its values; not required so an empty account (empty object) is a legit 0-row page.
+    - Enveloped list (``data_key``): select the key and fail loudly when it's absent (an API
+      change) rather than silently syncing zero rows.
+    - Bare list body: no selector; require a list so an unexpected 200 envelope fails loudly
+      instead of being wrapped as a garbage row.
+    """
+    if config.data_shape == "dict":
+        return "*", False
+    if config.data_key is not None:
+        return config.data_key, True
+    return None, True
+
+
+def bamboohr_source(
+    subdomain: str,
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BambooHRResumeConfig],
+) -> SourceResponse:
+    config = BAMBOOHR_ENDPOINTS[endpoint]
+    base_url = _base_url(subdomain)
+
+    params: dict[str, Any] = {}
+    if config.requires_date_window:
+        end = (datetime.now(UTC) + timedelta(days=TIME_OFF_FUTURE_DAYS)).strftime("%Y-%m-%d")
+        params = {"start": TIME_OFF_WINDOW_START, "end": end}
+
+    data_selector, data_selector_required = _selector_for(config)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            "headers": {"Accept": "application/json"},
+            # Auth goes through the framework config so the API key is redacted from logs;
+            # only the non-secret Accept header is set on the session.
+            "auth": BambooHRBasicAuth(username=api_key, password=BAMBOOHR_BASIC_AUTH_PASSWORD),
+            "paginator": BambooHRPaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": data_selector,
+                    "data_selector_required": data_selector_required,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            # Guard the persisted resume URL too — only ever saved from _next_url (host-pinned),
+            # but re-check so a tampered Redis state can't redirect our authenticated request.
+            if not resume.next_url.startswith(BAMBOOHR_API_HOST):
+                raise ValueError(f"BambooHR resume state contains an unexpected URL: {resume.next_url!r}")
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; the hook fires AFTER a page is yielded so a
+        # crash re-yields the last page (merge dedupes on PK) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(BambooHRResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every BambooHR stream is full-refresh (see settings.py)
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+    )
+
+
 def validate_credentials(subdomain: str, api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     """Cheap probe against ``meta/fields`` to confirm the subdomain + API key are genuine.
 
@@ -126,103 +208,25 @@ def validate_credentials(subdomain: str, api_key: str, schema_name: Optional[str
         url = f"{_base_url(subdomain)}/meta/fields"
     except ValueError:
         return False, INVALID_SUBDOMAIN_MESSAGE
-    try:
-        response = make_tracked_session().get(
-            url, auth=_auth(api_key), headers=_headers(), timeout=VALIDATE_TIMEOUT_SECONDS
-        )
-    except Exception:
-        return False, "Could not connect to BambooHR. Check the company subdomain and try again."
 
-    if response.status_code == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        url,
+        headers={"Accept": "application/json"},
+        auth=BambooHRBasicAuth(username=api_key, password=BAMBOOHR_BASIC_AUTH_PASSWORD),
+        timeout=VALIDATE_TIMEOUT_SECONDS,
+    )
+
+    if ok:
         return True, None
-    if response.status_code == 401:
+    if status is None:
+        return False, "Could not connect to BambooHR. Check the company subdomain and try again."
+    if status == 401:
         return False, "Invalid BambooHR API key."
-    if response.status_code == 404:
+    if status == 404:
         return False, "BambooHR company subdomain not found. Use the subdomain from your BambooHR URL."
-    if response.status_code == 403:
+    if status == 403:
         if schema_name is None:
             return True, None
         return False, "Your BambooHR API key does not have permission to access this data."
-    return False, f"BambooHR API returned an unexpected status code: {response.status_code}"
-
-
-def get_rows(
-    subdomain: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BambooHRResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = BAMBOOHR_ENDPOINTS[endpoint]
-    headers = _headers()
-    auth = _auth(api_key)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url = resume_config.next_url
-        # Guard the persisted resume URL too — only ever saved from _next_url (host-pinned),
-        # but re-check so a tampered Redis state can't redirect our authenticated request.
-        if not url.startswith(BAMBOOHR_API_HOST):
-            raise ValueError(f"BambooHR resume state contains an unexpected URL: {url!r}")
-        logger.debug(f"BambooHR: resuming {endpoint} from URL: {url}")
-    else:
-        url = _build_url(subdomain, config)
-
-    @retry(
-        retry=retry_if_exception_type((BambooHRRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> Any:
-        response = make_tracked_session().get(page_url, auth=auth, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise BambooHRRetryableError(
-                f"BambooHR API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"BambooHR API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        payload = fetch_page(url)
-        records = _extract_records(payload, config)
-        next_url = _next_url(payload)
-
-        if records:
-            yield records
-            # Save state only after yielding so a crash re-yields the last batch (merge dedupes on PK)
-            # rather than skipping it.
-            if next_url:
-                resumable_source_manager.save_state(BambooHRResumeConfig(next_url=next_url))
-
-        if not next_url:
-            break
-
-        url = next_url
-
-
-def bamboohr_source(
-    subdomain: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BambooHRResumeConfig],
-) -> SourceResponse:
-    config = BAMBOOHR_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            subdomain=subdomain,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
-        primary_keys=config.primary_keys,
-    )
+    return False, f"BambooHR API returned an unexpected status code: {status}"

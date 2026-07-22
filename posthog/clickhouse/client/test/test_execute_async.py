@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client import (
     execute_async as client,
@@ -21,7 +22,8 @@ from posthog.clickhouse.client import (
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -136,6 +138,30 @@ class TestExecuteProcessQuery(TestCase):
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
 
+    @parameterized.expand(
+        [
+            ("user_safe_ch_error", ExposedCHQueryError("NOT_AN_AGGREGATE"), False),
+            ("user_safe_hogql_error", ExposedHogQLError("bad query"), False),
+            ("server_error", ValueError("something broke"), True),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.capture_exception")
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_only_captures_non_user_safe_errors(
+        self, _name, error, should_capture, mock_process_query_dict, mock_redis_client, mock_capture_exception
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.side_effect = error
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        self.assertEqual(mock_capture_exception.called, should_capture)
+
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
@@ -198,6 +224,21 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.error_message
         self.assertRegex(result.error_message, "trailing tokens after expression")
+
+    def test_async_query_user_safe_error_carries_error_code(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=ClickHouseQueryMemoryLimitExceeded()):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertTrue(result.complete)
+        assert result.error_message
+        self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")

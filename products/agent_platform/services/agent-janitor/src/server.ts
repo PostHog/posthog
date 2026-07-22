@@ -6,7 +6,7 @@
  * Endpoints (grouped):
  *
  *   Session lifecycle (existing):
- *     GET    /sessions?application_id=  list sessions for one application (newest first)
+ *     GET    /sessions?application_id=  list sessions for one application (most recently active first)
  *     GET    /sessions/:id              full session state
  *     POST   /sessions/:id/cancel       mark failed
  *     POST   /sweep                     trigger a sweep (tests / debug)
@@ -57,6 +57,7 @@ import {
     GatewayCatalog,
     ApprovalStore,
     applyApprovalDecision,
+    serializeApprovalRequest,
     BundleEntry,
     BundleStore,
     buildSlackManifest,
@@ -76,8 +77,11 @@ import {
     previewText,
     readTypedBundle,
     RevisionStore,
+    SandboxPool,
     SessionQueue,
     skillBodyPath,
+    SPEC_SCHEMA_SECTIONS,
+    specJsonSchema,
     TabularStore,
     verifyInternalJwt,
 } from '@posthog/agent-shared'
@@ -133,6 +137,20 @@ export interface JanitorServerOpts {
     /** Served-model catalog. When set, `validate` + freeze reject a models
      *  the gateway doesn't serve; omitted → the model check is skipped. */
     gatewayCatalog?: GatewayCatalog
+    /**
+     * Single-shot sandbox pool backing the `POST /tools/:id/dry_run`
+     * endpoint. Same `selectSandboxPool` impl the runner uses; lifecycle is
+     * per-call (acquire → invoke → release) rather than per-session. When
+     * omitted, the dry-run route 503s. May split into a dedicated
+     * `agent-exec` service if execution duties grow.
+     */
+    sandboxes?: SandboxPool
+    /** Wall-clock cap per dry-run invocation. Defaults applied at boot. */
+    dryRunWallMs?: number
+    /** Memory cap per dry-run sandbox. Defaults applied at boot. */
+    dryRunMemoryMb?: number
+    /** Max dry-run sandboxes in flight at once. Defaults applied at boot. */
+    dryRunMaxConcurrent?: number
 }
 
 const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
@@ -458,6 +476,29 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         })
     )
 
+    /* ──────────────────────────── spec schema ──────────────────────────── */
+    // The agent-spec JSON Schema, emitted from the canonical zod `AgentSpecSchema`
+    // (no hand-maintained mirror). Powers the `agent-applications-spec-schema` MCP
+    // tool so any client can derive the full spec shape — incl. `spec.models` —
+    // from the schema itself instead of guessing. `?section=` returns one
+    // top-level slice (e.g. `models`, `triggers`, `limits`) to save tokens.
+    app.get(
+        '/spec-schema',
+        asyncHandler(async (req, res) => {
+            const section = typeof req.query.section === 'string' && req.query.section ? req.query.section : undefined
+            const result = specJsonSchema(section)
+            if (!result) {
+                res.status(400).json({
+                    error: 'unknown_section',
+                    message: `Unknown spec section "${section}". Valid sections: ${SPEC_SCHEMA_SECTIONS.join(', ')}.`,
+                    sections: SPEC_SCHEMA_SECTIONS,
+                })
+                return
+            }
+            res.json(result)
+        })
+    )
+
     /* ───────────────────────────── sessions ───────────────────────────── */
 
     app.get(
@@ -661,28 +702,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         return true
     }
 
-    const summariseApproval = (r: ApprovalRequest): Record<string, unknown> => ({
-        id: r.id,
-        session_id: r.session_id,
-        application_id: r.application_id,
-        team_id: r.team_id,
-        revision_id: r.revision_id,
-        turn: r.turn,
-        tool_call_id: r.tool_call_id,
-        tool_name: r.tool_name,
-        proposed_args: r.proposed_args,
-        decided_args: r.decided_args,
-        assistant_message: r.assistant_message,
-        approver_scope: r.approver_scope,
-        state: r.state,
-        decision_by: r.decision_by,
-        decision_at: r.decision_at,
-        decision_reason: r.decision_reason,
-        dispatch_outcome: r.dispatch_outcome,
-        created_at: r.created_at,
-        expires_at: r.expires_at,
-    })
-
     app.get(
         '/approvals',
         asyncHandler(async (req, res) => {
@@ -695,7 +714,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 limit: q.limit,
                 offset: q.offset,
             })
-            res.json({ results: rows.map(summariseApproval) })
+            res.json({ results: rows.map(serializeApprovalRequest) })
         })
     )
 
@@ -717,7 +736,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 limit: q.limit,
                 offset: q.offset,
             })
-            res.json({ results: rows.map(summariseApproval) })
+            res.json({ results: rows.map(serializeApprovalRequest) })
         })
     )
 
@@ -732,7 +751,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 res.status(404).json({ error: 'not_found' })
                 return
             }
-            res.json(summariseApproval(row))
+            res.json(serializeApprovalRequest(row))
         })
     )
 
@@ -895,7 +914,17 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // (`/file?path=X`, `/bundle` with `mode`) were removed. The new
     // surface lives entirely under the typed router below.
     if (opts.revisions && opts.bundles) {
-        app.use('/revisions/:id', buildTypedBundleRouter({ revisions: opts.revisions, bundles: opts.bundles }))
+        app.use(
+            '/revisions/:id',
+            buildTypedBundleRouter({
+                revisions: opts.revisions,
+                bundles: opts.bundles,
+                sandboxes: opts.sandboxes,
+                dryRunWallMs: opts.dryRunWallMs,
+                dryRunMemoryMb: opts.dryRunMemoryMb,
+                dryRunMaxConcurrent: opts.dryRunMaxConcurrent,
+            })
+        )
     }
 
     app.post(
