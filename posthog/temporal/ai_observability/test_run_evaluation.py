@@ -1451,7 +1451,12 @@ class TestExecuteHogEvalActivity:
 
         from posthog.cdp.validation import compile_hog
 
-        source = "let out := output; if (out == 'test output') { return true } return false"
+        source = """
+            return output == 'test output'
+                and length(evaluation_events) == 1
+                and evaluation_events.1.output == output
+                and target.type == 'generation'
+        """
         bytecode = compile_hog(source, "destination")
 
         evaluation = {
@@ -1782,6 +1787,19 @@ class TestRunHogEvalAllowsNA:
 
     def _event_data(self) -> dict[str, Any]:
         return create_mock_event_data(team_id=1)
+
+    @patch("posthog.temporal.ai_observability.evaluation_hog.execute_hog_eval_bytecode")
+    def test_saved_generation_source_only_builds_compatibility_globals(self, mock_execute):
+        mock_execute.return_value = {"verdict": True, "reasoning": "", "error": None}
+        bytecode = self.compile_hog(
+            "return output == 'evaluation_events' or output == 'target'",
+            "destination",
+        )
+
+        run_hog_eval(bytecode, self._event_data())
+
+        globals_dict = mock_execute.call_args.args[1]
+        assert set(globals_dict) == {"input", "output", "properties", "event"}
 
     @parameterized.expand(
         [

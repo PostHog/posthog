@@ -31,7 +31,7 @@ from .api.scim import views as scim_views
 def extend_api_router() -> None:
     from posthog.api import (
         organizations_router,
-        register_legacy_dual_route_team_nested_viewset,
+        projects_router,
         router as root_router,
     )
 
@@ -52,10 +52,10 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
-    project_subscriptions_router, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
-        r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    project_subscriptions_router = projects_router.register(
+        r"subscriptions", subscription.SubscriptionViewSet, "project_subscriptions", ["team_id"]
     )
     project_subscriptions_router.register(
         r"deliveries",
@@ -63,31 +63,17 @@ def extend_api_router() -> None:
         "project_subscription_deliveries",
         ["team_id", "subscription_id"],
     )
-    env_subscriptions_router.register(
-        r"deliveries",
-        subscription.SubscriptionDeliveryViewSet,
-        "environment_subscription_deliveries",
-        ["team_id", "subscription_id"],
-    )
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
-    )
+    projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
-    )
+    projects_router.register(r"core_memory", core_memory.MaxCoreMemoryViewSet, "project_core_memory", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"]
-    )
+    projects_router.register(r"max_tools", max_tools.MaxToolsViewSet, "project_max_tools", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"max_hands_free", hands_free.MaxHandsFreeViewSet, "environment_max_hands_free", ["team_id"]
-    )
+    projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
+    projects_router.register(
+        r"session_summaries", session_summaries.SessionSummariesViewSet, "project_session_summaries", ["team_id"]
     )
 
 

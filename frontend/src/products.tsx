@@ -4,6 +4,7 @@
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
+import type { ProductSetupProbe } from 'lib/components/ProductEmptyState/setupProbes'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils/url'
 import type { Params } from 'scenes/sceneTypes'
@@ -91,7 +92,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
-    '/cohorts/staff': ['CohortsStaffTools', 'cohortsStaffTools'],
+    '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -949,7 +950,8 @@ export const productUrls = {
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
-    cohortsStaffTools: (cohortId?: number): string => `/cohorts/staff${cohortId ? `?cohort_id=${cohortId}` : ''}`,
+    cohortsStaffTools: (cohortId?: number): string =>
+        `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
@@ -1286,7 +1288,8 @@ export const productUrls = {
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
     replayVisionActionRun: (actionId: string, runId: string): string =>
         `/replay-vision/actions/${actionId}/runs/${runId}`,
-    replayVisionActionNew: (scannerId: string): string => `/replay-vision/${scannerId}/actions/new`,
+    replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
+        `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     revenueAnalytics: (): string => '/revenue_analytics',
     codeReview: (): string => '/code_review',
@@ -1491,6 +1494,16 @@ export const fileSystemTypes = {
         filterKey: 'workflows',
     },
 }
+
+/** This const is auto-generated, as is the whole file */
+export const productSetupProbes: ProductSetupProbe[] = [
+    {
+        productKey: ProductKey.MCP_ANALYTICS,
+        hasDataEvents: ['$mcp_tool_call'],
+        waitingEvents: ['$mcp_initialize'],
+        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
+    },
+]
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsNew = (): FileSystemImport[] => [
@@ -2010,12 +2023,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'MCP analytics',
-        intents: [ProductKey.AI_OBSERVABILITY],
+        intents: [ProductKey.MCP_ANALYTICS],
         category: ProductItemCategory.AI_ENGINEERING,
         visualOrder: 2,
         type: 'mcp_analytics',
         iconType: 'mcp_analytics' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-mcp-analytics-light)',
+            'var(--color-product-mcp-analytics-dark)',
+        ] as FileSystemIconColor,
         href: urls.mcpAnalyticsDashboard(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],

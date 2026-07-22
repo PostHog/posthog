@@ -55,6 +55,7 @@ defs = dagster.Definitions(
         web_preaggregated_team_selection.web_analytics_team_candidates_job,
         web_analytics_watchdog.web_analytics_watchdog_job,
         cache_warming.web_analytics_cache_warming_job,
+        cache_warming.web_analytics_cache_warming_dry_run_job,
         eager_web_analytics_precompute.web_analytics_eager_baseline_warming_job,
         eager_web_analytics_precompute.web_analytics_eager_backfill_job,
         web_dimensional_precompute.web_dimensional_precompute_job,

@@ -1,1 +1,1 @@
-0048_alter_visionaction_alert_config
+0052_remap_scanner_models
