@@ -115,6 +115,23 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
+ */
+export const savedPrewarmCreateBodyBlockConsentModalsDefault = false
+
+export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .string()
+        .describe('Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed.'),
+    block_consent_modals: zod
+        .boolean()
+        .default(savedPrewarmCreateBodyBlockConsentModalsDefault)
+        .describe(
+            'When true, ask the headless browser to dismiss cookie\/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused.'
+        ),
+})
+
+/**
  * Clears a pending celebration for the given track and stage once the client has shown it, so it isn't celebrated again. Idempotent.
  * @summary Acknowledge an achievement celebration
  */
