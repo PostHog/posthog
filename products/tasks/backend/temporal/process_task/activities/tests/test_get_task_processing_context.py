@@ -768,6 +768,49 @@ class TestGetTaskProcessingContextActivity:
 
         payload_mock.assert_not_called()
 
+    def test_modal_vm_sandbox_restricted_egress_overrides_default_base(self):
+        # Restricted egress must win over the default-base allowlist: VM can't enforce Modal's
+        # outbound domain allowlist, so a default-base origin with a custom domain list stays on
+        # gVisor and the flag is never consulted (the egress gate returns before the fetch).
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ) as payload_mock:
+            assert (
+                _is_modal_vm_sandbox_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="user_created",
+                    allowed_domains=["github.com"],
+                )
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
+        # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
+        # would place this origin on the VM base; the bool override also skips the flag fetch.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ) as payload_mock:
+            assert (
+                _is_modal_vm_sandbox_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="user_created",
+                    allowed_domains=None,
+                    custom_image_available=True,
+                    state={"use_modal_vm_sandbox": False},
+                )
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
     @pytest.mark.parametrize(
         "origin_product, payload, custom_image_available, expected",
         [
