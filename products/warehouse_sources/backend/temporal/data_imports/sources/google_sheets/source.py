@@ -84,6 +84,10 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # Listing worksheets is version-agnostic (gspread's `worksheets()`), but the per-worksheet
+        # header read goes through `_get_worksheet`, whose memoization key includes the version —
+        # so discovery must resolve the pin rather than let it default.
+        resolved_version = self.resolve_api_version(api_version)
         sheets = get_google_sheets_schemas(config)
 
         if names is not None:
@@ -92,7 +96,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
         schemas: list[SourceSchema] = []
         for name, _ in sheets:
-            incremental_fields = get_google_sheets_schema_incremental_fields(config, name)
+            incremental_fields = get_google_sheets_schema_incremental_fields(config, name, resolved_version)
 
             schemas.append(
                 SourceSchema(

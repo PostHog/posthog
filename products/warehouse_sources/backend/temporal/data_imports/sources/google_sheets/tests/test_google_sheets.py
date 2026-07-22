@@ -8,6 +8,7 @@ import gspread
 import requests
 from google.auth import exceptions as google_auth_exceptions
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
 )
@@ -705,3 +706,26 @@ def test_source_for_pipeline_threads_resolved_api_version_to_worksheet(pinned_ve
 
     assert mock_get_worksheet.called
     assert all(call.args[2] == expected_version for call in mock_get_worksheet.call_args_list)
+
+
+@pytest.mark.parametrize(
+    "pin, expected",
+    [("v4", "v4"), (None, "v4"), (UNVERSIONED_API_VERSION, UNVERSIONED_API_VERSION)],
+)
+def test_get_schemas_threads_resolved_pin_into_incremental_fields(pin, expected):
+    # `_get_worksheet` memoizes on (url, worksheet_id, api_version), so discovery must pass the
+    # source's resolved pin — otherwise a pinned source reads headers under a different key.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schemas",
+            return_value=[("sheet1", 10)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schema_incremental_fields",
+            return_value=[],
+        ) as mock_incremental,
+    ):
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        GoogleSheetsSource().get_schemas(config, team_id=1, api_version=pin)
+
+    assert mock_incremental.call_args.args[-1] == expected
