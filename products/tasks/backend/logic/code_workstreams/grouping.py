@@ -27,6 +27,7 @@ class TaskInput:
     branch: Optional[str] = None
     base_branch: Optional[str] = None
     cloud_pr_url: Optional[str] = None
+    cloud_pr_merged: bool = False
     folder_path: Optional[str] = None
     quick_action: Optional[str] = None
 
@@ -177,6 +178,9 @@ def build_workstreams(
                 pr_url = url
                 break
 
+        if any(t.cloud_pr_merged and t.cloud_pr_url == pr_url for t in group_tasks):
+            continue
+
         branch = _feature_branch(head)
         last_activity_at = head.last_activity_at
 
@@ -191,6 +195,9 @@ def build_workstreams(
                 )
             )
         )
+
+        if "done" in situations:
+            continue
 
         workstream = Workstream(
             id=key,

@@ -11,7 +11,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PylonSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import source as pylon_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import PylonResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import ENDPOINTS, PYLON_ENDPOINTS

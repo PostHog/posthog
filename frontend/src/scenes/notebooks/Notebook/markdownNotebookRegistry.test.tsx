@@ -1,5 +1,7 @@
 import { render } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import {
@@ -7,12 +9,31 @@ import {
     RealNotebookNodeEdit,
     getEditableNodeAttributeKeys,
     getMarkdownNodeAttributeLabel,
+    getMarkdownRegistryForFeatureFlags,
     getQueryTitle,
     getSerializableAttributeInputValue,
     getSerializableProps,
 } from './markdownNotebookRegistry'
 
 describe('markdownNotebookRegistry', () => {
+    describe('getMarkdownRegistryForFeatureFlags', () => {
+        it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
+            // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
+            // insertable code cells with the flag on; the legacy SQL/Python cells and the
+            // legacy query node render but must never be insertable in markdown notebooks.
+            const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
+            expect(flagOn.components.SQLV2.insertCommand).toBeTruthy()
+            expect(flagOn.components.PythonV2.insertCommand).toBeTruthy()
+            for (const legacyTag of ['Query', 'Python', 'DuckSQL', 'HogQLSQL']) {
+                expect(flagOn.components[legacyTag].insertCommand).toBeUndefined()
+            }
+
+            const flagOff = getMarkdownRegistryForFeatureFlags({})
+            expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
+            expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
+        })
+    })
+
     it('does not make real notebook nodes mutually exclusive in markdown notebooks', () => {
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Recording.exclusiveEditPanel).toBeUndefined()
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlag.exclusiveEditPanel).toBeUndefined()

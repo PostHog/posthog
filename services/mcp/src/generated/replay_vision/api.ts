@@ -44,6 +44,16 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .string()
         .optional()
@@ -153,7 +163,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.'
+            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.'
         ),
     scanner_type: zod
         .string()
@@ -233,12 +243,10 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n* `google` - Google'),
     model: zod
-        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
+        .enum(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
+        .describe('* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3.6-flash` - Gemini 3.6 Flash')
         .describe(
-            '* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
-        )
-        .describe(
-            'Concrete model to use for this scanner.\n\n* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
+            'Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3.6-flash` - Gemini 3.6 Flash'
         ),
     enabled: zod
         .boolean()
@@ -336,13 +344,11 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n* `google` - Google'),
     model: zod
-        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
-        .describe(
-            '* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
-        )
+        .enum(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
+        .describe('* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3.6-flash` - Gemini 3.6 Flash')
         .optional()
         .describe(
-            'Concrete model to use for this scanner.\n\n* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
+            'Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3.6-flash` - Gemini 3.6 Flash'
         ),
     enabled: zod
         .boolean()
@@ -489,6 +495,16 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .boolean()
         .optional()
@@ -542,6 +558,16 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
 })
 
 export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .string()
         .optional()
@@ -592,6 +618,16 @@ export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod
 })
 
 export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .string()
         .optional()
@@ -630,7 +666,7 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
 })
 
 /**
- * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Only the current pending suggestion can be applied. Requires session recording edit access.
+ * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
  */
 export const VisionScannersPromptSuggestionsApplyCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
@@ -640,6 +676,15 @@ export const VisionScannersPromptSuggestionsApplyCreateParams = /* @__PURE__ */ 
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
     scanner_id: zod.string(),
+})
+
+export const VisionScannersPromptSuggestionsApplyCreateBody = /* @__PURE__ */ zod.object({
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            "The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged."
+        ),
 })
 
 /**
@@ -695,7 +740,7 @@ export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
-export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
+export const visionScannersEstimateCreateBodyModelDefault = `gemini-3.6-flash`
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -725,13 +770,11 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
                 "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
             ),
         model: zod
-            .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
-            .describe(
-                '* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
-            )
+            .enum(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
+            .describe('* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3.6-flash` - Gemini 3.6 Flash')
             .default(visionScannersEstimateCreateBodyModelDefault)
             .describe(
-                'Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
+                'Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3.6-flash` - Gemini 3.6 Flash'
             ),
     })
     .describe('Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.')
