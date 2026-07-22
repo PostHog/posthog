@@ -14,6 +14,11 @@ from products.conversations.backend.facade.api import (
     list_support_bot_channels,
     post_support_message,
 )
+from products.customer_analytics.backend.constants import (
+    DELIVERY_IN_FLIGHT_ERROR,
+    DELIVERY_INTERRUPTED_ERROR,
+    DELIVERY_RATE_LIMIT_DEFERRED_ERROR,
+)
 from products.customer_analytics.backend.facade.contracts import AnnouncementChannelView, AnnouncementValidationError
 from products.customer_analytics.backend.models import Account, Announcement, AnnouncementDelivery
 
@@ -22,10 +27,6 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
-
-DELIVERY_IN_FLIGHT_ERROR = "in_flight"
-DELIVERY_RATE_LIMIT_DEFERRED_ERROR = "rate_limited_deferred"
-DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may have been delivered"
 
 
 class AnnouncementRateLimited(Exception):
@@ -109,14 +110,14 @@ def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
 
     # A pending row still claimed in-flight means a previous run crashed mid-post; the message
     # may already be in Slack, so never re-post it.
-    interrupted_ids = [d.id for d in pending if d.error == DELIVERY_IN_FLIGHT_ERROR]
+    interrupted_ids = {delivery.id for delivery in pending if delivery.error == DELIVERY_IN_FLIGHT_ERROR}
     if interrupted_ids:
         AnnouncementDelivery.objects.for_team(team_id).filter(id__in=interrupted_ids).update(
             status=AnnouncementDelivery.Status.FAILED,
             error=DELIVERY_INTERRUPTED_ERROR,
             updated_at=timezone.now(),
         )
-        pending = [d for d in pending if d.id not in set(interrupted_ids)]
+        pending = [delivery for delivery in pending if delivery.id not in interrupted_ids]
 
     if announcement.status == Announcement.Status.PENDING:
         announcement.status = Announcement.Status.SENDING

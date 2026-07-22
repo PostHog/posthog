@@ -2,11 +2,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from products.conversations.backend.facade.api import SupportMessageSendError, SupportSlackNotConfigured
-from products.customer_analytics.backend.logic.announcements import (
-    DELIVERY_IN_FLIGHT_ERROR,
-    DELIVERY_INTERRUPTED_ERROR,
-    AnnouncementRateLimited,
-)
+from products.customer_analytics.backend.constants import DELIVERY_IN_FLIGHT_ERROR, DELIVERY_INTERRUPTED_ERROR
+from products.customer_analytics.backend.logic.announcements import AnnouncementRateLimited
 from products.customer_analytics.backend.models import Announcement, AnnouncementDelivery
 from products.customer_analytics.backend.tasks import send_announcement
 
