@@ -23,7 +23,7 @@ from posthog.storage import object_storage
 from posthog.tasks.usage_report import InstanceMetadata
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
-from posthog.temporal.usage_report.queries import QUERIES
+from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX
 from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, RunQueryToS3Result, WorkflowContext
 
@@ -126,6 +126,11 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
         "teams_with_group_types_total",
     ):
         return [{"team_id": team_a_id, "total": 2}, {"team_id": team_b_id, "total": 1}]
+
+    # Multi specs need a dict shape even when out of focus, or the aggregator's
+    # fan-out breaks on `.get` — empty rows per source key.
+    if QUERY_INDEX[query_name].output == "multi":
+        return {source_key: [] for source_key in QUERY_INDEX[query_name].multi_keys_mapping}
 
     # Everything else gets an empty result list — keeps the test focused on
     # the few interesting metrics above.
