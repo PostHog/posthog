@@ -163,18 +163,28 @@ export default {
                             'storyErrored',
                             'storyThrewException',
                             'playFunctionThrewException',
+                            // Storybook can still emit `storyRendered` after this one (an unhandled error
+                            // doesn't stop the story from finishing), so it must be listened for directly
+                            // instead of relying on the later `storyRendered` to end the wait.
+                            'unhandledErrorsWhilePlaying',
                         ]
                         const listeners: Record<string, (data?: unknown) => void> = {}
                         const finish = (event: string, data?: unknown): void => {
                             doneEvents.forEach((e) => channel.off(e, listeners[e]))
-                            const error = data as { message?: string; description?: string } | undefined
+                            // unhandledErrorsWhilePlaying's payload is an array of serialized errors;
+                            // every other done event passes the error object directly.
+                            const error = (Array.isArray(data) ? data[0] : data) as
+                                | { message?: string; description?: string }
+                                | undefined
                             resolve({ event, message: error?.message ?? error?.description })
                         }
                         doneEvents.forEach((e) => {
                             listeners[e] = (data?: unknown) => finish(e, data)
                             channel.on(e, listeners[e])
                         })
-                        // if the remount never settles, let the regular timeouts downstream handle it
+                        // If the remount never settles, stop waiting so postVisit can proceed — but
+                        // treat it as a failed retry below rather than silently falling through as if
+                        // the remount had finished cleanly.
                         setTimeout(() => finish('timeout'), 30000)
                         channel.emit('forceRemount', { storyId })
                     })
@@ -182,7 +192,15 @@ export default {
                 .catch(() => undefined)
             if (
                 remountResult &&
-                ['playFunctionThrewException', 'storyThrewException', 'storyErrored'].includes(remountResult.event)
+                [
+                    'playFunctionThrewException',
+                    'storyThrewException',
+                    'storyErrored',
+                    'unhandledErrorsWhilePlaying',
+                    // A remount that's still running when the wait times out must not be treated as
+                    // a clean success — the snapshot flow below would then race unfinished play logic.
+                    'timeout',
+                ].includes(remountResult.event)
             ) {
                 throw new Error(
                     `Story remount on retry failed (${remountResult.event}): ${remountResult.message ?? 'unknown error'}`
@@ -204,7 +222,7 @@ export default {
         // failed (so configs can do failure handling — our jest environment takes the failure
         // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest
         // timeout, which would bury the real error under an opaque "Exceeded timeout of 60000 ms".
-        if ((context as { hasFailure?: boolean }).hasFailure) {
+        if (context.hasFailure) {
             return
         }
         const storyContext = await getStoryContext(page, context)
