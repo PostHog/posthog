@@ -1957,6 +1957,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `explicit` - explicit
+     * * `always` - always
+     * * `dependency` - dependency
+     */
+    export type ActivationEnum = typeof ActivationEnum[keyof typeof ActivationEnum];
+
+
+    export const ActivationEnum = {
+      Explicit: 'explicit',
+      Always: 'always',
+      Dependency: 'dependency',
+    } as const;
+
+    /**
      * Schema for a single active breakpoint
      */
     export interface ActiveBreakpoint {
@@ -44752,6 +44766,17 @@ export namespace Schemas {
          * @minimum 1
          */
       schema_version: number;
+      /** How the agent should activate the uploaded skill bundle.
+       *
+       * * `explicit` - explicit
+       * * `always` - always
+       * * `dependency` - dependency */
+      activation?: ActivationEnum;
+      /**
+         * Stable ordering for automatically activated skill bundles.
+         * @minimum 0
+         */
+      activation_order?: number;
     }
 
     export interface TaskRunArtifactResponse {

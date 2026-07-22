@@ -216,6 +216,16 @@ class TaskRunArtifactMetadataSerializer(serializers.Serializer):
         min_value=1,
         help_text="Version of the local skill bundle metadata schema.",
     )
+    activation = serializers.ChoiceField(
+        choices=["explicit", "always", "dependency"],
+        required=False,
+        help_text="How the agent should activate the uploaded skill bundle.",
+    )
+    activation_order = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Stable ordering for automatically activated skill bundles.",
+    )
 
 
 def validate_task_run_artifact_metadata(attrs: dict[str, Any]) -> dict[str, Any]:

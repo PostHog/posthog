@@ -1824,6 +1824,8 @@ export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOn
     '^[a-f0-9]{64}$'
 )
 
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin = 0
+
 export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1892,6 +1894,18 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        activation: zod
+                            .enum(['explicit', 'always', 'dependency'])
+                            .describe('\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency')
+                            .optional()
+                            .describe(
+                                'How the agent should activate the uploaded skill bundle.\n\n\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency'
+                            ),
+                        activation_order: zod
+                            .number()
+                            .min(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin)
+                            .optional()
+                            .describe('Stable ordering for automatically activated skill bundles.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -1918,6 +1932,8 @@ export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOne
 export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
     '^[a-f0-9]{64}$'
 )
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin = 0
 
 export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
@@ -1987,6 +2003,18 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        activation: zod
+                            .enum(['explicit', 'always', 'dependency'])
+                            .describe('\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency')
+                            .optional()
+                            .describe(
+                                'How the agent should activate the uploaded skill bundle.\n\n\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency'
+                            ),
+                        activation_order: zod
+                            .number()
+                            .min(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin)
+                            .optional()
+                            .describe('Stable ordering for automatically activated skill bundles.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2197,6 +2225,8 @@ export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax = 
 
 export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp('^[a-f0-9]{64}$')
 
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneActivationOrderMin = 0
+
 export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -2266,6 +2296,18 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        activation: zod
+                            .enum(['explicit', 'always', 'dependency'])
+                            .describe('\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency')
+                            .optional()
+                            .describe(
+                                'How the agent should activate the uploaded skill bundle.\n\n\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency'
+                            ),
+                        activation_order: zod
+                            .number()
+                            .min(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneActivationOrderMin)
+                            .optional()
+                            .describe('Stable ordering for automatically activated skill bundles.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2305,6 +2347,8 @@ export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneS
 export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
     '^[a-f0-9]{64}$'
 )
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin = 0
 
 export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
@@ -2374,6 +2418,18 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        activation: zod
+                            .enum(['explicit', 'always', 'dependency'])
+                            .describe('\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency')
+                            .optional()
+                            .describe(
+                                'How the agent should activate the uploaded skill bundle.\n\n\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency'
+                            ),
+                        activation_order: zod
+                            .number()
+                            .min(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin)
+                            .optional()
+                            .describe('Stable ordering for automatically activated skill bundles.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2400,6 +2456,8 @@ export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSk
 export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
     '^[a-f0-9]{64}$'
 )
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin = 0
 
 export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
@@ -2467,6 +2525,18 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                             .number()
                             .min(1)
                             .describe('Version of the local skill bundle metadata schema.'),
+                        activation: zod
+                            .enum(['explicit', 'always', 'dependency'])
+                            .describe('\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency')
+                            .optional()
+                            .describe(
+                                'How the agent should activate the uploaded skill bundle.\n\n\* `explicit` - explicit\n\* `always` - always\n\* `dependency` - dependency'
+                            ),
+                        activation_order: zod
+                            .number()
+                            .min(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneActivationOrderMin)
+                            .optional()
+                            .describe('Stable ordering for automatically activated skill bundles.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),

@@ -5232,6 +5232,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             "content_sha256": "a" * 64,
             "bundle_format": "zip",
             "schema_version": 1,
+            "activation": "always",
+            "activation_order": 0,
         }
 
         response = self.client.post(
