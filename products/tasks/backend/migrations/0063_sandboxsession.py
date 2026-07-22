@@ -109,7 +109,6 @@ class Migration(migrations.Migration):
                         choices=[
                             ("cleanup", "Cleanup"),
                             ("reaped", "Reaped"),
-                            ("provision_failed", "Provision Failed"),
                         ],
                         max_length=20,
                         null=True,
@@ -133,7 +132,10 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_task_sandbox_session",
-                "indexes": [models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx")],
+                "indexes": [
+                    models.Index(fields=["ended_at"], name="sandbox_session_ended_at_idx"),
+                    models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
+                ],
             },
         ),
     ]

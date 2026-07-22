@@ -2004,7 +2004,6 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     class EndedReason(models.TextChoices):
         CLEANUP = "cleanup", "Cleanup"
         REAPED = "reaped", "Reaped"
-        PROVISION_FAILED = "provision_failed", "Provision Failed"
 
     # db_constraint=False on the team FK: adding an FK constraint to that hot table
     # locks it and stalls deploys; Django still enforces the relation and on_delete at
@@ -2050,7 +2049,10 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_task_sandbox_session"
         indexes = [
-            # Per-team period aggregation in the usage report scans attributed sessions.
+            # The usage report scans sessions overlapping the period instance-wide:
+            # ended recently or still open (ended_at IS NULL / ended_at > begin).
+            models.Index(fields=["ended_at"], name="sandbox_session_ended_at_idx"),
+            # For per-team/per-origin re-aggregation once pricing decides which origins bill.
             models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
         ]
 
