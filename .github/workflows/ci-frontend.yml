@@ -7,7 +7,6 @@ on:
         # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
         # the run so it starts without needing a new push.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    merge_group:
     push:
         branches:
             - master
@@ -162,7 +161,7 @@ jobs:
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
-    # Skipped on ready PRs, master push, and merge_group; the jest job falls back
+    # Skipped on ready PRs and master pushes; the jest job falls back
     # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
     # full run is the merge gate. The run-ci-frontend label forces the full
     # matrix on a draft. When selection can't be trusted on a draft (config
@@ -332,7 +331,7 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
+        if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
@@ -643,7 +642,7 @@ jobs:
             # On draft PRs, select-jest-tests may narrow this to a single EE job
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
-            # trusted. On ready PRs, master push, and merge_group it's skipped, so
+            # trusted. On ready PRs and master pushes it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
