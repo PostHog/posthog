@@ -105,9 +105,10 @@ class TaxonomyAgentToolkit:
     _team: Team
     _user: User
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.POSTHOG_AI):
         self._team = team
         self._user = user
+        self._event_source = event_source
 
     def _restricted_property_names(self, property_type: PropertyDefinition.Type) -> set[str]:
         return restricted_property_names(self._team, self._user, property_type)
@@ -233,7 +234,8 @@ class TaxonomyAgentToolkit:
         ):
             response = runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
         return response, verbose_name
 
@@ -432,7 +434,8 @@ class TaxonomyAgentToolkit:
         ):
             response = ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):

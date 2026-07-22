@@ -22,6 +22,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tags_context
+from posthog.event_usage import get_event_source
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
@@ -125,7 +126,9 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
         """
-        tool = mcp_tool_registry.get(tool_name, team=self.team, user=cast(User, request.user))
+        tool = mcp_tool_registry.get(
+            tool_name, team=self.team, user=cast(User, request.user), event_source=get_event_source(request)
+        )
         if tool is None:
             return Response(
                 {"success": False, "content": f"Tool '{tool_name}' not found"},

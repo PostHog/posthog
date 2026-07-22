@@ -152,9 +152,10 @@ class TaxonomyTaskExecutorNode(
 class TaxonomyAgentToolkit:
     """Base toolkit for taxonomy agents that handle tool execution."""
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.POSTHOG_AI):
         self._team = team
         self._user = user
+        self._event_source = event_source
         self.MAX_ENTITIES_PER_BATCH = 6
         self.MAX_PROPERTIES = 500
 
@@ -276,7 +277,8 @@ class TaxonomyAgentToolkit:
             # Use cache-first execution mode for optimal performance
             response = runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
         return response, verbose_name
 
@@ -705,7 +707,8 @@ class TaxonomyAgentToolkit:
         ):
             return ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
 
     @database_sync_to_async(thread_sensitive=False)

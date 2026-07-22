@@ -208,6 +208,7 @@ class ExperimentSummaryDataService:
                     )
                     result = query_runner.run(
                         execution_mode=execution_mode,
+                        user=self._user,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -257,10 +258,13 @@ class ExperimentSummaryDataService:
                             query=exposure_query,
                             team=experiment.team,
                             limit_context=LimitContext.QUERY_ASYNC,
+                            # Runs for the requesting Max user, so warehouse access is enforced against them.
+                            user=self._user,
                             error_event_context="agent",
                         )
                         exposure_result = exposure_runner.run(
                             execution_mode=execution_mode,
+                            user=self._user,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 

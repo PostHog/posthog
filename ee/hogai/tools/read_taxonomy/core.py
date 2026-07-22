@@ -2,6 +2,7 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
@@ -94,7 +95,13 @@ If the user's question involves feature flags, construct the property name using
 """.strip()
 
 
-def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolkit, team: Team, user: User) -> str:
+def execute_taxonomy_query(
+    query: ReadTaxonomyQuery,
+    toolkit: TaxonomyAgentToolkit,
+    team: Team,
+    user: User,
+    event_source: EventSource = EventSource.POSTHOG_AI,
+) -> str:
     """
     Execute a taxonomy query and return the result.
 
@@ -102,7 +109,7 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
     """
     match query:
         case ReadEvents():
-            return format_events_yaml([], team, user, limit=query.limit, offset=query.offset)
+            return format_events_yaml([], team, user, limit=query.limit, offset=query.offset, event_source=event_source)
         case ReadEventProperties():
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
             description = get_event_description(team, query.event_name)

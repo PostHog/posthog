@@ -4,6 +4,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 ArgsT = TypeVar("ArgsT", bound=BaseModel)
@@ -23,9 +24,10 @@ class MCPTool(ABC, Generic[ArgsT]):
     name: str
     args_schema: type[ArgsT]
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.MCP):
         self._team = team
         self._user = user
+        self._event_source = event_source
 
     @abstractmethod
     async def execute(self, args: ArgsT) -> str:
@@ -80,11 +82,13 @@ class MCPToolRegistry:
         load_all_tools()
         return self._tools
 
-    def get(self, name: str, team: Team, user: User) -> MCPTool[Any] | None:
+    def get(
+        self, name: str, team: Team, user: User, event_source: EventSource = EventSource.MCP
+    ) -> MCPTool[Any] | None:
         """Get an MCP tool instance by name, constructed with team/user."""
         registration = self._ensure_loaded().get(name)
         if registration:
-            return registration.tool_cls(team=team, user=user)
+            return registration.tool_cls(team=team, user=user, event_source=event_source)
         return None
 
     def get_scopes(self, name: str) -> list[str]:
