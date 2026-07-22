@@ -1,4 +1,4 @@
-import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, CapturedNetworkRequest, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +13,26 @@ export const SDK_DEFAULTS_DATE = '2026-05-30'
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
+}
+
+// The one-time secret reveal page (/reveal/<token>) trades a token for a plaintext credential via
+// /api/one_time_secrets/<token>/reveal/. `ph-no-capture` only masks the rendered DOM — session replay's
+// network capture would still record the token in the URL and the credential in the response body, where
+// anyone with replay access could read and reuse it. This hook is the single place posthog-js routes every
+// replay URL surface (captured network requests, the rrweb Meta header, $url_changed SPA transitions), so
+// clearing the bodies and redacting the token here covers all of them.
+const ONE_TIME_SECRET_URL_RE = /(\/api\/one_time_secrets\/|\/reveal\/)[^/?#]+/g
+const redactOneTimeSecretToken = (value: string): string =>
+    value.replace(ONE_TIME_SECRET_URL_RE, (_match, prefix) => `${prefix}<redacted>`)
+const maskOneTimeSecretNetworkRequest = (req: CapturedNetworkRequest): CapturedNetworkRequest => {
+    if (req.name && /\/api\/one_time_secrets\//.test(req.name)) {
+        req.requestBody = null
+        req.responseBody = null
+    }
+    if (req.name) {
+        req.name = redactOneTimeSecretToken(req.name)
+    }
+    return req
 }
 
 const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
@@ -159,6 +179,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             },
             session_recording: {
                 blockSelector: '.ph-replay-block',
+                maskCapturedNetworkRequestFn: maskOneTimeSecretNetworkRequest,
                 ...options.sessionRecording,
             },
             person_profiles: 'always',
