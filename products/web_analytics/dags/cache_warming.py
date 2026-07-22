@@ -96,11 +96,14 @@ def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
 # once covers every narrower request at no recurring cost.
 WARMING_EXPANDED_DATE_FROM = "-30d"
 
-# Relative date_from presets that are always narrower than 30 days. -Nd/-Nh
-# forms are matched by pattern; absolute dates and wider presets (mStart, all,
-# yStart, -90d, …) are left untouched.
+# Relative date_from presets that are always narrower than 30 days. -Nh/-Nd/-Nw
+# forms are matched by pattern and compared in days; absolute dates and wider
+# presets (mStart, all, yStart, -90d, …) are left untouched. Months/years are
+# deliberately unmatched: -1m can span 31 days, so expanding it would narrow it.
 _SUB_30D_DATE_FROM_PRESETS = frozenset({"dStart", "-1dStart", "wStart", "-1wStart"})
-_SUB_30D_DATE_FROM_RE = re.compile(r"^-(\d+)([dh])$")
+_SUB_30D_DATE_FROM_RE = re.compile(r"^-(\d+)([hdw])$")
+_HOURS_PER_DAY = 24
+_DAYS_PER_WEEK = 7
 
 
 def _is_within_30_days(date_from: str | None) -> bool:
@@ -112,7 +115,11 @@ def _is_within_30_days(date_from: str | None) -> bool:
     if not match:
         return False
     value, unit = int(match.group(1)), match.group(2)
-    return unit == "h" or value < 30
+    if unit == "h":
+        return value < 30 * _HOURS_PER_DAY
+    if unit == "w":
+        return value * _DAYS_PER_WEEK < 30
+    return value < 30
 
 
 def maybe_expand_warming_date_range(query_json: dict) -> dict:

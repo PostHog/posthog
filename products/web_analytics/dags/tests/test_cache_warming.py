@@ -45,10 +45,14 @@ class TestMaybeExpandWarmingDateRange(BaseTest):
             ("default_7d", {"date_from": "-7d"}, "-30d"),
             ("today", {"date_from": "dStart"}, "-30d"),
             ("hours", {"date_from": "-24h"}, "-30d"),
+            ("weeks", {"date_from": "-2w"}, "-30d"),
             ("no_date_range", None, "-30d"),
             # Wider or absolute ranges must stay exact — expanding would shrink
             # or shift what the user actually asked to precompute.
             ("ninety_days", {"date_from": "-90d"}, "-90d"),
+            ("hours_over_30d", {"date_from": "-1000h"}, "-1000h"),
+            ("weeks_over_30d", {"date_from": "-5w"}, "-5w"),
+            ("one_month_can_be_31d", {"date_from": "-1m"}, "-1m"),
             ("all_time", {"date_from": "all"}, "all"),
             ("absolute", {"date_from": "2026-07-01T00:00:00"}, "2026-07-01T00:00:00"),
             ("month_start", {"date_from": "mStart"}, "mStart"),
