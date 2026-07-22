@@ -5397,6 +5397,8 @@ export interface TileFilters {
     explicitDate?: boolean | undefined
     interval?: IntervalType | null | undefined
     filterTestAccounts?: boolean | null | undefined
+    /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
+    ignoreDashboardFilters?: boolean | null | undefined
 }
 
 export interface InsightsThresholdBounds {

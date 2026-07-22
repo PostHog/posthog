@@ -80,6 +80,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import type {
+    LLMPromptApi,
     LLMPromptListApi,
     LLMPromptResolveResponseApi,
     LLMPromptVersionSummaryApi,
@@ -291,6 +292,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
@@ -5741,6 +5743,7 @@ export const API_SCOPE_OBJECTS = [
     'link',
     'live_debugger',
     'llm_analytics',
+    'ai_observability_clusters',
     'llm_gateway',
     'llm_prompt',
     'llm_provider_key',
@@ -5983,6 +5986,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
@@ -6188,6 +6192,14 @@ export interface ExternalDataSourceCreatePayload {
     /** Vendor API version to pin the source to. Omitted → the source's newest supported version. */
     api_version?: string
     payload: Record<string, any>
+}
+
+/** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
+export interface WarehouseTableFileUpload {
+    upload_id: string
+    filename: string
+    file_format: string
+    size_bytes: number
 }
 
 export interface ExternalDataSourceConnectionMetadata {
@@ -7787,6 +7799,8 @@ export interface LLMPrompt {
     latest_version: number
     version_count: number
     first_version_created_at: string
+    /** Key for this prompt's rows in the activity log (History tab). */
+    activity_item_id: LLMPromptApi['activity_item_id']
     /** All labels on the prompt with the version each points to. Only present on list responses. */
     all_labels?: LLMPromptListApi['all_labels']
 }

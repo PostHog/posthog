@@ -50243,6 +50243,10 @@
                 "filterTestAccounts": {
                     "type": ["boolean", "null"]
                 },
+                "ignoreDashboardFilters": {
+                    "description": "When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply.",
+                    "type": ["boolean", "null"]
+                },
                 "interval": {
                     "anyOf": [
                         {

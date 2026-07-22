@@ -1535,7 +1535,7 @@
         }
     },
     "cdp-functions-create": {
-        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.\nRecipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly. For Discord, the user provides an incoming webhook URL\n   (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or\n   template-discord), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n     # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.\n     # Override content with the same shape the alert-wizard UI uses, so agent-created and\n     # UI-created alerts produce identical Discord messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"webhookUrl\": {\"value\": \"<discord_webhook_url>\"},\n       \"content\": {\"value\": \"**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\\n{event.properties.breaches}\\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n     }\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.",
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.\nRecipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly. For Discord, the user provides an incoming webhook URL\n   (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or\n   template-discord), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n     # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.\n     # Override content with the same shape the alert-wizard UI uses, so agent-created and\n     # UI-created alerts produce identical Discord messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"webhookUrl\": {\"value\": \"<discord_webhook_url>\"},\n       \"content\": {\"value\": \"**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\\n{event.properties.breaches}\\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n     }\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.\n\nAfter a successful create, do not stop at a silent success: in chat, tell the user the function was created and offer a link to it. Build the link with the generate-app-url tool, path template /functions/{id} and the created function's id. Never share a URL read from the function's inputs — those are destination endpoints (e.g. incoming webhook URLs) and may grant access to the destination.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Create function",
@@ -6607,6 +6607,36 @@
             "readOnlyHint": true
         }
     },
+    "organization-enforce-2fa-execute": {
+        "description": "Step 2 of 2 for change 2FA enforcement. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation. Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Enforce two-factor authentication org-wide (execute)",
+        "title": "Enforce two-factor authentication org-wide (execute)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_entitlement": "2fa_enforcement"
+    },
+    "organization-enforce-2fa-prepare": {
+        "description": "Step 1 of 2 for change 2FA enforcement. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation. Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Enforce two-factor authentication org-wide (prepare)",
+        "title": "Enforce two-factor authentication org-wide (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_entitlement": "2fa_enforcement"
+    },
     "organization-get": {
         "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
         "category": "Platform Features",
@@ -10153,6 +10183,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-get-revision": {
+        "description": "Get one revision of a workflow by version number, including its full content snapshot (actions, edges, trigger, variables). Use to inspect what was live at that version before restoring it with workflows-restore-revision.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow revision",
+        "title": "Get workflow revision",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-global-stats": {
         "description": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are failing, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
         "category": "Workflows",
@@ -10223,6 +10267,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-list-revisions": {
+        "description": "List a workflow's revision history, newest first. Every live-content change (publish, direct edit) appends a version; each entry shows version, when, and by whom. Fetch a version's content with workflows-get-revision; roll back with workflows-restore-revision.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List workflow revisions",
+        "title": "List workflow revisions",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-logs": {
         "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
         "category": "Workflows",
@@ -10275,6 +10333,20 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-restore-revision": {
+        "description": "Roll a workflow back (or forward) by copying a revision's content into its staged draft — the live config is untouched until you publish. Then run the normal cycle: test with workflows-test-run (use_draft=true), preview with workflows-publish, confirm. The preview shows exactly what the rollback does to people in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their positions.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Restore workflow revision",
+        "title": "Restore workflow revision",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }

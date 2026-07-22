@@ -2013,8 +2013,6 @@ export const tasksRunsCreateBodyEnvironmentDefault = `local`
 export const tasksRunsCreateBodyModeDefault = `background`
 export const tasksRunsCreateBodyBranchMax = 255
 
-export const tasksRunsCreateBodyHomeQuickActionMax = 120
-
 export const TasksRunsCreateBody = /* @__PURE__ */ zod
     .object({
         imported_mcp_servers: zod
@@ -2139,13 +2137,6 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
-            ),
-        home_quick_action: zod
-            .string()
-            .max(tasksRunsCreateBodyHomeQuickActionMax)
-            .optional()
-            .describe(
-                "Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream."
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')

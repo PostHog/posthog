@@ -42,7 +42,7 @@ export function honoEsbuildOptions(opts: HonoEsbuildOptions = {}): BuildOptions 
         sourcemap: opts.sourcemap ?? true,
         external: [],
         plugins: [cfWorkersStub, ...(opts.extraPlugins ?? [])],
-        loader: { '.html': 'text', '.md': 'text', '.json': 'json' },
+        loader: { '.html': 'text', '.md': 'text', '.yaml': 'text', '.json': 'json' },
         define: { 'process.env.NODE_ENV': opts.dev ? '"development"' : '"production"' },
         // Bundled CJS modules (e.g. ioredis using `require('util')`) call through
         // to a global `require`. ESM has no `require`; banner injects one. The
