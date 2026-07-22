@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
-// Relative (not `@/`) import: this module is loaded by the tsx schema-generation
-// script, and `playbookIds` is pure constants — no `.md` imports to choke on.
+// Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
+// script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
+import { normalizeParamAliases } from '../tools/cast-helpers'
 
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
@@ -329,28 +330,40 @@ export const ExperimentResultsGetSchema = z.object({
         .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
-export const InsightQueryInputSchema = z.object({
-    insightId: z.string().describe('The insight ID or short_id to run.'),
-    output_format: z
-        .enum(['optimized', 'json'])
-        .optional()
-        .default('optimized')
-        .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
-        ),
-    variables_override: z
-        .union([z.string(), z.record(z.string(), z.unknown())])
-        .optional()
-        .describe(
-            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-        ),
-    filters_override: z
-        .union([z.string(), z.record(z.string(), z.unknown())])
-        .optional()
-        .describe(
-            "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
-        ),
-})
+// Accept the identifier under the aliases agents reach for (`insight-get` &
+// friends return the insight under `id`; UI URLs surface `short_id`), and
+// accept a numeric id — production traces show both mistakes are common.
+// Same motivation as the `orgId` aliases on OrganizationSetActiveSchema below;
+// normalized via preprocess here because this schema has more fields than a
+// per-alias union can reasonably enumerate.
+export const InsightQueryInputSchema = z.preprocess(
+    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    z.object({
+        insightId: z
+            .union([z.string(), z.number()])
+            .transform((value) => String(value))
+            .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
+        output_format: z
+            .enum(['optimized', 'json'])
+            .optional()
+            .default('optimized')
+            .describe(
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+            ),
+    })
+)
 
 export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
