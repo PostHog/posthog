@@ -24,7 +24,14 @@ forward_pending_user_message = _module.forward_pending_user_message
 
 
 def _command_result(**kwargs):
-    defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
+    defaults = {
+        "success": False,
+        "status_code": 0,
+        "error": None,
+        "retryable": False,
+        "turn_in_flight": False,
+        "data": None,
+    }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
 
