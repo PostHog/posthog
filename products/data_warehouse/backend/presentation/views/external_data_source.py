@@ -19,6 +19,7 @@ import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from openai import APIConnectionError
+from opentelemetry import trace
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -164,6 +165,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
@@ -1747,6 +1749,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ]
         return super().get_throttles()
 
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Wrapped in a span so the source-list load — historically slow enough to be user-visible —
+        # is diagnosable in tracing: source count and total serialized schema count are the two
+        # things that drive its cost.
+        with tracer.start_as_current_span("data_warehouse.external_data_sources.list") as span:
+            span.set_attribute("team_id", self.team_id)
+            response = super().list(request, *args, **kwargs)
+            results = response.data.get("results") if isinstance(response.data, dict) else response.data
+            if isinstance(results, list):
+                span.set_attribute("sources.count", len(results))
+                span.set_attribute(
+                    "schemas.count",
+                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
+                )
+            return response
+
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
             return ExternalDataSourceCreateSerializer
@@ -1769,8 +1787,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def safely_get_queryset(self, queryset):
         return (
             queryset.exclude(deleted=True)
+            # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
+            # serialization. select_related folds them into the main query instead of firing one
+            # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
+            # list load (up to one query, and a get_or_create write, per source).
+            .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
-                "created_by",
                 Prefetch(
                     "jobs",
                     queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
