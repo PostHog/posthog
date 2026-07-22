@@ -136,6 +136,16 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         assert dashboard_filter.properties is not None
         assert type(dashboard_filter.properties[0]) is EmptyPropertyFilter
 
+    def test_key_less_value_only_filter_validates_as_cohort_filter(self) -> None:
+        # Legacy cohort filters were saved as just {"value": <cohort pk>} and validated
+        # as CohortPropertyFilter via its key="id" default.
+        node = EventsNode(properties=[{"value": 35}])
+        assert node.properties is not None
+        item = node.properties[0]
+        assert type(item) is CohortPropertyFilter
+        assert item.key == "id"
+        assert item.value == 35
+
     @parameterized.expand(
         [
             ("log_attribute", LogPropertyFilter, LogPropertyFilterType.LOG_ATTRIBUTE),

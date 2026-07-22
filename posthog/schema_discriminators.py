@@ -5,7 +5,9 @@ union in posthog/schema.py into a tagged union discriminated by this function. A
 (rather than ``Field(discriminator="type")``) is required because the union must keep
 accepting payloads a plain tag lookup would reject:
 
-- filters saved before ``type`` was consistently written omit it entirely,
+- filters saved before ``type`` was consistently written omit it entirely: with a ``key``
+  they validated as event filters, and as bare ``{"value": <cohort pk>}`` cohort filters
+  (CohortPropertyFilter's ``key`` defaults to ``"id"``),
 - ``{}`` rows (the UI's "new filter" placeholder) must resolve to EmptyPropertyFilter,
 - LogPropertyFilter/SpanPropertyFilter accept several ``type`` values each (StrEnum tags),
 - PropertyGroupFilterValue recursively unions with the filters but is tagged AND/OR.
@@ -31,12 +33,17 @@ def property_filter_discriminator(value: object) -> str:
     if isinstance(value, dict):
         raw = value.get("type")
         has_key = "key" in value
+        has_value = "value" in value
     else:
         raw = getattr(value, "type", None)
         has_key = hasattr(value, "key")
+        has_value = hasattr(value, "value")
     if raw is None:
-        # Pre-discriminator smart-union behavior: type-less filters validated as
-        # EventPropertyFilter via its default, and bare `{}` as EmptyPropertyFilter.
-        return "event" if has_key else "empty"
+        # Pre-discriminator smart-union behavior: type-less filters with a key validated
+        # as EventPropertyFilter via its default, key-less ones with a value as
+        # CohortPropertyFilter (key defaults to "id"), and bare `{}` as EmptyPropertyFilter.
+        if has_key:
+            return "event"
+        return "cohort" if has_value else "empty"
     raw_str = str(raw)  # StrEnum tags (log/span variants, AND/OR) stringify to their value
     return PROPERTY_FILTER_TYPE_CANONICALIZATION.get(raw_str, raw_str)
