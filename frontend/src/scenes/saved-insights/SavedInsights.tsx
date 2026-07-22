@@ -266,7 +266,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.DataVisualizationNode]: {
         name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
-        icon: IconTableChart,
+        icon: IconBrackets,
         inMenu: false,
     },
     [NodeKind.SavedInsightNode]: {
@@ -296,19 +296,19 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
         description: 'Metadata for a SQL query.',
-        icon: IconHogQL,
+        icon: IconBrackets,
         inMenu: true,
     },
     [NodeKind.HogQLAutocomplete]: {
         name: 'SQL Autocomplete',
         description: 'Autocomplete for the SQL query editor.',
-        icon: IconHogQL,
+        icon: IconBrackets,
         inMenu: false,
     },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
-        icon: IconHogQL,
+        icon: IconBrackets,
         inMenu: true,
     },
     [NodeKind.RevenueAnalyticsMetricsQuery]: {
@@ -723,7 +723,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',
-        icon: IconHogQL,
+        icon: IconBrackets,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },

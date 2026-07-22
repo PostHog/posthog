@@ -288,19 +288,25 @@ describe('Cyclotron V2', () => {
             }
         )
 
-        it('countInFlightJobs counts available and running jobs for one team and function', async () => {
+        it('countInFlightJobs counts available and running jobs grouped by action', async () => {
             const functionId = uuidv7()
             const otherFunctionId = uuidv7()
-            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
-            const runningId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, actionId: 'delay_1' })
+            const runningId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, actionId: 'delay_1' })
             await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningId])
+            // No actionId: a job written before the lookup column existed → position unknown
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
             // Not counted: terminal status, other function, other team
             const completedId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
             await assertPool.query(`UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1`, [completedId])
-            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId: otherFunctionId })
-            await manager.createJob({ teamId: 2, queueName: QUEUE, functionId })
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId: otherFunctionId, actionId: 'delay_1' })
+            await manager.createJob({ teamId: 2, queueName: QUEUE, functionId, actionId: 'delay_1' })
 
-            expect(await manager.countInFlightJobs(1, functionId)).toBe(2)
+            expect(await manager.countInFlightJobs(1, functionId)).toEqual({
+                count: 3,
+                byAction: { delay_1: 2 },
+                positionUnknown: 1,
+            })
         })
 
         describe('rescheduleParkedJobs', () => {

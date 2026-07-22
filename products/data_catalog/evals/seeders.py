@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 from unittest.mock import patch
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -32,12 +34,17 @@ from products.data_catalog.evals.constants import (
     APPROVED_METRIC_DISTINGUISHING_FILTER,
     APPROVED_METRIC_NAME,
     CERTIFIED_SOURCE_NAME,
+    CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION,
+    CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION,
+    CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
+    CURRENT_TOP_CUSTOMERS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
     DEPRECATED_SOURCE_NAME,
     DRIFTED_INSIGHT_MUTATED_QUERY,
     DRIFTED_INSIGHT_ORIGINAL_QUERY,
     DRIFTED_METRIC_DESCRIPTION,
     DRIFTED_METRIC_NAME,
+    FAILING_TOP_CUSTOMERS_METRIC_DEFINITION,
     INJECTION_RELATIONSHIP_FIELD,
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
@@ -49,6 +56,10 @@ from products.data_catalog.evals.constants import (
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
     RELATIONSHIP_TARGET_KEY,
+    TOP_CUSTOMERS_METRIC_DEFINITION,
+    TOP_CUSTOMERS_METRIC_DESCRIPTION,
+    TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
+    TOP_CUSTOMERS_METRIC_NAME,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.models.insight import Insight
@@ -60,14 +71,21 @@ if TYPE_CHECKING:
 __all__ = [
     "seed_accepted_relationship_context",
     "seed_approved_metric",
+    "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
     "seed_drifted_metric",
+    "seed_failing_top_customers_metric",
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
     "seed_proposed_metric",
+    "seed_top_customers_metric",
 ]
 
 _STRING_COLUMN = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+_INCIDENT_WAREHOUSE_QUERIES = {
+    "paid_bills": "SELECT distinct_id, timestamp, amount_usd FROM paid_bills LIMIT 1",
+    "extended_properties": ("SELECT hedgebox_user_id, account_kind, monthly_bill_usd FROM extended_properties LIMIT 1"),
+}
 
 
 def _team_and_user(context: CustomPromptSandboxContext) -> tuple[Team, User]:
@@ -91,6 +109,98 @@ def seed_approved_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
             "status": "approved",
             "definition_query": APPROVED_METRIC_DEFINITION["query"],
             "distinguishing_filter": APPROVED_METRIC_DISTINGUISHING_FILTER,
+        }
+    }
+
+
+def _require_incident_warehouse_paths(team: Team, user: User) -> None:
+    tables = {
+        table.name: table
+        for table in DataWarehouseTable.objects.queryable().filter(
+            team=team,
+            name__in=_INCIDENT_WAREHOUSE_QUERIES,
+        )
+    }
+    unavailable = [
+        name
+        for name in _INCIDENT_WAREHOUSE_QUERIES
+        if name not in tables or not tables[name].url_pattern or tables[name].credential_id is None
+    ]
+    if unavailable:
+        raise RuntimeError(
+            "Governed-metrics eval requires queryable Hedgebox warehouse tables: " + ", ".join(unavailable)
+        )
+
+    for name, query in _INCIDENT_WAREHOUSE_QUERIES.items():
+        try:
+            response = execute_hogql_query(query, team=team, user=user)
+        except Exception as error:
+            raise RuntimeError(f"Governed-metrics eval could not query Hedgebox warehouse table '{name}'.") from error
+        if getattr(response, "error", None):
+            raise RuntimeError(f"Governed-metrics eval could not query Hedgebox warehouse table '{name}'.")
+
+
+def _seed_top_customers_metric(
+    context: CustomPromptSandboxContext,
+    *,
+    definition: dict,
+) -> tuple[Team, User]:
+    team, user = _team_and_user(context)
+    _require_incident_warehouse_paths(team, user)
+    metric = upsert_metric(
+        team=team,
+        user=user,
+        name=TOP_CUSTOMERS_METRIC_NAME,
+        display_name=TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
+        description=TOP_CUSTOMERS_METRIC_DESCRIPTION,
+        unit="usd",
+        definition=definition,
+    )
+    approve_metric(metric, user)
+    return team, user
+
+
+def seed_top_customers_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    _seed_top_customers_metric(context, definition=TOP_CUSTOMERS_METRIC_DEFINITION)
+    return {
+        "metric": {
+            "name": TOP_CUSTOMERS_METRIC_NAME,
+            "status": "approved",
+            "is_drifted": False,
+            "business_model_mapping": "account_kind = 'personal'",
+            "time_window": "last full calendar month",
+        }
+    }
+
+
+def seed_ambiguous_top_customers_metrics(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _seed_top_customers_metric(context, definition=TOP_CUSTOMERS_METRIC_DEFINITION)
+    current_metric = upsert_metric(
+        team=team,
+        user=user,
+        name=CURRENT_TOP_CUSTOMERS_METRIC_NAME,
+        display_name=CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
+        description=CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION,
+        unit="usd",
+        definition=CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION,
+    )
+    approve_metric(current_metric, user)
+    return {
+        "metrics": [
+            {"name": TOP_CUSTOMERS_METRIC_NAME, "time_window": "last full calendar month"},
+            {"name": CURRENT_TOP_CUSTOMERS_METRIC_NAME, "time_window": "current billing snapshot"},
+        ]
+    }
+
+
+def seed_failing_top_customers_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    _seed_top_customers_metric(context, definition=FAILING_TOP_CUSTOMERS_METRIC_DEFINITION)
+    return {
+        "metric": {
+            "name": TOP_CUSTOMERS_METRIC_NAME,
+            "status": "approved",
+            "is_drifted": False,
+            "expected_run": "failed",
         }
     }
 
