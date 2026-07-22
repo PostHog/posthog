@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+import django.db
+
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -109,6 +111,32 @@ class EgressBackpressureActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             egress_backpressure_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@dataclass
+class RaisingActivityInputs:
+    message: str
+    exc_type: str  # "operational" | "value"
+
+
+@activity.defn
+async def db_error_activity(inputs: RaisingActivityInputs) -> None:
+    if inputs.exc_type == "operational":
+        raise django.db.OperationalError(inputs.message)
+    raise ValueError(inputs.message)
+
+
+@workflow.defn
+class DBErrorActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: RaisingActivityInputs) -> None:
+        await workflow.execute_activity(
+            db_error_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -282,3 +310,48 @@ async def test_workflow_only_error_is_captured(temporal_client: Client):
         assert isinstance(workflow_call[0][0], ApplicationError)
         assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
         assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
+
+
+@pytest.mark.parametrize(
+    "exc_type,message,should_capture",
+    [
+        # Transient DNS/connection blips reaching our own Postgres self-heal on Temporal's retry,
+        # so the interceptor must re-raise them without reporting to error tracking.
+        ("operational", "[Errno -2] Name or service not known", False),
+        ("operational", "connection refused", False),
+        ("operational", "server closed the connection unexpectedly", False),
+        # A genuine query-level OperationalError is a real defect and must still be captured, so the
+        # exclusion filter can't just drop every OperationalError.
+        ("operational", "canceling statement due to statement timeout", True),
+        ("value", "Activity failed!", True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transient_db_connection_error_is_not_captured(
+    exc_type: str, message: str, should_capture: bool, temporal_client: Client
+):
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[DBErrorActivityWorkflow],
+            activities=[db_error_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "DBErrorActivityWorkflow",
+                    RaisingActivityInputs(message=message, exc_type=exc_type),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        if should_capture:
+            assert mock_ph_capture.call_count == 1
+        else:
+            mock_ph_capture.assert_not_called()
