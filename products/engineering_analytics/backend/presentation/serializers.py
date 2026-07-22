@@ -426,14 +426,16 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
             },
             "classification": {
-                "help_text": "confirmed_flake: an in-job retry recovered the test in the same run, so it is "
-                "provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: "
-                "only failures were recorded, which is absence of proof, not proof that it is a real break.",
+                "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
+                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it "
+                "fails while masked as xfail. suspected_regression: only failures were recorded, which is "
+                "absence of proof, not proof that it is a real break.",
             },
-            "rerun_passed_run_count": {
-                "help_text": "Runs where an in-job pytest retry recovered the test after it failed. Above zero is "
-                "the only proof of flakiness this data carries, and it reaches only tests hand-marked "
-                "@pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures stay visible.",
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed the test: a 'Re-run failed jobs' "
+                "attempt went green on the same commit, or an in-job pytest retry (tests hand-marked "
+                "@pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit "
+                "and never counts.",
             },
             "failed_run_count": {
                 "help_text": "Distinct CI runs whose recorded outcome was failed or error. A run counts once "
@@ -482,15 +484,15 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
                 "or the literal 'unowned' for tests whose spans carry no ownership stamp.",
             },
             "flaky_test_count": {
-                "help_text": "Owned tests an in-job retry recovered in the window: the same proof, and the same "
-                "word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the "
-                "delta.",
+                "help_text": "Owned tests one commit was seen both failing and passing in the window: the same "
+                "proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with "
+                "flaky_test_count_prior for the delta.",
             },
             "flaky_test_count_prior": {
                 "help_text": "Same count over the equal-length window immediately before date_from.",
             },
             "regression_test_count": {
-                "help_text": "Owned tests that failed with no recorded in-run recovery and still hit the "
+                "help_text": "Owned tests that failed with no recorded same-commit recovery and still hit the "
                 "blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence "
                 "of proof, not proof.",
             },
@@ -500,10 +502,11 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
                 "An absolute count, not a rate: fast passing runs are not emitted.",
             },
             "failed_run_count_prior": {"help_text": "Same count over the prior window."},
-            "rerun_passed_run_count": {
-                "help_text": "Runs where an in-job pytest retry recovered an owned test after it failed.",
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed an owned test: a re-run attempt went "
+                "green, or an in-job retry recovered it.",
             },
-            "rerun_passed_run_count_prior": {"help_text": "Same count over the prior window."},
+            "same_commit_recovery_run_count_prior": {"help_text": "Same count over the prior window."},
             "quarantined_failed_run_count": {
                 "help_text": "Runs where an owned test failed while quarantined (xfail): masked in CI, still failing.",
             },

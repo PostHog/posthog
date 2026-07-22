@@ -926,11 +926,12 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a "
-            "window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span. "
-            "A test is a 'confirmed_flake' when an in-job retry recovered it in the same run; 'quarantined' when "
-            "it fails while masked as xfail; otherwise "
-            "'suspected_regression'. It qualifies on any recovery, any master/main failure, an xfail, or failures "
-            "on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run "
+            "attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed "
+            "jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when it fails while "
+            "masked as xfail; otherwise 'suspected_regression'. It qualifies on any same-commit recovery, any "
+            "master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. "
+            + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -990,9 +991,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as "
-            "flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests an in-job retry "
-            "recovered in the window, regression_test_count is owned tests that failed with no such proof and "
-            "still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
+            "flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was "
+            "seen both failing and passing in the window, regression_test_count is owned tests that failed "
+            "with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
             "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "
             "emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); unstamped "
             "spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest "
