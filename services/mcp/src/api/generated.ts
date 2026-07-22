@@ -32729,6 +32729,27 @@ export namespace Schemas {
       workflow?: HogFlow | null;
     }
 
+    export interface HogFlowRevision {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFlowRevisionBasic {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFlowRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
+    }
+
     /**
      * @nullable
      */
@@ -41178,6 +41199,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
+    }
+
+    export interface PaginatedHogFlowRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowRevisionBasic[];
     }
 
     export interface PaginatedHogFlowTemplateList {
@@ -75674,6 +75704,17 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type HogFlowsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type HogFlowsMetricsGlobalRetrieveParams = {
     /**

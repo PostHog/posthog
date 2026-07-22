@@ -2067,6 +2067,17 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
 
+export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
+
+export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409."
+        ),
+})
+
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
