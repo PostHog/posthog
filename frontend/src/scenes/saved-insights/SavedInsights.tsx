@@ -52,6 +52,16 @@ export * from './insightTypesMetadata'
 import { QUERY_TYPES_METADATA } from './insightTypesMetadata'
 import { NewInsightButton } from './NewInsightMenu'
 import { ReloadInsight } from './ReloadInsight'
+// PROTOTYPE — throwaway draft-notice variants, see ReloadInsightPrototype.tsx
+import {
+    DraftBannerPrototype,
+    DraftRowMoreMenuPrototype,
+    DraftRowNameCellPrototype,
+    DraftStripPrototype,
+    PrototypeSwitcherBar,
+    isDraftRow,
+    useDraftInsightPrototype,
+} from './ReloadInsightPrototype'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 export const scene: SceneExport = {
@@ -93,6 +103,7 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
+    const draftPrototype = useDraftInsightPrototype()
 
     const { tab } = filters
 
@@ -109,6 +120,9 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             render: function renderName(name: string, insight) {
+                if (isDraftRow(insight)) {
+                    return <DraftRowNameCellPrototype item={insight} />
+                }
                 return (
                     <div className="flex items-center gap-1">
                         <LemonTableLink
@@ -215,6 +229,9 @@ export function SavedInsights(): JSX.Element {
         {
             width: 0,
             render: function Render(_, insight) {
+                if (isDraftRow(insight)) {
+                    return <DraftRowMoreMenuPrototype item={insight} />
+                }
                 return (
                     <More
                         overlay={
@@ -342,11 +359,22 @@ export function SavedInsights(): JSX.Element {
                                 : undefined
                         }
                     />
-                    <ReloadInsight />
+                    {draftPrototype.variant === null ? (
+                        <ReloadInsight />
+                    ) : draftPrototype.variant === 'B' && draftPrototype.draft ? (
+                        <DraftStripPrototype draft={draftPrototype.draft} isSample={draftPrototype.isSample} />
+                    ) : draftPrototype.variant === 'C' && draftPrototype.draft ? (
+                        <DraftBannerPrototype draft={draftPrototype.draft} />
+                    ) : null}
                     <LemonTable
                         loading={insightsLoading}
                         columns={columns}
-                        dataSource={insights.results}
+                        dataSource={
+                            draftPrototype.variant === 'A' && draftPrototype.draftRow
+                                ? [draftPrototype.draftRow, ...insights.results]
+                                : insights.results
+                        }
+                        rowClassName={(record) => (isDraftRow(record) ? 'bg-warning-highlight' : null)}
                         pagination={pagination}
                         noSortingCancellation
                         sorting={sorting}
@@ -371,13 +399,15 @@ export function SavedInsights(): JSX.Element {
                         bulkSelection={{
                             getKey: (insight: SavedInsightListItem): number => insight.id,
                             isRowSelectable: (insight: SavedInsightListItem) =>
-                                accessLevelSatisfied(
-                                    AccessControlResourceType.Insight,
-                                    insight.user_access_level,
-                                    AccessControlLevel.Editor
-                                )
-                                    ? true
-                                    : { disabledReason: "You don't have permission to edit this insight." },
+                                isDraftRow(insight)
+                                    ? { disabledReason: 'This draft only exists in your browser.' }
+                                    : accessLevelSatisfied(
+                                            AccessControlResourceType.Insight,
+                                            insight.user_access_level,
+                                            AccessControlLevel.Editor
+                                        )
+                                      ? true
+                                      : { disabledReason: "You don't have permission to edit this insight." },
                             rowAriaLabel: (insight: SavedInsightListItem) =>
                                 `Select insight ${insight.name || 'Untitled'}`,
                             headerAriaLabel: 'Select all insights on this page',
@@ -425,6 +455,7 @@ export function SavedInsights(): JSX.Element {
                     />
                 </>
             )}
+            <PrototypeSwitcherBar note={draftPrototype.isSample ? 'sample draft' : undefined} />
         </SceneContent>
     )
 }
