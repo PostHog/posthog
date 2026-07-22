@@ -26,6 +26,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_caller_token_run,
+    loop_mcp_installation_allowlist,
 )
 
 
@@ -363,6 +364,43 @@ class TestFetchUserMcpServerConfigs(TestCase):
                 headers=self._expected_user_headers(),
             )
         ]
+
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_allowlist_restricts_mounted_connectors(self, mock_facade, mock_api_url) -> None:
+        # A loop run snapshots the connectors its owner selected. Without enforcement the sandbox
+        # mounts every shared team connector; the allowlist must keep only the selected ones.
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [
+            self._make_installation(id="keep", name="Kept"),
+            self._make_installation(id="drop", name="Dropped"),
+        ]
+
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=["keep"])
+
+        assert [config.name for config in configs] == ["Kept"]
+
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_empty_allowlist_mounts_nothing(self, mock_facade, mock_api_url) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [self._make_installation()]
+
+        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=[]) == []
+
+    @parameterized.expand(
+        [
+            ("no_state", None, None),
+            ("no_snapshot", {}, None),
+            # A loop snapshot with no/empty connectors fails closed to an empty allowlist, not None.
+            ("no_connectors_key", {"config_snapshot": {}}, []),
+            ("connectors_without_ids", {"config_snapshot": {"connectors": {}}}, []),
+            ("empty_ids", {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}, []),
+            ("with_ids", {"config_snapshot": {"connectors": {"mcp_installation_ids": ["a", "b"]}}}, ["a", "b"]),
+        ]
+    )
+    def test_loop_mcp_installation_allowlist(self, _name, state, expected) -> None:
+        assert loop_mcp_installation_allowlist(state) == expected
 
     @parameterized.expand(
         [

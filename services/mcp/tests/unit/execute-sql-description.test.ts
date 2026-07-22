@@ -33,6 +33,8 @@ describe('formatExecuteSqlDescription', () => {
 
     // The description ships to every MCP client on every tools/list; keep the flag-gated
     // addition small so prompt bloat shows up as a reviewable failure, not silent growth.
+    // Budget bumped to 1500 to cover the metric-discovery + certification trust-signal
+    // sections; keep future additions under this so bloat still fails the build.
     it('keeps data-catalog discovery within its character budget', () => {
         const withSection = builder.formatExecuteSqlDescription({ [PRODUCT_DATA_CATALOG_FLAG]: true })
         const withoutSection = builder.formatExecuteSqlDescription()

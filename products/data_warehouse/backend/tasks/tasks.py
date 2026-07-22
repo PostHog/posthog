@@ -1,7 +1,10 @@
+from uuid import UUID
+
 import structlog
 from celery import shared_task
 from prometheus_client import Counter
 
+from posthog.ducklake.models import DuckgresServerTeam
 from posthog.redis import get_client, redis
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -9,11 +12,12 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
+from products.data_warehouse.backend.managed_warehouse_connection import reconcile_managed_warehouse_tables
 
 logger = structlog.get_logger(__name__)
 
-# Digest tasks scheduled, by trigger: "inline" (a sync just failed, from jobs.py)
-# vs "catchup" (the daily sweep below). increase(...{trigger="catchup"}[1d]) is the
+# Digest tasks scheduled, by trigger: "inline" (a sync just failed, from jobs.py),
+# "cdc" (a CDC failure path), or "catchup" (the daily sweep below). increase(...{trigger="catchup"}[1d]) is the
 # catch-up fan-out — how many teams the daily sweep re-notifies. The inline count is
 # the burst denominator: comparing it to delivered emails shows how hard the 15-min
 # countdown + campaign-key dedup are collapsing bursts.
@@ -40,6 +44,83 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
+# Live introspection of a large catalog plus the credential handshake can far exceed the
+# digest bound; the select_for_update guards make an overlap harmless, but keep the lock
+# long enough that it stays the normal exclusion mechanism.
+MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
+MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables")
+@skip_team_scope_audit
+def reconcile_managed_warehouse_tables_task(team_id: int, organization_id: str) -> None:
+    try:
+        with get_client().lock(
+            f"managed_warehouse_reconcile:{team_id}",
+            timeout=MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS,
+            blocking=False,
+        ):
+            reconcile_managed_warehouse_tables(team_id=team_id, organization_id=organization_id)
+    except redis.exceptions.LockError:
+        logger.info("Managed warehouse table reconciliation already in flight", team_id=team_id)
+
+
+def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id: str | UUID) -> None:
+    client = get_client()
+    schedule_key = f"managed_warehouse_reconcile_scheduled:{team_id}"
+    if not client.set(schedule_key, "1", ex=MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS, nx=True):
+        return
+    try:
+        reconcile_managed_warehouse_tables_task.delay(team_id=team_id, organization_id=str(organization_id))
+    except Exception:
+        client.delete(schedule_key)
+        raise
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
+    from products.data_warehouse.backend.managed_warehouse_connection import (  # noqa: PLC0415
+        soft_delete_managed_warehouse_sources,
+    )
+
+    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+
+
+def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
+    soft_delete_managed_warehouse_sources_task.delay(organization_id=str(organization_id))
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
+@skip_team_scope_audit
+def reconcile_all_managed_warehouse_tables_task() -> None:
+    memberships = (
+        DuckgresServerTeam.objects.filter(backfill_enabled=True, table_suffix__isnull=False)
+        .exclude(table_suffix="")
+        .values_list("team_id", "server__organization_id")
+        .iterator()
+    )
+    for team_id, organization_id in memberships:
+        schedule_managed_warehouse_tables_reconcile(team_id=team_id, organization_id=organization_id)
+
+
+def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:
+    """Schedule the per-team failure digest email after the burst-collapse delay.
+
+    Safe to call on every failure: the task dedupes via a per-team lock and a
+    per-digest-day campaign key.
+    """
+    send_external_data_failure_digest_task.apply_async(
+        args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
+    )
+    EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER.labels(trigger=trigger).inc()
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_task")

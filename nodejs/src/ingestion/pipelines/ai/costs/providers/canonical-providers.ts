@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-21 10:42:35 UTC
+// Generated at: 2026-07-21 20:24:39 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -7,6 +7,7 @@ export type CanonicalProvider =
     | 'aion-labs'
     | 'akashml-fp8'
     | 'alibaba'
+    | 'alibaba-fast'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
     | 'amazon-bedrock-claude-on-aws'
@@ -125,6 +126,7 @@ export type CanonicalProvider =
     | 'perceptron'
     | 'perplexity'
     | 'phala'
+    | 'poolside-bf16'
     | 'poolside-fp4'
     | 'poolside-fp8'
     | 'reka-bf16'
