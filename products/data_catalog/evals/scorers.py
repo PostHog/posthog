@@ -38,6 +38,9 @@ _POSTHOG_MCP_RE = re.compile(r"^mcp__posthog(_[a-z0-9]+)*__")
 _TOOL_DISCOVERY_COMMANDS = frozenset({"info", "learn", "schema", "search", "tools"})
 _TOOL_DISCOVERY_TOOLS = frozenset({"toolsearch", "tool_search"})
 _KNOWN_DATA_BEARING_TOOLS = frozenset({SQL_TOOL, METRIC_RUN_TOOL, "read-data-schema"})
+# Caps each tool output fed to the judge so an exploratory trial with large result sets
+# cannot blow up the judge context; catalog lookups and LIMIT-10 runs stay well under it.
+_JUDGE_OUTPUT_CHAR_LIMIT = 4_000
 
 
 def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
@@ -87,6 +90,12 @@ def _is_data_bearing(call: ToolCall) -> bool:
     if call.name in _KNOWN_DATA_BEARING_TOOLS or call.name.startswith("query-"):
         return True
     return _POSTHOG_MCP_RE.match(call.raw_name) is not None
+
+
+def _judge_output(call: ToolCall) -> str:
+    if len(call.output) <= _JUDGE_OUTPUT_CHAR_LIMIT:
+        return call.output
+    return call.output[:_JUDGE_OUTPUT_CHAR_LIMIT] + " …[truncated]"
 
 
 class MetricsCatalogQueried(Scorer):
@@ -380,7 +389,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                     [
                         {
                             "query": call.input.get("query"),
-                            "output": call.output,
+                            "output": _judge_output(call),
                             "is_error": call.is_error,
                         }
                         for call in sql_calls
@@ -390,7 +399,7 @@ class GovernedBehaviorCorrectness(JudgedScorer):
                     [
                         {
                             "name": call.input.get("name"),
-                            "output": call.output,
+                            "output": _judge_output(call),
                             "is_error": call.is_error,
                         }
                         for call in metric_runs

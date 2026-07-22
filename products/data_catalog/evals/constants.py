@@ -64,6 +64,9 @@ FAILING_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
         "sum(p.amount_usd) + toFloat64('catalog runner failure') AS revenue_usd",
     ),
 }
+# A silent no-op replace would turn the "failing" metric into a working one and break the
+# runner-failure case at eval runtime instead of at import.
+assert "catalog runner failure" in FAILING_TOP_CUSTOMERS_METRIC_DEFINITION["query"]
 
 # Approved arm: named so a lazy `name ILIKE '%mrr%'` misses it — the prompt says "MRR",
 # forcing the name+description search the steering asks for. The personal/free exclusion
