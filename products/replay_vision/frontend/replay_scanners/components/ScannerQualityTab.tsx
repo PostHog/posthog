@@ -816,8 +816,11 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             key: 'session',
             width: 260,
             render: (_, obs) => (
+                // Open in a new tab so labelers keep their place in the list while reviewing a recording.
                 <Link
                     to={urls.replayVisionObservation(obs.id)}
+                    target="_blank"
+                    targetBlankIcon={false}
                     className="font-mono text-xs text-primary truncate block"
                 >
                     {obs.session_id}
@@ -828,7 +831,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                <Link to={urls.replayVisionObservation(obs.id)} target="_blank" className="block">
                     <div className="min-w-[16rem] max-w-xl">
                         <ObservationResultSummary observation={obs} />
                     </div>
@@ -912,6 +915,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     type="secondary"
                     icon={<IconRewindPlay />}
                     to={urls.replaySingle(obs.session_id)}
+                    targetBlank
                     className="whitespace-nowrap"
                     data-attr="vision-quality-view-recording"
                 >
