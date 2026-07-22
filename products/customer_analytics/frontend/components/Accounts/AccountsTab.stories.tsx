@@ -127,21 +127,30 @@ const EXPANDED_ROW_DECORATORS_BASE = [
     }),
 ]
 
+// Play starts as soon as React commits the app shell, but the accounts table only renders once
+// the scene's data loads — several seconds later on a loaded CI runner. Give every lookup a
+// generous budget: with testing-library's default 1s timeout, `findByTitle('Show more')` raced
+// that boot and lost, which is exactly the flake that kept timing these stories out in CI.
+const FIND_TIMEOUT = { timeout: 30000 }
+
 // Expands the first row and switches to a billing tab. Awaits the settled sidebar first to avoid layout races.
 async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spend'): Promise<void> {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByTitle('Show more'))
-    await canvas.findByText('Useful links')
-    await canvas.findByText('Organization')
-    await userEvent.click(await canvas.findByRole('tab', { name: tab }))
+    await userEvent.click(await canvas.findByTitle('Show more', {}, FIND_TIMEOUT))
+    await canvas.findByText('Useful links', {}, FIND_TIMEOUT)
+    await canvas.findByText('Organization', {}, FIND_TIMEOUT)
+    await userEvent.click(await canvas.findByRole('tab', { name: tab }, FIND_TIMEOUT))
 }
 
 // The snapshot fires well after `play` (page-ready waits, forced reflows, a dispatched resize),
 // and the meta-level waitForSelector is satisfied by a collapsed table. Gating the snapshot on the
 // expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
+// Keep the timeout well under the 60s jest budget: once play has clicked, the expansion renders in
+// milliseconds, and a genuinely missing expansion should fail (and retry) fast — at 60s it burned
+// the whole test budget and jest reported an opaque timeout instead of the real error.
 const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
-    waitForSelectorTimeout: 60000,
+    waitForSelectorTimeout: 15000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
@@ -244,10 +253,9 @@ export const RowExpandedEmpty: Story = {
     play: async ({ canvasElement }) => {
         // Only click to expand — sidebar content verification is redundant for snapshot
         // purposes since mock data is deterministic. The waitForSelector in testOptions
-        // gates the snapshot on [data-attr="account-expansion"] with a 60s budget,
-        // avoiding the tight findByText timeouts that flake under CI load.
+        // gates the snapshot on [data-attr="account-expansion"].
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await userEvent.click(await canvas.findByTitle('Show more', {}, FIND_TIMEOUT))
     },
 }
 
@@ -300,7 +308,7 @@ export const RowExpandedWithNote: Story = {
     ],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await userEvent.click(await canvas.findByTitle('Show more', {}, FIND_TIMEOUT))
     },
 }
 
@@ -321,7 +329,7 @@ export const RowExpandedLinksDisabled: Story = {
     ],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await userEvent.click(await canvas.findByTitle('Show more', {}, FIND_TIMEOUT))
     },
 }
 
@@ -336,6 +344,6 @@ export const RowExpandedUsageNotFound: Story = {
     decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
-        await within(canvasElement).findByText('No billing usage insight here')
+        await within(canvasElement).findByText('No billing usage insight here', {}, FIND_TIMEOUT)
     },
 }

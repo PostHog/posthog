@@ -141,6 +141,54 @@ export default {
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
+        // On jest retries the preview answers setCurrentStory with `storyUnchanged`, which
+        // does NOT re-run loaders or the play function — the retry would just re-snapshot the
+        // page the failed attempt left behind. Force a full remount so retries start fresh,
+        // and surface the replayed play function's error if it throws again.
+        if (ATTEMPT_COUNT_PER_ID[context.id]) {
+            const remountResult = await page
+                .evaluate((storyId) => {
+                    return new Promise<{ event: string; message?: string }>((resolve) => {
+                        const channel = (
+                            window as unknown as {
+                                __STORYBOOK_ADDONS_CHANNEL__: {
+                                    on: (event: string, listener: (data?: unknown) => void) => void
+                                    off: (event: string, listener: (data?: unknown) => void) => void
+                                    emit: (event: string, data?: unknown) => void
+                                }
+                            }
+                        ).__STORYBOOK_ADDONS_CHANNEL__
+                        const doneEvents = [
+                            'storyRendered',
+                            'storyErrored',
+                            'storyThrewException',
+                            'playFunctionThrewException',
+                        ]
+                        const listeners: Record<string, (data?: unknown) => void> = {}
+                        const finish = (event: string, data?: unknown): void => {
+                            doneEvents.forEach((e) => channel.off(e, listeners[e]))
+                            const error = data as { message?: string; description?: string } | undefined
+                            resolve({ event, message: error?.message ?? error?.description })
+                        }
+                        doneEvents.forEach((e) => {
+                            listeners[e] = (data?: unknown) => finish(e, data)
+                            channel.on(e, listeners[e])
+                        })
+                        // if the remount never settles, let the regular timeouts downstream handle it
+                        setTimeout(() => finish('timeout'), 30000)
+                        channel.emit('forceRemount', { storyId })
+                    })
+                }, context.id)
+                .catch(() => undefined)
+            if (
+                remountResult &&
+                ['playFunctionThrewException', 'storyThrewException', 'storyErrored'].includes(remountResult.event)
+            ) {
+                throw new Error(
+                    `Story remount on retry failed (${remountResult.event}): ${remountResult.message ?? 'unknown error'}`
+                )
+            }
+        }
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
         applyStoryTimeouts(page, viewportWidths)
@@ -152,6 +200,13 @@ export default {
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        // The generated test also calls postVisit when the story or its play function already
+        // failed (so configs can do failure handling — our jest environment takes the failure
+        // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest
+        // timeout, which would bury the real error under an opaque "Exceeded timeout of 60000 ms".
+        if ((context as { hasFailure?: boolean }).hasFailure) {
+            return
+        }
         const storyContext = await getStoryContext(page, context)
         const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
         const effectiveViewport = viewportWidths?.length
@@ -277,8 +332,11 @@ async function expectStoryToMatchSnapshot(
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
     await page.waitForTimeout(300)
 
-    const { waitForLoadersToDisappear = true, waitForSelector, waitForSelectorTimeout } =
-        storyContext.parameters?.testOptions ?? {}
+    const {
+        waitForLoadersToDisappear = true,
+        waitForSelector,
+        waitForSelectorTimeout,
+    } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
