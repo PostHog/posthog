@@ -186,22 +186,23 @@ export interface AssistantWebVitalsPathBreakdownQuery {
     /**
      * Required. Which Core Web Vital to break down by: `LCP` (load, ms),
      * `INP` (interactivity, ms), `CLS` (layout stability, unitless score),
-     * or `FCP` (first paint, ms).
+     * or `FCP` (first paint, ms). The only field you must set.
      */
     metric: WebVitalsMetric
 
     /**
-     * Required. Percentile to aggregate each page's samples at. Use `p75`
-     * unless the user asks otherwise — the Google bands are defined at p75.
+     * Percentile to aggregate each page's samples at. Defaults to `p75` when
+     * omitted — the Google bands are defined at p75, so leave it unset unless
+     * the user asks for the slow tail (`p90`/`p99`).
      */
-    percentile: WebVitalsPercentile
+    percentile?: WebVitalsPercentile
 
     /**
-     * Required. `[good, poor]` band boundaries for the chosen metric. Values
-     * below `good` are good, above `poor` are poor, in between need
-     * improvement. Use the standard Google thresholds unless the user supplies
-     * their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`,
-     * FCP `[1800, 3000]`.
+     * `[good, poor]` band boundaries for the chosen metric. Values below
+     * `good` are good, above `poor` are poor, in between need improvement.
+     * Defaults to the standard Google thresholds for `metric` when omitted
+     * (LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`,
+     * FCP `[1800, 3000]`) — only set this to override those bands.
      */
-    thresholds: [number, number]
+    thresholds?: [number, number]
 }

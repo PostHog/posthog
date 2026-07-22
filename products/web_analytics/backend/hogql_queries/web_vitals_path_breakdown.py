@@ -1,11 +1,13 @@
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
     WebAnalyticsPreComputeStrategy,
+    WebVitalsMetric,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
     WebVitalsPathBreakdownResult,
     WebVitalsPathBreakdownResultItem,
+    WebVitalsPercentile,
 )
 
 from posthog.hogql import ast
@@ -21,10 +23,34 @@ from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompu
     execute_lazy_precomputed_read,
 )
 
+# p75 is the percentile the Google Core Web Vitals bands are defined at, so it's the
+# default when a query omits `percentile` (e.g. a minimal MCP `query-web-vitals` call).
+DEFAULT_WEB_VITALS_PERCENTILE = WebVitalsPercentile.P75
+
+# Standard Google Core Web Vitals [good, poor] band boundaries, keyed by metric. Mirrors
+# WEB_VITALS_THRESHOLDS in frontend/src/queries/nodes/WebVitals/definitions.ts. Used as the
+# default when a query omits `thresholds`, so callers only have to supply the metric.
+DEFAULT_WEB_VITALS_THRESHOLDS: dict[WebVitalsMetric, tuple[float, float]] = {
+    WebVitalsMetric.LCP: (2500, 4000),
+    WebVitalsMetric.INP: (200, 500),
+    WebVitalsMetric.CLS: (0.1, 0.25),
+    WebVitalsMetric.FCP: (1800, 3000),
+}
+
 
 class WebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner[WebVitalsPathBreakdownQueryResponse]):
     query: WebVitalsPathBreakdownQuery
     cached_response: CachedWebStatsTableQueryResponse
+
+    @property
+    def resolved_percentile(self) -> WebVitalsPercentile:
+        return self.query.percentile or DEFAULT_WEB_VITALS_PERCENTILE
+
+    @property
+    def resolved_thresholds(self) -> tuple[float, float]:
+        if self.query.thresholds is not None:
+            return self.query.thresholds[0], self.query.thresholds[1]
+        return DEFAULT_WEB_VITALS_THRESHOLDS[self.query.metric]
 
     def to_query(self):
         return parse_select(
@@ -45,8 +71,8 @@ LIMIT 20 BY band
             timings=self.timings,
             placeholders={
                 "inner_query": self._inner_query(),
-                "good_threshold": ast.Constant(value=self.query.thresholds[0]),
-                "needs_improvements_threshold": ast.Constant(value=self.query.thresholds[1]),
+                "good_threshold": ast.Constant(value=self.resolved_thresholds[0]),
+                "needs_improvements_threshold": ast.Constant(value=self.resolved_thresholds[1]),
             },
         )
 
@@ -78,7 +104,7 @@ HAVING value >= 0
         return property_to_expr(properties, team=self.team, scope="event")
 
     def _percentile_expr(self) -> ast.Expr:
-        percentile_function = PROPERTY_MATH_FUNCTIONS[self.query.percentile]
+        percentile_function = PROPERTY_MATH_FUNCTIONS[self.resolved_percentile]
         metric_value_field = f"properties.$web_vitals_{self.query.metric.value}_value"
 
         # nosemgrep: hogql-injection-taint - percentile_function from dict lookup, metric from enum
