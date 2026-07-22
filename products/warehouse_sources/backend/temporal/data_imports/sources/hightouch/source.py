@@ -68,6 +68,7 @@ class HightouchSource(ResumableSource[HightouchSourceConfig, HightouchResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # sync_runs is merge-only: runs still in progress mutate (status, finishedAt, row
         # counts) and the trailing lookback window re-reads them, so append mode would
@@ -79,7 +80,11 @@ class HightouchSource(ResumableSource[HightouchSourceConfig, HightouchResumeConf
         return schemas
 
     def validate_credentials(
-        self, config: HightouchSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HightouchSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Hightouch API keys are workspace-scoped with no per-resource permissions, so a
         # single probe validates access to every endpoint.

@@ -99,13 +99,18 @@ Use the channel JWT token from your StreamElements dashboard: open your account 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Merge only: resume re-fetches the last checkpointed page and the activities window
         # walk overlaps page boundaries by design, so append mode would duplicate rows.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
 
     def validate_credentials(
-        self, config: StreamElementsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: StreamElementsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_streamelements_credentials(config.api_token)
 
