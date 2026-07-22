@@ -126,6 +126,30 @@ class TestForwardPendingUserMessage(TestCase):
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_read_timeout_keeps_running_turn_alive(self, mock_send, mock_token):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(
+            success=False,
+            status_code=504,
+            error="Sandbox request timed out",
+            retryable=True,
+            turn_in_flight=True,
+        )
+
+        forward_pending_user_message(str(run.id))
+
+        mock_send.assert_called_once()
+        run.refresh_from_db()
+        assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     def test_connection_error_retries_with_longer_timeout(self, mock_send, mock_token):
         run = self._make_run(
             state={
