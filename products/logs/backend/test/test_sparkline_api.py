@@ -4,11 +4,13 @@ from datetime import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -52,3 +54,14 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
         # local time when comparing against the (UTC) live_logs_checkpoint.
         for bucket in buckets:
             self.assertIsNotNone(datetime.fromisoformat(bucket["time"]).tzinfo)
+
+    @patch(
+        "products.logs.backend.presentation.views.api.SparklineQueryRunner.run",
+        side_effect=ConcurrencyLimitExceeded("celery_running_tasks:app:query:per-org:42"),
+    )
+    def test_concurrency_limit_returns_429_not_500(self, _mock_run):
+        # A saturated org must get a graceful 429 (like the /query API) rather than an unhandled 500
+        # that pollutes error tracking. Guards the viewset's handle_exception override.
+        response = self._sparkline({"dateRange": _FIXTURE_WINDOW}, expected_status=status.HTTP_429_TOO_MANY_REQUESTS)
+        # The raw limiter detail (Redis key) must not leak into the user-facing message.
+        self.assertNotIn("celery_running_tasks", json.dumps(response.json()))
