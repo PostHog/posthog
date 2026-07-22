@@ -119,7 +119,10 @@ def write_dump(env: str, roles: list[str], ref: str, dump_dir: str) -> None:
     os.makedirs(dump_dir)
     for role in roles:
         golden = golden_at_ref(ref, env, role)
-        with open(os.path.join(dump_dir, f"{golden_name(role)}.hcl"), "w") as f:
+        # Scratch dump, not committed; plan keys on the hostClusterRole macro, not the
+        # filename, so the raw role name is fine here (golden_name aliasing is only for
+        # the committed golden/sql files).
+        with open(os.path.join(dump_dir, f"{role}.hcl"), "w") as f:
             f.write(f'node "{role}" {{\n  macros = {{ hostClusterRole = "{role}" }}\n}}\n')
             f.write(golden)
 
