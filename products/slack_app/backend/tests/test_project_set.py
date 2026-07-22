@@ -62,15 +62,16 @@ class TestHandleProjectSet:
         assert "What would you like to work on?" in text
         self.slack.client.chat_postEphemeral.assert_not_called()
 
-    def test_sole_candidate_already_routes_to_target_confirms(self):
+    def test_sole_candidate_match_confirms_and_pins_durable_default(self):
         self._run(self.team.id, [self.integration])
 
         text = self.slack.client.chat_postMessage.call_args.kwargs["text"]
         assert "already connected" in text
-        # A no-op confirmation must not pin a personal default the user never had.
-        assert not SlackSettings.objects.filter(slack_workspace_id="T_WS").exists()
+        # The explicit command must survive a second project being connected later.
+        row = SlackSettings.objects.get(slack_workspace_id="T_WS", slack_user_id="U1")
+        assert row.default_integration_id == self.integration.id
 
-    def test_workspace_default_match_skips_personal_pin(self):
+    def test_workspace_default_match_confirms_and_pins_personal_default(self):
         second = self._second_integration()
         SlackSettings.objects.create(
             default_integration=self.integration,
@@ -82,7 +83,9 @@ class TestHandleProjectSet:
 
         text = self.slack.client.chat_postMessage.call_args.kwargs["text"]
         assert "already connected" in text
-        assert not SlackSettings.objects.filter(slack_workspace_id="T_WS", slack_user_id="U1").exists()
+        # The explicit pin must hold even if an admin later moves the workspace default.
+        row = SlackSettings.objects.get(slack_workspace_id="T_WS", slack_user_id="U1")
+        assert row.default_integration_id == self.integration.id
 
     def test_slash_surface_confirmation_is_ephemeral_without_mention_invite(self):
         self._run(self.team.id, [self.integration], command_prefix="/posthog")

@@ -294,12 +294,9 @@ def _handle_project_set(
         return
 
     # Mirrors ``project`` (show) semantics: personal default > workspace default >
-    # sole candidate. When the request is a no-op, confirm with a visible thread
+    # sole candidate. When routing is unchanged, confirm with a visible thread
     # reply — the ephemeral success message anchors to the mention's own ts, a
     # thread the user isn't viewing, so a silent no-op reads as the bot ignoring them.
-    # Deliberately no personal pin when a workspace default or sole candidate already
-    # matches: routing is unchanged, and re-running the command after an admin moves
-    # the workspace default will pin then (current != target at that point).
     if workspace_candidates is not None:
         current = resolve_from_candidates(
             workspace_candidates,
@@ -314,7 +311,19 @@ def _handle_project_set(
             slack_user_id=slack_user_id,
             user=user,
         )
-    if current.integration is not None and current.integration.team_id == target_team_id:
+    routing_unchanged = current.integration is not None and current.integration.team_id == target_team_id
+
+    # Upsert even when routing is unchanged: an explicit ``project <id>`` asks for a
+    # durable personal default, and a sole-candidate or workspace-default match
+    # stores nothing on its own — the pin must survive new projects being connected
+    # or an admin moving the workspace default.
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"default_integration": target},
+    )
+
+    if routing_unchanged:
         text = (
             f"You're already connected to *{target.team.organization.name} · {target.team.name}* "
             f"(id `{target.team_id}`) in this workspace."
@@ -330,12 +339,6 @@ def _handle_project_set(
             # thread anchor puts the ephemeral at channel root, where it's visible.
             slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
         return
-
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=slack_workspace_id,
-        slack_user_id=slack_user_id,
-        defaults={"default_integration": target},
-    )
     slack.client.chat_postEphemeral(
         channel=channel,
         user=slack_user_id,
