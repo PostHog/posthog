@@ -376,6 +376,44 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         ids = {r["id"] for r in response.json()["results"]}
         self.assertEqual(ids, {str(run.id)})
 
+    def test_retrieve_experiments_task_owned_by_another_user_is_visible(self):
+        # Flag-cleanup tasks are surfaced on the (team-visible) experiment, so any
+        # team member must be able to open them, not just whoever ended the experiment.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_update_experiments_task_owned_by_another_user_returns_404(self):
+        # Experiments tasks are team-readable but stay creator-driven: runs execute
+        # with the creator's credentials, so teammates must not be able to edit,
+        # run, or command them.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"title": "Hijacked"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertEqual(task.title, "Clean up feature flag my-experiment-flag")
+
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
         other_user = self.create_organization_user("victim")
@@ -1225,13 +1263,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
-    def test_create_task_rejects_internal_image_builder_origin(self):
+    @parameterized.expand(
+        [
+            ("image_builder",),
+            ("experiments",),
+        ]
+    )
+    def test_create_task_rejects_internal_origin(self, origin: str):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": "image_builder",
+                "origin_product": origin,
                 "repository": "posthog/posthog",
             },
             format="json",
@@ -2471,25 +2515,29 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("gpt_5_3_low", "gpt-5.3-codex", "low"),
-            ("gpt_5_3_medium", "gpt-5.3-codex", "medium"),
-            ("gpt_5_3_high", "gpt-5.3-codex", "high"),
-            ("gpt_5_5_xhigh", "gpt-5.5", "xhigh"),
-            ("gpt_5_6_sol_xhigh", "gpt-5.6-sol", "xhigh"),
-            ("gpt_5_6_sol_max", "gpt-5.6-sol", "max"),
-            ("gpt_5_6_luna_xhigh", "gpt-5.6-luna", "xhigh"),
-            ("gpt_5_6_luna_max", "gpt-5.6-luna", "max"),
+            ("gpt_5_3_low", "codex", "gpt-5.3-codex", "low", "openai"),
+            ("gpt_5_3_medium", "codex", "gpt-5.3-codex", "medium", "openai"),
+            ("gpt_5_3_high", "codex", "gpt-5.3-codex", "high", "openai"),
+            ("gpt_5_5_xhigh", "codex", "gpt-5.5", "xhigh", "openai"),
+            ("gpt_5_6_sol_xhigh", "codex", "gpt-5.6-sol", "xhigh", "openai"),
+            ("gpt_5_6_sol_max", "codex", "gpt-5.6-sol", "max", "openai"),
+            ("gpt_5_6_luna_xhigh", "codex", "gpt-5.6-luna", "xhigh", "openai"),
+            ("gpt_5_6_luna_max", "codex", "gpt-5.6-luna", "max", "openai"),
+            ("glm_5_2_high", "claude", "@cf/zai-org/glm-5.2", "high", "anthropic"),
+            ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_persists_runtime_metadata(self, _case_name, model, reasoning_effort, mock_workflow):
+    def test_run_endpoint_persists_runtime_metadata(
+        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow
+    ):
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "mode": "interactive",
-                "runtime_adapter": "codex",
+                "runtime_adapter": runtime_adapter,
                 "model": model,
                 "reasoning_effort": reasoning_effort,
             },
@@ -2499,12 +2547,12 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_200_OK
         latest_run = response.json()["latest_run"]
         task_run = TaskRun.objects.get(id=latest_run["id"])
-        assert task_run.state["runtime_adapter"] == "codex"
-        assert task_run.state["provider"] == "openai"
+        assert task_run.state["runtime_adapter"] == runtime_adapter
+        assert task_run.state["provider"] == provider
         assert task_run.state["model"] == model
         assert task_run.state["reasoning_effort"] == reasoning_effort
-        assert latest_run["runtime_adapter"] == "codex"
-        assert latest_run["provider"] == "openai"
+        assert latest_run["runtime_adapter"] == runtime_adapter
+        assert latest_run["provider"] == provider
         assert latest_run["model"] == model
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
@@ -2736,17 +2784,25 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("unknown_model", "claude-sonnet-4-5", "high", "none"),
+            ("glm_medium", "@cf/zai-org/glm-5.2", "medium", "high, max"),
+        ]
+    )
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow, mock_capture):
+    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(
+        self, _case_name, model, reasoning_effort, supported_values, mock_workflow, mock_capture
+    ):
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-4-5",
-                "reasoning_effort": "high",
+                "model": model,
+                "reasoning_effort": reasoning_effort,
             },
             format="json",
         )
@@ -2756,8 +2812,8 @@ class TestTaskAPI(BaseTaskAPITest):
             "type": "validation_error",
             "code": "invalid_input",
             "detail": (
-                "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
-                "and model 'claude-sonnet-4-5'. Supported values: none."
+                f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
+                f"and model '{model}'. Supported values: {supported_values}."
             ),
             "attr": "reasoning_effort",
         }
@@ -2771,11 +2827,11 @@ class TestTaskAPI(BaseTaskAPITest):
             event="task run reasoning effort rejected",
             properties={
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-4-5",
-                "reasoning_effort": "high",
+                "model": model,
+                "reasoning_effort": reasoning_effort,
                 "error": (
-                    "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
-                    "and model 'claude-sonnet-4-5'. Supported values: none."
+                    f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
+                    f"and model '{model}'. Supported values: {supported_values}."
                 ),
             },
             groups=ANY,
@@ -9515,6 +9571,9 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         state = run.state or {}
         self.assertEqual(state["custom_image_builder_id"], data["id"])
         self.assertIs(state["use_modal_vm_sandbox"], True)
+        self.assertEqual(state["runtime_adapter"], "claude")
+        self.assertEqual(state["model"], "@cf/zai-org/glm-5.2")
+        self.assertEqual(state["reasoning_effort"], "high")
         self.assertIn("image-spec.yaml", state["pending_user_message"])
         self.assertIn("install pytorch and flox", state["pending_user_message"])
 
@@ -9532,6 +9591,88 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rename_updates_name(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="Old name")
+        response = self.client.patch(self.detail_url(image.id), {"name": "New name"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "New name")
+        image.refresh_from_db()
+        self.assertEqual(image.name, "New name")
+
+    def test_rename_updates_description(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img", description="old")
+        response = self.client.patch(self.detail_url(image.id), {"description": "fresh"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["description"], "fresh")
+        image.refresh_from_db()
+        self.assertEqual(image.description, "fresh")
+
+    @parameterized.expand(
+        [
+            ("blank_name", {"name": "   "}),
+            ("empty_name", {"name": ""}),
+        ]
+    )
+    def test_rename_rejects_blank_name(self, _name, payload):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        image.refresh_from_db()
+        self.assertEqual(image.name, "img")
+
+    def test_rename_rejects_name_over_max_length(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), {"name": "x" * 256}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rename_not_reachable_for_other_user_private_image(self):
+        # A teammate must not be able to rename (or even see) another user's
+        # private image: the rename surfaces as a 404 and leaves the name intact.
+        other_user = self.create_organization_user("imageowner")
+        image = _make_custom_image(team=self.team, user=other_user, name="private", private=True)
+        response = self.client.patch(self.detail_url(image.id), {"name": "hijack"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        image.refresh_from_db()
+        self.assertEqual(image.name, "private")
+
+    def test_rename_other_team_image_returns_404(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_image = _make_custom_image(team=other_team, user=self.user, name="theirs")
+        response = self.client.patch(self.detail_url(other_image.id), {"name": "mine"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_rename_disabled_without_vm_sandbox_flag(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        self.enable_vm_sandbox_flag(False)
+        response = self.client.patch(self.detail_url(image.id), {"name": "renamed"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rename_empty_body_is_noop_success(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "img")
+        image.refresh_from_db()
+        self.assertEqual(image.name, "img")
+
+    def test_rename_returns_404_when_image_deleted_after_update(self):
+        # A concurrent delete between the UPDATE and the reload must surface as a
+        # 404 (the facade's missing-image contract), not a 500 from DoesNotExist.
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+
+        real_get = tasks_facade.get_sandbox_custom_image
+
+        def get_after_delete(image_id, team_id, user_id):
+            # Simulate another request deleting the row right after our UPDATE lands.
+            SandboxCustomImage.objects.filter(id=image_id).delete()
+            return real_get(image_id, team_id, user_id)
+
+        with patch.object(tasks_facade, "get_sandbox_custom_image", side_effect=get_after_delete):
+            response = self.client.patch(self.detail_url(image.id), {"name": "renamed"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
     def test_build_with_inline_spec_persists_and_triggers_workflow(self, mock_workflow):

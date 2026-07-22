@@ -17,8 +17,15 @@
             "description": "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
         },
         "insightId": {
-            "description": "The insight ID or short_id to run.",
-            "type": "string"
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                }
+            ],
+            "description": "The insight to run: its numeric `id` or 8-character `short_id`."
         },
         "output_format": {
             "default": "optimized",

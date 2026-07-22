@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BraintreeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
+    BraintreeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

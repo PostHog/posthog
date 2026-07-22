@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LaunchDarklySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.launchdarkly import (
+    LaunchDarklySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly import (
     LaunchDarklyResumeConfig,
     launchdarkly_source,
@@ -150,6 +152,7 @@ You can create a personal or service access token in your [LaunchDarkly account 
         return launchdarkly_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

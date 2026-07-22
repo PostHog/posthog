@@ -7,9 +7,11 @@ import { Link } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +24,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
+import { PromptLabelChip } from './PromptLabelChip'
 import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport = {
@@ -36,6 +39,8 @@ export function LLMPromptsScene(): JSX.Element {
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, shouldShowEmptyState } =
         useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
     const promptUrl = (name: string): string => combineUrl(urls.aiObservabilityPrompt(name), searchParams).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
@@ -86,6 +91,26 @@ export function LLMPromptsScene(): JSX.Element {
                 return <span className="text-muted-alt">{prompt.version_count}</span>
             },
         },
+        ...(labelsEnabled
+            ? ([
+                  {
+                      title: 'Labels',
+                      key: 'labels',
+                      render: function renderLabels(_, prompt) {
+                          if (!prompt.all_labels?.length) {
+                              return <span className="text-muted-alt">–</span>
+                          }
+                          return (
+                              <div className="flex flex-wrap gap-1">
+                                  {prompt.all_labels.map((label) => (
+                                      <PromptLabelChip key={label.name} label={`${label.name}: v${label.version}`} />
+                                  ))}
+                              </div>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<LLMPrompt>)
+            : []),
         atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,

@@ -7,6 +7,7 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconFlask,
     IconHome,
     IconLive,
@@ -23,6 +24,7 @@ import {
     IconRocket,
     IconSpotlight,
     IconToggle,
+    IconToolbar,
     IconTrends,
     IconWarning,
 } from '@posthog/icons'
@@ -77,6 +79,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconSpotlight />
         case 'property_definition':
             return <IconApps />
+        case 'replay_scanner':
+            return <IconEye />
         case 'revenue_analytics':
             return <IconPiggyBank />
         case 'session_recording':
@@ -89,6 +93,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconPieChart />
         case 'tracing':
             return <IconListTree />
+        case 'toolbar':
+            return <IconToolbar />
         default:
             return null
     }
