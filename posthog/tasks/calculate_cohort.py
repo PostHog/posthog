@@ -376,7 +376,16 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
         except Exception as e:
             COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER.inc()
             logger.exception("cohort_dependency_resolution_failed", cohort_id=cohort.id, error=str(e))
-            capture_exception()
+            # Include the cohort context so malformed-filter failures during dependency traversal
+            # are identifiable in telemetry rather than landing as a context-less capture.
+            capture_exception(
+                e,
+                additional_properties={
+                    "cohort_id": cohort.id,
+                    "team_id": cohort.team_id,
+                    "filters": cohort.properties.to_dict(),
+                },
+            )
             # Fall back to calculating just this cohort without dependencies
             logger.warning("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
             _enqueue_single_cohort_calculation(cohort, initiating_user)
