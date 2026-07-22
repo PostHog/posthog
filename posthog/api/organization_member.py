@@ -232,7 +232,9 @@ class OrganizationMemberViewSet(
                 queryset = queryset.filter(user_id=cast(User, self.request.user).id)
             elif requesting_membership.level < OrganizationMembership.Level.ADMIN:
                 # Restricted members only see themselves and members of their projects
-                queryset = queryset.filter(id__in=get_project_scoped_visible_membership_ids(requesting_membership))
+                queryset = queryset.filter(
+                    id__in=get_project_scoped_visible_membership_ids(organization, requesting_membership)
+                )
 
         if self.action == "list":
             params = self.request.GET.dict()

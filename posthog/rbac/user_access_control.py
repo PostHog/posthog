@@ -286,11 +286,12 @@ def get_effective_access_level_for_member(
     )
 
 
-def get_project_scoped_visible_membership_ids(requesting_membership: OrganizationMembership) -> set[str]:
+def get_project_scoped_visible_membership_ids(
+    organization: Organization, requesting_membership: OrganizationMembership
+) -> set[str]:
     """Membership ids a restricted (non-org-admin) member may see: their own, plus members with
     project-scoped access (explicit grant, role, or project default — no org-admin bypass) to any
     project the requester has access to."""
-    organization = requesting_membership.organization
     team_ids = list(organization.teams.values_list("id", flat=True))
     role_based_access = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
 
@@ -347,7 +348,7 @@ def restricted_visible_membership_ids(organization: Organization, user: User) ->
         return set()
     if membership.level >= OrganizationMembership.Level.ADMIN:
         return None
-    return get_project_scoped_visible_membership_ids(membership)
+    return get_project_scoped_visible_membership_ids(organization, membership)
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
