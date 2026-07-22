@@ -174,7 +174,7 @@ export interface EarlyAccessFeatureApi {
     readonly payload: EarlyAccessFeatureApiPayload
     readonly created_at: string
     /** The user who created this early access feature. Null for features created before creator tracking was added. */
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -221,7 +221,7 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     payload?: unknown
     readonly created_at: string
     /** The user who created this early access feature. Null for features created before creator tracking was added. */
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
     feature_flag_id?: number
     readonly feature_flag: MinimalFeatureFlagApi
@@ -269,7 +269,7 @@ export interface PatchedEarlyAccessFeatureApi {
     readonly payload?: PatchedEarlyAccessFeatureApiPayload
     readonly created_at?: string
     /** The user who created this early access feature. Null for features created before creator tracking was added. */
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
     /**
      * The effective access level the user has for this object
      * @nullable

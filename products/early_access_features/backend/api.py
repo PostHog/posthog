@@ -115,6 +115,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
     payload = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(
         read_only=True,
+        allow_null=True,
         help_text="The user who created this early access feature. Null for features created before creator tracking was added.",
     )
 

@@ -661,6 +661,7 @@ class TestEarlyAccessFeature(APIBaseTest):
             "results": [
                 {
                     "created_at": ANY,
+                    "created_by": None,
                     "description": "A revolution in usability research: now you can count clicks!",
                     "documentation_url": "",
                     "feature_flag": None,
