@@ -1,25 +1,35 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 
 if TYPE_CHECKING:
+    from clickhouse_connect.driver.client import Client as ClickHouseClient
+
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
         ClickHouseSourceConfig,
     )
 
 DIRECT_CLICKHOUSE_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+# Hard backstop against loading an unbounded result set into memory — guards a raw passthrough
+# `SELECT * FROM huge_table` with no LIMIT (the shared client runs with query_limit=0). HogQL-
+# authored queries already carry a LIMIT from the printer.
+DIRECT_CLICKHOUSE_MAX_ROWS = 1_000_000
+DIRECT_CLICKHOUSE_ROW_CAP_ERROR = (
+    f"ClickHouse query returned more than {DIRECT_CLICKHOUSE_MAX_ROWS:,} rows. Add a LIMIT clause."
+)
 RAW_CLICKHOUSE_READ_ONLY_ERROR = "Raw ClickHouse queries must be read-only SELECT statements."
 
 
@@ -31,22 +41,48 @@ def clickhouse_error_to_message(error: Exception) -> str:
 
 
 def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
-    """Allow a single read-only statement — one whose first significant keyword is SELECT or WITH.
-    ClickHouse writes (INSERT/ALTER/CREATE/DROP/RENAME/TRUNCATE/OPTIMIZE/SYSTEM/SET/…) all start with a
-    different keyword, so a first-keyword check is a robust read-only guard for raw queries."""
+    """Enforce read-only for raw ClickHouse SQL.
+
+    ClickHouse has no read-only transaction switch we can set on the connection, so read-only is
+    enforced our side (as with Snowflake/Redshift): the statement must be a single ``SELECT`` and
+    any DDL — or any DML keyword other than ``SELECT`` anywhere in the statement — is rejected.
+    A first-keyword check is not enough: ClickHouse accepts ``WITH 1 AS x INSERT INTO t SELECT x``,
+    which starts with ``WITH`` but writes, so the whole statement is inspected. HogQL-authored
+    queries only ever emit SELECT. String values and quoted identifiers aren't tagged DML/DDL, so
+    a literal or alias like ``'DELETE'`` is unaffected.
+    """
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
-    if len(statements) != 1:
+    if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
     for token in statements[0].flatten():
-        if token.is_whitespace or token.ttype in sqlparse_tokens.Comment:
-            continue
-        value = token.value.upper()
-        if token.ttype in sqlparse_tokens.Keyword and value in ("SELECT", "WITH"):
-            return sql
-        # First significant token is anything else (a write keyword, or an identifier) → reject.
-        raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
-    raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.DDL:
+            raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
+            raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
+    return sql
+
+
+def _fetch_capped_clickhouse_rows(
+    client: "ClickHouseClient", sql: str, parameters: dict[str, Any] | None
+) -> tuple[list, list[str], list[str]]:
+    """Stream rows up to the row cap, raising if the result would exceed it.
+
+    The shared client is configured with ``query_limit=0``, so ``client.query`` would buffer the
+    full response in the worker process. Streaming row blocks and stopping one row past the cap
+    bounds memory to the cap plus a single block, matching the fetchmany(cap+1) guard the
+    Snowflake/Redshift adapters use.
+    """
+    rows: list = []
+    with client.query_row_block_stream(sql, parameters=parameters) as stream:
+        column_names = list(stream.source.column_names)
+        column_types = [str(column_type) for column_type in stream.source.column_types]
+        for block in stream:
+            rows.extend(block)
+            if len(rows) > DIRECT_CLICKHOUSE_MAX_ROWS:
+                DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="clickhouse").inc()
+                raise ExposedHogQLError(DIRECT_CLICKHOUSE_ROW_CAP_ERROR)
+    return rows, column_names, column_types
 
 
 class ClickHouseAdapter:
@@ -89,8 +125,6 @@ class ClickHouseAdapter:
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         from clickhouse_connect.driver.exceptions import ClickHouseError
 
-        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import _get_client
-
         source = request.source
         clickhouse_source, config = self.validate_source_config(source, request.team)
         settings = request.settings
@@ -104,30 +138,20 @@ class ClickHouseAdapter:
         span.set_attribute("source_id", str(source.id))
 
         try:
-            with request.timings.measure("clickhouse_execute"):
+            with request.timings.measure("clickhouse_execute"), observe_direct_query("clickhouse"):
                 # The SSH tunnel (if any) is opened for the life of the query; the native driver
                 # connects to the external ClickHouse directly, never through PostHog's cluster.
-                with clickhouse_source.with_ssh_tunnel(config, request.team.pk) as (host, port):
-                    client = _get_client(
-                        host=host,
-                        port=port,
-                        database=config.database,
-                        user=config.user,
-                        password=config.password,
-                        secure=config.secure,
-                        verify=config.verify,
-                        query_timeout=statement_timeout_seconds,
-                        # A server-side execution cap on top of the socket timeout. `max_execution_time`
-                        # is a standard setting managed servers accept (unlike a readonly override).
-                        settings={"max_execution_time": statement_timeout_seconds},
+                with clickhouse_source.direct_query_client(
+                    config,
+                    request.team.pk,
+                    query_timeout=statement_timeout_seconds,
+                    # A server-side execution cap on top of the socket timeout. `max_execution_time`
+                    # is a standard setting managed servers accept (unlike a readonly override).
+                    settings={"max_execution_time": statement_timeout_seconds},
+                ) as client:
+                    rows, column_names, column_types = _fetch_capped_clickhouse_rows(
+                        client, request.sql, request.values or None
                     )
-                    try:
-                        result = client.query(request.sql, parameters=request.values or None)
-                        rows = result.result_rows
-                        column_names = list(result.column_names)
-                        column_types = [str(column_type) for column_type in result.column_types]
-                    finally:
-                        client.close()
         except (ClickHouseError, OSError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:

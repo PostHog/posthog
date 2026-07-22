@@ -1,9 +1,16 @@
+from typing import Any
+
+from unittest.mock import MagicMock, patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.direct_sql.clickhouse_adapter import ensure_read_only_raw_clickhouse_statement
+from posthog.hogql.direct_sql.clickhouse_adapter import (
+    _fetch_capped_clickhouse_rows,
+    ensure_read_only_raw_clickhouse_statement,
+)
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 
 
@@ -62,8 +69,47 @@ class TestClickHouseReadOnlyGuard(SimpleTestCase):
             ("truncate", "TRUNCATE TABLE events"),
             ("system", "SYSTEM RELOAD DICTIONARIES"),
             ("multi_statement", "SELECT 1; DROP TABLE events"),
+            # A first-keyword check treated these as read-only because they open with WITH/SELECT,
+            # but the driver still runs the embedded write — the whole statement must be inspected.
+            ("with_prefixed_insert", "WITH 1 AS x INSERT INTO target SELECT x"),
+            ("write_in_subquery", "SELECT * FROM (INSERT INTO events VALUES (1))"),
         ]
     )
     def test_rejects_writes(self, _name, sql):
         with self.assertRaises(ExposedHogQLError):
             ensure_read_only_raw_clickhouse_statement(sql)
+
+
+class TestClickHouseRowCap(SimpleTestCase):
+    def _stream_client(self, blocks: list[list[tuple]]) -> MagicMock:
+        stream = MagicMock()
+        stream.source.column_names = ["n"]
+        stream.source.column_types = ["Int64"]
+        stream.__iter__.return_value = iter(blocks)
+        client = MagicMock()
+        client.query_row_block_stream.return_value.__enter__.return_value = stream
+        client.query_row_block_stream.return_value.__exit__.return_value = False
+        return client
+
+    def test_returns_rows_and_types_under_cap(self):
+        client = self._stream_client([[(1,), (2,)], [(3,)]])
+        rows, column_names, column_types = _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None)
+        self.assertEqual(rows, [(1,), (2,), (3,)])
+        self.assertEqual(column_names, ["n"])
+        self.assertEqual(column_types, ["Int64"])
+
+    def test_raises_when_result_exceeds_cap(self):
+        # The streaming guard trips one row past the cap — the memory-exhaustion path a raw
+        # unbounded SELECT hits. Patch the cap small so the test doesn't allocate a million rows.
+        client = self._stream_client([[(0,), (1,)], [(2,), (3,)]])
+        with patch("posthog.hogql.direct_sql.clickhouse_adapter.DIRECT_CLICKHOUSE_MAX_ROWS", 3):
+            with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
+                _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None)
+
+    def test_passes_parameters_through(self):
+        client = self._stream_client([[(1,)]])
+        params: dict[str, Any] = {"team_id": 1}
+        _fetch_capped_clickhouse_rows(client, "SELECT n FROM t WHERE team = %(team_id)s", params)
+        client.query_row_block_stream.assert_called_once_with(
+            "SELECT n FROM t WHERE team = %(team_id)s", parameters=params
+        )
