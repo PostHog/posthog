@@ -104,7 +104,7 @@ class TestSendAnnouncement(BaseTest):
 
     @patch(POST)
     def test_rate_limited_channel_defers_once_then_fails(self, mock_post: MagicMock):
-        mock_post.side_effect = SupportMessageSendError("rate_limited", retry_after=30.0)
+        mock_post.side_effect = SupportMessageSendError("ratelimited", retry_after=30.0)
 
         announcement = self._make(["C1"])
         try:
@@ -120,7 +120,7 @@ class TestSendAnnouncement(BaseTest):
 
     @patch(POST)
     def test_rate_limited_channel_sends_on_retry(self, mock_post: MagicMock):
-        mock_post.side_effect = [SupportMessageSendError("rate_limited", retry_after=1.0), "9.9"]
+        mock_post.side_effect = [SupportMessageSendError("ratelimited", retry_after=1.0), "9.9"]
 
         announcement = self._make(["C1"])
         try:

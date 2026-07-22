@@ -165,7 +165,7 @@ def _deliver_to_channel(team_id: int, delivery: AnnouncementDelivery, message: s
         delivery.sent_at = timezone.now()
         delivery.error = ""
     except SupportMessageSendError as e:
-        if e.code == "rate_limited" and not was_rate_limit_deferred:
+        if e.code == "ratelimited" and not was_rate_limit_deferred:
             # Leave the row pending for the task's autoretry; one deferral per row.
             delivery.error = DELIVERY_RATE_LIMIT_DEFERRED_ERROR
             delivery.save(update_fields=["error", "updated_at"])
