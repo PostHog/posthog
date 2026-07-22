@@ -34,6 +34,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { ScannerLoadError } from './components/ScannerLoadError'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -89,12 +90,13 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const {
         scanner,
         scannerLoading,
+        scannerLoadFailed,
         isScannerSubmitting,
         scannerValidationErrors,
         showScannerErrors,
         durationValidationError,
     } = useValues(scannerLogic)
-    const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
+    const { submitScanner, setSubmitIntent, loadScanner } = useActions(scannerLogic)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
 
@@ -106,12 +108,12 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         return <NotFound object="page" />
     }
 
+    if (step !== 'template' && scannerLoadFailed) {
+        return <ScannerLoadError onRetry={loadScanner} />
+    }
+
     if (step !== 'template' && (scannerLoading || !scanner)) {
-        return (
-            <SceneContent>
-                <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
-            </SceneContent>
-        )
+        return <SpinnerOverlay sceneLevel />
     }
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'

@@ -289,6 +289,7 @@ export interface replayScannerLogicValues {
     scannerHasErrors: boolean
     scannerImpact: ScannerImpactApi | null
     scannerImpactLoading: boolean
+    scannerLoadFailed: boolean
     scannerLoading: boolean
     scannerManualErrors: Record<string, any>
     scannerTouched: boolean
@@ -936,6 +937,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerFailure: () => false,
             },
         ],
+        // Distinguishes "finished loading, nothing there" from "the fetch failed" so the scene can offer a retry
+        // instead of stranding the user on a near-blank screen.
+        scannerLoadFailed: [
+            false,
+            {
+                loadScanner: () => false,
+                loadScannerSuccess: () => false,
+                loadScannerFailure: () => true,
+            },
+        ],
         submitIntent: [
             'save' as 'save' | 'advance',
             {
@@ -1318,9 +1329,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const response = await visionScannersRetrieve(String(teamId), props.id)
                     actions.loadScannerSuccess(scannerFromApi(response))
                 } catch (error: any) {
+                    // Keep the user on the page with a retry (see ScannerLoadError) rather than bouncing them
+                    // to the empty landing page, where a transient failure looks like the scanner vanished.
                     lemonToast.error(`Failed to load scanner${error.detail ? `: ${error.detail}` : ''}`)
                     actions.loadScannerFailure()
-                    router.actions.replace(urls.replayVision())
                 }
             },
 
