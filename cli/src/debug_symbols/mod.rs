@@ -139,7 +139,6 @@ fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
                 "/rustc/",
                 "/.rustup/toolchains/",
                 "/vendor/",
-                "/go/pkg/mod/",
             ];
             if EXCLUDED.iter().any(|sub| path.contains(sub)) {
                 tracing::debug!("Filtered out (native toolchain): {}", path);
