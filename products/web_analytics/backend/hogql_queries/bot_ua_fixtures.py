@@ -50,6 +50,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "OzDocsCrawler/1.0 docs-ingestor",
         "polygazer/0.1.0",
         "BIC-Probe/1.0 (pracharvedam.ai)",
+        "ref-tools-crawler/1.0 (+https://ref.tools; contact:crawl@ref.tools)",
     ],
     "ai_search": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
@@ -183,8 +184,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Snap URL Preview Service; bot; snapchat; https://developers.snap.com/robots",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 OPR/131.0.0.0 (Edition Viber)",
         "vercel-screenshot/1.0",
-        # Server-side addition (prod $http_log Vercel log drain, 7d)
+        # Server-side additions (prod $http_log Vercel log drain, 7d)
         "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
+        "Lantern/1.0 (bot; +https://github.com/Lantern-chat)",
     ],
     "monitoring": [
         "Mozilla/5.0 AppleWebKit/537.36 Chrome/149.0.7827.200 Safari/537.36 Google-Ads-Conversions",
@@ -266,6 +268,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "python-httpx/0.28.1",
         "Mozilla/5.0 (Linux; Android 12; M2101K6G Build/SKQ1.210908.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/148.0.7778.178 Mobile Safari/537.36 Android/12 Model/M2101K6G com.nhn.android.nmap/6.6.1.0 1000; (60601000,uid:10210) LoginMod/7.39.1",
         "Mozilla/5.0 zgrab/0.x",
+        # Server-side addition (prod $http_log Vercel log drain, 7d)
+        "Yoinka-Events/1.0 (+https://yoinka.app)",
     ],
     "headless_browser": [
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36",
