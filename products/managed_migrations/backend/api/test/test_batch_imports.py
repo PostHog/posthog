@@ -1083,6 +1083,27 @@ class TestBatchImportTrialAPI(APIBaseTest):
         )
         mock_read.assert_called_once_with(self.team.id, str(batch_import.id), 1)
 
+    def test_trial_records_with_no_pages_returns_empty_state(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 0, "pages_written": 0, "summary": {"source_records": 0}}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "records": [],
+                "page": 0,
+                "total_pages": 0,
+                "total_records": 0,
+                "summary": {"source_records": 0},
+            },
+        )
+
     def test_trial_records_page_out_of_range_is_404(self):
         batch_import = self._create_import(
             status=BatchImport.Status.COMPLETED,

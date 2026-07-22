@@ -2,6 +2,7 @@ import os
 from typing import Optional
 
 from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.object_storage import OBJECT_STORAGE_REGION
 
 # S3-compatible store holding managed-migration trial run output (browsable
 # JSONL pages + summary), written by the batch-import worker (its TRIAL_BUCKET_*
@@ -24,7 +25,7 @@ else:
         os.getenv("MANAGED_MIGRATIONS_TRIAL_S3_SECRET_ACCESS_KEY", "") or None
     )
 
-MANAGED_MIGRATIONS_TRIAL_S3_REGION = os.getenv("MANAGED_MIGRATIONS_TRIAL_S3_REGION", "us-east-1")
+MANAGED_MIGRATIONS_TRIAL_S3_REGION = os.getenv("MANAGED_MIGRATIONS_TRIAL_S3_REGION") or OBJECT_STORAGE_REGION
 # Empty bucket outside DEBUG/TEST means trial results are unavailable (the API
 # responds accordingly); set it wherever the worker fleet has a trial bucket.
 MANAGED_MIGRATIONS_TRIAL_S3_BUCKET = os.getenv("MANAGED_MIGRATIONS_TRIAL_S3_BUCKET", "posthog" if TEST or DEBUG else "")

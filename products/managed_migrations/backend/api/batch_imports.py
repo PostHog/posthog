@@ -750,6 +750,17 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         trial = batch_import.trial_progress() or {}
         total_pages = trial.get("pages_written", 0)
+        if total_pages == 0:
+            # A trial that emitted no records has no pages — show an empty state, not an error.
+            return Response(
+                {
+                    "records": [],
+                    "page": 0,
+                    "total_pages": 0,
+                    "total_records": trial.get("records_emitted", 0),
+                    "summary": trial.get("summary"),
+                }
+            )
         if page >= total_pages:
             return Response(
                 {"error": f"Page {page} does not exist", "total_pages": total_pages},

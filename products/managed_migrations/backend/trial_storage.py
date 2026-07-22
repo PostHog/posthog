@@ -50,8 +50,10 @@ def _read_object(key: str) -> bytes:
         return response["Body"].read()
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
-        if code in ("NoSuchKey", "NoSuchBucket", "404"):
+        if code in ("NoSuchKey", "404"):
             raise TrialResultsUnavailable(f"trial object {key} not found") from exc
+        # Anything else (NoSuchBucket, auth failures, …) is a storage misconfiguration,
+        # not expired results — surface it as an error instead of "expired".
         logger.exception("managed_migrations.trial_storage.read_failed", key=key)
         raise
 

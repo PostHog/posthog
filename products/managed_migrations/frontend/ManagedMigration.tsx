@@ -79,7 +79,7 @@ function AmplitudeImportOptions({
 }
 
 export function ManagedMigration(): JSX.Element {
-    const { managedMigration } = useValues(managedMigrationLogic)
+    const { managedMigration, isManagedMigrationSubmitting } = useValues(managedMigrationLogic)
     const { setManagedMigrationValue } = useActions(managedMigrationLogic)
 
     return (
@@ -297,7 +297,7 @@ export function ManagedMigration(): JSX.Element {
                 )}
 
                 <div className="flex justify-end">
-                    <LemonButton type="primary" htmlType="submit">
+                    <LemonButton type="primary" htmlType="submit" loading={isManagedMigrationSubmitting}>
                         {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
                     </LemonButton>
                 </div>
