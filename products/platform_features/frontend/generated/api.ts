@@ -327,6 +327,10 @@ export const getRolesListUrl = (organizationId: string, params?: RolesListParams
         : `/api/organizations/${organizationId}/roles/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesList = async (
     organizationId: string,
     params?: RolesListParams,
@@ -342,6 +346,10 @@ export const getRolesCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/roles/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesCreate = async (
     organizationId: string,
     roleApi: NonReadonly<RoleApi>,
@@ -359,6 +367,10 @@ export const getRolesRetrieveUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRetrieve = async (organizationId: string, id: string, options?: RequestInit): Promise<RoleApi> => {
     return apiMutator<RoleApi>(getRolesRetrieveUrl(organizationId, id), {
         ...options,
@@ -370,6 +382,10 @@ export const getRolesUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesUpdate = async (
     organizationId: string,
     id: string,
@@ -388,6 +404,10 @@ export const getRolesPartialUpdateUrl = (organizationId: string, id: string) => 
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesPartialUpdate = async (
     organizationId: string,
     id: string,
@@ -406,6 +426,10 @@ export const getRolesDestroyUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/roles/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getRolesDestroyUrl(organizationId, id), {
         ...options,
@@ -433,6 +457,10 @@ export const getRolesRoleMembershipsListUrl = (
         : `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsList = async (
     organizationId: string,
     roleId: string,
@@ -449,6 +477,10 @@ export const getRolesRoleMembershipsCreateUrl = (organizationId: string, roleId:
     return `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsCreate = async (
     organizationId: string,
     roleId: string,
@@ -467,6 +499,10 @@ export const getRolesRoleMembershipsRetrieveUrl = (organizationId: string, roleI
     return `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsRetrieve = async (
     organizationId: string,
     roleId: string,
@@ -483,6 +519,10 @@ export const getRolesRoleMembershipsDestroyUrl = (organizationId: string, roleId
     return `/api/organizations/${organizationId}/roles/${roleId}/role_memberships/${id}/`
 }
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesRoleMembershipsDestroy = async (
     organizationId: string,
     roleId: string,

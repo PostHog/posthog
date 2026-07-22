@@ -161,24 +161,40 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesCreateBodyNameMax = 200
 
 export const RolesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesCreateBodyNameMax),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesUpdateBodyNameMax = 200
 
 export const RolesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesUpdateBodyNameMax),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const rolesPartialUpdateBodyNameMax = 200
 
 export const RolesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesPartialUpdateBodyNameMax).optional(),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesRoleMembershipsCreateBody = /* @__PURE__ */ zod.object({
     user_uuid: zod.uuid(),
 })
