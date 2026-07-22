@@ -23,6 +23,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
+from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -359,6 +360,8 @@ TICKET_ID_PARAM = OpenApiParameter(
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
+    # "create" stays listed so a ticket:write token reaches the create() override below and
+    # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -594,6 +597,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         context = super().get_serializer_context()
         context["team"] = self.team
         return context
+
+    @extend_schema(exclude=True)
+    def create(self, *args, **kwargs):
+        # Tickets are created through their channel (widget, email, Slack, etc.) or the
+        # `compose` action, all of which assign team + ticket_number. The bare collection
+        # POST can't set those and is not a supported intake path — reject it explicitly
+        # instead of 500ing on the NOT NULL violation.
+        raise MethodNotAllowed(
+            method="POST",
+            detail="Creating tickets via this endpoint is not supported. "
+            "Use posthog.conversations.sendMessage() from the JavaScript SDK. "
+            "See https://posthog.com/docs/support/javascript-api for details.",
+        )
 
     def _attach_persons_to_tickets(self, tickets: Sequence[Ticket]) -> None:
         """Batch-fetch persons by distinct_id and attach to tickets."""
