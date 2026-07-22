@@ -489,13 +489,15 @@ export function IconInsightRetention(props: LemonIconProps): JSX.Element {
     )
 }
 
-/** User paths insights: a flow branching off, some of it dropping off. */
+/** User paths insights: a sankey — a source node splitting into two flows. */
 export function IconInsightUserPaths(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase stroke={INSIGHT_BLUE} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
-            <path d="M3.75 12h3.5c3.8 0 3.2-6.25 7-6.25h6" />
-            <path d="M7.25 12h5.5" opacity="0.6" />
-            <path d="M3.75 12h3.5c3.8 0 3.2 6.25 7 6.25h6" opacity="0.4" />
+        <LemonIconBase {...props}>
+            <path d="M6.6 8.25 C10.5 8.25 12 7.6 17.4 7.6" stroke={INSIGHT_BLUE} strokeWidth="4.5" opacity="0.4" />
+            <path d="M6.6 15 C10.5 15 12.5 16.4 17.4 16.4" stroke={INSIGHT_BLUE} strokeWidth="3.25" opacity="0.25" />
+            <rect x="3.75" y="4.5" width="2.9" height="15" rx="0.7" fill={INSIGHT_BLUE} />
+            <rect x="17.35" y="4.5" width="2.9" height="6.25" rx="0.7" fill={INSIGHT_BLUE} />
+            <rect x="17.35" y="13.25" width="2.9" height="6.25" rx="0.7" fill={INSIGHT_BLUE} />
         </LemonIconBase>
     )
 }
