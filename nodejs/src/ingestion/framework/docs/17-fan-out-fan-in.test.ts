@@ -155,6 +155,67 @@ describe('Fan-Out / Fan-In', () => {
     })
 
     /**
+     * Retry composes with the stage the same way `maxConcurrency` did above:
+     * both are ordinary sub-pipeline knobs, not stage features. Passing
+     * `{ retry }` to the per-sub step means a transient failure retries only
+     * that sub-element's work — the parent and its sibling sub-elements never
+     * notice. Contrast with retrying a monolithic "process everything" parent
+     * step, which would redo every sub-element's work on any one failure.
+     */
+    it('retries a transient sub-step failure without disturbing the parent', async () => {
+        interface Job {
+            id: string
+            parts: number[]
+        }
+
+        interface Part {
+            parentId: string
+            value: number
+        }
+
+        let attempts = 0
+
+        function partsFanOut(job: Job): Part[] {
+            return job.parts.map((value) => ({ parentId: job.id, value }))
+        }
+
+        function sumFanIn(job: Job, parts: Part[]): { id: string; total: number } {
+            return { id: job.id, total: parts.reduce((acc, p) => acc + p.value, 0) }
+        }
+
+        function createFlakyStep(): ProcessingStep<Part, Part> {
+            return function flakyStep(part) {
+                attempts++
+                if (attempts === 1) {
+                    // Retriable errors are retried by the step wrapper; the
+                    // stage itself never sees this failure.
+                    return Promise.reject(Object.assign(new Error('transient'), { isRetriable: true }))
+                }
+                return Promise.resolve(ok(part))
+            }
+        }
+
+        const pipeline = newChunkPipelineBuilder<Job, { message: Message }>()
+            .fanOut(partsFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(createFlakyStep(), { retry: { tries: 3, sleepMs: 1 } })))
+            .fanIn(sumFanIn)
+            .build()
+
+        pipeline.feed([createOkContext({ id: 'job', parts: [7] }, { message: createTestMessage() })])
+
+        const results = []
+        let chunk = await pipeline.next()
+        while (chunk !== null) {
+            results.push(...chunk)
+            chunk = await pipeline.next()
+        }
+
+        expect(results).toHaveLength(1)
+        expect(isOkResult(results[0].result) && results[0].result.value).toEqual({ id: 'job', total: 7 })
+        expect(attempts).toBe(2)
+    })
+
+    /**
      * DROP is the sanctioned way for a sub-step to exclude its sub-element:
      * the parent still completes via fan-in, just with the survivors. Use it
      * when a sub-element turns out to need no work — invalid part, cache hit,

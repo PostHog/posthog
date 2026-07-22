@@ -5,6 +5,7 @@ import { createTestMessage } from '~/tests/helpers/kafka-message'
 
 import { ChunkPipelineBuilder } from './builders'
 import { ChunkPipeline } from './chunk-pipeline.interface'
+import { FanOutFanInChunkPipeline, FanOutSubContext } from './fan-out-fan-in-chunk-pipeline'
 import { createNewChunkPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, dlq, drop, isDlqResult, isOkResult, ok, redirect } from './results'
@@ -133,6 +134,32 @@ describe('FanOutFanInChunkPipeline', () => {
         expect(fannedOut).toEqual(['good'])
     })
 
+    it('surfaces an empty upstream chunk as an empty chunk, not end of stream', async () => {
+        // Direct construction with a mock upstream: [] chunks originate from
+        // other stages (e.g. a filterMap passthrough), never from feed().
+        const upstream: ChunkPipeline<Parent, Parent, { message: Message }> = {
+            feed: jest.fn(),
+            next: jest
+                .fn()
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([createOkContext({ id: 'a', subs: [2] }, { message: createTestMessage() })])
+                .mockResolvedValue(null),
+        }
+        const pipeline = new FanOutFanInChunkPipeline(
+            upstream,
+            splitSubs,
+            createNewChunkPipeline<SubItem, FanOutSubContext>().build(),
+            sumSubs
+        )
+
+        // Downstream treats null as "drained", so an empty chunk must surface
+        // as [] — and must not stop the stage from processing later chunks.
+        expect(await pipeline.next()).toEqual([])
+        const second = await pipeline.next()
+        expect(okValues(second!)).toEqual([{ id: 'a', total: 2 }])
+        expect(await pipeline.next()).toBeNull()
+    })
+
     it('emits parents unordered as they complete, keeping sub-results correlated', async () => {
         const gate = deferred()
         function gatedStep(item: SubItem): Promise<PipelineResult<SubItem>> {
@@ -169,63 +196,6 @@ describe('FanOutFanInChunkPipeline', () => {
         expect(okValues(second!)).toEqual([{ id: 'slow', total: 30 }])
 
         expect(await pipeline.next()).toBeNull()
-    })
-
-    it('caps in-flight sub processing across parents via concurrently maxConcurrency', async () => {
-        let inFlight = 0
-        let highWater = 0
-        async function trackingStep(item: SubItem): Promise<PipelineResult<SubItem>> {
-            inFlight++
-            highWater = Math.max(highWater, inFlight)
-            await new Promise((resolve) => setImmediate(resolve))
-            inFlight--
-            return ok(item)
-        }
-
-        const pipeline = createNewChunkPipeline<Parent>()
-            .fanOut(splitSubs)
-            .via((sub) => sub.concurrently((b) => b.pipe(trackingStep), { maxConcurrency: 2 }))
-            .fanIn(sumSubs)
-            .build()
-
-        feedParents(pipeline, [
-            { id: 'a', subs: [1, 2, 3] },
-            { id: 'b', subs: [4, 5, 6] },
-        ])
-
-        const results = await drainAll(pipeline)
-
-        expect(okValues(results)).toEqual(
-            expect.arrayContaining([
-                { id: 'a', total: 6 },
-                { id: 'b', total: 15 },
-            ])
-        )
-        expect(highWater).toBeLessThanOrEqual(2)
-    })
-
-    it('recovers from transient sub-step failures via step retry options', async () => {
-        let attempts = 0
-        function flakyStep(item: SubItem): Promise<PipelineResult<SubItem>> {
-            attempts++
-            if (attempts === 1) {
-                return Promise.reject(Object.assign(new Error('transient'), { isRetriable: true }))
-            }
-            return Promise.resolve(ok(item))
-        }
-
-        const pipeline = createNewChunkPipeline<Parent>()
-            .fanOut(splitSubs)
-            .via((sub) => sub.concurrently((b) => b.pipe(flakyStep, { retry: { tries: 3, sleepMs: 1 } })))
-            .fanIn(sumSubs)
-            .build()
-
-        feedParents(pipeline, [{ id: 'a', subs: [7] }])
-
-        const results = await drainAll(pipeline)
-
-        expect(okValues(results)).toEqual([{ id: 'a', total: 7 }])
-        expect(attempts).toBe(2)
     })
 
     it('silently excludes dropped sub-elements and fans in with the survivors', async () => {
@@ -389,6 +359,33 @@ describe('FanOutFanInChunkPipeline', () => {
 
         await expect(drainAll(pipeline)).rejects.toThrow('boom')
         await expect(pipeline.next()).rejects.toThrow('boom')
+    })
+
+    it('drains completed parents before surfacing a later sub failure', async () => {
+        function doomedStep(item: SubItem): Promise<PipelineResult<SubItem>> {
+            if (item.parentId === 'doomed') {
+                return Promise.reject(new Error('sub boom'))
+            }
+            return Promise.resolve(ok(item))
+        }
+
+        const pipeline = createNewChunkPipeline<Parent>()
+            .fanOut(splitSubs)
+            .via((sub) => sub.concurrently((b) => b.pipe(doomedStep)))
+            .fanIn(sumSubs)
+            .build()
+
+        feedParents(pipeline, [
+            { id: 'done', subs: [1] },
+            { id: 'doomed', subs: [2] },
+        ])
+
+        // The failure is already in flight, but the completed parent must come
+        // out first; only then does next() reject — permanently.
+        const first = await pipeline.next()
+        expect(okValues(first!)).toEqual([{ id: 'done', total: 1 }])
+        await expect(pipeline.next()).rejects.toThrow('sub boom')
+        await expect(pipeline.next()).rejects.toThrow('sub boom')
     })
 
     it('routes a batch fed while a prior parent is parked on slow subs', async () => {
