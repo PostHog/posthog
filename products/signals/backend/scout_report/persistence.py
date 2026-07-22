@@ -255,6 +255,14 @@ def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
 
 
+def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
+    """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
+    have its content pushed to a configured destination, matching emit. Returns None when the report
+    doesn't exist for the team."""
+    value = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("status", flat=True).first()
+    return SignalReport.Status(value) if value is not None else None
+
+
 def update_scout_report(
     *,
     team_id: int,

@@ -1537,12 +1537,14 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         raise RuntimeError("Scout config output destination validation requires request in its context")
 
     key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if (
-        key_scopes is not None
-        and "*" not in key_scopes
-        and not any(scope in key_scopes for scope in ("integration:read", "integration:write"))
-    ):
-        raise PermissionDenied("API key missing required scope 'integration:read'")
+    if key_scopes is not None and "*" not in key_scopes:
+        if not any(scope in key_scopes for scope in ("integration:read", "integration:write")):
+            raise PermissionDenied("API key missing required scope 'integration:read'")
+        # Delivery pushes report titles/summaries to the channel — content the report API gates
+        # behind `task` scope — so a scoped key without it must not be able to route that content
+        # out via a destination.
+        if not any(scope in key_scopes for scope in ("task:read", "task:write")):
+            raise PermissionDenied("API key missing required scope 'task:read'")
 
     return {"slack": slack}
 

@@ -62,6 +62,7 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_note,
     create_scout_report,
+    get_scout_report_status,
     get_scout_report_title,
     record_report_edit,
     record_scout_run_task_artefact,
@@ -993,11 +994,17 @@ def _do_edit_report(
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
-        queue_configured_scout_slack_delivery(
-            run_id=run.id,
-            output_type="report",
-            output_id=report_id,
-        )
+        # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
+        # its content to a configured destination. The delivery worker re-checks status at send time
+        # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
+        # and skips queueing work that would no-op.
+        report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
+        if report_status is not None and _surfaced(report_status):
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="report",
+                output_id=report_id,
+            )
     return result
 
 

@@ -1163,16 +1163,23 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, "integration:read"),
             (
-                "integration_read_scope",
+                "missing_task_scope",
                 ["signal_scout:write", "integration:read"],
+                status.HTTP_403_FORBIDDEN,
+                "task:read",
+            ),
+            (
+                "integration_and_task_scopes",
+                ["signal_scout:write", "integration:read", "task:read"],
                 status.HTTP_200_OK,
+                None,
             ),
         ]
     )
-    def test_partial_update_slack_destination_requires_integration_scope(
-        self, _name: str, scopes: list[str], expected_status: int
+    def test_partial_update_slack_destination_requires_integration_and_task_scopes(
+        self, _name: str, scopes: list[str], expected_status: int, expected_missing_scope: str | None
     ) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
@@ -1190,8 +1197,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == expected_status
         config.refresh_from_db()
         assert config.output_destinations == (destination if expected_status == status.HTTP_200_OK else {})
-        if expected_status == status.HTTP_403_FORBIDDEN:
-            assert "integration:read" in response.json()["detail"]
+        if expected_missing_scope is not None:
+            assert expected_missing_scope in response.json()["detail"]
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")

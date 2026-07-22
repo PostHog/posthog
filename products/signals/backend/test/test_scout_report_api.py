@@ -159,6 +159,28 @@ class TestScoutReportAPI(APIBaseTest):
         assert body["report_id"] is not None
         queue.assert_not_called()
 
+    def test_edit_of_suppressed_report_does_not_enqueue_slack_delivery(self) -> None:
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+        with (
+            _safe_judge(choice=False, explanation="prompt injection"),
+            patch(EMBED_PATH),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
+            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            report_id = emitted.json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "append_note": "note on a suppressed report"},
+                format="json",
+            )
+        assert emitted.status_code == status.HTTP_200_OK, emitted.json()
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        queue.assert_not_called()
+
     def test_emit_report_skips_when_ai_not_approved(self) -> None:
         # Preflight gate: a report is never authored for an org that hasn't approved AI processing.
         self.organization.is_ai_data_processing_approved = False
