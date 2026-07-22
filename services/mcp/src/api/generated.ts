@@ -44941,6 +44941,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -52830,6 +52835,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id?: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }

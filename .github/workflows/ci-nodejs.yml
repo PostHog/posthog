@@ -403,8 +403,10 @@ jobs:
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
             # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -424,7 +426,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure step
             # so a real failure still triggers it via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
