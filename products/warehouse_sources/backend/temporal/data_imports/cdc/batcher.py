@@ -108,6 +108,8 @@ class ChangeEventBatcher:
                 size += len(val)
             elif val is not None:
                 size += 8
+        for name in event.omitted_columns:
+            size += len(name) + 50  # marker name + set entry overhead
         return size
 
 
