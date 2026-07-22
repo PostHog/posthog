@@ -256,10 +256,11 @@ class ReplayScannerPromptSuggestionViewSet(
         self._scanner_for_url_cache = scanner
         return scanner
 
-    def _require_editor(self) -> None:
-        # Generating and acting on suggestions mutates team-wide scanner state, matching the "Edit scanner" gate.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):
-            raise PermissionDenied("Managing prompt suggestions requires session_recording edit access.")
+    def _require_editor(self, scanner: ReplayScanner) -> None:
+        # Generating and acting on suggestions mutates team-wide scanner state — object-check the scanner
+        # itself (replay_scanner editor), mirroring the `retry` action in observations.py, rather than
+        # gating on the unrelated session_recording resource.
+        self.check_object_permissions(self.request, scanner)
 
     def safely_get_queryset(
         self, queryset: QuerySet[ReplayScannerPromptSuggestion]
@@ -304,8 +305,8 @@ class ReplayScannerPromptSuggestionViewSet(
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
             "Generate a fresh prompt suggestion from the team's current ratings. The previous pending "
-            "suggestion becomes history (superseded). Requires at least one rated observation and session "
-            "recording edit access."
+            "suggestion becomes history (superseded). Requires at least one rated observation and editor "
+            "access to the scanner."
         ),
     )
     # Each call is an inline LLM request, so it gets the shared AI rate limits on top of the editor gate.
@@ -317,7 +318,7 @@ class ReplayScannerPromptSuggestionViewSet(
     )
     def generate(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
-        self._require_editor()
+        self._require_editor(scanner)
         user = cast(User, request.user)
         try:
             suggestion = generate_prompt_suggestion(scanner, user)
@@ -341,7 +342,7 @@ class ReplayScannerPromptSuggestionViewSet(
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def apply(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
-        self._require_editor()
+        self._require_editor(scanner)
         suggestion = self.get_object()
         input_serializer = ApplyPromptSuggestionRequestSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
@@ -397,7 +398,7 @@ class ReplayScannerPromptSuggestionViewSet(
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def evaluate(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
-        self._require_editor()
+        self._require_editor(scanner)
         suggestion = self.get_object()
         input_serializer = EvaluatePromptSuggestionRequestSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
@@ -470,13 +471,13 @@ class ReplayScannerPromptSuggestionViewSet(
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
             "Dismiss this suggestion without applying it. Only the current pending suggestion can be "
-            "dismissed. Requires session recording edit access."
+            "dismissed. Requires editor access to the scanner."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def dismiss(self, request: Request, **kwargs: Any) -> Response:
-        self._scanner_for_url()
-        self._require_editor()
+        scanner = self._scanner_for_url()
+        self._require_editor(scanner)
         suggestion = self.get_object()
         with transaction.atomic():
             suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(

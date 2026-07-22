@@ -102,6 +102,10 @@ class TestVercelSource:
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.vercel.com/v6/deployments?limit=100"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.vercel.com/v9/projects?limit=100"),
+            (
+                "billing_charges_team_not_found",
+                "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges?from=2026-01-01T00%3A00%3A00.000Z&to=2026-02-01T00%3A00%3A00.000Z&teamId=team_abc",
+            ),
         ]
     )
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
@@ -113,6 +117,9 @@ class TestVercelSource:
             ("rate_limit", "429 Client Error: Too Many Requests for url: https://api.vercel.com/v6/deployments"),
             ("server_error", "500 Server Error: Internal Server Error for url: https://api.vercel.com/v6/deployments"),
             ("read_timeout", "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out."),
+            # Not-found on a non-billing endpoint is unrelated to the billing_charges team-lookup
+            # failure, so the match must stay scoped to that path rather than any 404 on the host.
+            ("not_found_other_endpoint", "404 Client Error: Not Found for url: https://api.vercel.com/v6/deployments"),
         ]
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
