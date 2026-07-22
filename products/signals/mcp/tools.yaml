@@ -402,8 +402,7 @@ tools:
             `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is
             registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or
             on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to
-            the inbox, and where those findings are delivered. Pair with
-            `scout-config-update` to tune them.
+            the inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
