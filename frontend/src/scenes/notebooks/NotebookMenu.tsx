@@ -11,9 +11,11 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
@@ -21,6 +23,10 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
         notebookLogic({ shortId })
+    )
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
     )
 
     return (
@@ -57,7 +63,11 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <ButtonPrimitive onClick={() => openShareModal()} menuItem>
+                        <ButtonPrimitive
+                            onClick={() => openShareModal()}
+                            menuItem
+                            disabledReasons={sharingDisabledReason ? { [sharingDisabledReason]: true } : undefined}
+                        >
                             <IconShare />
                             Share
                         </ButtonPrimitive>

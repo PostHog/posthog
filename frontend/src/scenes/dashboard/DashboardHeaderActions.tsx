@@ -9,6 +9,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
@@ -247,6 +248,11 @@ export function ViewModeActions(): JSX.Element {
         return <></>
     }
 
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
+
     return (
         <>
             <DashboardSubscribeButton />
@@ -256,7 +262,11 @@ export function ViewModeActions(): JSX.Element {
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
-                disabledReason={tiles.length === 0 ? 'Add at least one tile before sharing this dashboard' : undefined}
+                disabledReason={
+                    tiles.length === 0
+                        ? 'Add at least one tile before sharing this dashboard'
+                        : (sharingDisabledReason ?? undefined)
+                }
             >
                 Share
             </LemonButton>

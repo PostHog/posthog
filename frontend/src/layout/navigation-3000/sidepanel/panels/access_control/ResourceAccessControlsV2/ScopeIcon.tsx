@@ -22,6 +22,7 @@ import {
     IconPulse,
     IconRewindPlay,
     IconRocket,
+    IconShare,
     IconScatter,
     IconSpotlight,
     IconToggle,
@@ -88,6 +89,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconPiggyBank />
         case 'session_recording':
             return <IconRewindPlay />
+        case 'sharing_configuration':
+            return <IconShare />
         case 'survey':
             return <IconMessage />
         case 'task':
