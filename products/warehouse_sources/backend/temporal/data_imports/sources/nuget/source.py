@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NugetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuget import NugetSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.nuget import (
     PACKAGE_NOT_FOUND_PREFIX,
     NugetResumeConfig,
@@ -92,6 +92,7 @@ The public NuGet V3 API allows anonymous read access, so no API key is needed. E
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -111,7 +112,7 @@ The public NuGet V3 API allows anonymous read access, so no API key is needed. E
         return schemas
 
     def validate_credentials(
-        self, config: NugetSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: NugetSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             return validate_nuget_connection(config.package_ids)

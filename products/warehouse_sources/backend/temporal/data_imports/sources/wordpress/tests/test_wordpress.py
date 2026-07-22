@@ -276,6 +276,23 @@ class TestValidateCredentials:
             else:
                 assert expected_msg_substr in (msg or "")
 
+    @pytest.mark.parametrize(
+        "json_data, text, expects_substr, forbidden_substr",
+        [
+            # A bare proxy/WAF status line must not leak; the user gets an actionable message instead.
+            (None, "Bad Request", "unexpected response (HTTP 400)", "Bad Request"),
+            # A genuine WordPress REST error message is still surfaced.
+            ({"message": "rest_invalid_param"}, "", "rest_invalid_param", None),
+        ],
+    )
+    def test_unrecognized_status_does_not_leak_raw_body(self, json_data, text, expects_substr, forbidden_substr):
+        with self._patch_session(_response(status_code=400, json_data=json_data, text=text)):
+            valid, msg = validate_credentials("https://example.com", None, None)
+            assert valid is False
+            assert expects_substr in (msg or "")
+            if forbidden_substr is not None:
+                assert forbidden_substr not in (msg or "")
+
     def test_invalid_site_url(self):
         valid, msg = validate_credentials("", None, None)
         assert valid is False

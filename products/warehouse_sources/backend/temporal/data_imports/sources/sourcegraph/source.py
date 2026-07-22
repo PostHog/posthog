@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SourcegraphSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sourcegraph import (
+    SourcegraphSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.settings import (
     ENDPOINTS,
     SOURCEGRAPH_ENDPOINTS,
@@ -114,6 +116,7 @@ The `users` and `organizations` tables require a token created by a **site admin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No Sourcegraph connection exposes a server-side updated-since filter, so every
         # endpoint is full-refresh only (the cursor still makes runs resumable mid-sync).
@@ -133,12 +136,16 @@ The `users` and `organizations` tables require a token created by a **site admin
         return schemas
 
     def validate_credentials(
-        self, config: SourcegraphSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SourcegraphSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_sourcegraph_credentials(config.host, config.access_token, schema_name, team_id)
 
     def get_endpoint_permissions(
-        self, config: SourcegraphSourceConfig, team_id: int, endpoints: list[str]
+        self, config: SourcegraphSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return get_sourcegraph_endpoint_permissions(config.host, config.access_token, team_id, endpoints)
 

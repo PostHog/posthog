@@ -8,9 +8,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SignalScoutConfig } from '../../../types'
 import {
     FleetSummary,
     SCOUT_AUTHOR_PROMPT,
@@ -172,7 +173,7 @@ function FleetStatsHeader(): JSX.Element {
 }
 
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds } = useValues(scoutFleetLogic)
+    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds, updatingScoutIds } = useValues(scoutFleetLogic)
     const { setHideDisabled, updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
 
     return (
@@ -198,6 +199,7 @@ function ScoutsFleetList(): JSX.Element {
                         onUpdate={updateScoutConfig}
                         onDelete={deleteScout}
                         deleting={deletingScoutIds.includes(config.id)}
+                        updating={updatingScoutIds.includes(config.id)}
                     />
                 ))}
             </div>

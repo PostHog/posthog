@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -12,6 +13,8 @@ import {
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
 
+import type { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+
 import { AlertType } from './types'
 
 const createdBy = {
@@ -20,6 +23,7 @@ const createdBy = {
     distinct_id: 'storybook-user',
     first_name: 'Hedge Hog',
     email: 'hedge@example.com',
+    hedgehog_config: null,
 }
 
 const makeAlert = (overrides: Partial<AlertType>): AlertType =>
@@ -85,14 +89,90 @@ const alerts: AlertType[] = [
     }),
 ]
 
+const logAlerts = [
+    {
+        id: '019abcde-1234-7000-8000-000000000101',
+        name: 'Checkout errors',
+        enabled: true,
+        filters: { severityLevels: ['error'], serviceNames: ['checkout-api'] },
+        threshold_count: 25,
+        threshold_operator: 'above',
+        window_minutes: 5,
+        check_interval_minutes: 5,
+        state: 'firing',
+        evaluation_periods: 1,
+        datapoints_to_alarm: 1,
+        cooldown_minutes: 30,
+        snooze_until: null,
+        next_check_at: '2026-07-16T17:00:00Z',
+        last_notified_at: '2026-07-16T16:55:00Z',
+        last_checked_at: '2026-07-16T16:55:00Z',
+        consecutive_failures: 0,
+        last_error_message: null,
+        state_timeline: [
+            {
+                start: '2026-07-15T17:00:00Z',
+                end: '2026-07-16T16:30:00Z',
+                state: 'not_firing',
+                enabled: true,
+            },
+            {
+                start: '2026-07-16T16:30:00Z',
+                end: '2026-07-16T17:00:00Z',
+                state: 'firing',
+                enabled: true,
+            },
+        ],
+        destination_types: ['slack'],
+        first_enabled_at: '2026-07-10T15:00:00Z',
+        created_at: '2026-07-10T14:45:00Z',
+        created_by: createdBy,
+        updated_at: '2026-07-16T16:55:00Z',
+    },
+    {
+        id: '019abcde-1234-7000-8000-000000000102',
+        name: 'No payment logs',
+        enabled: true,
+        filters: { serviceNames: ['payments-worker'] },
+        threshold_count: 1,
+        threshold_operator: 'below',
+        window_minutes: 15,
+        check_interval_minutes: 5,
+        state: 'not_firing',
+        evaluation_periods: 3,
+        datapoints_to_alarm: 2,
+        cooldown_minutes: 60,
+        snooze_until: null,
+        next_check_at: '2026-07-16T17:00:00Z',
+        last_notified_at: null,
+        last_checked_at: '2026-07-16T16:55:00Z',
+        consecutive_failures: 0,
+        last_error_message: null,
+        state_timeline: [
+            {
+                start: '2026-07-15T17:00:00Z',
+                end: '2026-07-16T17:00:00Z',
+                state: 'not_firing',
+                enabled: true,
+            },
+        ],
+        destination_types: [],
+        first_enabled_at: '2026-07-12T10:00:00Z',
+        created_at: '2026-07-12T09:45:00Z',
+        created_by: createdBy,
+        updated_at: '2026-07-16T16:55:00Z',
+    },
+] satisfies LogsAlertConfigurationApi[]
+
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Alerts',
+    title: 'Products/Alerts/Alerts scene',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-07-16',
-        pageUrl: urls.alerts(),
+        pageUrl: `${urls.alerts()}?alert_type=insights`,
+        featureFlags: [FEATURE_FLAGS.LOGS_ALERTING],
         testOptions: { viewport: { width: 1300, height: 900 } },
     },
     decorators: [
@@ -108,13 +188,29 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const ListView: Story = {}
+export const InsightAlerts: Story = {}
 
 export const EmptyState: Story = {
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const LogAlerts: Story = {
+    parameters: {
+        pageUrl: `${urls.alerts()}?alert_type=logs`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/logs/alerts/': [
+                    200,
+                    { count: logAlerts.length, next: null, previous: null, results: logAlerts },
+                ],
             },
         }),
     ],

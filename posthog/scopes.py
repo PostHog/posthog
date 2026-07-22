@@ -71,11 +71,13 @@ APIScopeObject = Literal[
     "link",
     "live_debugger",
     "llm_analytics",
+    "ai_observability_clusters",
     "llm_gateway",
     "llm_prompt",
     "llm_provider_key",
     "llm_skill",
     "logs",
+    "loop",
     "marketing_analytics",
     "mcp_analytics",
     "metrics",
@@ -106,6 +108,7 @@ APIScopeObject = Literal[
     "tagger",
     "ticket",
     "task",
+    "toolbar",
     "tracing",
     "field_note",
     "uploaded_media",
@@ -181,6 +184,14 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # SDK local evaluation and remote config. The Rust feature-flags service already
     # validates feature_flag:read PSAKs on the flag-definitions path; this makes them creatable.
     ("feature_flag", "read"),
+    # Customer analytics external account list, a bulk export for service integrations.
+    # Gated on a PSAK so the team-wide secret_api_token (readable by any project member)
+    # can't be used to sidestep per-user account access controls.
+    ("account", "read"),
+    # First write-capable PSAK scope: lets a service credential fire a loop via
+    # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
+    # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
+    ("loop", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

@@ -2,7 +2,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.source import PlainSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -39,10 +39,19 @@ class TestPlainSource:
         assert "403 Client Error" in errors
 
     def test_source_config_documents_scopes_the_queries_require(self):
-        # The customers/threads queries read assignee (user:read) and label (label:read) data, and Plain
-        # 403s the whole request when the key lacks a scope any requested field needs. Keep the setup
-        # caption and the forbidden-error guidance in sync with what the queries actually fetch.
-        required_scopes = ["customer:read", "thread:read", "timeline:read", "user:read", "label:read"]
+        # The customers/threads/timeline_entries queries read assignee (user:read), label (label:read),
+        # company (company:read), and machine-user actor (machineUser:read) data, and Plain 403s the whole
+        # request when the key lacks a scope any requested field needs. Keep the setup caption and the
+        # forbidden-error guidance in sync with what the queries actually fetch.
+        required_scopes = [
+            "customer:read",
+            "thread:read",
+            "timeline:read",
+            "user:read",
+            "label:read",
+            "company:read",
+            "machineUser:read",
+        ]
         caption = self.source.get_source_config.caption
         forbidden_message = self.source.get_non_retryable_errors()["403 Client Error"]
         assert caption is not None

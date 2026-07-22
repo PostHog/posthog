@@ -372,6 +372,8 @@ describe('replayScannerLogic', () => {
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
             observationSubjectFilter: '',
+            observationDateFrom: null as string | null,
+            observationDateTo: null as string | null,
             observationsSort: null,
             scanner: null,
         }
@@ -397,6 +399,15 @@ describe('replayScannerLogic', () => {
             expect(params.triggered_by).toBe('on_demand')
             expect(params.verdict).toBe('yes,inconclusive')
             expect(params.tags).toBe('onboarding,support')
+        })
+
+        it('passes date range only when set', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationDateFrom: '-7d',
+                observationDateTo: '2026-07-01',
+            })
+            expect(params).toEqual({ date_from: '-7d', date_to: '2026-07-01' })
         })
 
         it.each<[ReplayScanner, string]>([
