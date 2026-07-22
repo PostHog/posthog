@@ -6,8 +6,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.team.team import Team
 
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.api.product_tour import get_product_tours_response
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
@@ -789,6 +791,138 @@ class TestProductTourInternalTargetingFlag(APIBaseTest):
                 assert any(substring in key for key in property_keys), f"Expected {substring} in {property_keys}"
         else:
             assert len(properties) == 0, f"Expected no exclusion properties, got {properties}"
+
+    def test_full_filters_shape_round_trips_through_gated_flag_writes(self):
+        user_filters = {
+            "groups": [
+                {"properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}]},
+            ]
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Round trip",
+                "content": {
+                    "steps": [],
+                    "displayFrequency": "until_interacted",
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+                "auto_launch": True,
+                "start_date": timezone.now().isoformat(),
+                "targeting_flag_filters": user_filters,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        tour = ProductTour.objects.get(id=response.json()["id"])
+        assert tour.internal_targeting_flag is not None
+        flag = tour.internal_targeting_flag
+
+        tour_key = str(tour.id)
+        base_properties = [
+            {
+                "key": f"$product_tour_completed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+            {
+                "key": f"$product_tour_dismissed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+        ]
+        wait_key = f"{ProductTourPersonProperties.TOUR_LAST_SEEN_DATE}/tour"
+        wait_options = [
+            {"key": wait_key, "value": "is_not_set", "operator": "is_not_set", "type": "person"},
+            {"key": wait_key, "value": "7d", "operator": "is_date_before", "type": "person"},
+        ]
+        user_property = {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}
+        # aggregation_group_type_index keys are FeatureFlagSerializer normalization,
+        # the only mutation the gated write path is expected to make
+        expected_filters = {
+            "aggregation_group_type_index": None,
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [*base_properties, wait_option, user_property],
+                    "aggregation_group_type_index": None,
+                }
+                for wait_option in wait_options
+            ],
+        }
+
+        flag.refresh_from_db()
+        assert flag.filters == expected_filters
+        assert flag.active
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"targeting_flag_filters": user_filters},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.filters == expected_filters
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_update_under_disable_policy_leaves_pending_change_request(self, _mock_approvals_enabled):
+        # Turning auto_launch off deactivates the internal targeting flag through the feature flag
+        # facade's approval gate. That gated write must run outside a transaction: if update() were
+        # atomic, the ApprovalRequired it raises would roll back the pending ChangeRequest the gate
+        # just created, leaving the 409 pointing at a request that no longer exists. Lock in that the
+        # ChangeRequest survives and the flag is left untouched.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+        # Create an auto-launching tour with no policy in place, so its internal targeting flag is active.
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Approval gated tour",
+                "content": {
+                    "steps": [],
+                    "displayFrequency": "until_interacted",
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+                "auto_launch": True,
+                "start_date": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        tour = ProductTour.objects.get(id=create_response.json()["id"])
+        flag = tour.internal_targeting_flag
+        assert flag is not None
+        assert flag.active
+
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"auto_launch": False},
+            format="json",
+        )
+
+        # The gated disable needs approval: it comes back as a 409 referencing the pending
+        # ChangeRequest, the flag is left active, and — because update() is not atomic — that
+        # ChangeRequest survives for an approver to act on rather than being rolled back.
+        assert patch_response.status_code == status.HTTP_409_CONFLICT, patch_response.content
+        assert patch_response.json()["change_request_id"]
+        flag.refresh_from_db()
+        assert flag.active
+        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
 
 
 class TestProductTourStepNormalization(APIBaseTest):

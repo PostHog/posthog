@@ -55,6 +55,11 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
+    hogql_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or "
+        "`postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier.",
+    )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
     options = serializers.DictField(required=False, default=dict)
@@ -65,6 +70,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "id",
             "deleted",
             "name",
+            "hogql_name",
             "format",
             "created_by",
             "created_at",
@@ -80,14 +86,23 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "id",
             "created_by",
             "created_at",
+            "hogql_name",
             "columns",
             "external_data_source",
             "external_schema",
             "user_access_level",
         ]
 
+    @extend_schema_field(serializers.CharField())
+    def get_hogql_name(self, table: DataWarehouseTable) -> str:
+        return get_data_warehouse_table_name(table.external_data_source, table.name)
+
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        # Callers that only need the table list (e.g. a table picker) skip the expensive HogQL field
+        # serialization by passing include_columns=false — it serializes columns for every row.
+        if not self.context.get("include_columns", True):
+            return []
         database = self.context.get("database", None)
         if not database:
             database = Database.create_for(
@@ -267,7 +282,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        # Building the HogQL database is only needed to serialize columns; a caller that opts out
+        # (a picker that just needs table names) skips both the columns and the database build.
+        include_columns = self.request.query_params.get("include_columns", "true").lower() != "false"
+        context["include_columns"] = include_columns
+        if include_columns:
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         context["team_id"] = self.team_id
         return context
 

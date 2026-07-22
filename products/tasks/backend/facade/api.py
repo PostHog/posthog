@@ -120,6 +120,7 @@ __all__ = [
     "append_task_run_log",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "can_mint_readonly_github_token",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
@@ -152,6 +153,7 @@ __all__ = [
     "get_code_workflow_config",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
+    "get_merged_pr_task_ids",
     "get_latest_run_by_task",
     "get_resume_snapshot_carry_state",
     "get_sandbox_custom_image",
@@ -172,6 +174,7 @@ __all__ = [
     "is_internal_debug_team",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
+    "latest_task_run_pr_merged_subquery",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
     "list_sandbox_custom_images",
@@ -611,6 +614,41 @@ def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subque
         .values("output_pr_url_text")[:1],
         output_field=CharField(),
     )
+
+
+def latest_task_run_pr_merged_subquery(*conditions: Q, **task_run_filter) -> Subquery:
+    """``Subquery`` of the webhook-attested merge flag on the same run ``latest_task_run_pr_url_subquery``
+    resolves for the same correlation — so a caller displaying that PR can say whether it merged rather
+    than inferring it. Same filter and ordering, so the two always describe one run. NULL when no
+    PR-bearing run matches; treat that as "not merged"."""
+    return Subquery(
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
+        .exclude(output__pr_url="")
+        .order_by("-created_at")
+        .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
+        .values("output_pr_merged_flag")[:1],
+        output_field=CharField(),
+    )
+
+
+def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
+    """Of the supplied tasks, those whose latest PR-bearing run has a webhook-attested merged PR.
+
+    Batched counterpart to ``latest_task_run_pr_merged_subquery``, matching ``get_latest_pr_url_by_task``
+    run-for-run so the merge flag describes the PR URL that helper returns.
+    """
+    ids = [str(t) for t in task_ids]
+    if not ids:
+        return set()
+    rows = (
+        TaskRun.objects.filter(task_id__in=ids, output__pr_url__isnull=False)
+        .exclude(output__pr_url="")
+        .order_by("task_id", "-created_at", "-id")
+        .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
+        .values("task_id", "output_pr_merged_flag")
+        .distinct("task_id")
+    )
+    return {str(row["task_id"]) for row in rows if row["output_pr_merged_flag"] in ("true", "True")}
 
 
 def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contracts.TaskRunDTO]:
@@ -1413,6 +1451,41 @@ def build_sandbox_custom_image(
     return _reload_image_dto(image.pk)
 
 
+def update_sandbox_custom_image(
+    image_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> contracts.SandboxCustomImageDTO | None:
+    """Rename (and optionally re-describe) a visible custom image.
+
+    Only mutable metadata (`name`, `description`) is editable here — the build spec,
+    status, and published image reference are managed by the build/scan flow. Returns
+    ``None`` when the image is not visible to the caller.
+    """
+    updates: dict[str, str] = {}
+    if name is not None:
+        updates["name"] = name
+    if description is not None:
+        updates["description"] = description
+    if not updates:
+        return get_sandbox_custom_image(image_id, team_id, user_id)
+
+    updated = (
+        _accessible_custom_images(team_id, user_id)
+        .filter(id=image_id)
+        .update(**updates, updated_at=django_timezone.now())
+    )
+    if not updated:
+        return None
+    # Re-read through get_sandbox_custom_image rather than _reload_image_dto: if a
+    # concurrent delete removes the row between the update above and this read,
+    # `.first()` returns None (→ 404) instead of .get() raising DoesNotExist (→ 500).
+    return get_sandbox_custom_image(image_id, team_id, user_id)
+
+
 def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible custom image. Environments referencing it fall back to the default base (SET_NULL)."""
     image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
@@ -1617,6 +1690,8 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
 #     the derived id); a caller could otherwise repoint their run at another team's workflow and
 #     signal or terminate-and-restart it.
+#   - pending_external_followups / pending_external_followups_generation are the workflow-owned
+#     durable queue; a caller could otherwise inject actor identity into a restored follow-up.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1640,10 +1715,49 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_requested_by_user_id",
         "cancel_source",
         "cancel_fallback_cleanup_complete",
+        "pending_external_followups",
+        "pending_external_followups_generation",
+        # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
+        # runner); a PATCHable key would let any task controller mint a GitHub token onto a
+        # queued repo-less run.
+        "github_read_access",
+        # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
+        # and drives loop bookkeeping in handle_loop_run_terminal. A run update must never be able
+        # to forge or repoint it, or a caller could steer terminal side effects at another loop.
+        "loop_id",
+        "loop_trigger_id",
+        "trigger_context",
+        "config_snapshot",
     }
 )
 
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+# `output.pr_merged` is GitHub's word, recorded by the PR webhook (`_record_run_pr_merged`) — never
+# the caller's. Signals reads it to decide refund finality (billing.report_pr_is_merged): a report
+# whose PR merged keeps its resolved status through a refund instead of being suppressed and having
+# its PR closed. Any caller-writable path to this flag would let a `task:write` holder mark an open
+# PR merged, resolve the report, and refund it while keeping the work — so every output writer has to
+# go through `_merge_caller_output`, not merge caller output directly.
+_WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
+
+
+def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
+    """Enforce the webhook-attested keys on a caller's output write.
+
+    `merged` is whatever the writer built from `incoming` (a wholesale replacement for
+    `set_task_run_output`, a merge over stored output for the PATCH path); this drops any attested
+    key the caller supplied and restores the stored one. The attestation is bound to the PR it was
+    made about, so when the caller points the run at a different `pr_url` the stored flag described
+    the old PR and is dropped rather than silently transferred onto the new one.
+    """
+    existing = stored if isinstance(stored, dict) else {}
+    same_pr = not incoming.get("pr_url") or incoming["pr_url"] == existing.get("pr_url")
+    for key in _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS:
+        merged.pop(key, None)
+        if same_pr and existing.get(key):
+            merged[key] = existing[key]
+    return merged
 
 
 def _task_run_queryset():
@@ -1861,6 +1975,9 @@ def update_task_run(
     from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
         update_automation_run_result,
     )
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
+        handle_loop_run_terminal,
+    )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_wizard_run_unbound,
@@ -1896,7 +2013,9 @@ def update_task_run(
         for key, value in validated_data.items():
             if key == "output" and isinstance(value, dict):
                 existing_output = run.output if isinstance(run.output, dict) else {}
-                setattr(run, key, {**existing_output, **value})
+                # Same attested-key policy as set_task_run_output — this PATCH surface is
+                # caller-controlled too, so it can't be a back door to output.pr_merged.
+                setattr(run, key, _apply_caller_output(existing_output, value, {**existing_output, **value}))
                 update_fields.add(key)
                 continue
             if key == "state_remove_keys":
@@ -1932,6 +2051,12 @@ def update_task_run(
         run.publish_stream_state_event()
 
     update_automation_run_result(run)
+    # Only on the actual transition: a repeat PATCH with the same terminal status, or an
+    # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
+    # (consecutive_failures would double-count). The workflow's status-update activity
+    # applies the same guard on its side.
+    if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
@@ -2001,13 +2126,12 @@ def set_task_run_output(
         return None
     task = run.task
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
-    # so a bare `= output` would drop output.pr_url / output.pr_merged recorded out of band.
+    # so a bare `= output` would drop output.pr_url recorded out of band.
     existing = run.output if isinstance(run.output, dict) else {}
     merged = {**output}
-    for key in ("pr_url", "pr_merged"):
-        if not merged.get(key) and existing.get(key):
-            merged[key] = existing[key]
-    run.output = merged
+    if not merged.get("pr_url") and existing.get("pr_url"):
+        merged["pr_url"] = existing["pr_url"]
+    run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
@@ -2568,6 +2692,7 @@ def signal_task_run_user_message(
     actor_user_id: int | None = None,
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
+    steer: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -2587,7 +2712,15 @@ def signal_task_run_user_message(
         return None
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
-        signal_task_followup_message(run.workflow_id, content, artifact_ids, message_id, actor_user_id, context)
+        signal_task_followup_message(
+            run.workflow_id,
+            content,
+            artifact_ids,
+            message_id,
+            actor_user_id,
+            context,
+            steer=steer,
+        )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
@@ -3845,6 +3978,20 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
     return github_integration_id if exists else None
 
 
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether a repo-less sandbox requesting `github_read_access` would actually get a token.
+
+    Preflight for callers that condition user-visible behavior (e.g. prompt guidance naming `gh`)
+    on the read-only token being obtainable — true only when the team has a usable team-level
+    GitHub installation. Never raises.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+        can_mint_readonly_github_token as _can_mint,
+    )
+
+    return _can_mint(team_id)
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -4277,6 +4424,13 @@ def run_task(
         prev_wizard_head_branch = (previous_run.state or {}).get("wizard_head_branch")
         if prev_wizard_head_branch:
             extra_state["wizard_head_branch"] = prev_wizard_head_branch
+
+        # A read-only GitHub grant describes how the task was created, not one run — without the
+        # carry-forward, a resumed successor of a repo-less read-only run falls through to the
+        # full credential path and regains the write-capable token. (The key is PATCH-protected,
+        # so this server-side copy is the only way it reaches a successor run.)
+        if (previous_run.state or {}).get("github_read_access") is True:
+            extra_state["github_read_access"] = True
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id

@@ -95,6 +95,9 @@ class DeltaBatchConsumerAdapter:
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
+    # A skip means the job is dead and fail_run already failed the run's batches;
+    # the engine must record nothing over them.
+    record_skip_as_success: bool = False
 
     def __init__(
         self,
@@ -155,14 +158,20 @@ class DeltaBatchConsumerAdapter:
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,
     ) -> None:
-        await BatchQueue.update_status(
+        # 'failed' is absorbing: fail_run can retire a claimed batch mid-flight, and a
+        # newer write would supersede it — un-failing a cancelled run. Takeover-sentinel
+        # failures stay supersedable (see _is_job_dead's matching exemption).
+        inserted = await BatchQueue.update_status_unless_failed(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
             batch_created_at=batch_created_at,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
         )
+        if not inserted:
+            raise OwnershipLostError(f"batch {batch_id} is already failed; refusing to write '{job_state}' over it")
 
     async def fail_run(
         self,

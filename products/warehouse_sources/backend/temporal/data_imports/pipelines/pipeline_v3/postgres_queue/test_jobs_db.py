@@ -1,3 +1,5 @@
+import re
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -5,8 +7,10 @@ import pytest
 
 import psycopg
 
+from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
+    CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
@@ -1044,6 +1048,79 @@ class TestStateDualWrite:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestUpdateStatusUnlessFailed:
+    """'failed' must be absorbing: a consumer's newer executing/succeeded rows
+    would otherwise win the monotonic dual-write over a fail_run."""
+
+    @pytest.mark.parametrize("job_state", ["executing", "succeeded", "waiting_retry"])
+    @pytest.mark.asyncio
+    async def test_refuses_lifecycle_writes_over_failed(self, conn, job_state):
+        bid = await _insert_batch(conn, run_uuid="run-guard")
+        await BatchQueue.fail_run(conn, run_uuid="run-guard", team_id=1, schema_id="schema-1", reason="cancelled")
+
+        written = await BatchQueue.update_status_unless_failed(
+            conn,
+            batch_id=bid,
+            job_state=job_state,
+            attempt=1,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+        )
+
+        assert written is False
+        assert (await _batch_state(conn, bid))[0] == "failed"
+        cur = await conn.execute(f"SELECT count(*) FROM {STATUS_TABLE} WHERE batch_id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None and row[0] == 1  # only fail_run's row; nothing appended over it
+
+    @pytest.mark.asyncio
+    async def test_normal_lifecycle_writes_pass_and_dual_write(self, conn):
+        bid = await _insert_batch(conn)
+        cur = await conn.execute(f"SELECT created_at FROM {BATCH_TABLE} WHERE id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None
+
+        assert await BatchQueue.update_status_unless_failed(conn, batch_id=bid, job_state="executing", attempt=1)
+        assert await BatchQueue.update_status_unless_failed(
+            conn, batch_id=bid, job_state="succeeded", attempt=1, batch_created_at=row[0]
+        )
+
+        state, attempt, _ = await _batch_state(conn, bid)
+        assert (state, attempt) == ("succeeded", 1)
+
+    @pytest.mark.asyncio
+    async def test_takeover_failed_batch_stays_supersedable(self, conn, sync_conn):
+        # Takeover deliberately lets an in-flight consumer finish: only its exact
+        # sentinel error stays writable (twin of the _is_job_dead exemption).
+        bid = await _insert_batch(conn, job_id="job-tko")
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        BatchQueue.fail_batches_for_job_sync(sync_conn, job_id="job-tko", reason=LOCK_TAKEOVER_LATEST_ERROR)
+
+        written = await BatchQueue.update_status_unless_failed(
+            conn,
+            batch_id=bid,
+            job_state="succeeded",
+            attempt=1,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+        )
+
+        assert written is True
+        assert (await _batch_state(conn, bid))[0] == "succeeded"
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_reinsert_reports_written_not_refused(self, conn):
+        # A heartbeat re-insert (designed 0-row column no-op) must not read as a
+        # refusal, or every long batch would be abandoned mid-apply.
+        bid = await _insert_batch(conn)
+        assert await BatchQueue.update_status_unless_failed(conn, batch_id=bid, job_state="executing", attempt=1)
+
+        assert await BatchQueue.update_status_unless_failed(conn, batch_id=bid, job_state="executing", attempt=1)
+
+        cur = await conn.execute(f"SELECT count(*) FROM {STATUS_TABLE} WHERE batch_id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None and row[0] == 2  # the log still grows
+
+
+@pytest.mark.django_db(transaction=True)
 class TestClaimGates:
     """Every claim gate exercised in one scenario; a predicate edit that breaks
     a gate shows up as a wrong claim set here."""
@@ -1105,6 +1182,74 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClaimEligibilityWindow:
+    """Batches old enough to have lost their parquet to retention must never be
+    claimed or recovery-swept — but the claim gates must keep seeing them."""
+
+    @pytest.mark.parametrize("age,claimable", [("6 days", True), ("7 days", False)])
+    @pytest.mark.asyncio
+    async def test_claim_excludes_batches_past_eligibility_window(self, conn, age, claimable):
+        bid = await _insert_batch(conn)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '{age}' WHERE id = %s",
+            [bid],
+        )
+
+        batches = await _claim(conn)
+
+        assert len(batches) == (1 if claimable else 0)
+        await _release(conn, batches=batches)
+
+    @pytest.mark.parametrize(
+        "gate_state,old_run_uuid",
+        [
+            ("executing", "run-other"),  # schema-busy gate: old executing batch in a sibling run
+            ("failed", "run-x"),  # failed-run gate: old failed batch in the same run
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_gates_still_see_batches_past_eligibility_window(self, conn, gate_state, old_run_uuid):
+        # Guards against "optimizing" CLAIM_ELIGIBILITY_INTERVAL into the NOT
+        # EXISTS gates: a 7-day-old row still exists and must keep gating until
+        # retention actually removes it, or two runs of one schema overlap.
+        old = await _insert_batch(conn, batch_index=0, run_uuid=old_run_uuid)
+        await BatchQueue.update_status(conn, batch_id=old, job_state=gate_state, attempt=1)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 days' WHERE id = %s",
+            [old],
+        )
+        await _insert_batch(conn, batch_index=1, run_uuid="run-x")
+
+        assert await _claim(conn) == []
+
+    @pytest.mark.parametrize("age,collected", [("6 days", True), ("7 days", False)])
+    @pytest.mark.asyncio
+    async def test_recovery_sweep_excludes_batches_past_eligibility_window(self, conn, age, collected):
+        bid = await _insert_batch(conn)
+        await _insert_backdated_executing(conn, batch_id=bid, age_seconds=120)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '{age}' WHERE id = %s",
+            [bid],
+        )
+
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
+
+        assert len(stale) == (1 if collected else 0)
+
+    def test_eligibility_window_stays_below_retention_window(self):
+        from posthog.temporal.warehouse_sources_queue_partition_management.activities import RETENTION_DAYS
+
+        match = re.fullmatch(r"(?:(\d+) days?)?\s*(?:(\d+) hours?)?", CLAIM_ELIGIBILITY_INTERVAL.strip())
+        assert match, f"unparseable CLAIM_ELIGIBILITY_INTERVAL: {CLAIM_ELIGIBILITY_INTERVAL!r}"
+        window = timedelta(days=int(match.group(1) or 0), hours=int(match.group(2) or 0))
+
+        assert timedelta(0) < window < timedelta(days=RETENTION_DAYS), (
+            "CLAIM_ELIGIBILITY_INTERVAL must stay below RETENTION_DAYS: a claimable "
+            "batch's parquet must still exist when the retention sweep runs"
+        )
 
 
 @pytest.mark.django_db(transaction=True)

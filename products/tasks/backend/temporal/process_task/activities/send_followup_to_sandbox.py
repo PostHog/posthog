@@ -35,6 +35,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_slack_interaction_state,
+    loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     record_message_actor,
     sandbox_identity_scope,
@@ -51,6 +52,7 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 # Application failures that write an error sentinel raise non-retryable.
 SEND_FOLLOWUP_MAX_ATTEMPTS = 3
 SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
+STEER_DECLINED_OUTCOME = "steer_declined"
 
 
 @dataclass
@@ -67,11 +69,12 @@ class SendFollowupToSandboxInput:
     actor_user_id: int | None = None
     # Signal context, passed through from PendingFollowup.
     context: dict[str, Any] | None = None
+    steer: bool = False
 
 
 @activity.defn
 @close_db_connections
-def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
+def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> str | None:
     """Send a follow-up user message to the sandbox and write result markers to Redis.
 
     Called by the workflow when it receives a send_followup_message signal from the
@@ -96,7 +99,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
     heartbeat_thread.start()
     try:
-        _deliver_followup(input)
+        return _deliver_followup(input)
     finally:
         stop_heartbeat.set()
         heartbeat_thread.join(timeout=2)
@@ -116,7 +119,21 @@ def _is_duplicate_delivery(result_data: dict[str, Any] | None) -> bool:
     return isinstance(result, dict) and result.get("duplicate") is True
 
 
-def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
+def _is_steered(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("steered") is True
+
+
+def _is_steer_declined(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("steered") is False
+
+
+def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=input.run_id)
     except TaskRun.DoesNotExist:
@@ -136,25 +153,42 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     state = task_run.state
     if input.actor_user_id is not None:
         state = {**(state or {}), "slack_actor_user_id": input.actor_user_id}
-        if is_slack_interaction_state(state):
-            # Deliveries are serialized by the workflow, so stamping here
-            # moves the durable actor at turn boundaries — between-turn
-            # consumers (reply tagging, permission broker) see the executing
-            # turn's actor. Skipped when already current.
-            updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
-            current = task_run.state or {}
-            if any(current.get(key) != value for key, value in updates.items()):
-                try:
-                    TaskRun.update_state_atomic(task_run.id, updates=updates)
-                except Exception:
-                    logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
 
-    auth_token = None
     actor_user = get_task_run_credential_user(task_run.task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         error_msg = "Slack actor unavailable for this run"
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         raise RuntimeError(f"send_followup failed: {error_msg}")
+
+    if input.steer:
+        bound_user_id = get_sandbox_mcp_session_user(sandbox_identity_scope(str(task_run.id), task_run.state))
+        if (
+            input.actor_user_id is None
+            or actor_user is None
+            or actor_user.id != input.actor_user_id
+            or bound_user_id != input.actor_user_id
+        ):
+            logger.info(
+                "send_followup_steer_actor_mismatch",
+                run_id=input.run_id,
+                actor_user_id=input.actor_user_id,
+                resolved_user_id=actor_user.id if actor_user is not None else None,
+                bound_user_id=bound_user_id,
+            )
+            return STEER_DECLINED_OUTCOME
+
+    if input.actor_user_id is not None and is_slack_interaction_state(state):
+        # Deliveries are serialized by the workflow, so stamping here moves
+        # the durable actor only after an active steer passes its identity gate.
+        updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
+        current = task_run.state or {}
+        if any(current.get(key) != value for key, value in updates.items()):
+            try:
+                TaskRun.update_state_atomic(task_run.id, updates=updates)
+            except Exception:
+                logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+
+    auth_token = None
     if actor_user and actor_user.id:
         auth_token = create_sandbox_connection_token(
             task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
@@ -163,8 +197,15 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     # Rebind the sandbox's MCP session to this actor before the turn. On an
     # actor transition this must rebind or clear the prior session; if it can't,
     # fail closed rather than run the turn under the previous actor's creds.
-    # Same-actor and first-bind refreshes stay best-effort.
-    if not _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token, actor_user=actor_user, state=state):
+    # A steer joins the active turn, so it cannot interrupt that turn with a
+    # session refresh.
+    if not input.steer and not _refresh_sandbox_mcp(
+        task_run,
+        input.posthog_mcp_scopes,
+        auth_token,
+        actor_user=actor_user,
+        state=state,
+    ):
         error_msg = "Could not rebind sandbox MCP credentials for the follow-up actor"
         raise RuntimeError(f"send_followup failed: {error_msg}")
     artifacts = None
@@ -186,6 +227,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
         message_id=input.message_id,
+        steer=input.steer,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",
@@ -201,7 +243,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
                 run_id=input.run_id,
                 attempt=_current_attempt(),
             )
-            return
+            return None
+        if _is_steered(result.data):
+            logger.info("send_followup_steered", run_id=input.run_id)
+            return None
+        if input.steer and _is_steer_declined(result.data):
+            logger.info("send_followup_steer_declined", run_id=input.run_id)
+            return STEER_DECLINED_OUTCOME
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
     elif result.turn_in_flight:
@@ -253,6 +301,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         # Propagate failure to the workflow.
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+
+    return None
 
 
 def _refresh_sandbox_mcp(
@@ -312,6 +362,7 @@ def _refresh_sandbox_mcp(
         team_id=task_run.team_id,
         user_id=actor_user.id,
         interaction_origin=(state or {}).get("interaction_origin"),
+        allowed_installation_ids=loop_mcp_installation_allowlist(state),
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
