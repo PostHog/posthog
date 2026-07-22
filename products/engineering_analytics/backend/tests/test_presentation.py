@@ -26,7 +26,12 @@ class TestScopeEnrollment(SimpleTestCase):
     def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
         # An action's extra HTTP methods (`@action.mapping.<verb>`) dispatch under the mapped
         # handler's name, so each mapped name needs its own scope enrollment too.
-        actions = {name for a in EngineeringAnalyticsViewSet.get_extra_actions() for name in a.mapping.values()}
+        actions = {
+            name
+            for a in EngineeringAnalyticsViewSet.get_extra_actions()
+            # DRF's @action attaches `mapping` at runtime; its type stubs don't declare it.
+            for name in a.mapping.values()  # type: ignore[attr-defined]
+        }
         enrolled = set(EngineeringAnalyticsViewSet.scope_object_read_actions) | set(
             EngineeringAnalyticsViewSet.scope_object_write_actions
         )
