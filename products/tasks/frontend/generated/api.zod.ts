@@ -2513,12 +2513,20 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
             .describe('\* `2.0` - 2.0')
             .describe("JSON-RPC version, must be '2.0'\n\n\* `2.0` - 2.0"),
         method: zod
-            .enum(['user_message', 'cancel', 'close', 'permission_response', 'set_config_option', 'mcp_response'])
+            .enum([
+                'user_message',
+                'cancel',
+                'close',
+                'permission_response',
+                'set_config_option',
+                'mcp_response',
+                'pi/rpc',
+            ])
             .describe(
-                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response'
+                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc'
             )
             .describe(
-                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response'
+                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc'
             ),
         params: zod.record(zod.string(), zod.unknown()).optional().describe('Parameters for the command'),
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),
@@ -2579,6 +2587,29 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
         ),
+})
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Finalize an active task session sync
+ */
+export const tasksRunsTaskSessionSyncCreateBodyExpectedRevisionMin = 0
+
+export const TasksRunsTaskSessionSyncCreateBody = /* @__PURE__ */ zod.object({
+    sandbox_id: zod.string(),
+    sync_id: zod.uuid(),
+    expected_revision: zod.number().min(tasksRunsTaskSessionSyncCreateBodyExpectedRevisionMin),
+})
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Prepare an active task session sync
+ */
+export const tasksRunsTaskSessionSyncPrepareCreateBodyExpectedRevisionMin = 0
+
+export const TasksRunsTaskSessionSyncPrepareCreateBody = /* @__PURE__ */ zod.object({
+    sandbox_id: zod.string(),
+    expected_revision: zod.number().min(tasksRunsTaskSessionSyncPrepareCreateBodyExpectedRevisionMin),
 })
 
 /**

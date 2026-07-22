@@ -939,6 +939,7 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_protocol: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -956,6 +957,8 @@ class ModalSandbox(SandboxBase):
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
+            agent_protocol=agent_protocol,
+            sandbox_id=self.id,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -1066,6 +1069,7 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_protocol: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -1135,6 +1139,7 @@ class ModalSandbox(SandboxBase):
             auto_publish,
             interaction_origin,
             branch,
+            agent_protocol,
             runtime_adapter,
             provider,
             model,

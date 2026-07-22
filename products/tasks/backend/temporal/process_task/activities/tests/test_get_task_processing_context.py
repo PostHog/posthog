@@ -974,6 +974,8 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_runtime_metadata(self, activity_environment, test_task):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
         task_run = test_task.create_run(
             extra_state={
                 "runtime_adapter": "codex",
@@ -987,6 +989,12 @@ class TestGetTaskProcessingContextActivity:
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
         result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
+        task_run.refresh_from_db()
+        assert task_run.active_task_session is not None
+        assert task_run.active_task_session.object_storage_key.startswith(
+            f"task-sessions/{test_task.team.organization_id}/{test_task.id}/"
+        )
+        assert result.task_runtime == "pi"
         assert result.runtime_adapter == "codex"
         assert result.provider == "openai"
         assert result.model == "gpt-5.3-codex"
