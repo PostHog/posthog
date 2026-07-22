@@ -23,7 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_warehouse.backend.logic.external_data_source.webhooks import get_webhook_url
+from products.data_warehouse.backend.facade.api import get_webhook_url
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
