@@ -270,31 +270,33 @@ export function ManagedMigration(): JSX.Element {
                     </div>
                 )}
 
-                <LemonField name="is_trial">
-                    <LemonCheckbox
-                        checked={managedMigration.is_trial === true}
-                        onChange={(checked) => setManagedMigrationValue('is_trial', checked)}
-                        label="Run as a trial first"
-                    />
-                </LemonField>
-                {managedMigration.is_trial && (
-                    <>
-                        <div className="text-muted text-sm -mt-2">
-                            A trial parses and transforms a sample of your data and shows the exact events a real import
-                            would create, without ingesting anything. Trials still call the source API, so they consume
-                            its export quota.
-                        </div>
-                        <LemonField name="trial_record_limit" label="Number of records to test">
-                            <LemonInput
-                                type="number"
-                                min={1}
-                                max={TRIAL_RECORD_LIMIT_MAX}
-                                value={managedMigration.trial_record_limit}
-                                onChange={(value) => setManagedMigrationValue('trial_record_limit', value)}
-                            />
-                        </LemonField>
-                    </>
-                )}
+                <FlaggedFeature flag={FEATURE_FLAGS.MANAGED_MIGRATIONS_TRIAL_RUNS}>
+                    <LemonField name="is_trial">
+                        <LemonCheckbox
+                            checked={managedMigration.is_trial === true}
+                            onChange={(checked) => setManagedMigrationValue('is_trial', checked)}
+                            label="Run as a trial first"
+                        />
+                    </LemonField>
+                    {managedMigration.is_trial && (
+                        <>
+                            <div className="text-muted text-sm -mt-2">
+                                A trial parses and transforms a sample of your data and shows the exact events a real
+                                import would create, without ingesting anything. Trials still call the source API, so
+                                they consume its export quota.
+                            </div>
+                            <LemonField name="trial_record_limit" label="Number of records to test">
+                                <LemonInput
+                                    type="number"
+                                    min={1}
+                                    max={TRIAL_RECORD_LIMIT_MAX}
+                                    value={managedMigration.trial_record_limit}
+                                    onChange={(value) => setManagedMigrationValue('trial_record_limit', value)}
+                                />
+                            </LemonField>
+                        </>
+                    )}
+                </FlaggedFeature>
 
                 <div className="flex justify-end">
                     <LemonButton type="primary" htmlType="submit" loading={isManagedMigrationSubmitting}>
