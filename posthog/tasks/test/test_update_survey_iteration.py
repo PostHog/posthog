@@ -74,6 +74,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertTrue(log.is_system)
         self.assertIsNone(log.user)
         # end_date going None -> value is what the frontend renders as "stopped".
+        assert log.detail is not None
         change = log.detail["changes"][0]
         self.assertEqual(change["field"], "end_date")
         self.assertEqual(change["action"], "created")

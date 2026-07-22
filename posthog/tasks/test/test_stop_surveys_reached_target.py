@@ -272,6 +272,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         assert log.is_system
         assert log.user is None
         # end_date going None -> value is what the frontend renders as "stopped".
+        assert log.detail is not None
         change = log.detail["changes"][0]
         assert change["field"] == "end_date"
         assert change["action"] == "created"
