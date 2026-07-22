@@ -1376,6 +1376,9 @@ R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
+# SR (for ServableResponse): anything the cache-serving path can return directly — a cached result
+# or an explicit miss
+SR = TypeVar("SR", bound=GenericCachedQueryResponse | CacheMissResponse)
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -1547,8 +1550,47 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> Optional[CR | CacheMissResponse]:
+        """Serve the query from cache when the execution mode allows it.
+
+        Returns None when the caller should proceed to a blocking calculation."""
+        cached_response = self._load_cached_response(cache_manager)
+        served: Optional[CR | CacheMissResponse]
+
+        if isinstance(cached_response, CacheMissResponse):
+            count_query_cache_hit(self.team.pk, hit="miss", trigger="")
+            served = self._handle_cache_miss(execution_mode, cached_response, cache_manager, user, analytics_props)
+        else:
+            # Apply current query's custom_name values to cached response
+            # (custom_name is excluded from cache key, so cached values may be stale)
+            cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
+
+            if custom_names_modified:
+                # Update cache with patched response so subsequent requests get the updated names
+                cache_manager.set_cache_data(
+                    response=cached_response.model_dump(),
+                    target_age=cached_response.cache_target_age,
+                )
+
+            if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
+                count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
+                # We have a valid result that's fresh enough, let's return it
+                return self._attach_async_query_status(cached_response, cache_manager)
+
+            count_query_cache_hit(self.team.pk, hit="stale", trigger=cached_response.calculation_trigger or "")
+            served = self._handle_stale_cache(execution_mode, cached_response, cache_manager, user, analytics_props)
+
+        if served is None:
+            # Nothing useful out of cache, nor async query status. A recomputation follows, so the
+            # cached raw results (if any) must not leak onto the fresh response.
+            self.raw_cached_results_bytes = None
+        return served
+
+    def _load_cached_response(self, cache_manager: QueryCacheManagerBase) -> CR | CacheMissResponse:
+        """Fetch and parse the cached response, mapping anything unusable to a CacheMissResponse.
+
+        When serving raw cached results, also stashes the unparsed results payload on
+        self.raw_cached_results_bytes."""
         CachedResponse: type[CR] = self.cached_response_type
-        cached_response: CR | CacheMissResponse
         cached_response_candidate: Optional[dict]
         self.raw_cached_results_bytes = None
         raw_results: Optional[bytes] = None
@@ -1559,7 +1601,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # model-typed results, e.g. retention, validating a `[]` placeholder would bypass
             # the schema-drift check that triggers recomputation) AND neither the query nor
             # the cached results carry custom series names — otherwise
-            # apply_series_custom_names below must be able to patch the parsed results.
+            # apply_series_custom_names must be able to patch the parsed results.
             split_candidate = cache_manager.get_cache_data_split()
             if split_candidate is None:
                 cached_response_candidate = None
@@ -1588,82 +1630,76 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response = CachedResponse(**cached_response_candidate)
                 if raw_results is not None:
                     self.raw_cached_results_bytes = raw_results
+                return cached_response
             except Exception as e:
                 capture_exception(Exception(f"Error parsing cached response: {e}"))
-                cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
-        elif cached_response_candidate is None:
-            cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
-        else:
-            # Whatever's in cache is malformed, so let's treat is as non-existent
-            cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
+                return CacheMissResponse(cache_key=cache_manager.cache_key)
+        if cached_response_candidate is not None:
+            # Whatever's in cache is malformed, so let's treat it as non-existent
             capture_exception(
-                ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it"),
+                ValueError(f"Cached response is of unexpected type {type(cached_response_candidate)}, ignoring it"),
                 {"cache_key": cache_manager.cache_key},
             )
+        return CacheMissResponse(cache_key=cache_manager.cache_key)
 
-        if isinstance(cached_response, CachedResponse):
-            # Apply current query's custom_name values to cached response
-            # (custom_name is excluded from cache key, so cached values may be stale)
-            cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
-
-            if custom_names_modified:
-                # Update cache with patched response so subsequent requests get the updated names
-                cache_manager.set_cache_data(
-                    response=cached_response.model_dump(),
-                    target_age=cached_response.cache_target_age,
-                )
-
-            if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
-                count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
-                # We have a valid result that's fresh enough, let's return it
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
-                return cached_response
-
-            count_query_cache_hit(self.team.pk, hit="stale", trigger=cached_response.calculation_trigger or "")
-            # We have a stale result. If we aren't allowed to calculate, let's still return it
-            # – otherwise let's proceed to calculation
-            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
-                return cached_response
-            elif execution_mode in (
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-            ):
-                # We're allowed to calculate, but we'll do it asynchronously and attach the query status
-                cached_response.query_status = self.enqueue_async_calculation(
-                    cache_manager=cache_manager, user=user, refresh_requested=True, analytics_props=analytics_props
-                )
-                return cached_response
-            elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
-                # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
-                assert isinstance(cached_response, CachedResponse)
-                if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
-                    cached_response.query_status = self.enqueue_async_calculation(
-                        cache_manager=cache_manager, user=user, analytics_props=analytics_props
-                    )
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
-                return cached_response
-        else:
-            count_query_cache_hit(self.team.pk, hit="miss", trigger="")
-            # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
-            # – otherwise let's proceed to calculation
-            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
-                return cached_response
-            elif execution_mode in (
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
-            ):
-                # We're allowed to calculate, but we'll do it asynchronously
-                cached_response.query_status = self.enqueue_async_calculation(
-                    cache_manager=cache_manager, user=user, analytics_props=analytics_props
-                )
-                return cached_response
-
-        # Nothing useful out of cache, nor async query status. A recomputation follows, so the
-        # cached raw results (if any) must not leak onto the fresh response.
-        self.raw_cached_results_bytes = None
+    def _handle_stale_cache(
+        self,
+        execution_mode: ExecutionMode,
+        cached_response: CR,
+        cache_manager: QueryCacheManagerBase,
+        user: Optional[User],
+        analytics_props: Optional[AnalyticsProps],
+    ) -> Optional[CR]:
+        """We have a stale result. Serve it, kicking off an async recalculation when the mode
+        allows one — or return None to proceed to a blocking recalculation."""
+        if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+            # We aren't allowed to calculate, let's still return the stale result
+            return self._attach_async_query_status(cached_response, cache_manager)
+        if execution_mode in (
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        ):
+            # We're allowed to calculate, but we'll do it asynchronously and attach the query status
+            cached_response.query_status = self.enqueue_async_calculation(
+                cache_manager=cache_manager, user=user, refresh_requested=True, analytics_props=analytics_props
+            )
+            return cached_response
+        if execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
+            # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
+            if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
+                self.enqueue_async_calculation(cache_manager=cache_manager, user=user, analytics_props=analytics_props)
+            return self._attach_async_query_status(cached_response, cache_manager)
+        # A blocking mode: recalculate synchronously
         return None
+
+    def _handle_cache_miss(
+        self,
+        execution_mode: ExecutionMode,
+        miss_response: CacheMissResponse,
+        cache_manager: QueryCacheManagerBase,
+        user: Optional[User],
+        analytics_props: Optional[AnalyticsProps],
+    ) -> Optional[CacheMissResponse]:
+        """We have no cached result. Serve the miss, kicking off an async calculation when the
+        mode allows one — or return None to proceed to a blocking calculation."""
+        if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+            # We aren't allowed to calculate, let's return the cache miss
+            return self._attach_async_query_status(miss_response, cache_manager)
+        if execution_mode in (
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        ):
+            # We're allowed to calculate, but we'll do it asynchronously
+            miss_response.query_status = self.enqueue_async_calculation(
+                cache_manager=cache_manager, user=user, analytics_props=analytics_props
+            )
+            return miss_response
+        # A blocking mode: calculate synchronously
+        return None
+
+    def _attach_async_query_status(self, response: SR, cache_manager: QueryCacheManagerBase) -> SR:
+        response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
+        return response
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
