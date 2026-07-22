@@ -19,6 +19,7 @@ export interface LoopReviewBehaviors {
     create_prs?: boolean
     watch_ci?: boolean
     fix_review_comments?: boolean
+    max_fix_iterations?: number
 }
 
 export interface LoopReviewContextOutputs {
@@ -171,8 +172,12 @@ function describeModel(data: LoopReviewData): string {
     return `${adapter} · ${model} · ${reasoning} reasoning`
 }
 
-function describeAutoFix(behaviors: LoopReviewBehaviors | undefined): string {
-    return behaviors?.watch_ci && behaviors?.fix_review_comments ? 'On' : 'Off'
+export function describeFixReviewComments(behaviors: LoopReviewBehaviors | undefined): string {
+    if (!behaviors?.fix_review_comments) {
+        return 'No'
+    }
+    const cap = behaviors.max_fix_iterations
+    return cap ? `Yes (up to ${cap} iterations)` : 'Yes'
 }
 
 export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): ReactElement {
@@ -210,7 +215,8 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
         { label: 'Repository', value: describeRepository(data.repositories) },
         { label: 'Model', value: describeModel(data) },
         { label: 'Opens PRs', value: data.behaviors?.create_prs ? 'Yes' : 'No' },
-        { label: 'Auto-fix PRs', value: describeAutoFix(data.behaviors) },
+        { label: 'Watches CI', value: data.behaviors?.watch_ci ? 'Yes' : 'No' },
+        { label: 'Fixes review comments', value: describeFixReviewComments(data.behaviors) },
         { label: 'PostHog access', value: describePosthogAccess(data.connectors) },
         { label: 'Connectors', value: describeConnectors(data.connectors) },
         { label: 'Sandbox', value: data.sandbox_environment || 'None' },
