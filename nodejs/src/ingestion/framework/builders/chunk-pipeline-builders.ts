@@ -102,10 +102,11 @@ export class FanOutBuilder<
      * `concurrentlyPerGroup`, …). Sub-elements from all parents share the
      * subpipeline, so one concurrency cap governs the whole stage.
      *
-     * Sub-results never escape the stage (the parent always fans in), so the
-     * subpipeline's redirect names (`RSub`) do not propagate to the stage's
-     * result type — downstream `handleResults` won't demand outputs for
-     * redirects that cannot happen.
+     * Redirect sub-results never escape the stage, so the subpipeline's
+     * redirect names (`RSub`) do not propagate to the stage's result type —
+     * downstream `handleResults` won't demand outputs for redirects that
+     * cannot happen. (A DLQ sub-result does surface, as the parent's
+     * aggregated DLQ, which carries no redirect names.)
      */
     via<TSubOut, RSub extends string = never>(
         subpipelineCallback: (
@@ -232,11 +233,11 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
      *
      * Cardinality is preserved at the parent level (N in, N out); parents emit
      * as they complete (unordered). Non-OK elements pass through unchanged.
-     * The parent always fans in: OK sub-results are collected, dropped
-     * sub-elements are silently excluded (DROP is the sanctioned way for a
-     * sub-step to discard its sub-element), and DLQ/REDIRECT sub-results are
-     * excluded with a warning log — they are almost certainly misuse, since
-     * sub-elements are not Kafka messages.
+     * OK sub-results are collected for the fan-in; dropped sub-elements are
+     * silently excluded (DROP is the sanctioned way for a sub-step to discard
+     * its sub-element); a DLQ sub-result fails the whole parent, which emits a
+     * DLQ aggregating its sub DLQs instead of fanning in; REDIRECT sub-results
+     * are excluded with a warning log — sub-elements are not Kafka messages.
      *
      * Like processing steps, the fan-out and fan-in functions are named
      * functions (defined in step files, created by factories where they need

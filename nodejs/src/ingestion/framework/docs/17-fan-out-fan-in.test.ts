@@ -31,15 +31,20 @@
  * - **Ordering**: parents emit as they complete (unordered), like
  *   `concurrentlyPerGroup`.
  * - **Non-OK parents** pass through without fanning out, like `filterMap`.
- * - **The parent always fans in.** OK sub-results are collected; DROP is the
- *   sanctioned way for a sub-step to exclude its sub-element — silent, the
- *   parent fans in with the survivors (consistent with a zero-fan-out fanning
- *   in with `[]`). DLQ and REDIRECT sub-results are also excluded, but log a
- *   warning: sub-elements are not Kafka messages, so there is nothing to
- *   dead-letter or redirect — route the parent before fanning out instead.
- *   Side effects and warnings from every sub-result still merge into the
- *   parent. Because no sub-result can escape as the parent's result, the
- *   subpipeline's redirect names don't propagate to the stage's result type.
+ * - **Sub-result contract.** OK sub-results are collected for the fan-in.
+ *   DROP is the sanctioned way for a sub-step to exclude its sub-element —
+ *   silent, the parent fans in with the survivors (consistent with a
+ *   zero-fan-out fanning in with `[]`). A DLQ sub-result fails the whole
+ *   parent: instead of fanning in, the parent emits a DLQ aggregating its sub
+ *   DLQs (count, distinct reasons, every error via AggregateError) once all
+ *   siblings have drained — fanning in anyway could emit an element built for
+ *   work that never happened, like a pointer to a blob that was never stored.
+ *   REDIRECT sub-results are excluded with a warning log: sub-elements are
+ *   not Kafka messages, so there is nothing to redirect — route the parent
+ *   before fanning out instead. Side effects and warnings from every
+ *   sub-result still merge into the parent. Redirects can't escape the stage
+ *   (and a DLQ carries no redirect names), so the subpipeline's redirect
+ *   names don't propagate to the stage's result type.
  * - **Sub-pipelines are context-agnostic**: the `via` builder's context type
  *   is `FanOutSubContext` — nothing but a public, opaque correlation token
  *   the stage mints per parent (sub steps may see it but can't do anything
@@ -219,8 +224,9 @@ describe('Fan-Out / Fan-In', () => {
      * DROP is the sanctioned way for a sub-step to exclude its sub-element:
      * the parent still completes via fan-in, just with the survivors. Use it
      * when a sub-element turns out to need no work — invalid part, cache hit,
-     * nothing to upload. (DLQ or REDIRECT from a sub-step is misuse — route
-     * the parent before fanning out — and is excluded with a warning log.)
+     * nothing to upload. (A DLQ sub-result instead fails the whole parent
+     * with an aggregated DLQ; REDIRECT is misuse — route the parent before
+     * fanning out — and is excluded with a warning log.)
      */
     it('drops a sub-element without failing its parent', async () => {
         interface Item {

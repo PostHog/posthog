@@ -48,14 +48,14 @@ That fights the pipeline's `maxConcurrency` and retry machinery — it is exactl
 
 ## Result contract — what sub-steps may return
 
-The parent **always** completes via `fanInFn(original, collected)`. Sub-results:
-
 - **OK** — collected and handed to `fanIn`.
 - **DROP** — the sanctioned way to exclude a sub-element: silent, contributes nothing; the parent fans in with the survivors (a fan-out of zero subs fans in with `[]` the same way).
-- **DLQ / REDIRECT** — excluded like a drop but logs a warning at runtime. **This is a review flag**: sub-elements are not Kafka messages, so there is nothing to dead-letter or redirect. Routing decisions belong on the parent, in a step _before_ the fan-out. Fan-in functions must therefore handle receiving fewer results than were fanned out.
+- **DLQ** — fails the whole parent: the stage emits a parent-level DLQ aggregating the sub DLQs (count, distinct reasons, every error via AggregateError) once all siblings drain; `fanIn` is never called for that parent. This is the right outcome when a sub-element's permanent failure invalidates the element — e.g. a blob upload that permanently failed must not produce an event pointing at a blob that was never stored. DLQ wins over drop-exclusion when a parent has both.
+- **REDIRECT** — excluded like a drop but logs a warning at runtime. **This is a review flag**: sub-elements are not Kafka messages, so there is nothing to redirect. Routing decisions belong on the parent, in a step _before_ the fan-out.
+- Fan-in functions must handle receiving fewer results than were fanned out (drop and redirect exclusions).
 - Side effects and warnings from every sub-result (OK or not) merge into the parent context — nothing is double-counted, nothing is lost.
-- Type consequence: sub-results cannot escape the stage, so the subpipeline's redirect names do not propagate to the stage's result type. A sub-step whose redirect output shows up in the pipeline's `handleResults` config is a sign the routing was put on the wrong side of the fan-out.
-- Thrown errors are different: an exception from a sub-step (after its retries) poisons the whole stage permanently. Transient failures belong behind step retry options, and non-retriable failures that should kill only the parent belong on the parent's own steps.
+- Type consequence: redirect sub-results cannot escape the stage, so the subpipeline's redirect names do not propagate to the stage's result type. A sub-step whose redirect output shows up in the pipeline's `handleResults` config is a sign the routing was put on the wrong side of the fan-out.
+- Thrown errors are different: an exception from a sub-step (after its retries) poisons the whole stage permanently. Transient failures belong behind step retry options; non-retriable failures surface as sub DLQs (via the retry wrapper), which fail just that parent.
 
 ## Concurrency and retry placement
 

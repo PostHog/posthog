@@ -223,18 +223,73 @@ describe('FanOutFanInChunkPipeline', () => {
         expect(mockLogger.warn).not.toHaveBeenCalled()
     })
 
-    it.each([
-        ['dlq', dlq<SubItem>('sub failure'), 'DLQ'],
-        ['redirect', redirect<SubItem, 'sub_redirect'>('sub failure', 'sub_redirect'), 'REDIRECT'],
-    ])('excludes %s sub-results with a warning and still completes the parent', async (_name, nonOkResult, type) => {
+    it('excludes redirect sub-results with a warning and still completes the parent', async () => {
         const siblingEffect = Promise.resolve('sibling')
-        function failFirstSubStep(items: SubItem[]): Promise<PipelineResult<SubItem, 'sub_redirect'>[]> {
+        function redirectFirstSubStep(items: SubItem[]): Promise<PipelineResult<SubItem, 'sub_redirect'>[]> {
+            return Promise.resolve(
+                items.map((item) => {
+                    if (item.parentId !== 'redirecting') {
+                        return ok(item)
+                    }
+                    return item.value === 1
+                        ? redirect<SubItem, 'sub_redirect'>('sub failure', 'sub_redirect')
+                        : ok(item, [siblingEffect])
+                })
+            )
+        }
+
+        const pipeline = createNewChunkPipeline<Parent>()
+            .fanOut(splitSubs)
+            .via((sub) => sub.pipeChunk(redirectFirstSubStep))
+            .fanIn(sumSubs)
+            .build()
+
+        feedParents(pipeline, [
+            { id: 'redirecting', subs: [1, 2] },
+            { id: 'healthy', subs: [3] },
+        ])
+
+        const results = await drainAll(pipeline)
+
+        // Both parents complete OK: the REDIRECT sub-result is excluded like a
+        // drop, but loudly — it cannot become the parent's result.
+        expect(results).toHaveLength(2)
+        expect(okValues(results)).toEqual(
+            expect.arrayContaining([
+                { id: 'redirecting', total: 2 },
+                { id: 'healthy', total: 3 },
+            ])
+        )
+        const redirecting = results.find((r) => isOkResult(r.result) && r.result.value.id === 'redirecting')!
+        expect(redirecting.context.sideEffects).toContain(siblingEffect)
+        expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+            '⚠️',
+            'Fan-out subpipeline produced a redirect result; excluding it',
+            {
+                fanOutStep: 'splitSubs',
+                fanInStep: 'sumSubs',
+                resultType: 'REDIRECT',
+                reason: 'sub failure',
+            }
+        )
+    })
+
+    it('dlqs the parent when a sub-result dlqs, aggregating after siblings drain', async () => {
+        const siblingEffect = Promise.resolve('sibling')
+        const subError = new Error('upload exploded')
+        const fanInCalls: string[] = []
+        function trackingFanIn(parent: Parent, subs: SubItem[]): Merged {
+            fanInCalls.push(parent.id)
+            return sumSubs(parent, subs)
+        }
+        function failFirstSubStep(items: SubItem[]): Promise<PipelineResult<SubItem>[]> {
             return Promise.resolve(
                 items.map((item) => {
                     if (item.parentId !== 'failing') {
                         return ok(item)
                     }
-                    return item.value === 1 ? nonOkResult : ok(item, [siblingEffect])
+                    return item.value === 1 ? dlq('sub failure', subError) : ok(item, [siblingEffect])
                 })
             )
         }
@@ -242,7 +297,7 @@ describe('FanOutFanInChunkPipeline', () => {
         const pipeline = createNewChunkPipeline<Parent>()
             .fanOut(splitSubs)
             .via((sub) => sub.pipeChunk(failFirstSubStep))
-            .fanIn(sumSubs)
+            .fanIn(trackingFanIn)
             .build()
 
         feedParents(pipeline, [
@@ -252,28 +307,53 @@ describe('FanOutFanInChunkPipeline', () => {
 
         const results = await drainAll(pipeline)
 
-        // Both parents complete OK: the DLQ/REDIRECT sub-result is excluded
-        // like a drop, but loudly — it cannot become the parent's result.
         expect(results).toHaveLength(2)
-        expect(okValues(results)).toEqual(
-            expect.arrayContaining([
-                { id: 'failing', total: 2 },
-                { id: 'healthy', total: 3 },
-            ])
-        )
-        const failing = results.find((r) => isOkResult(r.result) && r.result.value.id === 'failing')!
-        expect(failing.context.sideEffects).toContain(siblingEffect)
-        expect(mockLogger.warn).toHaveBeenCalledTimes(1)
-        expect(mockLogger.warn).toHaveBeenCalledWith(
-            '⚠️',
-            'Fan-out subpipeline produced a non-droppable non-OK result; excluding it',
-            {
-                fanOutStep: 'splitSubs',
-                fanInStep: 'sumSubs',
-                resultType: type,
-                reason: 'sub failure',
-            }
-        )
+        const failed = results.find((r) => isDlqResult(r.result))!
+        if (!isDlqResult(failed.result)) {
+            throw new Error('expected dlq result')
+        }
+        expect(failed.result.reason).toBe("1/2 fan-out sub-elements dlq'd: sub failure")
+        expect(failed.result.error).toBeInstanceOf(AggregateError)
+        expect((failed.result.error as AggregateError).errors).toEqual([subError])
+        // The sibling drained first: its side effect rode along on the parent,
+        // and error attribution points at the failing sub step.
+        expect(failed.context.sideEffects).toContain(siblingEffect)
+        expect(failed.context.lastStep).toBe('failFirstSubStep')
+        // fanIn never ran for the failed parent — DLQ is first-class, no warn.
+        expect(fanInCalls).toEqual(['healthy'])
+        expect(okValues(results)).toEqual([{ id: 'healthy', total: 3 }])
+        expect(mockLogger.warn).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [
+            'aggregates multiple dlq reasons with a count',
+            (item: SubItem): PipelineResult<SubItem> => dlq(item.value === 2 ? 'r2' : 'r1'),
+            "3/3 fan-out sub-elements dlq'd: r1; r2",
+        ],
+        [
+            'dlqs the parent even when other subs are dropped',
+            (item: SubItem): PipelineResult<SubItem> =>
+                item.value === 1 ? dlq('r1') : item.value === 2 ? drop('skipped') : ok(item),
+            "1/3 fan-out sub-elements dlq'd: r1",
+        ],
+    ])('%s', async (_name, resultFor, expectedReason) => {
+        function mapSubStep(items: SubItem[]): Promise<PipelineResult<SubItem>[]> {
+            return Promise.resolve(items.map(resultFor))
+        }
+
+        const pipeline = createNewChunkPipeline<Parent>()
+            .fanOut(splitSubs)
+            .via((sub) => sub.pipeChunk(mapSubStep))
+            .fanIn(sumSubs)
+            .build()
+
+        feedParents(pipeline, [{ id: 'a', subs: [1, 2, 3] }])
+
+        const results = await drainAll(pipeline)
+
+        expect(results).toHaveLength(1)
+        expect(isDlqResult(results[0].result) && results[0].result.reason).toBe(expectedReason)
     })
 
     it('merges sub side effects and warnings into the parent context without double-counting', async () => {

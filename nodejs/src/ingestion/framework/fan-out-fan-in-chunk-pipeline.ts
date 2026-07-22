@@ -3,7 +3,7 @@ import { logger } from '~/common/utils/logger'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { PipelineContext, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResultType, isDropResult, isOkResult, ok } from './results'
+import { PipelineResultType, dlq, isDlqResult, isDropResult, isOkResult, ok } from './results'
 
 /**
  * Splits one element into its sub-elements. Must be synchronous and cheap —
@@ -55,7 +55,13 @@ interface PendingParent<TElement, TSubOut, C> {
     /** The element's context, owned by the stage; sub completions push side effects/warnings into it in place. */
     context: PipelineContext<C>
     outstanding: number
+    /** How many sub-elements were fanned out, for the aggregated DLQ reason. */
+    total: number
     collected: TSubOut[]
+    /** Sub DLQs seen so far; when non-empty the parent DLQs instead of fanning in. */
+    dlqFailures: { reason: string; error: unknown }[]
+    /** lastStep of the most recent DLQ sub-result, for error attribution on the parent. */
+    dlqLastStep: string | undefined
 }
 
 /**
@@ -68,24 +74,27 @@ interface PendingParent<TElement, TSubOut, C> {
  * 2. Each sub-element runs through the subpipeline with its own context
  *    (fresh sideEffects/warnings arrays, merged back into the parent when the
  *    sub-result arrives — so nothing is double-counted).
- * 3. When all of a parent's sub-results are in, the parent emits
- *    `ok(fanInFn(original, collected))` — always. Sub-result handling:
+ * 3. When all of a parent's sub-results are in, the parent settles:
  *    - OK contributes its value to `collected`.
  *    - DROP is the sanctioned way for a sub-step to exclude a sub-element:
  *      it contributes nothing, silently — the parent fans in with the
  *      survivors, consistent with a zero-fan-out fanning in with `[]`.
- *    - DLQ and REDIRECT also contribute nothing, but log a warning: they are
- *      almost certainly misuse, since sub-elements are not Kafka messages —
- *      there is nothing to dead-letter or redirect. Route the parent before
- *      fanning out instead.
+ *    - DLQ fails the whole parent: instead of fanning in, the parent emits a
+ *      DLQ aggregating its sub DLQs (count, distinct reasons, and every sub
+ *      error via AggregateError) once all of its siblings have drained.
+ *      Fanning in anyway could emit an element built for work that never
+ *      happened — e.g. a pointer to a blob that was never stored.
+ *    - REDIRECT contributes nothing but logs a warning: it is almost
+ *      certainly misuse, since sub-elements are not Kafka messages — route
+ *      the parent before fanning out instead.
  *    Side effects and warnings from every sub-result (OK or not) still merge
  *    into the parent context.
  *
  * Cardinality is preserved at the parent level: N parents in, N results out.
  * Sub-element cardinality is fully contained inside the stage — and so are
- * the subpipeline's result types: no sub-result can escape as the parent's
- * result, so the stage emits only the upstream's redirect names (`RPrev`,
- * not `RPrev | RSub`).
+ * the subpipeline's redirect names: a redirect can never escape as the
+ * parent's result (and a DLQ carries no redirect names), so the stage emits
+ * only the upstream's redirect names (`RPrev`, not `RPrev | RSub`).
  *
  * Ordering: parents emit as their sub-results complete (unordered), the same
  * contract as `concurrentlyPerGroup`. Non-OK parents pass through untouched.
@@ -182,7 +191,10 @@ export class FanOutFanInChunkPipeline<
                 original: element.result.value,
                 context: element.context,
                 outstanding: subs.length,
+                total: subs.length,
                 collected: [],
+                dlqFailures: [],
+                dlqLastStep: undefined,
             }
             const ref = new FanOutParentRef()
             this.pendingParents.set(ref, parent)
@@ -261,12 +273,18 @@ export class FanOutFanInChunkPipeline<
 
         if (isOkResult(subResult.result)) {
             parent.collected.push(subResult.result.value)
+        } else if (isDlqResult(subResult.result)) {
+            // A sub-element that must be dead-lettered fails its whole parent:
+            // fanning in regardless could emit an element built for work that
+            // never happened. The parent's DLQ is emitted once every sibling
+            // has drained.
+            parent.dlqFailures.push({ reason: subResult.result.reason, error: subResult.result.error })
+            parent.dlqLastStep = subResult.context.lastStep
         } else if (!isDropResult(subResult.result)) {
-            // DROP is the sanctioned exclusion; DLQ/REDIRECT for a sub-element
-            // is almost certainly misuse — sub-elements are not Kafka messages,
-            // so there is nothing to dead-letter or redirect. The sub-result is
-            // excluded like a drop, but loudly.
-            logger.warn('⚠️', 'Fan-out subpipeline produced a non-droppable non-OK result; excluding it', {
+            // DROP is the sanctioned exclusion; a REDIRECT for a sub-element is
+            // almost certainly misuse — sub-elements are not Kafka messages, so
+            // there is nothing to redirect. Excluded like a drop, but loudly.
+            logger.warn('⚠️', 'Fan-out subpipeline produced a redirect result; excluding it', {
                 fanOutStep: this.fanOutName,
                 fanInStep: this.fanInName,
                 resultType: PipelineResultType[subResult.result.type],
@@ -280,7 +298,34 @@ export class FanOutFanInChunkPipeline<
         }
 
         this.pendingParents.delete(ref)
-        this.readyResults.push(this.completeParent(parent.original, parent.context, parent.collected))
+        if (parent.dlqFailures.length > 0) {
+            this.readyResults.push(this.failParent(parent))
+        } else {
+            this.readyResults.push(this.completeParent(parent.original, parent.context, parent.collected))
+        }
+    }
+
+    /**
+     * Emit the parent as a DLQ aggregating its sub DLQs. Every sub-result has
+     * drained by now, so the context already carries all sibling side effects
+     * and warnings; collected values are discarded.
+     */
+    private failParent(
+        parent: PendingParent<TElement, TSubOut, COutput>
+    ): PipelineResultWithContext<TMerged, COutput, RPrev> {
+        const reasons = [...new Set(parent.dlqFailures.map((failure) => failure.reason))]
+        const reason = `${parent.dlqFailures.length}/${parent.total} fan-out sub-elements dlq'd: ${reasons.join('; ')}`
+        parent.context.lastStep = parent.dlqLastStep
+        return {
+            result: dlq(
+                reason,
+                new AggregateError(
+                    parent.dlqFailures.map((failure) => failure.error),
+                    reason
+                )
+            ),
+            context: parent.context,
+        }
     }
 
     private completeParent(
