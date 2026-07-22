@@ -210,6 +210,41 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.seconds == [(self.team.id, 3600)]
         assert usage.cpu_core_seconds == [(self.team.id, 3600 * 4)]
         assert usage.memory_gib_seconds == [(self.team.id, 3600 * 16)]
+        assert usage.sandbox_compute_credits == [(self.team.id, 11)]
+
+    def test_prices_burstable_request_floors(self):
+        self._session(
+            burstable=True,
+            cpu_request_cores=0.5,
+            memory_request_mb=1024,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.sandbox_compute_credits == [(self.team.id, 4)]
+        assert isinstance(usage.sandbox_compute_credits[0][1], int)
+
+    def test_compute_credits_only_include_user_created_origin(self):
+        self._session(sandbox_id="sb-user-created")
+        self._session(sandbox_id="sb-null", origin_product=None)
+        self._session(sandbox_id="sb-known-other", origin_product=Task.OriginProduct.POSTHOG_AI)
+        self._session(sandbox_id="sb-unknown", origin_product="future_product")
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.seconds == [(self.team.id, 4 * 3600)]
+        assert usage.sandbox_compute_credits == [(self.team.id, 11)]
+
+    def test_rounds_each_duration_and_final_credits_up(self):
+        self._session(
+            cpu_cores=0.01,
+            memory_gb=0.01,
+            ended_at=datetime(2026, 1, 2, 1, 0, 0, 1, tzinfo=UTC),
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.sandbox_compute_credits == [(self.team.id, 1)]
 
     def test_apportions_sessions_spanning_period_boundaries(self):
         # Attributed the previous day, ends mid-period: only the in-period slice counts.
