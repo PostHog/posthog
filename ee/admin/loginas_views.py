@@ -217,12 +217,16 @@ def loginas_user_from_ticket(request):
             redirect_url += f"?{urlencode({'q': email})}"
         return JsonResponse({"redirect_region": ticket_region, "redirect_url": redirect_url})
 
-    if ticket.identity_verified and ticket.channel_source == "widget":
-        # On HMAC-verified widget tickets the attested identity is distinct_id; the email
-        # trait stays customer-mutable on every widget message, so resolving by it would
-        # let a verified ticket point login-as at an unrelated account. Match users
-        # identified by distinct_id or by email — both compared against the attested value,
-        # with no fallback to the mutable trait.
+    if ticket.identity_verified:
+        # On verified tickets the attested identity is the read-only distinct_id — a
+        # PostHog distinct_id for HMAC-verified widget tickets, an attested email for
+        # Slack/Teams/SPF-verified email ones. The email trait stays mutable (customers
+        # on widget messages, staff via the tickets API) even after verification, so
+        # resolving by it would let a verified ticket point login-as at an unrelated
+        # account. Match users identified by distinct_id or by email — both compared
+        # against the attested value, with no fallback to the mutable trait.
+        if not ticket.distinct_id:
+            return JsonResponse({"error": "No user found for this ticket's verified identity"}, status=404)
         target_user = User.objects.filter(
             Q(distinct_id=ticket.distinct_id) | Q(email__iexact=ticket.distinct_id)
         ).first()
@@ -246,6 +250,17 @@ def loginas_user_from_ticket(request):
     staff_user = request.user
     loginas_user_login(request, str(target_user.id))
 
+    # A loginas rejection (CAN_LOGIN_AS, missing reason) redirects without touching the
+    # session, and its rejection redirect can equal the success one (referer defaults
+    # to "/"), so neither the response nor is_impersonated_session alone can distinguish
+    # this attempt from an impersonation that was already active. A successful login
+    # rebinds request.user to the target — gate the session mutations on that, so a
+    # rejected attempt can't stamp this ticket (or an impersonation_started event for
+    # its user) onto an unrelated session.
+    login_succeeded = is_impersonated_session(request) and request.user.pk == target_user.pk
+    if not login_succeeded:
+        return JsonResponse({"error": "Failed to initiate impersonation"}, status=403)
+
     _configure_impersonation_session(
         request,
         staff_user,
@@ -255,7 +270,7 @@ def loginas_user_from_ticket(request):
         ticket_id=str(ticket.id),
     )
 
-    if is_impersonated_session(request):
-        return JsonResponse({"success": True, "ticket_id": str(ticket.id)})
-
-    return JsonResponse({"error": "Failed to initiate impersonation"}, status=403)
+    # The resolved account's email can differ from the ticket's mutable email trait;
+    # return it so the frontend keys its return-to-ticket context on the identity
+    # actually impersonated.
+    return JsonResponse({"success": True, "ticket_id": str(ticket.id), "email": target_user.email})

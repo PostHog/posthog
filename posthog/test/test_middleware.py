@@ -26,7 +26,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import IMPERSONATION_TICKET_ID_SESSION_KEY, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -2336,12 +2336,12 @@ class TestLoginAsFromTicket(APIBaseTest):
         self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
-    def _create_ticket(self, traits: dict) -> Ticket:
+    def _create_ticket(self, traits: dict, channel_source: str = "widget") -> Ticket:
         return Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="widget-session",
             distinct_id="distinct-1",
-            channel_source="widget",
+            channel_source=channel_source,
             status="new",
             anonymous_traits=traits,
         )
@@ -2444,18 +2444,44 @@ class TestLoginAsFromTicket(APIBaseTest):
         else:
             assert impersonated_email == expected_email
 
-    def test_verified_ticket_resolves_from_attested_identity_not_email_trait(self):
-        # A customer can mutate the email trait on any widget message, so a verified
-        # ticket claiming someone else's email must impersonate the attested identity.
-        attacker = User.objects.create_and_join(self.organization, email="attacker@posthog.com", password="123456")
-        ticket = self._create_ticket({"email": "customer@posthog.com"})
+    @parameterized.expand(
+        [
+            # Widget verification attests a PostHog distinct_id; Slack/Teams/email
+            # channels attest an email — both land in the read-only distinct_id field.
+            ("widget", "distinct_id"),
+            ("slack", "email"),
+        ]
+    )
+    def test_verified_ticket_resolves_from_attested_identity_not_email_trait(self, channel_source, attested_field):
+        # The email trait stays mutable after verification, so a verified ticket
+        # claiming someone else's email must impersonate the attested identity.
+        attested = User.objects.create_and_join(self.organization, email="attested@posthog.com", password="123456")
+        ticket = self._create_ticket({"email": "customer@posthog.com"}, channel_source=channel_source)
         ticket.identity_verified = True
-        ticket.distinct_id = str(attacker.distinct_id)
+        ticket.distinct_id = str(attested.distinct_id) if attested_field == "distinct_id" else attested.email
         ticket.save(update_fields=["identity_verified", "distinct_id"])
         with self._as_internal_team():
             res = self._post({"ticket_id": str(ticket.id)})
         assert res.status_code == 200
-        assert self.client.get("/api/users/@me").json()["email"] == "attacker@posthog.com"
+        assert self.client.get("/api/users/@me").json()["email"] == "attested@posthog.com"
+
+    def test_rejected_login_during_active_impersonation_is_not_reported_as_success(self):
+        staff_target = User.objects.create_and_join(self.organization, email="staff2@posthog.com", password="123456")
+        staff_target.is_staff = True
+        staff_target.save()
+
+        first = self._create_ticket({"email": "customer@posthog.com"})
+        second = self._create_ticket({"email": "staff2@posthog.com"})
+        with self._as_internal_team():
+            assert self._post({"ticket_id": str(first.id)}).status_code == 200
+            res = self._post({"ticket_id": str(second.id)})
+
+        # CAN_LOGIN_AS rejects staff targets without touching the session, so the
+        # session still impersonates the first customer — the failure must not
+        # masquerade as success or re-stamp the ticket context.
+        assert res.status_code == 403
+        assert self.client.get("/api/users/@me").json()["email"] == "customer@posthog.com"
+        assert self.client.session.get(IMPERSONATION_TICKET_ID_SESSION_KEY) == str(first.id)
 
     def test_verified_ticket_with_unresolvable_identity_does_not_fall_back_to_email(self):
         ticket = self._create_ticket({"email": "customer@posthog.com"})

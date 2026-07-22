@@ -93,6 +93,9 @@ export interface impersonationNoticeLogicActions {
         }
         user: UserType | null
     } // userLogic
+    logout: (preserveLocation?: any) => {
+        preserveLocation: any
+    } // userLogic
     upgradeImpersonation: (reason: string) => {
         reason: string
     } // userLogic
@@ -108,9 +111,6 @@ export interface impersonationNoticeLogicActions {
             reason: string
         }
         user: UserType | null
-    } // userLogic
-    logout: (preserveLocation?: any) => {
-        preserveLocation: any
     } // userLogic
     changeUser: (
         userId: number,
@@ -397,17 +397,29 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 const result = await loginAsFromTicket(ticketContext.ticketId)
                 if (result.redirect_url) {
                     // Ticket belongs to another region — open that region's admin instead.
-                    lemonToast.info(`This ticket is from ${result.redirect_region}. Opening in a new tab…`)
-                    window.open(result.redirect_url, '_blank')
+                    // This runs several awaits after the click, so the browser may block
+                    // the popup; surface the URL behind a button (a click restores the
+                    // user gesture) instead of reporting success with no tab.
+                    const redirectUrl = result.redirect_url
+                    const opened = window.open(redirectUrl, '_blank')
+                    if (opened) {
+                        lemonToast.info(`This ticket is from ${result.redirect_region}. Opening in a new tab…`)
+                    } else {
+                        lemonToast.error(`Popup blocked — open the ${result.redirect_region} admin to continue.`, {
+                            button: { label: 'Open', action: () => window.open(redirectUrl, '_blank') },
+                        })
+                    }
                     actions.initiateImpersonationComplete()
                     return
                 }
                 // Staying in this tab as the impersonated customer — remember the
                 // ticket so the notice can offer a one-click return after the reload.
+                // Prefer the resolved account's email: the ticket trait can diverge from
+                // it on verified tickets, and the return button gates on an email match.
                 if (ticketContext.ticketNumber != null) {
                     actions.setReturnToTicketContext({
                         ticketNumber: ticketContext.ticketNumber,
-                        email: ticketContext.email,
+                        email: result.email || ticketContext.email,
                     })
                 }
                 // Reload into the app as the impersonated customer.
