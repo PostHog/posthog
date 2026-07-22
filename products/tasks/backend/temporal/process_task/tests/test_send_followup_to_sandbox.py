@@ -478,6 +478,36 @@ class TestSandboxGithubIdentityGate:
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
         assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
 
+    def test_logout_exception_fails_closed(self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear):
+        # The clear itself raising (sandbox stopped/timed out between is_running and here) must
+        # fail closed, not escape uncontrolled.
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = MagicMock()
+        mock_get_token.side_effect = ReauthorizationRequired("no repo access")
+        mock_clear.side_effect = RuntimeError("sandbox stopped")
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
+
+    def test_credential_unavailable_logs_out(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear
+    ):
+        # A disconnected/deleted integration mid-run yields no usable credential (not just
+        # ReauthorizationRequired): log out rather than let the exception escape.
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = MagicMock()
+        mock_get_token.side_effect = CredentialUnavailableError("integration disconnected", {})
+        mock_clear.return_value = True
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        mock_apply.assert_not_called()
+        mock_clear.assert_called_once()
+        assert get_sandbox_github_identity_user("run-1") == 42
+
 
 class TestSendFollowupActivityRefreshOrdering:
     """Refresh call must precede user_message, and the activity must succeed
