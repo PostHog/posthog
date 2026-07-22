@@ -72,7 +72,8 @@ class SetupTaskId(StrEnum):
     SetUpAiEvaluation = "set_up_llm_evaluation"
     RunAIPlayground = "run_ai_playground"
 
-    # Revenue Analytics
+    # Revenue Analytics - DEPRECATED: the product was removed, but the values are
+    # kept because completed-task ids persist as strings
     EnableRevenueAnalyticsViewset = "enable_revenue_analytics_viewset"
     ConnectRevenueSource = "connect_revenue_source"
     SetUpRevenueGoal = "set_up_revenue_goal"

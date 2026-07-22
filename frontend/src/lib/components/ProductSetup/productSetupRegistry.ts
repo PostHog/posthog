@@ -570,40 +570,6 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         ],
     },
 
-    [ProductKey.REVENUE_ANALYTICS]: {
-        productKey: ProductKey.REVENUE_ANALYTICS,
-        title: 'Get started with Revenue analytics',
-        tasks: [
-            {
-                id: SetupTaskId.EnableRevenueAnalyticsViewset,
-                title: 'Enable Revenue Analytics viewset',
-                description: 'Enable the Revenue Analytics viewset to start tracking revenue data.',
-                skipWarning: 'You need a revenue source to view revenue analytics.',
-                taskType: 'setup',
-                getUrl: () => urls.revenueAnalytics(),
-                targetSelector: '[data-attr="managed-viewset-toggle"]',
-            },
-            {
-                id: SetupTaskId.ConnectRevenueSource,
-                title: 'Connect a revenue source',
-                description: 'Import revenue data from Stripe or another provider.',
-                skipWarning: 'You need a revenue source to view revenue analytics.',
-                taskType: 'setup',
-                getUrl: () => urls.revenueAnalytics(),
-                targetSelector: '[data-attr="new-source-button"]',
-            },
-            {
-                id: SetupTaskId.SetUpRevenueGoal,
-                title: 'Set up a revenue goal',
-                description: 'Track progress towards your MRR or revenue targets.',
-                taskType: 'explore',
-                dependsOn: [SetupTaskId.ConnectRevenueSource],
-                getUrl: () => urls.revenueSettings(),
-                targetSelector: '[data-attr="revenue-analytics-add-goal-button"]',
-            },
-        ],
-    },
-
     [ProductKey.LOGS]: {
         productKey: ProductKey.LOGS,
         title: 'Get started with Logs',

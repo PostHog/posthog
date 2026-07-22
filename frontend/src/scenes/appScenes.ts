@@ -100,7 +100,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ResourceTransfer]: () => import('./resource-transfer/ResourceTransfer'),
     [Scene.DashboardTemplateCopy]: () => import('./dashboard/dashboards/templates/DashboardTemplateCopyScene'),
-    [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),

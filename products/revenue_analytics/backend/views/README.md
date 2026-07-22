@@ -410,12 +410,13 @@ pytest products/revenue_analytics/backend/views/sources/test/stripe/test_stripe_
 These are useful to know whether changes in your code produced any change on the output queries
 
 ```bash
-pytest products/revenue_analytics/backend/hogql_queries/test/ -v --snapshot-update
+pytest products/revenue_analytics/backend/views/test/ -v --snapshot-update
+pytest posthog/hogql/database/schema/test/test_persons_revenue_analytics.py posthog/hogql/database/schema/test/test_groups_revenue_analytics.py -v --snapshot-update
 ```
 
 ### Testing your implementation via queries
 
-There are many more tests in `products/revenue_analytics/backend/hogql_queries/test/` which are currently only testing Stripe and events. It's usually a wise idea to extend that with your new source.
+The view tests above are currently only testing Stripe and events. It's usually a wise idea to extend them with your new source.
 
 ## View Registration
 

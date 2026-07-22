@@ -31,7 +31,6 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.CustomerAnalytics]: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
     [AccessControlResourceType.Endpoint]: FEATURE_FLAGS.ENDPOINTS,
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
-    [AccessControlResourceType.RevenueAnalytics]: FEATURE_FLAGS.REVENUE_ANALYTICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
     [AccessControlResourceType.ReplayScanner]: FEATURE_FLAGS.REPLAY_VISION,

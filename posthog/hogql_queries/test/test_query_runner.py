@@ -71,7 +71,7 @@ except ImportError:
 from posthog.slo.types import SloOutcome
 
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
     "01977f7b-7f29-0000-a028-7275d1a767a4": {

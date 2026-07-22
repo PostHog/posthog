@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonTabs, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
@@ -13,8 +13,6 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,15 +29,9 @@ import { EventConfiguration } from './EventConfiguration'
 import { EventConfigurationModal } from './EventConfigurationModal'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
-import { GoalsConfiguration } from './GoalsConfiguration'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
-import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
-import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
-
-type Tab = 'events' | 'data-warehouse'
 
 export function RevenueAnalyticsSettings(): JSX.Element {
-    const [activeTab, setActiveTab] = useState<Tab>('events')
     const [eventModalState, setEventModalState] = useState<{
         isOpen: boolean
         event?: RevenueAnalyticsEventItem
@@ -73,10 +65,9 @@ export function RevenueAnalyticsSettings(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={sceneConfigurations[Scene.RevenueAnalytics].name}
-                description={sceneConfigurations[Scene.RevenueAnalytics].description}
+                name="Revenue analytics"
                 resourceType={{
-                    type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default_icon_type',
+                    type: 'revenue_analytics',
                 }}
             />
 
@@ -100,13 +91,10 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                     <FilterTestAccountsConfiguration />
                     <SceneDivider />
 
-                    <GoalsConfiguration />
-                    <SceneDivider />
-
                     <ProductIntroduction
                         productName="Revenue tracking"
                         thingName="revenue source"
-                        description={sceneConfigurations[Scene.RevenueAnalytics].description || ''}
+                        description=""
                         isEmpty={hasNoEvents && hasNoDataWarehouseSources}
                         actionElementOverride={
                             <>
@@ -156,24 +144,6 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                     <SceneDivider />
 
                     <EventConfiguration onOpenEventModal={openEventModal} />
-                    <SceneDivider />
-
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(key) => setActiveTab(key as Tab)}
-                        tabs={[
-                            {
-                                key: 'data-warehouse',
-                                label: 'Data Warehouse revenue events',
-                                content: <RevenueExampleDataWarehouseTablesData />,
-                            },
-                            {
-                                key: 'events',
-                                label: 'Revenue events',
-                                content: <RevenueExampleEventsTable />,
-                            },
-                        ]}
-                    />
                 </>
             )}
 
