@@ -59,27 +59,42 @@ Instead they emit a synthetic `$$client_ingestion_warning` `CapturedEvent` onto 
 
 ### The Rust `WarningType` is generated — nodejs is the single source of truth
 
-There is no hand-maintained Rust copy of the type list. Entries in `INGESTION_WARNING_TYPES` flagged `captureProduced: true` are exactly the types Rust may emit, and a generator mirrors that set into a committed artifact the Rust build reads:
+There is no hand-maintained Rust copy of the type list. A generator mirrors the **whole registry** — every type with its `category`, `severity`, and `captureProduced` flag — into a committed artifact the Rust build reads:
 
 ```text
-INGESTION_WARNING_TYPES (captureProduced: true)              # nodejs — source of truth
+INGESTION_WARNING_TYPES (all entries)                        # nodejs — source of truth
   → pnpm --filter=@posthog/nodejs gen:ingestion-warning-types
-  → rust/common/ingestion_warnings/capture_warning_types.generated.json   # committed
-  → build.rs → WarningType enum + ALL + as_str()             # generated at build time
+  → rust/common/ingestion_warnings/warning_types.generated.json   # committed
+  → build.rs → WarningType enum + ALL + as_str/category/severity/capture_produced
 ```
 
-The artifact is committed _inside_ the Rust crate so the isolated Rust Docker/CI build context stays self-contained — no cross-workspace file reads. The same `captureProduced` flag also derives the `CAPTURE_PRODUCED_WARNING_TYPES` allowlist the consumer enforces, so a single edit wires a type on both sides. Two tests guard the chain: the nodejs no-drift test (`generate-ingestion-warning-types.test.ts`) fails if the committed artifact and the generator output diverge, and the Rust `from_tag_round_trips_every_registered_type` test fails if a generated variant has no `from_tag` arm.
+**Every edit to `INGESTION_WARNING_TYPES` requires regenerating and committing the artifact** — not just capture-produced types. The nodejs no-drift test (`generate-ingestion-warning-types.test.ts`) fails CI whenever the committed artifact and the generator output diverge, including when a type you didn't add lands on master while your branch is in flight: rebase, regenerate, recommit.
+
+The artifact is committed _inside_ the Rust crate so the isolated Rust Docker/CI build context stays self-contained — no cross-workspace file reads. `captureProduced: true` marks the types capture may set via the structured envelope property: it derives the `CAPTURE_PRODUCED_WARNING_TYPES` trust allowlist the consumer enforces, and the Rust `from_tag_domain_equals_the_capture_trust_allowlist` test welds capture's hand-written `from_tag` allowlist to exactly that set — skew in either direction (flag without an arm, arm without the flag) silently drops warnings in production, so the test makes it a red CI run instead.
 
 To add a **capture-produced** type:
 
 1. **Register it in nodejs** — add the type to `INGESTION_WARNING_TYPES` with `captureProduced: true` (see the nodejs steps above for `category`/`severity`, which the consumer owns). This also puts it on the `CAPTURE_PRODUCED_WARNING_TYPES` allowlist automatically.
-2. **Regenerate + commit the artifact** — run `pnpm --filter=@posthog/nodejs gen:ingestion-warning-types` and commit the updated `capture_warning_types.generated.json`.
-3. **Add the Rust `from_tag` arm** — in `src/registry.rs`, map the capture error tag (`v1::Error::tag()` / per-event drop detail) to the newly generated `WarningType` variant. The variant, `as_str`, and `ALL` are generated — never hand-write them. `from_tag` stays hand-written because it maps capture's error taxonomy onto the registry and is the allowlist that makes unregistered tags emit nothing; the round-trip test forces you to add the arm.
+2. **Regenerate + commit the artifact** — run `pnpm --filter=@posthog/nodejs gen:ingestion-warning-types` and commit the updated `warning_types.generated.json`.
+3. **Add the Rust `from_tag` arm** — in `src/registry.rs`, map the capture error tag (`v1::Error::tag()` / per-event drop detail) to the newly generated `WarningType` variant. The variant, `as_str`, and `ALL` are generated — never hand-write them. `from_tag` stays hand-written because it maps capture's error taxonomy onto the registry and is the allowlist that makes unregistered tags emit nothing; the equality-weld test forces you to add the arm.
+
+### Team-aware Rust producers: the direct-row transport
+
+Services that know `team_id` (the personhog services) skip the envelope and produce the terminal v2 row straight to **`clickhouse_ingestion_warnings`** — the topic the v1/v2 ClickHouse tables consume and every nodejs emit path produces to — via the same builder's other terminal. Do not produce rows to the `$$client_ingestion_warning` events topic: its consumer allowlists by event name and silently drops anything that is not an envelope.
+
+```rust
+Warning::new(WarningType::MyNewType)
+    .with_detail("personId", uuid)
+    .with_detail("message", msg)
+    .into_row(team_id, "my-service")
+```
+
+`into_row` injects `teamId` and the registry's `category`/`severity` over the caller's details (they cannot be spoofed or forgotten), and stamps the ClickHouse-format timestamp. A direct-row type needs **no** `captureProduced` flag and no `from_tag` arm — register it, regenerate the artifact, and emit. See the module doc in `rust/common/ingestion_warnings/src/serializer.rs` for the envelope-vs-row correspondence table and the trust rationale (the envelope lane is attacker-writable, so the consumer stamps classification; the row topic is ACL-guarded, so the producer does).
 
 Emitting from Rust:
 
 - **Emit it** via `WarningEmitter::emit(token, source, warning, details, count)` — the builder injects `count` and `pipelineStep` into details and stamps `type`/`source`/`details` into the event properties the consumer reads. Use the same camelCase details keys as nodejs (`distinctId`, `eventUuid`, ...). The envelope's top-level `distinct_id` is always the token (never the offending id), so an oversized offending distinct_id can't make the consumer drop the warning.
-- **`source` identifies the producer** (`src/lib.rs`): a `WarningSource { service, path }`. `service` is the stable message `source` field and metric label (e.g. `"capture"`) — pick one per service, don't invent a new value per call site. `path` is metric-only, for splitting volume within one service's emit sites (e.g. `"v1_analytics"`); it never reaches the message. Capture's only source today is `CAPTURE_V1_ANALYTICS`.
+- **`source` identifies the producer** (`src/lib.rs`): a `WarningSource { service, path, pipeline_step }`. `service` is the stable message `source` field and metric label (e.g. `"capture"`) — pick one per service, don't invent a new value per call site. `path` is metric-only, for splitting volume within one service's emit sites (e.g. `"v1_analytics"`); it never reaches the message. `pipeline_step` is stamped into the envelope's details as `pipelineStep`. Capture's only source today is `CAPTURE_V1_ANALYTICS`.
 - **Best-effort, fire-and-forget**: throttled per `(token, type)` per pod, never awaited, never fails the caller. Capture gates it behind `CAPTURE_INGESTION_WARNINGS_ENABLED` (default off; see `rust/capture/src/config.rs`). The producer is a `common-kafka` `ThreadedProducer` (built via `create_threaded_kafka_producer` with `observe_delivery` as its delivery callback, so delivered/failed outcomes are counted on the producer's own poll thread — no per-message task). It reuses the main event cluster's hosts/TLS and the `client_ingestion_warning` topic but runs on its own dedicated `KafkaConfig`: the fire-and-forget policy (`client.id=capture-ingestion-warnings`, `acks=1`, `retries=0`, `linger.ms=100`, a bounded 10k-message queue, a 5s message timeout) is fixed in code as the `WARNINGS_KAFKA_*` constants in `rust/capture/src/setup.rs` — not env-configurable — while only the two capacity/safety limits stay tunable via env (`CAPTURE_INGESTION_WARNINGS_KAFKA_QUEUE_MIB` and `..._MESSAGE_MAX_BYTES`). So a slow or saturated warnings topic can never contend with the main event producer.
 - **Crate deps**: `common-ingestion-warnings` depends on `common-types` (for `CapturedEvent`) and `common-kafka` (the producer) — not on `capture` or any service crate. `WarningEmitter` is a plain trait object (`Arc<dyn WarningEmitter>`), so any Rust service can depend on the crate and wire it the way capture does in `router::State` / `setup.rs`; a team-aware service just supplies its own token.
 
