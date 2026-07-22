@@ -21,8 +21,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
@@ -439,17 +441,34 @@ class TestEvaluateAlert:
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
 
-    async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
-        # Transient CH errors bubble up so Temporal's retry policy handles them.
-        with patch(
-            "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=CHQueryErrorTooManySimultaneousQueries("too many"),
+    @pytest.mark.parametrize(
+        "transient_error",
+        [
+            # ClickHouseAtCapacity is what the query layer actually raises for the capacity codes:
+            # wrap_clickhouse_query_error beautifies TOO_MANY_SIMULTANEOUS_QUERIES / CANNOT_SCHEDULE_TASK
+            # into it before the alert path sees them, so guarding on the raw CH tuple alone would let it
+            # fall through to ERRORED. This is the regression the fix targets.
+            pytest.param(ClickHouseAtCapacity(), id="clickhouse_at_capacity"),
+            pytest.param(ConcurrencyLimitExceeded("too many concurrent"), id="concurrency_limit_exceeded"),
+            pytest.param(CHQueryErrorTooManySimultaneousQueries("too many"), id="raw_ch_transient"),
+        ],
+    )
+    async def test_evaluate_reraises_ch_transient_error(self, alert, transient_error: Exception) -> None:
+        # Transient CH capacity blips bubble up so Temporal's retry policy handles them, rather than
+        # being captured as exceptions and marking the check ERRORED.
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=transient_error,
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
         ):
             env = ActivityEnvironment()
-            with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            with pytest.raises(type(transient_error)):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
-        # No AlertCheck should have been written
+        # Re-raised for retry, not captured as an error, and no AlertCheck should have been written.
+        mock_capture.assert_not_called()
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
 
