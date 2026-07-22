@@ -1,16 +1,21 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours import my_hours
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.my_hours import (
-    MyHoursRetryableError,
+    MY_HOURS_BASE_URL,
+    MyHoursApiKeyAuth,
     check_access,
-    get_rows,
     my_hours_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.settings import (
@@ -18,85 +23,126 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.s
     MY_HOURS_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_unwrapped = my_hours._fetch.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# Client retry attempts default; lowered to 1 so a retryable response surfaces at once (no backoff sleep).
+RETRY_ATTEMPTS_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.DEFAULT_RETRY_ATTEMPTS"
+)
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(monkeypatch: Any, items: list[dict], endpoint: str = "clients") -> list[dict]:
-        def fake_fetch(session: Any, path: str, logger: Any) -> list[dict]:
-            return items
+def _response(body: Any, *, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = f"{MY_HOURS_BASE_URL}/Clients"
+    if body is not None:
+        resp._content = json.dumps(body).encode()
+    return resp
 
-        monkeypatch.setattr(my_hours, "_fetch", fake_fetch)
-        monkeypatch.setattr(my_hours, "make_tracked_session", lambda **kwargs: MagicMock())
 
-        rows: list[dict] = []
-        for batch in get_rows(api_key="mh-key", endpoint=endpoint, logger=MagicMock()):
-            rows.extend(batch)
-        return rows
+def _wire(responses: list[Response]) -> tuple[requests.Session, list[Any]]:
+    """Real session whose prepare_request runs for real (so auth + URL are built) but whose send is
+    canned. Returns the session and a list that captures each PreparedRequest at send time."""
+    session = requests.Session()
+    sent: list[Any] = []
 
-    def test_yields_the_full_array_once(self, monkeypatch: Any) -> None:
-        rows = self._collect(monkeypatch, [{"id": 1}, {"id": 2}])
+    def _send(prepared: Any, **_kwargs: Any) -> Response:
+        sent.append(prepared)
+        return responses[len(sent) - 1]
+
+    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    return session, sent
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+class TestSync:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_yields_the_full_array_once(self, mock_session: mock.MagicMock) -> None:
+        session, sent = _wire([_response([{"id": 1}, {"id": 2}])])
+        mock_session.return_value = session
+
+        rows = _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
+
         assert rows == [{"id": 1}, {"id": 2}]
+        # Unpaginated: exactly one request, no pagination follow-up.
+        assert session.send.call_count == 1  # type: ignore[attr-defined]
 
-    def test_empty_array_yields_nothing(self, monkeypatch: Any) -> None:
-        rows = self._collect(monkeypatch, [])
-        assert rows == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_array_yields_nothing(self, mock_session: mock.MagicMock) -> None:
+        session, _sent = _wire([_response([])])
+        mock_session.return_value = session
 
+        assert _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j")) == []
 
-class TestFetch:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+    @parameterized.expand([("clients", "/Clients"), ("projects", "/Projects/getAll"), ("users", "/Users/getAll")])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_targets_the_expected_url(self, endpoint: str, path: str, mock_session: mock.MagicMock) -> None:
+        session, sent = _wire([_response([])])
+        mock_session.return_value = session
+
+        _rows(my_hours_source(api_key="mh-key", endpoint=endpoint, team_id=1, job_id="j"))
+
+        assert sent[0].url == f"{MY_HOURS_BASE_URL}{path}"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_uses_apikey_prefixed_authorization_header(self, mock_session: mock.MagicMock) -> None:
+        # My Hours rejects requests that omit the literal `apikey ` prefix, so this is load-bearing.
+        session, sent = _wire([_response([])])
+        mock_session.return_value = session
+
+        _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
+
+        assert sent[0].headers["Authorization"] == "apikey mh-key"
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(MyHoursRetryableError):
-            _fetch_unwrapped(session, "/Clients", MagicMock())
+    @mock.patch(RETRY_ATTEMPTS_PATCH, 1)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_raise_retryable_error(
+        self, _name: str, status: int, mock_session: mock.MagicMock
+    ) -> None:
+        session, _sent = _wire([_response(None, status=status)])
+        mock_session.return_value = session
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+    @mock.patch(RETRY_ATTEMPTS_PATCH, 1)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_for_status(self, _name: str, status: int, mock_session: mock.MagicMock) -> None:
+        session, _sent = _wire([_response({"error": "nope"}, status=status)])
+        mock_session.return_value = session
+
         with pytest.raises(requests.HTTPError):
-            _fetch_unwrapped(session, "/Clients", MagicMock())
+            _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
 
-    def test_success_returns_list_body(self) -> None:
-        body = [{"id": 1}]
-        session = self._session_returning(200, body)
-        assert _fetch_unwrapped(session, "/Clients", MagicMock()) == body
+    @mock.patch(RETRY_ATTEMPTS_PATCH, 1)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_is_retryable(self, mock_session: mock.MagicMock) -> None:
+        # A 200 whose body isn't the expected bare array is treated as transient and reissued.
+        session, _sent = _wire([_response({"error": "nope"})])
+        mock_session.return_value = session
 
-    def test_non_list_body_is_retryable(self) -> None:
-        session = self._session_returning(200, {"error": "nope"})
-        with pytest.raises(MyHoursRetryableError):
-            _fetch_unwrapped(session, "/Clients", MagicMock())
-
-    def test_request_targets_the_expected_url(self) -> None:
-        session = self._session_returning(200, [])
-        _fetch_unwrapped(session, "/Projects/getAll", MagicMock())
-        args, _ = session.get.call_args
-        assert args[0] == "https://api2.myhours.com/api/Projects/getAll"
+        with pytest.raises(RESTClientRetryableError):
+            _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
 
 
-class TestAuthHeader:
-    def test_uses_apikey_prefix(self) -> None:
-        # My Hours rejects requests that omit the literal `apikey ` prefix, so this is load-bearing.
-        assert my_hours._headers("mh-key")["Authorization"] == "apikey mh-key"
+class TestAuth:
+    def test_sets_apikey_prefixed_header(self) -> None:
+        request = requests.Request("GET", MY_HOURS_BASE_URL).prepare()
+        MyHoursApiKeyAuth("mh-key")(request)
+        assert request.headers["Authorization"] == "apikey mh-key"
+
+    def test_declares_raw_key_as_secret_for_redaction(self) -> None:
+        assert MyHoursApiKeyAuth("mh-key").secret_values() == ("mh-key",)
 
 
 class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
-        session = MagicMock()
+    def _patch_session(self, monkeypatch: Any, response: Any) -> mock.MagicMock:
+        session = mock.MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
@@ -115,7 +161,7 @@ class TestCheckAccess:
     def test_status_mapping(
         self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
     ) -> None:
-        response = MagicMock()
+        response = mock.MagicMock()
         response.status_code = status
         response.ok = ok
         with pytest.MonkeyPatch().context() as mp:
@@ -128,11 +174,19 @@ class TestCheckAccess:
         assert status == 0
         assert message is not None and "boom" in message
 
+    def test_probe_targets_clients_endpoint(self, monkeypatch: Any) -> None:
+        response = mock.MagicMock(status_code=200, ok=True)
+        session = self._patch_session(monkeypatch, response)
+        check_access("mh-key")
+        assert session.get.call_args.args[0] == f"{MY_HOURS_BASE_URL}/Clients"
+
 
 class TestMyHoursSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = my_hours_source(api_key="mh-key", endpoint=endpoint, logger=MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value = mock.MagicMock()
+        response = my_hours_source(api_key="mh-key", endpoint=endpoint, team_id=1, job_id="j")
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # The list endpoints carry no stable timestamp, so we don't partition.

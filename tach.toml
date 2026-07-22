@@ -564,6 +564,7 @@ layer = "modules"
 path = "products.product_tours"
 depends_on = [
     "posthog",
+    "products.approvals",
     "products.feature_flags",
     "products.surveys",
 ]
@@ -601,6 +602,7 @@ depends_on = [
     "products.cohorts",
     "products.exports",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -718,6 +720,7 @@ depends_on = [
     "products.feature_flags",
     "products.ai_observability",
     "products.mcp_store",
+    "products.notifications",
     "products.posthog_ai",
     "products.signals",
     "products.slack_app",
@@ -1033,8 +1036,18 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.event_definitions"]
 layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.logic\\.placeholder.*",
+    "backend\\.models.*",
+    "backend\\.property_type.*",
+]
+from = [
+    "products.event_definitions",
+]
 
 [[interfaces]]
 expose = [

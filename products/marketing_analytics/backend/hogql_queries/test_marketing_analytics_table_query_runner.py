@@ -21,6 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
+from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
@@ -28,7 +29,10 @@ from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+_BASE_RUNNER = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner"
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
@@ -52,6 +56,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             properties=[],
         )
 
+    def tearDown(self):
+        reset_query_tags()
+        super().tearDown()
+
     def _create_query_runner(
         self, query: MarketingAnalyticsTableQuery | None = None
     ) -> MarketingAnalyticsTableQueryRunner:
@@ -59,6 +67,27 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         if query is None:
             query = self.default_query
         return MarketingAnalyticsTableQueryRunner(query=query, team=self.team)
+
+    @parameterized.expand(
+        [
+            # A user-facing read is access-controlled; only background writers bypass. Getting this wrong
+            # either freezes warehouse-backed costs for access-control teams (no bypass on the userless
+            # revalidation) or leaks tables into a user read (bypass when it shouldn't).
+            ("user_facing", None, False),
+            ("dagster_warmer", {"feature": Feature.CACHE_WARMUP}, True),
+            ("revalidation_task", {"trigger": REVALIDATION_TRIGGER}, True),
+        ]
+    )
+    @patch(f"{_BASE_RUNNER}.Database.create_for")
+    def test_background_warming_bypasses_warehouse_access_control(self, _name, tags, expected_bypass, create_for):
+        runner = self._create_query_runner()  # no user — mirrors the background task's userless runner
+        if tags is None:
+            _ = runner._shared_hogql_database
+        else:
+            with tags_context(**tags):
+                _ = runner._shared_hogql_database
+
+        assert create_for.call_args.kwargs["bypass_warehouse_access_control"] is expected_bypass
 
     def _create_mock_adapter(self, name: str, validation_result: bool = True) -> Mock:
         """Create a mock adapter for testing"""

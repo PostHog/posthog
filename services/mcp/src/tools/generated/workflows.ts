@@ -273,8 +273,8 @@ const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, Schemas.Hog
         if (params.confirm !== undefined) {
             body['confirm'] = params.confirm
         }
-        if (params.draft_updated_at !== undefined) {
-            body['draft_updated_at'] = params.draft_updated_at
+        if (params.confirm_token !== undefined) {
+            body['confirm_token'] = params.confirm_token
         }
         const result = await context.api.request<Schemas.HogFlowPublishResponse>({
             method: 'POST',
