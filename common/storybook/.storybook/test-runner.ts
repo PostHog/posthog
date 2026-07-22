@@ -175,6 +175,7 @@ export default {
                             const doneEvents = [...failureEvents, 'storyRendered']
                             const listeners: Record<string, (data?: unknown) => void> = {}
                             const finish = (event: string, data?: unknown): void => {
+                                clearTimeout(timeoutId)
                                 doneEvents.forEach((e) => channel.off(e, listeners[e]))
                                 // unhandledErrorsWhilePlaying's payload is an array of serialized errors;
                                 // every other done event passes the error object directly.
@@ -190,7 +191,7 @@ export default {
                             // If the remount never settles, stop waiting so postVisit can proceed — but
                             // treat it as a failed retry below rather than silently falling through as if
                             // the remount had finished cleanly.
-                            setTimeout(() => finish('timeout'), 30000)
+                            const timeoutId = setTimeout(() => finish('timeout'), 30000)
                             channel.emit('forceRemount', { storyId })
                         })
                     },
