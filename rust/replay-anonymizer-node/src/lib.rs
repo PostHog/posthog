@@ -46,8 +46,7 @@ fn init_anonymizer(mut cx: FunctionContext) -> JsResult<JsNull> {
 /// unclassified error (panic, missing init) that the caller must treat as `anonymize_failed`.
 type TaskOutcome = Result<Result<(Vec<u8>, String, &'static str), (&'static str, String)>, String>;
 
-/// The outcome plus the JSON phase timings, which are reported on every arm — success, classified
-/// failure, and panic — so slow or crashing payloads can be debugged from the same telemetry.
+/// The outcome plus the JSON phase timings, reported on every arm including panics.
 type TaskResult = (TaskOutcome, Option<String>);
 
 fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
@@ -60,11 +59,13 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
+    // Created on the JS thread so every offset shares one monotonic origin: the task-start mark
+    // becomes the threadpool queue wait, and no wall clock is involved.
+    let timings = PhaseTimings::new();
     let promise = cx
         .task(move || -> TaskResult {
-            // The sink lives outside the catch_unwind so whatever phases completed before a panic
-            // still reach the caller — errored messages carry timings too.
-            let timings = PhaseTimings::new();
+            timings.task_started();
+            // The sink stays outside the catch_unwind so partial timings survive a panic.
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
             // rather than risking process abort.
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

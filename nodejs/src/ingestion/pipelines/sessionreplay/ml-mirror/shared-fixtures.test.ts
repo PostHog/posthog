@@ -189,8 +189,8 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]))
             expect(result.failed).toBe(false)
             const t = result.timings!
-            expect(t.taskStartEpochMs).toBeGreaterThan(0)
-            expect(t.decompressStartNs).not.toBeNull()
+            expect(t.taskStartNs).not.toBeNull()
+            expect(t.decompressStartNs).toBeGreaterThanOrEqual(t.taskStartNs!)
             expect(t.decompressEndNs).toBeGreaterThanOrEqual(t.decompressStartNs!)
             expect(t.scrubStartNs).toBeGreaterThanOrEqual(t.decompressEndNs!)
             expect(t.scrubEndNs).toBeGreaterThanOrEqual(t.scrubStartNs!)

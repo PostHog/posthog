@@ -39,17 +39,13 @@ export interface AnonymizeMeta {
 }
 
 /**
- * Phase timings for one {@link anonymizeKafkaPayload} call, measured on the threadpool task.
- * Reported on success AND failure (including contained panics), so slow or crashing payloads can
- * be debugged from the same telemetry. Offsets are nanoseconds from `taskStartEpochMs`; a `null`
- * boundary means the phase was never reached.
+ * Phase timings for one {@link anonymizeKafkaPayload} call, reported on success and failure alike
+ * (including contained panics). All offsets are monotonic nanoseconds from the moment the addon
+ * was invoked on the JS thread; a `null` boundary means the phase was never reached.
  */
 export interface AnonymizeTimings {
-    /**
-     * Wall-clock time the threadpool picked the task up (epoch ms). The gap from when the caller
-     * invoked the addon to this is the libuv threadpool queue wait.
-     */
-    taskStartEpochMs: number
+    /** Threadpool pickup — this offset IS the libuv queue wait. */
+    taskStartNs: number | null
     decompressStartNs: number | null
     decompressEndNs: number | null
     scrubStartNs: number | null
@@ -62,7 +58,7 @@ export interface AnonymizeTimings {
     blurCount: number
     /**
      * The op in flight when processing stopped: `done` on success, else the phase or op
-     * (`decompress` | `scrub` | `cv` | `blur` | `serialize_meta`) that was running.
+     * (`queued` | `decompress` | `scrub` | `cv` | `blur` | `serialize_meta`) that was running.
      */
     lastOp: string
 }

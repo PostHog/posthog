@@ -43,7 +43,6 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Time an op into the sink when one is attached; transparent otherwise.
     fn timed<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {
         match self.timings {
             Some(t) => t.time_op(op, f),
@@ -74,7 +73,6 @@ impl<'a> Ctx<'a> {
     // borrow-free, so a future blur helper that re-entered `Ctx` still couldn't double-borrow-panic.
 
     /// Blur a data-image URI, memoized on the URI. `None` → caller falls back to a blank/placeholder.
-    /// Only cache misses are timed — the hit path is a map lookup, not blur work.
     pub fn blur_data_uri(&self, original: &str) -> Option<String> {
         if let Some(hit) = self.blur_cache.borrow().get(original) {
             return hit.clone();

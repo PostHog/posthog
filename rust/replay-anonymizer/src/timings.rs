@@ -1,15 +1,12 @@
-//! Phase-timing sink for the snapshot pipeline: contiguous phase boundaries (decompress, scrub)
-//! plus accumulated in-scrub op totals (cv de/recompression, image blur).
+//! Phase-timing sink for the snapshot pipeline: contiguous phase boundaries plus accumulated
+//! in-scrub op totals (cv de/recompression, image blur), all as nanosecond offsets from one
+//! monotonic origin captured when the sink is created.
 //!
-//! The sink is `Cell`-based and owned by the caller *outside* any `catch_unwind` boundary, so
-//! whatever phases completed before a panic are still readable afterwards — the addon reports
-//! timings on the failure path too, which is how a panicking payload gets debugged.
-//!
-//! `last_op` is the in-flight marker: each op sets it on entry and restores `"scrub"` on a clean
-//! exit, so after a panic it names the op that was running.
+//! `Cell`-based so the caller can own it outside a `catch_unwind` boundary: whatever completed
+//! before a panic is still readable, and `last_op` names the op that was in flight.
 
 use std::cell::Cell;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use serde::Serialize;
 
@@ -17,7 +14,7 @@ const UNSET: u64 = u64::MAX;
 
 pub struct PhaseTimings {
     origin: Instant,
-    origin_epoch_ms: f64,
+    task_start_ns: Cell<u64>,
     decompress_start_ns: Cell<u64>,
     decompress_end_ns: Cell<u64>,
     scrub_start_ns: Cell<u64>,
@@ -29,13 +26,11 @@ pub struct PhaseTimings {
     last_op: Cell<&'static str>,
 }
 
-/// Plain serializable view of a [`PhaseTimings`]; field names match the TS `AnonymizeTimings`.
+/// Serializable view of a [`PhaseTimings`]; field names match the TS `AnonymizeTimings`.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PhaseTimingsSnapshot {
-    /// Wall-clock time the task started (when the sink was created), epoch milliseconds.
-    pub task_start_epoch_ms: f64,
-    /// Phase boundaries as nanosecond offsets from `task_start_epoch_ms`; `None` = never reached.
+    pub task_start_ns: Option<u64>,
     pub decompress_start_ns: Option<u64>,
     pub decompress_end_ns: Option<u64>,
     pub scrub_start_ns: Option<u64>,
@@ -52,10 +47,7 @@ impl PhaseTimings {
     pub fn new() -> Self {
         Self {
             origin: Instant::now(),
-            origin_epoch_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs_f64() * 1000.0)
-                .unwrap_or(0.0),
+            task_start_ns: Cell::new(UNSET),
             decompress_start_ns: Cell::new(UNSET),
             decompress_end_ns: Cell::new(UNSET),
             scrub_start_ns: Cell::new(UNSET),
@@ -64,12 +56,17 @@ impl PhaseTimings {
             cv_count: Cell::new(0),
             blur_total_ns: Cell::new(0),
             blur_count: Cell::new(0),
-            last_op: Cell::new("start"),
+            last_op: Cell::new("queued"),
         }
     }
 
     fn now_ns(&self) -> u64 {
         u64::try_from(self.origin.elapsed().as_nanos()).unwrap_or(u64::MAX - 1)
+    }
+
+    /// Marks the threadpool pickup; the offset from the sink's creation is the queue wait.
+    pub fn task_started(&self) {
+        self.task_start_ns.set(self.now_ns());
     }
 
     pub fn decompress_started(&self) {
@@ -94,9 +91,8 @@ impl PhaseTimings {
         self.last_op.set(op);
     }
 
-    /// Time one in-scrub op, accumulating into the `total`/`count` pair named by `op` ("cv" or
-    /// "blur"). Restores the `"scrub"` marker only on clean exit — a panic inside `f` leaves
-    /// `last_op` naming the op that died.
+    /// Times one in-scrub op into the `cv` or `blur` totals. Restores the `"scrub"` marker only on
+    /// clean exit, so after a panic `last_op` names the op that died.
     pub(crate) fn time_op<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {
         let (total, count) = match op {
             "cv" => (&self.cv_total_ns, &self.cv_count),
@@ -115,7 +111,7 @@ impl PhaseTimings {
     pub fn snapshot(&self) -> PhaseTimingsSnapshot {
         let opt = |c: &Cell<u64>| Some(c.get()).filter(|&v| v != UNSET);
         PhaseTimingsSnapshot {
-            task_start_epoch_ms: self.origin_epoch_ms,
+            task_start_ns: opt(&self.task_start_ns),
             decompress_start_ns: opt(&self.decompress_start_ns),
             decompress_end_ns: opt(&self.decompress_end_ns),
             scrub_start_ns: opt(&self.scrub_start_ns),
@@ -137,6 +133,7 @@ mod tests {
     #[test]
     fn accumulates_ops_and_phase_boundaries() {
         let t = PhaseTimings::new();
+        t.task_started();
         t.decompress_started();
         t.decompress_finished();
         t.scrub_started();
@@ -146,6 +143,7 @@ mod tests {
         t.scrub_finished();
 
         let snap = t.snapshot();
+        assert!(snap.task_start_ns.unwrap() <= snap.decompress_start_ns.unwrap());
         assert!(snap.decompress_start_ns.unwrap() <= snap.decompress_end_ns.unwrap());
         assert!(snap.scrub_start_ns.unwrap() <= snap.scrub_end_ns.unwrap());
         assert_eq!(snap.cv_count, 1);
@@ -156,6 +154,7 @@ mod tests {
     #[test]
     fn survives_a_panic_and_names_the_op_in_flight() {
         let t = PhaseTimings::new();
+        t.task_started();
         t.decompress_started();
         t.decompress_finished();
         t.scrub_started();

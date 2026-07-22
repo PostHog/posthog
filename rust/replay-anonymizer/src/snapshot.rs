@@ -227,8 +227,8 @@ pub fn anonymize_kafka_payload_opts(
     anonymize_kafka_payload_timed(allow, payload, opts, None)
 }
 
-/// [`anonymize_kafka_payload_opts`] with a phase-timing sink. The sink must be owned by the caller
-/// outside any `catch_unwind` boundary so partial timings survive a contained panic.
+/// [`anonymize_kafka_payload_opts`] with a phase-timing sink, which the caller should own outside
+/// any `catch_unwind` boundary so partial timings survive a contained panic.
 pub fn anonymize_kafka_payload_timed(
     allow: &AllowLists,
     payload: &mut [u8],
