@@ -2124,7 +2124,16 @@ def append_suggested_reviewers(
     # simultaneous edits would both read the same row and one would be silently lost.
     seen: set[str] = set()
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team.id).first()
+        report = (
+            SignalReport.objects.select_for_update()
+            .filter(id=report_id, team_id=team.id)
+            .exclude(status=SignalReport.Status.DELETED)
+            .first()
+        )
+        if report is None:
+            # The report was concurrently soft-deleted between the caller's fetch and this lock;
+            # don't append a stale reviewers row to a dead report.
+            raise NotFound()
 
         # Merge commits/names forward from the *current* reviewers (the latest status row).
         # `suggested_reviewers` is append-only and latest-wins.
@@ -2209,7 +2218,7 @@ def append_suggested_reviewers(
                 scope="SignalReport",
                 activity="suggested_reviewers_changed",
                 detail=Detail(
-                    name=report.title if report else None,
+                    name=report.title,
                     changes=[
                         Change(
                             type="SignalReport",
