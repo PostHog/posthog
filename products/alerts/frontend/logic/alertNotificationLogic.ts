@@ -189,11 +189,11 @@ export interface alertNotificationLogicActions {
     setPendingNotifications: (notifications: PendingAlertNotification[]) => {
         notifications: PendingAlertNotification[]
     }
-    setSelectedType: (selectedType: AlertNotificationType) => {
-        selectedType: AlertNotificationType
-    }
     setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => {
         selectedSlackIntegrationId: number | null
+    }
+    setSelectedType: (selectedType: AlertNotificationType) => {
+        selectedType: AlertNotificationType
     }
     setSlackChannelValue: (slackChannelValue: string | null) => {
         slackChannelValue: string | null
