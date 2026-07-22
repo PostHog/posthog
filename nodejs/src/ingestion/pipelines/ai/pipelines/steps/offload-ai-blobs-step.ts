@@ -16,8 +16,19 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { Team, ValueMatcher } from '~/types'
 
 export interface OffloadAiBlobsConfig {
+    /** Gates offload per team; events from non-matching teams pass through with a null plan. */
     isTeamEnabled: ValueMatcher<number>
+    /**
+     * Minimum base64 payload length for a data URI to count as an offloadable
+     * blob. Shorter payloads stay inline and are only counted as below-floor
+     * in metrics.
+     */
     minBase64Length: number
+    /**
+     * Cap on distinct (hash-deduplicated) blobs per event. Exceeding it skips
+     * offload for the whole event rather than offloading a subset, so the
+     * event passes through as if detection had missed.
+     */
     maxBlobsPerEvent: number
     /**
      * Chunk-wide cap on concurrent blob uploads (applied via the fan-out
