@@ -759,6 +759,8 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
     # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
     # source supplies the whole runtime/model/effort triple.
+    # The routed model must also ride on both lifecycle events (omitted on the default path), so
+    # run outcomes are sliceable by model without joining through $ai_generation.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -786,12 +788,36 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
         ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
+    # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
+    # `{}` on the default path) — the native API-side record of which model served the run.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    expected_metadata = {
+        key: value
+        for key, value in (
+            ("model", expected_model),
+            ("runtime_adapter", expected_runtime_adapter),
+            ("reasoning_effort", expected_reasoning_effort),
+        )
+        if value is not None
+    }
+    assert bridge.metadata == expected_metadata
+    events = {c.kwargs["event"] for c in capture.call_args_list}
+    assert events == {"signals_scout_run_started", "signals_scout_run_finished"}
+    for call in capture.call_args_list:
+        props = call.kwargs["properties"]
+        if expected_model is None:
+            assert "model" not in props
+            assert "runtime_adapter" not in props
+        else:
+            assert props["model"] == expected_model
+            assert props["runtime_adapter"] == expected_runtime_adapter
 
 
 @pytest.mark.asyncio
@@ -909,6 +935,16 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
             new_callable=AsyncMock,
             side_effect=RuntimeError("sandbox refused to start"),
         ),
+        # A routed model must survive onto the failed event too — timeouts and crashes are
+        # exactly the outcomes a model trial slices by.
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value=ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="claude"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
+            return_value=AgentRuntime(),
+        ),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
             return_value="env-id",
@@ -928,6 +964,8 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # No bridge row persisted (TaskRun never created), so no emit tally or join key.
     assert props["emitted_count"] == 0
     assert props["task_run_id"] is None
+    assert props["model"] == "@cf/zai-org/glm-5.2"
+    assert props["runtime_adapter"] == "claude"
     # Failure reason rides on the event so the failure rate is breakable down by cause
     # without digging into worker logs — the bulk of scout failures fail here, before the
     # process-task workflow's own task_run_failed event fires.

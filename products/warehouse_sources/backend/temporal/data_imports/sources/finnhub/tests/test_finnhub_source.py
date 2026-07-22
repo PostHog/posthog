@@ -14,7 +14,9 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
+    FinnhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

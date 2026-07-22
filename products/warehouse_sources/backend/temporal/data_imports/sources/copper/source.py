@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.copper.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CopperSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.copper import CopperSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -65,6 +65,7 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -81,7 +82,11 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: CopperSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CopperSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_copper_credentials(config.api_key, config.user_email)
 

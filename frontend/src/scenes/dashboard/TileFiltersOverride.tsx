@@ -4,7 +4,7 @@ import './TileFiltersOverride.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
-import '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,7 +18,7 @@ import { tileLogic } from './tileLogic'
 
 export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedInsightModel> }): JSX.Element {
     const { overrides } = useValues(tileLogic)
-    const { setDates, setProperties } = useActions(tileLogic)
+    const { setDates, setProperties, setIgnoreDashboardFilters } = useActions(tileLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
@@ -33,6 +33,20 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
             </div>
 
             <div className="space-y-4">
+                <div>
+                    <LemonSwitch
+                        checked={!!overrides.ignoreDashboardFilters}
+                        onChange={setIgnoreDashboardFilters}
+                        label="Ignore dashboard filters"
+                        bordered
+                        fullWidth
+                        data-attr="tile-ignore-dashboard-filters"
+                    />
+                    <p className="text-xs text-muted mt-1 mb-0">
+                        When on, none of the dashboard's filters apply to this insight. The overrides below still do.
+                    </p>
+                </div>
+
                 <div>
                     <label className="text-sm font-medium mb-2 block">Date Range</label>
                     <DateFilter

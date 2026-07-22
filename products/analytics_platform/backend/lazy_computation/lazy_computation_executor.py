@@ -18,6 +18,8 @@ import structlog
 from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import (
     MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
@@ -819,6 +821,7 @@ class LazyComputationExecutor:
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
         stale_while_revalidate_seconds: float | None = None,
+        run_inserts: bool = True,
     ) -> None:
         if stale_while_revalidate_seconds is not None and stale_while_revalidate_seconds >= EXPIRY_BUFFER_SECONDS:
             raise ValueError("stale_while_revalidate_seconds must be below EXPIRY_BUFFER_SECONDS")
@@ -830,6 +833,11 @@ class LazyComputationExecutor:
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
         self.ch_start_grace_period_seconds = ch_start_grace_period_seconds
         self.stale_while_revalidate_seconds = stale_while_revalidate_seconds
+        # Check-only mode: never create jobs or wait on pending ones. A request
+        # either gets served from covering READY jobs (fresh, or stale within the
+        # revalidate grace) or is told `ready=False` immediately so it can fall
+        # back to a live query while something else computes in the background.
+        self.run_inserts = run_inserts
 
     def execute(
         self,
@@ -869,7 +877,11 @@ class LazyComputationExecutor:
         had_ready_at_start: bool | None = None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
-            if jobs_created == 0 and not waited_job_ids:
+            if outcome == "check_miss":
+                # Check-only misses return before any job is created or waited on,
+                # which the branch below would misread as a cache hit.
+                cache_state = "partial_hit" if had_ready_at_start else "miss"
+            elif jobs_created == 0 and not waited_job_ids:
                 cache_state = "hit"
             elif had_ready_at_start:
                 cache_state = "partial_hit"
@@ -941,6 +953,17 @@ class LazyComputationExecutor:
                         )
                         _log_execution("stale_hit", result)
                         return result
+
+                # Check-only mode: the range isn't fully covered by servable READY
+                # jobs (the stale-serve above would have returned), and this request
+                # must not compute inline or block on someone else's pending job —
+                # report the miss so the caller serves live and warms in background.
+                if not self.run_inserts and (ttl_ranges or pending_jobs):
+                    result = LazyComputationResult(
+                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                    )
+                    _log_execution("check_miss", result)
+                    return result
 
                 # Step 3: Insert missing ranges
                 did_work = False
@@ -1193,6 +1216,8 @@ def ensure_precomputed(
     spill_to_disk: bool = False,
     wait_timeout_seconds: float | None = None,
     stale_while_revalidate_seconds: float | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
+    run_inserts: bool = True,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1246,6 +1271,11 @@ def ensure_precomputed(
                       background. Only for user-facing callers with a refresh
                       mechanism; background refreshers must leave this unset or they
                       would serve stale to themselves and never recompute.
+        modifiers: HogQL modifiers used when printing the INSERT's SELECT (defaults to
+                      the team's default modifiers). NOT part of job identity — the job
+                      hash covers only the substituted AST — so modifiers must never
+                      change what the query computes, only how it executes (e.g.
+                      `sessionIdPushdown`, which is semantics-preserving by design).
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1313,6 +1343,7 @@ def ensure_precomputed(
             insert_query=insert_query,
             table=table,
             base_placeholders=base_placeholders,
+            modifiers=modifiers,
         )
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
@@ -1339,6 +1370,7 @@ def ensure_precomputed(
         ttl_schedule=ttl_schedule,
         wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
+        run_inserts=run_inserts,
     )
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
@@ -1364,6 +1396,7 @@ def _build_manual_insert_sql(
     insert_query: str | ast.SelectQuery,
     table: LazyComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> tuple[str, dict]:
     """
     Build INSERT SQL for manual lazy computation.
@@ -1413,7 +1446,7 @@ def _build_manual_insert_sql(
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
-        modifiers=create_default_modifiers_for_team(team),
+        modifiers=modifiers if modifiers is not None else create_default_modifiers_for_team(team),
         bypass_warehouse_access_control=True,
     )
     select_sql, _ = prepare_and_print_ast(

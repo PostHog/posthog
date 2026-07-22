@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AirOpsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airops import AirOpsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -93,13 +93,18 @@ You can create a workspace API key in your [AirOps workspace settings](https://a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # AirOps has no server-side timestamp filter and executions mutate after creation, so every
         # table is full refresh only (no incremental / append support — INCREMENTAL_FIELDS is empty).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: AirOpsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AirOpsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_airops_credentials(config.api_key):
             return True, None
