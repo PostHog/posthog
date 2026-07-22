@@ -28,6 +28,12 @@
             "description": "Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
             "minLength": 1,
             "type": "string"
+        },
+        "target": {
+            "default": "generation",
+            "description": "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.\n\n* `generation` - Generation\n* `trace` - Trace",
+            "enum": ["generation", "trace"],
+            "type": "string"
         }
     },
     "required": ["source"],
