@@ -19,11 +19,15 @@ from products.tasks.backend.models import Channel, Task
 # - HOGDESK: support-desk Code threads. The task is pinned to the support ticket via a
 #   shared ticket tag, so any agent opening the ticket resumes the same thread — it must
 #   be viewable by the whole team, not just the agent who started it.
+# - EXPERIMENTS: flag-cleanup tasks opened when an experiment ends. The experiment (and
+#   the task's status on it) is team-visible, so any team member should be able to open
+#   the task and answer the agent, not just whoever clicked "End experiment".
 TEAM_VISIBLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.SIGNAL_REPORT,
     Task.OriginProduct.SIGNALS_SCOUT,
     Task.OriginProduct.ONBOARDING,
     Task.OriginProduct.HOGDESK,
+    Task.OriginProduct.EXPERIMENTS,
 ]
 
 

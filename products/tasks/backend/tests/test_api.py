@@ -376,6 +376,22 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         ids = {r["id"] for r in response.json()["results"]}
         self.assertEqual(ids, {str(run.id)})
 
+    def test_retrieve_experiments_task_owned_by_another_user_is_visible(self):
+        # Flag-cleanup tasks are surfaced on the (team-visible) experiment, so any
+        # team member must be able to open them, not just whoever ended the experiment.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
         other_user = self.create_organization_user("victim")
