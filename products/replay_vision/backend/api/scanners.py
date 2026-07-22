@@ -482,7 +482,8 @@ class _ScannerOrderByFilter(OrderByFilter):
             organization_id = qs.values_list("team__organization_id", flat=True).first()
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)
-            period_start, period_end = current_period_bounds(organization_id)
+            period = current_period_bounds(organization_id)
+            period_start, period_end = period.start, period.end
             spend = (
                 ReplayObservation.objects.filter(
                     scanner_id=OuterRef("pk"),

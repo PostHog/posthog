@@ -29,7 +29,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
-from products.replay_vision.backend.quota import _current_period_bounds
+from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
@@ -2209,4 +2209,4 @@ class TestCurrentPeriodBounds(SimpleTestCase):
     )
     def test_period_selection(self, _name: str, usage: dict | None, expected: tuple[datetime, datetime]) -> None:
         organization = Organization(usage=usage) if usage is not None else None
-        self.assertEqual(_current_period_bounds(organization, self.NOW), expected)
+        self.assertEqual(_current_period_bounds(organization, self.NOW), BillingPeriod(*expected))
