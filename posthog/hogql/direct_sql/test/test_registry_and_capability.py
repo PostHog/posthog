@@ -29,8 +29,10 @@ class TestDirectSQLRegistry(SimpleTestCase):
         self.assertEqual({"postgres", "mysql", "snowflake", "redshift", "clickhouse"}, set(registered_engines()))
 
     def test_clickhouse_adapter_compiles_hogql(self):
+        adapter = get_adapter("clickhouse")
+        assert adapter is not None
         # dialect is non-None, so direct_supports_hogql is True (not raw-only).
-        self.assertEqual(get_adapter("clickhouse").dialect, "clickhouse")
+        self.assertEqual(adapter.dialect, "clickhouse")
 
     def test_register_adapter_round_trips(self):
         class FakeAdapter:
