@@ -64,6 +64,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
         AccessControlResourceType.Endpoint,
         AccessControlLevel.Editor
     )
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
     const canExport = exportContext != null && insight.short_id != null
     const showCohort =
         hogQL != null &&
@@ -139,11 +143,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     onClick: () => push(urls.insightSharing(insight.short_id!)),
                 }}
                 dataAttrKey={RESOURCE_TYPE}
-                disabledReasons={
-                    !isSavedInsight
-                        ? { 'You must save the insight first before sharing it as a template': true }
-                        : undefined
-                }
+                disabledReasons={{
+                    'You must save the insight first before sharing it as a template': !isSavedInsight,
+                    ...(sharingDisabledReason ? { [sharingDisabledReason]: true } : {}),
+                }}
             />
 
             {canExport ? (

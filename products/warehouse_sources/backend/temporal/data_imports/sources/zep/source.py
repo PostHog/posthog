@@ -92,6 +92,7 @@ You can create an API key in the [Zep dashboard](https://app.getzep.com/) under 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Zep exposes no server-side timestamp filter (no created_since / updated_since), so every
         # endpoint is full-refresh only. See settings.py / the source docs for the rationale.
@@ -112,7 +113,7 @@ You can create an API key in the [Zep dashboard](https://app.getzep.com/) under 
         return schemas
 
     def validate_credentials(
-        self, config: ZepSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: ZepSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_zep_credentials(config.api_key):
             return True, None

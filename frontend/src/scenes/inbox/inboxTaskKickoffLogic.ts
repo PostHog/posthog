@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
-import { RunSourceEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
@@ -93,6 +93,10 @@ async function createReportTask(
     await api.tasks.run(task.id, {
         run_source: RunSourceEnumApi.SignalReport,
         signal_report_id: report.id,
+        // Interactive, not the default background: the user lands on the run page right away, and the
+        // agent-server only relays AskUserQuestion (and other approval prompts) to the client on
+        // non-background runs — a background run's questions are parked and never rendered as a form.
+        mode: TaskExecutionModeEnumApi.Interactive,
     })
 
     router.actions.push(urls.taskDetail(task.id))

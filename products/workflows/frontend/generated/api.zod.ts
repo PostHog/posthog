@@ -697,7 +697,9 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
@@ -1027,7 +1029,9 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
@@ -1362,7 +1366,9 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .optional()
@@ -1413,7 +1419,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                         '\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges'
                     )
                     .describe(
-                        "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} \/ remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding\/removing branch conditions); incoming edges are left intact.\n\n\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges"
+                        "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} \/ remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding\/removing branch conditions); incoming edges are left intact.\n\n\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges"
                     ),
                 id: zod
                     .string()
@@ -1471,7 +1477,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                     )
                     .optional()
                     .describe(
-                        "replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved."
+                        "replace_action_edges: the complete set of the action's outgoing edges (incoming edges are preserved). add_action: optional edges to wire the new node in the same op."
                     ),
             })
         )
@@ -1875,7 +1881,9 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         output_variable: zod
                             .unknown()
                             .optional()
-                            .describe('Output variable definition for downstream actions.'),
+                            .describe(
+                                'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                            ),
                     })
                 )
                 .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
@@ -1981,13 +1989,13 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(hogFlowsPublishCreateBodyConfirmDefault)
         .describe(
-            'False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow.'
+            'False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow.'
         ),
-    draft_updated_at: zod.iso
-        .datetime({ offset: true })
+    confirm_token: zod
+        .string()
         .optional()
         .describe(
-            'The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it.'
+            'From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
         ),
 })
 
@@ -2058,6 +2066,17 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
+
+export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
+
+export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409."
+        ),
+})
 
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
 
@@ -2420,7 +2439,9 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
