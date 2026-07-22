@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
@@ -18,8 +18,10 @@ export function ComposeTicketModal(): JSX.Element | null {
         emailConfigs,
         emailConfigsLoading,
         composingLoading,
+        cc,
+        bcc,
     } = useValues(composeTicketLogic)
-    const { closeComposeModal, setRecipientEmail, setEmailSubject, setEmailConfigId, submitCompose } =
+    const { closeComposeModal, setRecipientEmail, setEmailSubject, setEmailConfigId, submitCompose, setCc, setBcc } =
         useActions(composeTicketLogic)
 
     const editorRef = useRef<RichContentEditorType | null>(null)
@@ -76,6 +78,30 @@ export function ComposeTicketModal(): JSX.Element | null {
                         disabledReason={
                             recipientDistinctId && recipientEmail ? 'Email is linked to the selected person' : undefined
                         }
+                    />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold text-xs">Cc</label>
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={cc}
+                        onChange={setCc}
+                        placeholder="Add Cc recipients (optional)..."
+                        fullWidth
+                    />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold text-xs">Bcc</label>
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={bcc}
+                        onChange={setBcc}
+                        placeholder="Add Bcc recipients (optional)..."
+                        fullWidth
                     />
                 </div>
 

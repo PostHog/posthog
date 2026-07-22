@@ -19,6 +19,7 @@ from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
+from .services.recipients import normalize_recipients
 from .tasks import (
     post_reply_to_github,
     post_reply_to_slack,
@@ -398,6 +399,15 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # checked here: every customer-facing reply on an email ticket gets an outbox row, and
     # _process_outbox_row fails undeliverable ones with a reason. Skipping row creation instead
     # would leave the reply looking sent in the agent UI, with no record of why nothing went out.
+
+    # Persist any newly Cc'd addresses onto the ticket so later replies keep copying them
+    # (and the agent UI shows them). Bcc is intentionally per-message and never persisted.
+    item_cc = item_context.get("cc") if isinstance(item_context, dict) else None
+    if item_cc:
+        merged_cc = normalize_recipients([*(ticket.cc_participants or []), *item_cc], exclude=[ticket.email_from or ""])
+        if merged_cc != (ticket.cc_participants or []):
+            ticket.cc_participants = merged_cc
+            ticket.save(update_fields=["cc_participants", "updated_at"])
 
     config = ticket.email_config
     inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)

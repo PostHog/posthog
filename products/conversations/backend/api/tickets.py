@@ -56,6 +56,7 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.recipients import normalize_recipients
 
 from ee.models.rbac.role import Role
 
@@ -99,6 +100,24 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Optional TipTap rich content JSON for formatted messages.",
+    )
+    cc = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+        default=list,
+        help_text=(
+            "Email addresses to copy (Cc) on the reply. Cc'd addresses are remembered for the rest "
+            "of the thread, so later replies keep copying them. Ignored for private notes."
+        ),
+    )
+    bcc = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+        default=list,
+        help_text=(
+            "Email addresses to blind-copy (Bcc) on the reply. Applies to this message only and is "
+            "never revealed to the other recipients. Ignored for private notes."
+        ),
     )
 
     def validate_message(self, value: str) -> str:
@@ -153,6 +172,18 @@ class ComposeTicketSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="TipTap rich content JSON for formatted messages.",
+    )
+    cc = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+        default=list,
+        help_text="Email addresses to copy (Cc) on the first message and the rest of the thread.",
+    )
+    bcc = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+        default=list,
+        help_text="Email addresses to blind-copy (Bcc) on the first message. Never revealed to the other recipients.",
     )
 
     def validate_message(self, value: str) -> str:
@@ -1171,6 +1202,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         is_private = data["is_private"]
 
+        item_context: dict[str, Any] = {"author_type": "support", "is_private": is_private}
+        # Cc/Bcc only make sense on a customer-facing reply; a private note is never delivered.
+        if not is_private:
+            cc = normalize_recipients(data.get("cc"), exclude=[ticket.email_from or ""])
+            bcc = normalize_recipients(data.get("bcc"), exclude=[ticket.email_from or "", *cc])
+            if cc:
+                item_context["cc"] = cc
+            if bcc:
+                item_context["bcc"] = bcc
+
         comment = Comment.objects.create(
             team=self.team,
             created_by=request.user,
@@ -1178,7 +1219,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             item_id=str(ticket.id),
             content=data["message"],
             rich_content=data.get("rich_content"),
-            item_context={"author_type": "support", "is_private": is_private},
+            item_context=item_context,
         )
 
         return Response(
@@ -1300,6 +1341,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
 
+        cc = normalize_recipients(data.get("cc"), exclude=[recipient_email])
+        bcc = normalize_recipients(data.get("bcc"), exclude=[recipient_email, *cc])
+
         with transaction.atomic():
             ticket = Ticket.objects.create_with_number(
                 team=team,
@@ -1310,10 +1354,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
+                cc_participants=cc,
                 # The recipient hasn't proven control of this address — a team member just typed it —
                 # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
                 identity_verified=None,
             )
+
+            item_context: dict[str, Any] = {"author_type": "human", "is_private": False}
+            if bcc:
+                item_context["bcc"] = bcc
 
             Comment.objects.create(
                 team=team,
@@ -1322,7 +1371,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 item_id=str(ticket.id),
                 content=data["message"],
                 rich_content=data.get("rich_content"),
-                item_context={"author_type": "human", "is_private": False},
+                item_context=item_context,
             )
 
         try:

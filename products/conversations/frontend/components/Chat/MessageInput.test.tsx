@@ -74,6 +74,45 @@ describe('MessageInput send-and-set-status dropdown', () => {
 
         await userEvent.click(screen.getByText(`${verb} and set pending`))
         expect(onSendMessage).toHaveBeenCalledTimes(1)
-        expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, isPrivate, expect.any(Function), 'pending')
+        // showCcBcc defaults off here, so no extra recipients ride along.
+        expect(onSendMessage).toHaveBeenCalledWith(
+            'hello',
+            { type: 'doc' },
+            isPrivate,
+            expect.any(Function),
+            'pending',
+            undefined
+        )
+    })
+
+    // Guards the Cc/Bcc wiring: when showCcBcc is on and the agent adds recipients, they must reach
+    // onSendMessage — regressing this silently drops the extra recipients from the outbound email.
+    test('passes Cc/Bcc recipients through to onSendMessage when showCcBcc is enabled', async () => {
+        const onSendMessage = jest.fn()
+
+        render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={onSendMessage}
+                    messageSending={false}
+                    showCcBcc
+                    draftContent={{ type: 'doc', content: [] }}
+                />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByText('Add Cc/Bcc'))
+        await userEvent.type(screen.getByPlaceholderText('Add Cc recipients...'), 'colleague@example.com{enter}')
+        await userEvent.type(screen.getByPlaceholderText('Add Bcc recipients...'), 'finance@example.com{enter}')
+
+        await userEvent.click(screen.getByText('Send'))
+        expect(onSendMessage).toHaveBeenCalledWith(
+            'hello',
+            { type: 'doc' },
+            false,
+            expect.any(Function),
+            undefined,
+            { cc: ['colleague@example.com'], bcc: ['finance@example.com'] }
+        )
     })
 })
