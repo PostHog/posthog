@@ -488,8 +488,7 @@ export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
 export const evaluationsTestHogCreateBodyAllowsNaDefault = false
-
-export const evaluationsTestHogCreateBodyTargetDefault = 'generation'
+export const evaluationsTestHogCreateBodyTargetDefault = `generation`
 
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     source: zod
