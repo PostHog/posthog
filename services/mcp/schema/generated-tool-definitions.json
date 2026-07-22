@@ -4948,7 +4948,7 @@
         }
     },
     "insights-list": {
-        "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`. Saved insights are not the source of truth for business metrics; if a governed metrics catalog is available (`system.information_schema.metrics`), check it first.",
+        "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get all insights",
@@ -4962,7 +4962,7 @@
         }
     },
     "insights-trending-retrieve": {
-        "description": "Returns the most-viewed insights in the project, ranked by view count over the last N days (default 7). Use this to surface the insights that matter most to the team — the ones people actually open. Each result includes standard insight metadata plus `view_count` and up to 3 recent `viewers`. Returns metadata only — call `insight-query` with the returned `short_id` to fetch the actual data for any of them. Saved insights are not the source of truth for business metrics; if a governed metrics catalog is available (`system.information_schema.metrics`), check it first.",
+        "description": "Returns the most-viewed insights in the project, ranked by view count over the last N days (default 7). Use this to surface the insights that matter most to the team — the ones people actually open. Each result includes standard insight metadata plus `view_count` and up to 3 recent `viewers`. Returns metadata only — call `insight-query` with the returned `short_id` to fetch the actual data for any of them.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get most-viewed insights",
