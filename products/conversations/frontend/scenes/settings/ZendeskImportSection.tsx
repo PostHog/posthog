@@ -39,7 +39,7 @@ export function ZendeskImportSection(): JSX.Element {
     return (
         <SceneSection
             title="Zendesk import"
-            description="Import historical Zendesk Support tickets and message threads into Conversations. Already-synced tickets are skipped on re-run."
+            description="Import historical Zendesk Support tickets and message threads into Support. Already-synced tickets are skipped on re-run."
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                 <ZendeskImportForm />

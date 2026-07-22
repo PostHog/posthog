@@ -5,26 +5,14 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerDigestLogic } from '../scannerDigestLogic'
 import { resolveObservationCitations } from '../visionActionRunSceneLogic'
-
-function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.SessionRecording}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            {children}
-        </AccessControlAction>
-    )
-}
 
 function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
     return (
@@ -55,6 +43,8 @@ export function ScannerDigestCard({
     const logic = scannerDigestLogic({ scannerId, scannerName })
     const { digest, latestRun, latestRunLoading, digestCreating, expanded, visionActionsLoading } = useValues(logic)
     const { createDigest, toggleExpanded, toggleActionEnabled } = useActions(logic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     if (visionActionsLoading && !digest) {
         return null
@@ -68,18 +58,17 @@ export function ScannerDigestCard({
                     <span className="text-sm text-muted">
                         Get a daily AI summary of what this scanner finds, right here.
                     </span>
-                    <EditorGate>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={createDigest}
-                            loading={digestCreating}
-                            data-attr="vision-scanner-digest-create"
-                        >
-                            Turn on daily digest
-                        </LemonButton>
-                    </EditorGate>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={createDigest}
+                        loading={digestCreating}
+                        disabledReason={editDisabledReason}
+                        data-attr="vision-scanner-digest-create"
+                    >
+                        Turn on daily digest
+                    </LemonButton>
                 </div>
             </CardShell>
         )
@@ -91,16 +80,15 @@ export function ScannerDigestCard({
                 <CardHeader />
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm text-muted">The daily digest is paused.</span>
-                    <EditorGate>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => toggleActionEnabled(digest.id)}
-                            data-attr="vision-scanner-digest-resume"
-                        >
-                            Resume
-                        </LemonButton>
-                    </EditorGate>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => toggleActionEnabled(digest.id)}
+                        disabledReason={editDisabledReason}
+                        data-attr="vision-scanner-digest-resume"
+                    >
+                        Resume
+                    </LemonButton>
                 </div>
             </CardShell>
         )
