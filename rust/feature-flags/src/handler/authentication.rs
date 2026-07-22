@@ -6,12 +6,15 @@ use crate::{
     team::team_models::Team,
 };
 
-use super::{decoding, types::RequestContext};
+use super::{
+    decoding,
+    types::{Library, RequestContext},
+};
 
 pub async fn parse_and_authenticate(
     context: &RequestContext,
     flag_service: &FlagService,
-) -> Result<(Option<String>, Team, FlagRequest), FlagError> {
+) -> Result<(Option<String>, Team, FlagRequest, Option<Library>), FlagError> {
     let (request, decoded_body) =
         decoding::decode_request(&context.headers, context.body.clone(), &context.meta)?;
 
@@ -23,7 +26,7 @@ pub async fn parse_and_authenticate(
         slot.set(decoded_body).ok();
     }
 
-    super::stamp_body_sdk_info(&request);
+    let body_library = super::stamp_body_sdk_info(&request);
 
     let token = request.extract_token()?;
     let team = flag_service.verify_token_and_get_team(&token).await?;
@@ -35,7 +38,7 @@ pub async fn parse_and_authenticate(
         Some(request.extract_distinct_id()?)
     };
 
-    Ok((distinct_id, team, request))
+    Ok((distinct_id, team, request, body_library))
 }
 
 /// Checks if the request is an internal request.

@@ -151,7 +151,7 @@ async fn process_request_inner(
             *context.state.config.skip_pg_team_fallback,
         );
 
-        let (original_distinct_id, team, request) = {
+        let (original_distinct_id, team, request, body_library) = {
             // Phase boundary: covers token decoding, team verification
             // (HyperCache → Redis → S3 → PG fallback), and distinct-id
             // extraction. Drop records elapsed time into the canonical
@@ -165,7 +165,7 @@ async fn process_request_inner(
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
 
-        if let Some(body_library) = stamp_body_sdk_info(&request) {
+        if let Some(body_library) = body_library {
             metrics_data.library = body_library;
         }
 

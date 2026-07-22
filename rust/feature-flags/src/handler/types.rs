@@ -250,6 +250,7 @@ impl Library {
     /// Uses `as_str()` as the source of truth to ensure consistency between
     /// parsing and serialization.
     pub(crate) fn from_sdk_name(sdk_name: &str) -> Self {
+        // posthog-js reports its library as "web" in request body properties.
         if sdk_name == "web" {
             return Library::PosthogJs;
         }
@@ -415,6 +416,11 @@ mod tests {
                 "from_sdk_name({sdk_name}) should return {lib:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_from_sdk_name_maps_web_to_posthog_js() {
+        assert_eq!(Library::from_sdk_name("web"), Library::PosthogJs);
     }
 
     #[test]

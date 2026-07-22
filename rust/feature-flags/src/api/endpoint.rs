@@ -580,6 +580,7 @@ pub async fn flags(
 }
 
 fn initial_lib_version(ua_info: &UserAgentInfo, query_params: &FlagsQueryParams) -> Option<String> {
+    // Server SDKs report versions in User-Agent, while browser SDKs use the legacy query parameter.
     ua_info
         .sdk_version
         .clone()

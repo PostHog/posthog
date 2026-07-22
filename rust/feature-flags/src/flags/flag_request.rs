@@ -12,6 +12,8 @@ use crate::handler::flags::EvaluationRuntime;
 /// which use VARCHAR(200). The main persons tables allow up to 400 chars.
 pub const MAX_DISTINCT_ID_LEN: usize = 200;
 
+const MAX_LIB_LEN: usize = 64;
+
 fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -172,34 +174,28 @@ impl FlagRequest {
         }
     }
 
-    pub fn extract_lib(&self) -> Option<String> {
-        self.lib
-            .as_deref()
-            .filter(|lib| !lib.is_empty())
+    fn extract_string_with_fallback(&self, top_level: Option<&str>, key: &str) -> Option<String> {
+        top_level
+            .filter(|value| !value.is_empty())
             .map(str::to_string)
             .or_else(|| {
                 self.person_properties
                     .as_ref()
-                    .and_then(|properties| properties.get("$lib"))
-                    .and_then(|value| value.as_str())
-                    .filter(|lib| !lib.is_empty())
+                    .and_then(|properties| properties.get(key))
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
                     .map(str::to_string)
             })
     }
 
+    pub fn extract_lib(&self) -> Option<String> {
+        self.extract_string_with_fallback(self.lib.as_deref(), "$lib")
+            .map(|lib| lib.chars().take(MAX_LIB_LEN).collect())
+    }
+
     pub fn extract_lib_version(&self) -> Option<String> {
-        self.lib_version
-            .as_deref()
-            .filter(|version| !version.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                self.person_properties
-                    .as_ref()
-                    .and_then(|properties| properties.get("$lib_version"))
-                    .and_then(|value| value.as_str())
-                    .filter(|version| !version.is_empty())
-                    .map(str::to_string)
-            })
+        self.extract_string_with_fallback(self.lib_version.as_deref(), "$lib_version")
+            .map(|version| version.chars().take(MAX_LIB_LEN).collect())
     }
 
     /// Extracts the token from the request.
@@ -244,18 +240,7 @@ impl FlagRequest {
     /// Checks the top-level device_id field first, then falls back to
     /// person_properties.$device_id for SDKs that only send it as a property.
     pub fn extract_device_id(&self) -> Option<String> {
-        self.device_id
-            .as_ref()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .or_else(|| {
-                self.person_properties
-                    .as_ref()
-                    .and_then(|props| props.get("$device_id"))
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-            })
+        self.extract_string_with_fallback(self.device_id.as_deref(), "$device_id")
     }
 
     /// Checks if feature flags should be disabled for this request.
@@ -274,7 +259,7 @@ mod tests {
     use crate::api::errors::FlagError;
 
     use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
-    use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN};
+    use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN, MAX_LIB_LEN};
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
@@ -953,6 +938,53 @@ mod tests {
         .expect("failed to parse request");
 
         assert_eq!(flag_payload.extract_lib().as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn test_empty_top_level_sdk_info_falls_back_to_person_properties() {
+        let flag_payload = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "$lib": "",
+                "$lib_version": "",
+                "person_properties": {
+                    "$lib": "posthog-node",
+                    "$lib_version": "1.2.3"
+                }
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+
+        assert_eq!(flag_payload.extract_lib().as_deref(), Some("posthog-node"));
+        assert_eq!(flag_payload.extract_lib_version().as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn test_sdk_info_is_truncated() {
+        let flag_payload = FlagRequest {
+            lib: Some("a".repeat(MAX_LIB_LEN + 1)),
+            person_properties: Some(HashMap::from([(
+                "$lib_version".to_string(),
+                json!("🦔".repeat(MAX_LIB_LEN + 1)),
+            )])),
+            ..Default::default()
+        };
+
+        let expected_lib = "a".repeat(MAX_LIB_LEN);
+        assert_eq!(
+            flag_payload.extract_lib().as_deref(),
+            Some(expected_lib.as_str())
+        );
+        assert_eq!(
+            flag_payload
+                .extract_lib_version()
+                .expect("expected lib version")
+                .chars()
+                .count(),
+            MAX_LIB_LEN
+        );
     }
 
     #[test]
