@@ -818,6 +818,9 @@ class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable living artifact id. Use this id when editing the artifact.")
     task_id = serializers.CharField(help_text="Task id this living artifact belongs to.")
     run_id = serializers.CharField(help_text="Task run id that created or currently owns this artifact.")
+    channel_id = serializers.CharField(
+        allow_null=True, required=False, help_text="Channel this artifact belongs to, stamped from its task at create."
+    )
     team_id = serializers.IntegerField(help_text="Project id that owns this artifact.")
     name = serializers.CharField(help_text="Human-readable artifact name.")
     artifact_type = serializers.ChoiceField(

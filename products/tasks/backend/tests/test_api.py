@@ -54,6 +54,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import (
+    Channel,
     CodeInvite,
     CodeInviteRedemption,
     SandboxCustomImage,
@@ -5412,6 +5413,52 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual([version["version"] for version in updated["versions"]], [1, 2])
         self.assertEqual(slack.api_call.call_args_list[0].args[0], "canvases.create")
         self.assertEqual(slack.api_call.call_args_list[1].args[0], "canvases.edit")
+
+    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_living_artifact_create_stamps_task_channel(
+        self, mock_integration_for_mapping, _mock_canvas_file_flag, _mock_living_artifacts_flag
+    ):
+        channel = Channel.objects.unscoped().create(team=self.team, name="growth")
+        task = self.create_task()
+        task.channel = channel
+        task.save(update_fields=["channel"])
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write,canvases:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.api_call.side_effect = [{"canvas_id": "F123"}]
+        slack.chat_postMessage.return_value = {"ts": "1111.2"}
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
+            {"name": "report.md", "artifact_type": "document", "content": "# hi"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["channel_id"], str(channel.id))
+        stored = TaskArtifact.objects.for_team(self.team.id).get(id=response.json()["id"])
+        self.assertEqual(stored.channel_id, channel.id)
 
     def test_living_artifact_create_rejects_s3_adapter(self):
         task = self.create_task()

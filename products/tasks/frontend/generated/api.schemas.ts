@@ -2815,6 +2815,11 @@ export interface TaskRunLivingArtifactResponseApi {
     task_id: string
     /** Task run id that created or currently owns this artifact. */
     run_id: string
+    /**
+     * Channel this artifact belongs to, stamped from its task at create.
+     * @nullable
+     */
+    channel_id?: string | null
     /** Project id that owns this artifact. */
     team_id: number
     /** Human-readable artifact name. */
@@ -2925,6 +2930,11 @@ export interface TaskRunLivingArtifactOpenResponseApi {
     task_id: string
     /** Task run id that created or currently owns this artifact. */
     run_id: string
+    /**
+     * Channel this artifact belongs to, stamped from its task at create.
+     * @nullable
+     */
+    channel_id?: string | null
     /** Project id that owns this artifact. */
     team_id: number
     /** Human-readable artifact name. */
