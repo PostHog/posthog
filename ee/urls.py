@@ -23,7 +23,7 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, license, sentry_stats, subscription
+from .api import authentication, billing, conversation, core_memory, license, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
@@ -250,7 +250,6 @@ else:
 
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
-    path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
@@ -347,6 +346,16 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_resource_remove",
     ),
     path(
+        "api/agentic/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="agentic_provisioning_github_integration",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="agentic_provisioning_wizard_runs",
+    ),
+    path(
         "api/agentic/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="agentic_provisioning_resource_detail",
@@ -355,6 +364,16 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="agentic_provisioning_deep_links",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="agentic_provisioning_github_grants_create",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="agentic_provisioning_github_grant_repositories",
     ),
     path(
         "agentic/login",
@@ -403,6 +422,16 @@ urlpatterns: list[Any] = [
         name="provisioning_resource_remove",
     ),
     path(
+        "api/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="provisioning_github_integration",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="provisioning_wizard_runs",
+    ),
+    path(
         "api/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="provisioning_resource_detail",
@@ -411,6 +440,16 @@ urlpatterns: list[Any] = [
         "api/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="provisioning_deep_links",
+    ),
+    path(
+        "api/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="provisioning_github_grants_create",
+    ),
+    path(
+        "api/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="provisioning_github_grant_repositories",
     ),
     *admin_urlpatterns,
 ]

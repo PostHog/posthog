@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finage.fin
     validate_source_config,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS, FINAGE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS = {
@@ -43,6 +43,7 @@ class FinageSource(SimpleSource[FinageSourceConfig]):
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://finage.co.uk/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -55,7 +56,6 @@ class FinageSource(SimpleSource[FinageSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finage",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Finage API key and the symbols you want to sync to pull market data into the PostHog Data warehouse.
 
 You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboard) after subscribing to a plan. The key needs access to the **US stocks** endpoints.""",

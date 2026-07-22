@@ -20,7 +20,7 @@ from products.replay_vision.backend.temporal.constants import (
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind
-from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_FAILURE_KINDS
+from products.replay_vision.backend.temporal.metrics import record_failure_kind
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +59,7 @@ def _mark_orphaned(observation_id: UUID, scanner_type: str) -> bool:
         error_reason=_ORPHANED_ERROR_REASON,
         scanner_type=scanner_type,
         valid_kinds={FailureKind.ORPHANED.value},
-        count_kind=lambda kind: REPLAY_VISION_FAILURE_KINDS.labels(kind=kind, scanner_type=scanner_type).inc(),
+        count_kind=lambda kind: record_failure_kind(kind, scanner_type),
     )
 
 

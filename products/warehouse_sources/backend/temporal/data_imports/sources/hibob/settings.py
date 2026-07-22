@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class HiBobEndpointConfig:
@@ -36,3 +38,6 @@ HIBOB_ENDPOINTS: dict[str, HiBobEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(HIBOB_ENDPOINTS.keys())
+
+# No endpoint carries a usable updated-at watermark, so every stream is full refresh.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

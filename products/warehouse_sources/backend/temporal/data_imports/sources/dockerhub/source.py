@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
     DOCKERHUB_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DockerhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
+    DockerhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -43,6 +45,9 @@ def _namespace_for_config(config: DockerhubSourceConfig) -> str:
 @SourceRegistry.register
 class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.docker.com/reference/api/hub/latest/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -98,7 +103,6 @@ You can create a personal access token with **Read** access under **Account sett
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

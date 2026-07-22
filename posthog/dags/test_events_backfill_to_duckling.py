@@ -42,6 +42,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
     _resolve_table_names,
     _set_table_partitioning,
+    _stale_run_outcome,
     _validate_identifier,
     delete_events_partition_data,
     duckling_events_backfill_job,
@@ -51,7 +52,6 @@ from posthog.dags.events_backfill_to_duckling import (
     export_events_to_duckling_s3,
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
-    get_months_in_range,
     get_s3_url_for_clickhouse,
     is_full_export_partition,
     parse_partition_key,
@@ -60,6 +60,8 @@ from posthog.dags.events_backfill_to_duckling import (
     register_persons_files_with_duckling,
     table_exists,
 )
+
+from products.data_warehouse.backend.facade.backfill_status import BackfillOutcome, get_months_in_range
 
 
 @pytest.fixture(autouse=True)
@@ -673,6 +675,7 @@ class TestFullBackfillSensorEarliestDate:
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
     @patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
     def test_earliest_date_clamped(
         self,
         _name,
@@ -709,6 +712,7 @@ class TestFullBackfillSensorEarliestDate:
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
     @patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    @patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", new=MagicMock(return_value=[]))
     def test_no_events_returns_empty(self, mock_tz, mock_backfill_cls, mock_get_earliest):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
 
@@ -749,10 +753,14 @@ class TestFullBackfillSensorEarliestDate:
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
             patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.ManagedWarehouseBackfillPartition") as mock_projection,
+            patch("posthog.dags.events_backfill_to_duckling.record_backfill_outcome"),
+            patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
             patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team") as mock_ge,
         ):
             mock_tz.now.return_value = now
             mock_cls.objects.filter.return_value.order_by.return_value = backfills
+            mock_projection.objects.unscoped.return_value.filter.return_value.values_list.return_value = []
             if isinstance(get_earliest, list):
                 mock_ge.side_effect = get_earliest
             else:
@@ -864,6 +872,7 @@ class TestFullBackfillSensorEarliestDate:
         with (
             patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
             patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.stale_running_partitions", return_value=[]),
             patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team"),
         ):
             mock_tz.now.return_value = datetime(2020, 2, 10, 12, 0, 0)
@@ -875,6 +884,30 @@ class TestFullBackfillSensorEarliestDate:
 
         runs_filter = mock_get_runs.call_args.kwargs["filters"]
         assert runs_filter.tags == {"duckling_backfill_type": "full"}
+
+
+class TestStaleRunOutcome:
+    # A stuck-RUNNING row may only be resolved from a run that provably ended — resolving a live
+    # or queued run would overwrite the terminal state its own process is about to write.
+    @parameterized.expand(
+        [
+            ("lost_run", None, BackfillOutcome.FAILED),
+            ("succeeded", "SUCCESS", BackfillOutcome.SUCCEEDED),
+            ("failed", "FAILURE", BackfillOutcome.FAILED),
+            ("canceled", "CANCELED", BackfillOutcome.FAILED),
+            ("still_running", "STARTED", None),
+            ("queued", "QUEUED", None),
+        ]
+    )
+    def test_resolves_only_provably_ended_runs(self, _name, status_name, expected):
+        from dagster import DagsterRunStatus
+
+        run = None
+        if status_name is not None:
+            run = MagicMock()
+            run.status = DagsterRunStatus[status_name]
+
+        assert _stale_run_outcome(run) == expected
 
 
 class TestDailyBackfillSensor:

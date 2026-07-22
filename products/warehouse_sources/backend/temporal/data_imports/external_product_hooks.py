@@ -98,3 +98,101 @@ def run_engineering_analytics_view_sync(schema: "ExternalDataSchema", source: "E
     if _engineering_analytics_view_sync is None:
         return
     _engineering_analytics_view_sync(schema, source)
+
+
+# --- Person-property staging projection -----------------------------------------------
+# Person-target Customer analytics sources stage a projection of each synced chunk to S3 so a
+# post-sync job can upsert warehouse columns onto person properties. The pipeline asks this hook
+# which columns to stage for a schema; each enabled person source contributes its key (the person
+# identifier) plus its mapped property columns. Key columns are tracked separately from mapped
+# columns so the sink never stages property values with no person identifier to attach them to.
+# The hook returns None when nothing needs staging. customer_analytics registers the resolver at
+# app-ready; when nothing is registered this returns None and the pipeline stages nothing, so
+# warehouse_sources stays importable on its own.
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySourceProjection:
+    """One person-target source's staging projection: its key column (the person identifier) and
+    the warehouse columns to stage for it (the key plus its mapped property columns)."""
+
+    key_column: str
+    columns: frozenset[str]
+
+
+PersonPropertyProjectionResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySourceProjection]]]
+_person_property_projection_resolver: Optional[PersonPropertyProjectionResolver] = None
+
+
+def register_person_property_projection(fn: PersonPropertyProjectionResolver) -> None:
+    global _person_property_projection_resolver
+    _person_property_projection_resolver = fn
+
+
+def person_property_projection_for(
+    team_id: int, schema_id: "str | uuid.UUID"
+) -> Optional[list[PersonPropertySourceProjection]]:
+    if _person_property_projection_resolver is None:
+        return None
+    return _person_property_projection_resolver(team_id, schema_id)
+
+
+def person_property_sync_enabled_for(team_id: int, schema_id: "uuid.UUID") -> bool:
+    """Gate for starting the person-property sync child workflow: true when the schema feeds at
+    least one enabled person-target source (i.e. there are columns to stage/upsert)."""
+    return person_property_projection_for(team_id, schema_id) is not None
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySyncSource:
+    """One enabled person-target source's sync config, resolved through the hook below so the
+    sync job (owned by warehouse_sources) never imports the customer_analytics config models.
+    ``source_id``/``definition_id`` identify the source for provenance stamping; ``key_column``
+    holds the person identifier and ``column_property_map`` maps warehouse column -> person
+    property name."""
+
+    source_id: str
+    definition_id: str
+    key_column: str
+    column_property_map: dict[str, str]
+
+
+PersonPropertySyncSourcesResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySyncSource]]]
+_person_property_sync_sources_resolver: Optional[PersonPropertySyncSourcesResolver] = None
+
+
+def register_person_property_sync_sources(fn: PersonPropertySyncSourcesResolver) -> None:
+    global _person_property_sync_sources_resolver
+    _person_property_sync_sources_resolver = fn
+
+
+def person_property_sync_sources_for(
+    team_id: int, schema_id: "str | uuid.UUID"
+) -> Optional[list[PersonPropertySyncSource]]:
+    if _person_property_sync_sources_resolver is None:
+        return None
+    return _person_property_sync_sources_resolver(team_id, schema_id)
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySyncActivityInputs:
+    """Payload the import workflow sends to the person-property sync child workflow."""
+
+    team_id: int
+    schema_id: uuid.UUID
+    source_id: uuid.UUID
+    job_id: str
+    source_type: str
+    schema_name: str
+    last_synced_at: str | None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": str(self.schema_id),
+            "source_id": str(self.source_id),
+            "job_id": self.job_id,
+            "source_type": self.source_type,
+            "schema_name": self.schema_name,
+        }

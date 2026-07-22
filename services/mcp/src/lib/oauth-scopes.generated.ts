@@ -125,6 +125,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'llm_skill:write',
     'logs:read',
     'logs:write',
+    'loop:read',
+    'loop:write',
     'marketing_analytics:read',
     'marketing_analytics:write',
     'mcp_analytics:read',
@@ -165,6 +167,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'sharing_configuration:write',
     'signal_scout:read',
     'signal_scout:write',
+    'stamphog:read',
+    'stamphog:write',
     'streamlit_app:read',
     'streamlit_app:write',
     'subscription:read',
@@ -177,6 +181,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'ticket:write',
     'task:read',
     'task:write',
+    'toolbar:read',
+    'toolbar:write',
     'tracing:read',
     'tracing:write',
     'field_note:read',
@@ -206,3 +212,16 @@ export const OAUTH_SCOPES_SUPPORTED = [
 ] as const
 
 export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]
+
+// PAT-grantable but deliberately absent from OAUTH_SCOPES_SUPPORTED, so OAuth
+// clients can never request them (mirrors OAUTH_SCOPES_HIDDEN in posthog/scopes.py).
+// Tools requiring one of these only surface for staff users whose personal API key
+// explicitly carries it (plus `user:read` for the staff lookup); `*` does not match.
+export const OAUTH_SCOPES_HIDDEN = [
+    'batch_import_support:read',
+    'batch_import_support:write',
+    'query_performance:read',
+    'query_performance:write',
+    'wizard_session:read',
+    'wizard_session:write',
+] as const

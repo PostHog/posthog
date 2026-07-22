@@ -1,3 +1,6 @@
+// Side-effect import: register all integration setups
+import './integrationSetups'
+
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -12,9 +15,6 @@ import { urls } from 'scenes/urls'
 
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
-
-// Side-effect import: register all integration setups
-import './integrationSetups'
 
 export type IntegrationConfigureProps = {
     value?: number

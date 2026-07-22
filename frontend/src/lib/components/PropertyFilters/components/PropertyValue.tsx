@@ -123,9 +123,9 @@ export function PropertyValue({
         />
     )
 
-    // TODO: Add semver input validation when a semver operator is selected.
-    // This will require detecting isOperatorSemver(operator) and validating the input
-    // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
+    // Semver input validation lives in featureFlagReleaseConditionsLogic's getPropertyValueError,
+    // which gates saving feature flag release conditions. This generic component has no
+    // equivalent check for its other callers (cohorts, insights, etc.).
 
     // we first load a set of suggested values when there is no user input yet to avoid
     // options jumping around as the user types, we keep the initially loaded options

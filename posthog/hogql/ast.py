@@ -1014,6 +1014,20 @@ class PropertyAccess(Expr):
 
 
 @dataclass(kw_only=True, slots=True)
+class JsonSubcolumnAccess(Expr):
+    """ClickHouse JSON subcolumn read emitted after property lowering.
+
+    This is ClickHouse-specific and is only created by the physical property-resolution pass. The logical
+    `PropertyAccess` node stays dialect-neutral; this node exists so the ClickHouse printer can emit
+    `events.properties.`foo`` rather than pretending `properties.foo` is one escaped column name.
+    """
+
+    expr: Expr
+    keys: list[str]
+    access_type: Literal["path", "sub_object"] = "path"
+
+
+@dataclass(kw_only=True, slots=True)
 class Lambda(Expr):
     args: list[str]
     expr: Expr | Block

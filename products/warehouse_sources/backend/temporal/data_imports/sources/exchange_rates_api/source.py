@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.settings import (
     EXCHANGE_RATES_API_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
     ExchangeRatesApiSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ExchangeRatesApiSource(ResumableSource[ExchangeRatesApiSourceConfig, ExchangeRatesApiResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://exchangeratesapi.io/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class ExchangeRatesApiSource(ResumableSource[ExchangeRatesApiSourceConfig, Excha
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Exchange Rates API",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Exchange Rates API access key to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Create a key in your [exchangeratesapi.io dashboard](https://exchangeratesapi.io/dashboard).

@@ -2,22 +2,17 @@
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
+// The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
+pub use cohort_core::metrics::{
+    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
+    FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK, STAGE1_GLOBALS_PARSE_ERROR,
+    STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
+};
+
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
-/// Leaves dropped during parse, labelled by `reason` (counter).
-pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
-/// Cohorts skipped because their filter tree failed to parse (counter).
-pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
-/// Teams whose timezone did not parse as an IANA zone and fell back to UTC (counter).
-pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
-
-/// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
-pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
-/// Cohorts excluded because they sit in a cohort-reference cycle (counter).
-pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
-
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -203,16 +198,6 @@ pub const TOKIO_BLOCKING_THREADS: &str = "tokio_blocking_threads";
 pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "tokio_idle_blocking_threads";
 /// Tasks waiting for a blocking thread (gauge).
 pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
-
-/// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
-/// logged, not labelled, to keep cardinality bounded.
-pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
-/// Any other VM/program failure during cohort evaluation, coerced to `false`, labelled by `reason`
-/// (a bounded semantic bucket: `type_coercion`|`stack`|`program`|`runtime`|… — see
-/// `vm_error_reason`) (counter).
-pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
-/// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
-pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
 
 /// Partitions with a live worker channel registered on the router (gauge).
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
@@ -446,6 +431,41 @@ pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_unde
 /// `popped == evicted + dropped`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
 
+/// Seed payloads consumed and decoded — tiles and ordered skips both (counter).
+pub const COHORT_STREAM_SEEDS_CONSUMED: &str = "cohort_stream_seeds_consumed_total";
+/// Seed payloads that were empty or failed to decode (counter).
+pub const COHORT_STREAM_SEED_DESERIALIZE_ERRORS: &str =
+    "cohort_stream_seed_deserialize_errors_total";
+/// Decoded seed payloads accumulated per consume → dispatch cycle (histogram).
+pub const COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE: &str = "cohort_stream_seeds_consume_batch_size";
+/// Seed messages dropped because the partition is no longer owned or shutdown is draining (counter).
+pub const COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED: &str =
+    "cohort_stream_seeds_skipped_not_owned_total";
+/// Tile applies that advanced a leaf's state, labelled by `variant` (counter).
+pub const SEED_TILES_APPLIED_TOTAL: &str = "cohort_seed_tiles_applied_total";
+/// Tile applies that left the leaf byte-identical (the idempotency path), labelled by `variant`
+/// (counter).
+pub const SEED_TILES_UNCHANGED_TOTAL: &str = "cohort_seed_tiles_unchanged_total";
+/// Tile leaf-applies dropped without a write, labelled by `reason` (counter).
+pub const SEED_TILES_DROPPED_TOTAL: &str = "cohort_seed_tiles_dropped_total";
+/// Consume-side skips marked in order, labelled by `reason` (counter).
+pub const SEED_TILES_SKIPPED_TOTAL: &str = "cohort_seed_tiles_skipped_total";
+/// Tiles re-produced to a merge survivor's partition, counted post-ack (counter).
+pub const SEED_REKEYED_TOTAL: &str = "cohort_seed_rekeyed_total";
+/// Failed tile re-key produces; the seed offset is held (counter).
+pub const SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str = "cohort_seed_rekey_produce_failure_total";
+/// Hop-capped tile redirects applied inline (counter). Non-zero means a corrupt tombstone cycle.
+pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_total";
+/// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
+/// **Alert on a sustained non-zero level.**
+pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
+/// Seed partitions currently held, fence-closed or backpressured (gauge).
+pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
+/// How far the watermark trails `s_chunk + margin` per fenced partition (gauge, ms).
+pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
+/// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms).
+pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics
@@ -648,6 +668,47 @@ mod tests {
             STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
             "stage2_orphan_gc_undecodable_keys_total",
         );
+    }
+
+    #[test]
+    fn seed_metric_names_are_stable() {
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUMED,
+            "cohort_stream_seeds_consumed_total"
+        );
+        assert_eq!(
+            COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
+            "cohort_stream_seed_deserialize_errors_total",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE,
+            "cohort_stream_seeds_consume_batch_size",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED,
+            "cohort_stream_seeds_skipped_not_owned_total",
+        );
+        assert_eq!(SEED_TILES_APPLIED_TOTAL, "cohort_seed_tiles_applied_total");
+        assert_eq!(
+            SEED_TILES_UNCHANGED_TOTAL,
+            "cohort_seed_tiles_unchanged_total"
+        );
+        assert_eq!(SEED_TILES_DROPPED_TOTAL, "cohort_seed_tiles_dropped_total");
+        assert_eq!(SEED_TILES_SKIPPED_TOTAL, "cohort_seed_tiles_skipped_total");
+        assert_eq!(SEED_REKEYED_TOTAL, "cohort_seed_rekeyed_total");
+        assert_eq!(
+            SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+            "cohort_seed_rekey_produce_failure_total",
+        );
+        assert_eq!(
+            SEED_REKEY_HOP_CAPPED_TOTAL,
+            "cohort_seed_rekey_hop_capped_total"
+        );
+        // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
+        assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
+        assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
+        assert_eq!(SEED_FENCE_DEFICIT_MS, "cohort_seed_fence_deficit_ms");
+        assert_eq!(LIVE_WATERMARK_AGE_MS, "cohort_live_watermark_age_ms");
     }
 
     #[test]

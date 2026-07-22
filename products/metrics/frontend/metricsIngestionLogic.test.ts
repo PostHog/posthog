@@ -4,6 +4,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { metricsHasMetricsRetrieve } from './generated/api'
 import { metricsIngestionLogic } from './metricsIngestionLogic'
@@ -24,6 +25,13 @@ describe('metricsIngestionLogic', () => {
 
     beforeEach(() => {
         localStorage.clear()
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
         initKeaTests()
         jest.mocked(metricsHasMetricsRetrieve).mockReset()
     })
@@ -60,5 +68,30 @@ describe('metricsIngestionLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadTeamHasMetricsSuccess'])
             .toNotHaveDispatchedActions([firstIngestIntent()])
+    })
+
+    it('does not check ingestion without metrics viewer access', async () => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.None,
+            },
+        } as AppContext
+        logic = metricsIngestionLogic()
+        logic.mount()
+
+        await expectLogic(logic).delay(10)
+
+        expect(metricsHasMetricsRetrieve).not.toHaveBeenCalled()
+
+        // A denied check must stay "unknown", not become "no metrics" - false would
+        // show the setup prompt to a user on a team that may have plenty of metrics.
+        await expectLogic(logic, () => {
+            logic.actions.loadTeamHasMetrics()
+        }).toFinishAllListeners()
+
+        expect(metricsHasMetricsRetrieve).not.toHaveBeenCalled()
+        expect(logic.values.hasMetrics).toBeUndefined()
     })
 })

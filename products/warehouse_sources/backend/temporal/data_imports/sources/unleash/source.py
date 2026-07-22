@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UnleashSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unleash import (
+    UnleashSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.settings import (
     ENDPOINTS,
     UNLEASH_ENDPOINTS,
@@ -37,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://docs.getunleash.io/reference/api/unleash"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -59,7 +63,7 @@ class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
 
 The instance URL is where you open the Unleash UI — for Unleash cloud it includes your instance name (e.g. `https://us.app.unleash-hosted.com/your-instance`); for self-hosted it's your server's URL. The token is a [personal access token](https://docs.getunleash.io/how-to/how-to-create-personal-access-tokens) or, on Enterprise, a [service account token](https://docs.getunleash.io/reference/service-accounts); it inherits the owner's permissions, and the `users` table additionally requires the Admin root role. The `features` table uses the flag search API, which requires Unleash 5.12 or newer.
 """,
-            iconPath="/static/services/unleash.png",
+            iconPath="/static/services/unleash.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/unleash",
             fields=cast(
                 list[FieldType],
@@ -82,7 +86,6 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -153,6 +156,6 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
-            logger=inputs.logger,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

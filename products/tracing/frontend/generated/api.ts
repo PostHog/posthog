@@ -20,12 +20,15 @@ import type {
     _SymbolStatsRequestApi,
     _SymbolStatsResponseApi,
     _TracingAggregationRequestApi,
+    _TracingAggregationResponseApi,
     _TracingAttributeBreakdownRequestApi,
     _TracingAttributeBreakdownResponseApi,
     _TracingAttributesResponseApi,
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingDurationHistogramRequestApi,
+    _TracingLatencyHeatmapRequestApi,
+    _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
     _TracingSparklineRequestApi,
     _TracingTraceRequestApi,
@@ -57,8 +60,8 @@ export const tracingSpansAggregateCreate = async (
     projectId: string,
     _tracingAggregationRequestApi: _TracingAggregationRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansAggregateCreateUrl(projectId), {
+): Promise<_TracingAggregationResponseApi> => {
+    return apiMutator<_TracingAggregationResponseApi>(getTracingSpansAggregateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -158,6 +161,23 @@ export const tracingSpansHasSpansRetrieve = async (
     return apiMutator<_HasSpansResponseApi>(getTracingSpansHasSpansRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansLatencyHeatmapCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/latency-heatmap/`
+}
+
+export const tracingSpansLatencyHeatmapCreate = async (
+    projectId: string,
+    _tracingLatencyHeatmapRequestApi: _TracingLatencyHeatmapRequestApi,
+    options?: RequestInit
+): Promise<_TracingLatencyHeatmapResponseApi> => {
+    return apiMutator<_TracingLatencyHeatmapResponseApi>(getTracingSpansLatencyHeatmapCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingLatencyHeatmapRequestApi),
     })
 }
 

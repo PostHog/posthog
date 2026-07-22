@@ -85,3 +85,20 @@ class TestBuildInitialResearchPrompt:
         assert ("## Business knowledge" in prompt) == expected_present
         for snippet in extra_checks:
             assert snippet in prompt
+
+    def test_resolved_report_context_present_when_provided(self):
+        signal = _make_signal({})
+        prompt = build_initial_research_prompt(
+            signal,
+            1,
+            resolved_report_title="fix(funnel): drop off after step 2",
+            resolved_report_summary="Users were falling out of the funnel.",
+        )
+        assert "## Previously resolved report" in prompt
+        assert "fix(funnel): drop off after step 2" in prompt
+        assert "Users were falling out of the funnel." in prompt
+
+    def test_resolved_report_context_absent_by_default(self):
+        signal = _make_signal({})
+        prompt = build_initial_research_prompt(signal, 1)
+        assert "## Previously resolved report" not in prompt
