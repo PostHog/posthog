@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlausibleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plausible import (
+    PlausibleSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import (
     PlausibleResumeConfig,
     hostname_of,
@@ -38,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://plausible.io/docs/stats-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PLAUSIBLE
@@ -51,6 +57,10 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
         return {
             "401 Client Error": "Your Plausible API key is invalid or has been revoked. Create a new key in your Plausible account settings, then reconnect.",
             "403 Client Error": "Your Plausible API key is missing the stats read scope needed to sync this data. Grant it in your Plausible account settings, then reconnect.",
+            # Plausible rejects the query as malformed for this site (a permanent 400 — auth and
+            # missing-site cases are 401/403/404 and handled above). Retrying resends the same
+            # request, so stop. Match the status text, not the self-hosted URL, which varies.
+            "400 Client Error": "Plausible rejected the request for this site. Check that the site domain is correct and that your Plausible account can access its stats, then reconnect.",
         }
 
     @property
@@ -110,6 +120,7 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint)
@@ -132,7 +143,11 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
         return schemas
 
     def validate_credentials(
-        self, config: PlausibleSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PlausibleSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)
@@ -161,7 +176,8 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
             site_id=config.site_id,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

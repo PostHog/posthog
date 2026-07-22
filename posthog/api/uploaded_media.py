@@ -123,7 +123,11 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
     if instance.media_location is None:
         return HttpResponse(status=404)
-    file_bytes = object_storage.read_bytes(instance.media_location)
+    file_bytes = object_storage.read_bytes(instance.media_location, missing_ok=True)
+    if file_bytes is None:
+        # The DB record exists but the underlying object-storage key is gone, so
+        # there's nothing to serve — return a clean 404 rather than a 500.
+        return HttpResponse(status=404)
 
     statsd.incr(
         "uploaded_media.served",

@@ -28,6 +28,9 @@ pub struct ResolverConfig {
     #[envconfig(default = "5")]
     pub sourcemap_connect_timeout_seconds: u64,
 
+    #[envconfig(default = "25000000")]
+    pub sourcemap_max_response_bytes: usize,
+
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
 

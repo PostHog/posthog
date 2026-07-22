@@ -1,2 +1,5 @@
 # transient empty-schema baseline written by gen-sql.sh
 .empty-schema.*
+
+# local-only legacy snapshot materialized by bin/snapshot-legacy.sh (never committed)
+.legacy/

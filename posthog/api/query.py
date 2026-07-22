@@ -3,7 +3,8 @@ from time import perf_counter
 from typing import NoReturn
 
 from django.core.cache import cache
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
+from django.http.response import HttpResponseBase
 
 import orjson
 import structlog
@@ -162,6 +163,9 @@ def _process_query_request(
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MetricsQuery": ["metrics:read"],
+    # Both scopes listed: this result replaces the view's default query:read
+    # rather than adding to it, and a token must hold every listed scope.
+    "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
 }
 
 
@@ -499,7 +503,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 MAX_QUERY_TIMEOUT = 600
 
 
-async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+async def progress(request: Request, *args, **kwargs) -> HttpResponseBase:
     # TEMPORARY endpoint to avoid breaking changes
 
     return sse_streaming_response(

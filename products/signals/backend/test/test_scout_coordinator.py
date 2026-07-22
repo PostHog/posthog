@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
@@ -34,6 +36,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _parse_enrollment,
     _read_flag_payload,
     _resolve_enrolled,
+    _resolve_github_read_access,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_withheld_skills,
@@ -49,6 +52,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     StampDispatchedRunsInput,
     _allocate_tick_budget,
     _DueRun,
+    _overdue_seconds,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
@@ -469,6 +473,137 @@ async def test_config_whose_skill_is_gone_is_skipped(ateam):
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
+
+
+class TestCronScheduleDueCheck:
+    @parameterized.expand(
+        [
+            (
+                "before_project_local_slot",
+                "America/Toronto",
+                "2026-07-21T12:59:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * *",
+                None,
+            ),
+            (
+                "after_project_local_slot",
+                "America/Toronto",
+                "2026-07-21T13:01:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * *",
+                60.0,
+            ),
+            (
+                "after_spring_dst_change",
+                "America/Toronto",
+                "2026-03-08T13:01:00+00:00",
+                "2026-03-07T14:05:00+00:00",
+                "2026-03-07T13:00:00+00:00",
+                "0 9 * * *",
+                60.0,
+            ),
+            (
+                "deferred_across_next_day_keeps_original_slot",
+                "America/Toronto",
+                "2026-07-22T13:01:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * *",
+                86460.0,
+            ),
+            (
+                "schedule_saved_after_today_slot",
+                "America/Toronto",
+                "2026-07-21T15:00:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-21T14:00:00+00:00",
+                "0 9 * * *",
+                None,
+            ),
+            (
+                "midnight_catch_up_does_not_skip_next_day",
+                "America/Toronto",
+                "2026-07-23T03:46:00+00:00",
+                "2026-07-22T04:01:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "45 23 * * *",
+                60.0,
+            ),
+            (
+                "twice_daily_second_slot_becomes_due_same_day",
+                "America/Toronto",
+                "2026-07-21T21:01:00+00:00",
+                "2026-07-21T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9,17 * * *",
+                60.0,
+            ),
+            (
+                "weekday_schedule_not_due_on_weekend",
+                "America/Toronto",
+                "2026-07-25T14:00:00+00:00",
+                "2026-07-24T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                "0 9 * * 1-5",
+                None,
+            ),
+        ]
+    )
+    def test_cron_schedule_uses_project_timezone_and_schedule_slots(
+        self,
+        _name: str,
+        timezone_name: str,
+        now_iso: str,
+        last_run_iso: str,
+        schedule_changed_at_iso: str,
+        run_cron_schedule: str,
+        expected_overdue_seconds: float | None,
+    ) -> None:
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_cron_schedule=run_cron_schedule,
+            last_run_at=datetime.fromisoformat(last_run_iso),
+            schedule_changed_at=datetime.fromisoformat(schedule_changed_at_iso),
+        )
+
+        overdue_seconds = _overdue_seconds(config, datetime.fromisoformat(now_iso), ZoneInfo(timezone_name))
+
+        assert overdue_seconds == expected_overdue_seconds
+
+    def test_unrelated_edit_does_not_defer_overdue_scheduled_run(self) -> None:
+        # An emit/enabled-only save bumps `updated_at` but not `schedule_changed_at` — the
+        # due-check must keep measuring from the missed slot, not re-anchor to the edit.
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_cron_schedule="0 9 * * *",
+            last_run_at=datetime.fromisoformat("2026-07-20T13:05:00+00:00"),
+            schedule_changed_at=datetime.fromisoformat("2026-07-19T12:00:00+00:00"),
+            updated_at=datetime.fromisoformat("2026-07-21T14:00:00+00:00"),
+        )
+
+        overdue_seconds = _overdue_seconds(
+            config, datetime.fromisoformat("2026-07-21T15:00:00+00:00"), ZoneInfo("America/Toronto")
+        )
+
+        assert overdue_seconds == 7200.0
+
+    def test_invalid_cron_expression_falls_back_to_rolling_interval(self) -> None:
+        # Only reachable via out-of-band writes (the API validates on write), but a bad row
+        # must degrade to the rolling schedule instead of killing the coordinator tick.
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_cron_schedule="not a cron",
+            last_run_at=datetime.fromisoformat("2026-07-20T12:00:00+00:00"),
+        )
+
+        overdue_seconds = _overdue_seconds(
+            config, datetime.fromisoformat("2026-07-21T13:00:00+00:00"), ZoneInfo("America/Toronto")
+        )
+
+        assert overdue_seconds == 3600.0
 
 
 @pytest.mark.asyncio
@@ -1088,6 +1223,23 @@ def test_resolve_max_runs_per_day(team_configs, default_cfg, expected):
 )
 def test_resolve_withheld_skills(team_configs, default_cfg, expected):
     assert _resolve_withheld_skills(7, team_configs, default_cfg) == expected
+
+
+@pytest.mark.parametrize(
+    "team_configs,default_cfg,expected",
+    [
+        ({}, {}, True),  # nothing set → on ("just works" for every enrolled team)
+        ({}, {"github_read_access": False}, False),  # fleet-wide kill switch
+        ({7: {"github_read_access": False}}, {}, False),  # per-team revoke
+        # per-team explicit True wins over a fleet-wide revoke (re-grant one team without a deploy)
+        ({7: {"github_read_access": True}}, {"github_read_access": False}, True),
+        # only literal booleans are honored — a non-bool must never flip the posture either way
+        ({7: {"github_read_access": "false"}}, {}, True),
+        ({7: {"github_read_access": 0}}, {"github_read_access": False}, False),
+    ],
+)
+def test_resolve_github_read_access(team_configs, default_cfg, expected):
+    assert _resolve_github_read_access(7, team_configs, default_cfg) is expected
 
 
 def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:

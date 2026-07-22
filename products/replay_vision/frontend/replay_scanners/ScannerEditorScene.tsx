@@ -6,7 +6,16 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
-import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+    LemonTextArea,
+    Link,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { NotFound } from 'lib/components/NotFound'
@@ -15,6 +24,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +33,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -84,9 +95,14 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         durationValidationError,
     } = useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
         return <NotFound object="page" />
     }
 
@@ -345,8 +361,10 @@ function EditorFooter({
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
     // A broken duration filter (scans nothing) blocks the save — surface it as a disabled reason so the
-    // button explains itself instead of silently doing nothing.
-    const saveDisabledReason = durationValidationError ?? undefined
+    // button explains itself instead of silently doing nothing. RBAC takes priority: it's the more
+    // fundamental blocker, and this must match the backend's create/update requirement exactly — a
+    // disabled-looking button that the backend would still accept (or vice versa) is a real bug here.
+    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationValidationError
 
     return (
         <div className="flex items-center justify-between">
@@ -365,6 +383,7 @@ function EditorFooter({
                 <LemonButton
                     type="primary"
                     loading={isSubmitting}
+                    disabledReason={saveDisabledReason}
                     onClick={onAdvance}
                     className="ml-auto"
                     data-attr="vision-editor-next"

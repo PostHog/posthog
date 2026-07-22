@@ -29,12 +29,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BloggerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blogger import (
+    BloggerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class BloggerSource(ResumableSource[BloggerSourceConfig, BloggerResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.google.com/blogger/docs/3.0/reference/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -106,6 +112,7 @@ The API key reads publicly visible content (live posts, pages, and comments). Dr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = BLOGGER_ENDPOINTS[endpoint]
@@ -125,7 +132,11 @@ The API key reads publicly visible content (live posts, pages, and comments). Dr
         return schemas
 
     def validate_credentials(
-        self, config: BloggerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BloggerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_blogger_credentials(config.api_key, config.blog_id)
 
@@ -142,11 +153,11 @@ The API key reads publicly visible content (live posts, pages, and comments). Dr
             api_key=config.api_key,
             blog_id=config.blog_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            incremental_field=inputs.incremental_field,
         )

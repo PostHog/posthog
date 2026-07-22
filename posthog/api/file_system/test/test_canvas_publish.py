@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.conf import settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.file_system.file_system import FileSystem
@@ -70,6 +71,82 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         meta = cast(dict, FileSystem.objects.get(id=item_id).meta)
         self.assertEqual(meta["code"], "v2")
         self.assertEqual([v["code"] for v in meta["versions"]], ["v1", "v2"])
+        self.assertEqual(meta["currentVersionId"], meta["versions"][-1]["id"])
+
+    def _current_version_id(self, item_id: str) -> str:
+        return cast(str, cast(dict, FileSystem.objects.get(id=item_id).meta)["currentVersionId"])
+
+    def test_guarded_publish_with_matching_version_appends(self):
+        item_id = self._create_dashboard()
+        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        base = self._current_version_id(item_id)
+
+        response = self.client.patch(
+            self._canvas_url(item_id),
+            {"code": "v2", "expected_current_version_id": base},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        meta = cast(dict, FileSystem.objects.get(id=item_id).meta)
+        self.assertEqual([v["code"] for v in meta["versions"]], ["v1", "v2"])
+
+    def test_guarded_first_publish_with_null_expected_version(self):
+        item_id = self._create_dashboard()
+
+        response = self.client.patch(
+            self._canvas_url(item_id),
+            {"code": "v1", "expected_current_version_id": None},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        meta = cast(dict, FileSystem.objects.get(id=item_id).meta)
+        self.assertEqual([v["code"] for v in meta["versions"]], ["v1"])
+
+    @parameterized.expand(
+        [
+            ("stale_version_id", "not-the-head"),
+            ("null_base_on_published_canvas", None),
+        ]
+    )
+    def test_guarded_publish_conflicts_when_canvas_moved(self, _name: str, expected_version: str | None):
+        item_id = self._create_dashboard()
+        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        head = self._current_version_id(item_id)
+
+        response = self.client.patch(
+            self._canvas_url(item_id),
+            {"code": "clobber", "expected_current_version_id": expected_version},
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT, response.json())
+        body = response.json()
+        self.assertEqual(body["code"], "version_conflict")
+        self.assertEqual(body["current_version_id"], head)
+        # The stale publish left the canvas untouched.
+        meta = cast(dict, FileSystem.objects.get(id=item_id).meta)
+        self.assertEqual(meta["code"], "v1")
+        self.assertEqual(meta["currentVersionId"], head)
+        self.assertEqual(len(meta["versions"]), 1)
+
+    def test_publish_after_undo_truncates_redo_tail(self):
+        item_id = self._create_dashboard()
+        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        v1 = self._current_version_id(item_id)
+        self.client.patch(self._canvas_url(item_id), {"code": "v2"})
+
+        # The client's undo moves the pointer back without rewriting history.
+        row = FileSystem.objects.get(id=item_id)
+        meta = cast(dict, row.meta)
+        meta["currentVersionId"] = v1
+        meta["code"] = "v1"
+        row.meta = meta
+        row.save(update_fields=["meta"])
+
+        response = self.client.patch(
+            self._canvas_url(item_id),
+            {"code": "v3", "expected_current_version_id": v1},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        meta = cast(dict, FileSystem.objects.get(id=item_id).meta)
+        # The redo tail (v2) is discarded; history is linear again.
+        self.assertEqual([v["code"] for v in meta["versions"]], ["v1", "v3"])
         self.assertEqual(meta["currentVersionId"], meta["versions"][-1]["id"])
 
     def test_publish_canvas_renames_via_name(self):

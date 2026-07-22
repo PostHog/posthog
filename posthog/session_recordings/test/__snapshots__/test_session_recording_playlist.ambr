@@ -360,6 +360,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -497,6 +498,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -547,6 +549,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -622,6 +625,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1237,6 +1241,7 @@
          "posthog_externaldatasource"."sync_frequency",
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
@@ -1245,6 +1250,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -1447,6 +1454,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1584,6 +1592,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1634,6 +1643,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1702,6 +1712,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -1751,6 +1762,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -2198,6 +2210,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -2222,15 +2235,6 @@
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.50
-  '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id"
-     FROM "ee_single_session_summary"
-     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.51
   '''
   SELECT COUNT(*)
   FROM
@@ -2266,6 +2270,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
@@ -2341,6 +2346,7 @@
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",

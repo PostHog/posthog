@@ -6,7 +6,10 @@ a single ``head_branch`` and/or attributed pull-request runs. Rates are over com
 runs. Duration percentiles are over successful runs only — cancelled/skipped runs
 (common on PR branches, where a new push supersedes in-flight CI) and failed runs
 end early and would bias a "how long does CI take" percentile low — so they are
-``None`` for a window with no successful runs.
+``None`` for a window with no successful runs. No-op gate runs are excluded from the
+percentiles too, with an all-successful fallback for legitimately all-fast workflows
+(see ``run_duration_percentile_expr``), so the Workflows table agrees with the
+activity chart and the detail-page KPIs.
 
 The per-bucket history adapts its granularity to the window length (hour / day / week)
 so the trend sparkline keeps a readable number of points — per-day buckets are useless
@@ -33,10 +36,10 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
-    DURATION_PERCENTILE_CONDITION,
     LATEST_COMPLETED_RUN_FAILED,
     branch_filter_clause,
     date_to_filter_clause,
+    run_duration_percentile_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
 )
@@ -53,8 +56,8 @@ _SELECT = f"""
         workflow_name,
         count() AS run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
-        quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
-        quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
+        {run_duration_percentile_expr(0.5)} AS p50_seconds,
+        {run_duration_percentile_expr(0.95)} AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
@@ -101,7 +104,7 @@ _BUCKET_SELECT = f"""
 _TIME_TO_GREEN_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds
+        {run_duration_percentile_expr(0.5)} AS p50_seconds
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __RUN_SCOPE__
     GROUP BY bucket_start

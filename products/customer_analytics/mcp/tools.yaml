@@ -362,6 +362,18 @@ tools:
     accounts-update:
         operation: accounts_update
         enabled: false
+    announcements-channels-list:
+        operation: announcements_channels_list
+        enabled: false
+    announcements-create:
+        operation: announcements_create
+        enabled: false
+    announcements-list:
+        operation: announcements_list
+        enabled: false
+    announcements-retrieve:
+        operation: announcements_retrieve
+        enabled: false
     custom-property-definitions-create:
         operation: custom_property_definitions_create
         enabled: true
@@ -472,6 +484,9 @@ tools:
         enabled: false
     custom-property-sources-update:
         operation: custom_property_sources_update
+        enabled: false
+    customer-analytics-external-accounts-retrieve:
+        operation: customer_analytics_external_accounts_retrieve
         enabled: false
     customer-journeys-create:
         operation: customer_journeys_create

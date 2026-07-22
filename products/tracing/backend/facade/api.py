@@ -41,6 +41,9 @@ from products.tracing.backend.count_query_runner import run_count_query as _run_
 from products.tracing.backend.duration_histogram_query_runner import (
     run_duration_histogram_query as _run_duration_histogram_query,
 )
+from products.tracing.backend.latency_heatmap_query_runner import (
+    run_latency_heatmap_query as _run_latency_heatmap_query,
+)
 from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
 
@@ -89,6 +92,7 @@ def run_attribute_breakdown_query(
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
     exclude_breakdown_filter: bool = False,
+    facet_search: str | None = None,
 ) -> TraceSpansAttributeBreakdownQueryResponse | CachedTraceSpansAttributeBreakdownQueryResponse:
     """Run a span breakdown grouped by one attribute's value within a filtered span set."""
     return _run_attribute_breakdown_query(
@@ -101,6 +105,7 @@ def run_attribute_breakdown_query(
         filter_group=filter_group,
         service_names=service_names,
         exclude_breakdown_filter=exclude_breakdown_filter,
+        facet_search=facet_search,
     )
 
 
@@ -135,6 +140,30 @@ def run_duration_histogram_query(
     matching span — pair with a span name filter for operation-scoped distributions.
     """
     return _run_duration_histogram_query(
+        team=team,
+        date_range=date_range,
+        service_names=service_names,
+        status_codes=status_codes,
+        filter_group=filter_group,
+        root_spans=root_spans,
+    )
+
+
+def run_latency_heatmap_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    service_names: list[str] | None = None,
+    status_codes: list[int] | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+    root_spans: bool = True,
+) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+    """Run the latency-over-time heatmap: counts per (time bucket, 1-2-5 duration bucket).
+
+    Root spans by default (a distribution of traces); `root_spans=False` buckets every
+    matching span — pair with a span name filter for operation-scoped heatmaps.
+    """
+    return _run_latency_heatmap_query(
         team=team,
         date_range=date_range,
         service_names=service_names,

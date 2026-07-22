@@ -26,6 +26,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     _dispatch_agent_tool,
     _generate_agentic,
 )
+from products.replay_vision.backend.proposers import get_proposer
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 from ee.models.rbac.access_control import AccessControl
@@ -70,6 +71,8 @@ class TestPromptAgent(_VisionAPITestCase):
             },
         )
         ReplayObservationLabel.objects.create(observation=self.observation, is_correct=False, feedback="should be yes")
+        # The scanner defaults to monitor; its proposer supplies the system prompt and schema the agent needs.
+        self.proposer = get_proposer("monitor")
 
     def _state(self, *, allow_cold_summaries: bool = False, budget_s: float = 60.0) -> _AgentToolState:
         return _AgentToolState(self.scanner, self.user, allow_cold_summaries, time.monotonic() + budget_s)
@@ -96,8 +99,10 @@ class TestPromptAgent(_VisionAPITestCase):
                 user=self.user,
                 allow_cold_summaries=False,
                 distinct_id="test",
+                system_prompt=self.proposer.system_prompt(),
+                output_schema=self.proposer.output_schema(),
             )
-        self.assertEqual(parsed.suggested_prompt, "better prompt")
+        self.assertEqual(parsed["suggested_prompt"], "better prompt")
 
     @parameterized.expand(
         [
@@ -128,8 +133,10 @@ class TestPromptAgent(_VisionAPITestCase):
                 user=self.user,
                 allow_cold_summaries=False,
                 distinct_id="test",
+                system_prompt=self.proposer.system_prompt(),
+                output_schema=self.proposer.output_schema(),
             )
-        self.assertEqual(parsed.suggested_prompt, "better prompt")
+        self.assertEqual(parsed["suggested_prompt"], "better prompt")
         self.assertEqual(len(seen_contents), expected_model_calls)
         # The last user turn must answer the still-pending call, or Gemini rejects the conversation.
         final_turn = seen_contents[-1][-1]

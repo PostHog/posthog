@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 from parameterized import parameterized
 
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -732,6 +732,15 @@ class TestSlackNudge(BaseTest):
         assert event_props["classifier_verdict"] == expected_verdict
         assert event_props["llm_classifier_used"] is (expected_verdict in ("yes", "no"))
 
+        # The generation must carry the funnel events' Slack keys so it joins to its outcome.
+        create_kwargs = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
+        assert create_kwargs["extra_headers"] == {
+            "x-posthog-property-feature": "slack_nudge_classifier",
+            "x-posthog-property-$ai_span_name": "slack_nudge_classifier",
+            "x-posthog-property-slack_channel_id": "C_OTHER",
+            "x-posthog-property-slack_thread_ts": "1700000000.000100",
+        }
+
     @override_settings(TEST=False, LLM_GATEWAY_URL="http://gateway.local", LLM_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.llm.gateway_client.get_llm_client")
@@ -1084,16 +1093,10 @@ class TestSupporthogInteractivity(BaseTest):
                 True,
                 "ticket #42",
                 True,
+                # Placeholder ("opening a ticket") posted first, confirmation second.
+                2,
             ),
-            (
-                "genuine_failure",
-                {"channel": "C_CONFIG", "message_ts": "1700000000.000100"},
-                None,
-                True,
-                "couldn't",
-                False,
-            ),
-            ("malformed_value", {}, None, False, "couldn't", False),
+            ("malformed_value", {}, None, False, "couldn't", False, 1),
         ]
     )
     @patch(f"{TASKS_MODULE}.get_slack_client")
@@ -1106,6 +1109,7 @@ class TestSupporthogInteractivity(BaseTest):
         expect_create_called,
         expected_text,
         expected_ticket_created,
+        expected_update_count,
         mock_create,
         mock_get_client,
     ):
@@ -1115,7 +1119,7 @@ class TestSupporthogInteractivity(BaseTest):
 
         assert mock_create.call_count == (1 if expect_create_called else 0)
         client = mock_get_client.return_value
-        client.chat_update.assert_called_once()
+        assert client.chat_update.call_count == expected_update_count
         assert expected_text in client.chat_update.call_args.kwargs["text"].lower()
         # The click lands in the nudge funnel with the outcome; prompts posted before the
         # verdict was stamped into the button value report "unknown".
@@ -1127,10 +1131,84 @@ class TestSupporthogInteractivity(BaseTest):
 
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
-    def test_open_shows_error_when_retries_exhausted(self, mock_create, mock_get_client):
-        # A persistent failure retries and eventually exhausts — the prompt must still be
-        # replaced with the error state, not left with live buttons forever.
-        mock_create.side_effect = RuntimeError("boom")
+    def test_open_retries_when_create_returns_none(self, mock_create, mock_get_client):
+        # A duplicate delivery that loses the per-thread create lock gets None back while
+        # the sibling's ticket is mid-create. The task must retry — resolving to the
+        # committed ticket on the re-run — not report a false "couldn't open a ticket"
+        # to the user and a false ticket_created=false to the funnel.
+        mock_create.return_value = None
+
+        with self.assertRaises(Retry):
+            process_supporthog_interactivity(
+                self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+                "T123",
+            )
+
+        self.mock_capture_event.assert_not_called()
+        # Only the progress placeholder may have been posted — no final state yet.
+        client = mock_get_client.return_value
+        for update_call in client.chat_update.call_args_list:
+            assert "opening" in update_call.kwargs["text"].lower()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_retries_when_final_prompt_update_fails(self, mock_create, mock_get_client):
+        # If the final confirmation update fails transiently after the progress placeholder
+        # was posted, the task must retry rather than leave the prompt stuck on
+        # "Opening a ticket…" forever — and the funnel event must not fire before the
+        # retry resolves.
+        mock_create.return_value = Mock(ticket_number=42)
+        mock_get_client.return_value.chat_update.side_effect = RuntimeError("slack down")
+
+        with self.assertRaises(Retry):
+            process_supporthog_interactivity(
+                self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+                "T123",
+            )
+
+        self.mock_capture_event.assert_not_called()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_skips_placeholder_when_ticket_already_open(self, mock_create, mock_get_client):
+        # A duplicate delivery arriving after a sibling already created the ticket must not
+        # post the "opening" placeholder over the sibling's confirmation — only the final
+        # confirmation update may go out.
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+        mock_create.return_value = Mock(ticket_number=7)
+
+        process_supporthog_interactivity(
+            self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            "T123",
+        )
+
+        client = mock_get_client.return_value
+        client.chat_update.assert_called_once()
+        assert "ticket #7" in client.chat_update.call_args.kwargs["text"].lower()
+
+    @parameterized.expand(
+        [
+            ("create_raises", RuntimeError("boom")),
+            ("create_returns_none", None),
+        ]
+    )
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_shows_error_when_retries_exhausted(self, _name, failure, mock_create, mock_get_client):
+        # A persistent failure (create raising, or a None that never resolves into a
+        # ticket) retries and eventually exhausts — the prompt must still be replaced
+        # with the error state, not left with live buttons forever.
+        if isinstance(failure, Exception):
+            mock_create.side_effect = failure
+        else:
+            mock_create.return_value = failure
 
         with patch.object(process_supporthog_interactivity, "retry", side_effect=MaxRetriesExceededError()):
             process_supporthog_interactivity(
@@ -1139,5 +1217,10 @@ class TestSupporthogInteractivity(BaseTest):
             )
 
         client = mock_get_client.return_value
-        client.chat_update.assert_called_once()
+        # Progress placeholder first, then the error state — never left on the placeholder.
+        assert client.chat_update.call_count == 2
         assert "couldn't" in client.chat_update.call_args.kwargs["text"].lower()
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge open ticket clicked"
+        assert event_props["ticket_created"] is False

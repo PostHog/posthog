@@ -55,9 +55,10 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Feedback (always), Archive/Restore, and Create PR. Task
- * creation/navigation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
- * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
+ * Detail-pane actions as data: Feedback (always), Archive/Restore, and Create PR. Discuss is
+ * rendered separately as a standalone dropdown button (`DiscussReportButton`) since it opens a
+ * question popover rather than firing on click. Task creation is owned by `inboxTaskKickoffLogic`;
+ * archiving reuses the shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
@@ -69,8 +70,12 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
 
     const showCreatePr = canCreateImplementationPr(report)
     const isArchived = report.status === SignalReportStatus.SUPPRESSED
-    // Resolved reports are terminal (their implementation PR merged) – nothing to archive, restore, or kick off.
+    // Resolved reports are terminal – nothing to archive, restore, or kick off.
     const isResolved = report.status === SignalReportStatus.RESOLVED
+    // Refund leaves a report in place only when a merged PR resolved it; anything else it archives
+    // (so the open PR gets closed), which means the view has to navigate away. Mirrors the
+    // `resolved_via_merged_pr` branch in the refund endpoint.
+    const staysPutOnRefund = isResolved && report.implementation_pr_merged === true
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -92,10 +97,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // return to the list — except for resolved reports, which stay where they are.
         onRefunded: () => {
             reportArchived()
-            if (report.status !== SignalReportStatus.RESOLVED) {
+            if (!staysPutOnRefund) {
                 router.actions.push(urls.inbox(activeTab))
             } else {
-                // Resolved reports stay on this page, so refetch: the fresh copy carries `refund`,
+                // These reports stay on this page, so refetch: the fresh copy carries `refund`,
                 // which surfaces the Refunded badge and drops Refund from the actions.
                 loadSelectedReport({ id: report.id })
             }
@@ -156,8 +161,9 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             }),
     }
 
-    // A resolved report is terminal – its PR already merged, so only feedback applies. The PR can
-    // still be refunded (auto-approved by design; the weekly review watches refunded-then-merged).
+    // A resolved report is terminal – its PR already merged, so only feedback and Discuss (rendered
+    // separately) apply. The PR can still be refunded (auto-approved by design; the weekly review
+    // watches refunded-then-merged).
     if (isResolved) {
         return [feedback, ...(canRefund ? [refund] : [])]
     }

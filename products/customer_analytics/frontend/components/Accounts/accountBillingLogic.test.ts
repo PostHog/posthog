@@ -97,5 +97,18 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).toContain('2024-01-01')
             expect(nextQueryKey).toContain('2024-01-31')
         })
+
+        // Environments without the saved billing insight (or a failing fetch) must degrade to an
+        // empty list, which is what drives the tab's not-found state instead of a crash or broken chart.
+        it.each([
+            ['is absent', () => jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(null)],
+            ['fails to load', () => jest.spyOn(insightsApi, 'getByShortId').mockRejectedValue(new Error('boom'))],
+        ])('resolves to no saved insights when the billing insight %s', async (_label, mockGetByShortId) => {
+            mockGetByShortId()
+            mountForKind()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.savedInsights).toEqual([])
+        })
     })
 })

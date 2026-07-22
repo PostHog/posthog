@@ -7,7 +7,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { EvaluationRun } from '../evaluations/types'
-import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
+import type { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogic'
 import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
 import { EvaluationRunTargetCell } from './EvaluationRunTargetCell'
 

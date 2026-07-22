@@ -361,7 +361,24 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "without this flag is rejected."
         ),
     )
+    can_freeze_exposure = serializers.SerializerMethodField(
+        help_text=(
+            "Whether enrollment can be frozen right now: the experiment must be running (not draft, "
+            "paused, stopped, or already frozen) and its feature flag must have release conditions "
+            "that a person cohort can narrow (no group aggregation, no holdout, no early access "
+            "conditions)."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    flag_cleanup_task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
+            "flag_cleanup_task action."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -398,12 +415,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "flag_cleanup_task_id",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
             "update_feature_flag_params",
             "status",
             "is_legacy",
+            "can_freeze_exposure",
             "user_access_level",
         ]
         read_only_fields = [
@@ -416,6 +435,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "holdout",
             "saved_metrics",
             "status",
+            "can_freeze_exposure",
             "user_access_level",
         ]
 
@@ -427,6 +447,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         else:
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_freeze_exposure(self, obj: Experiment) -> bool:
+        return obj.can_freeze_exposure
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -998,6 +1022,27 @@ class EndExperimentSerializer(serializers.Serializer):
     )
 
 
+class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    run_status = serializers.ChoiceField(
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        help_text="Status of the task's latest run.",
+    )
+    is_terminal = serializers.BooleanField(
+        help_text="Whether the run has finished (successfully or not). Stop polling once true."
+    )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the task opened, when it opened one.",
+    )
+    can_view_task = serializers.BooleanField(
+        help_text=(
+            "Whether the requesting user can open the task in PostHog Code. Cleanup tasks are "
+            "visible to their creator only, so other viewers should not be shown a task link."
+        ),
+    )
+
+
 class ArchiveExperimentSerializer(serializers.Serializer):
     disable_feature_flag = serializers.BooleanField(
         default=False,
@@ -1159,6 +1204,17 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     )
 
 
+class ActiveRecalculationRunSerializer(serializers.Serializer):
+    """Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
+    status = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Status.choices,
+        read_only=True,
+        help_text="Status of the executing run (pending or in_progress)",
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 
@@ -1183,6 +1239,16 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    metric_retries = serializers.JSONField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
+            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
+            "Present only while a metric is between failed attempts; cleared when it succeeds or "
+            "fails terminally, so treat entries for metrics that already have a result as stale."
+        ),
+    )
     trigger = serializers.ChoiceField(
         choices=ExperimentMetricsRecalculation.Trigger.choices,
         read_only=True,
@@ -1202,8 +1268,14 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
-    # Named result_source (not source) to avoid shadowing DRF's reserved Field.source attribute, mirroring
-    # the metric_errors-vs-errors rename above.
+
+    active_run = ActiveRecalculationRunSerializer(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
+    )
+
     result_source = serializers.ChoiceField(
         choices=["recalculation", "timeseries_fallback"],
         required=False,
@@ -1372,6 +1444,30 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentSessionMetricHitSerializer(serializers.Serializer):
+    """One experiment metric with at least one matching event in a session recording."""
+
+    metric_uuid = serializers.CharField(
+        help_text="UUID of the experiment metric (inline primary/secondary or saved) whose events fired."
+    )
+    metric_name = serializers.CharField(
+        help_text="Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed."
+    )
+    event_count = serializers.IntegerField(
+        help_text="Total number of events in the session matching any of the metric's event/action sources."
+    )
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching the metric."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of the metric's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+
+
 class ExperimentSessionContextItemSerializer(serializers.Serializer):
     """One experiment whose feature flag a session recording saw."""
 
@@ -1380,8 +1476,9 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
     variant = serializers.CharField(
         help_text=(
-            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
-            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+            "Variant the session saw. Taken from the earliest event matching the experiment's exposure criteria "
+            "when one exists, otherwise from the earliest flag evaluation in the session, otherwise from the "
+            "$feature/<key> property stamped on the session's events."
         )
     )
     variants_seen = serializers.ListField(
@@ -1395,18 +1492,27 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     multiple_variants = serializers.BooleanField(
         help_text="True when the session saw more than one variant of this flag."
     )
-    first_flag_evaluation_timestamp = serializers.DateTimeField(
+    first_exposure_timestamp = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
-            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
-            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
-            "exposure criteria this is not the experiment's exposure moment."
+            "Timestamp of the first event in the session matching the experiment's exposure criteria — "
+            "the default exposure event ($feature_flag_called), or the configured custom event/action. Null when "
+            "no event in the session matched the criteria; the variant is then known from flag evaluations or "
+            "stamped $feature/<key> properties. "
+            "Session-scoped: the experiment analysis counts exposure per person across the whole run window, "
+            "so the person's counted first exposure may lie in an earlier session."
         ),
     )
     experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
     experiment_end_date = serializers.DateTimeField(
         allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+    metrics_in_session = ExperimentSessionMetricHitSerializer(
+        many=True,
+        help_text=(
+            "This experiment's metrics with at least one matching event in the session, sorted by first "
+            "occurrence. Empty when none of the experiment's metric events fired during the session."
+        ),
     )
 
 
