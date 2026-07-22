@@ -1756,13 +1756,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         with tracer.start_as_current_span("data_warehouse.external_data_sources.list") as span:
             span.set_attribute("team_id", self.team_id)
             response = super().list(request, *args, **kwargs)
-            results = response.data.get("results") if isinstance(response.data, dict) else response.data
-            if isinstance(results, list):
-                span.set_attribute("sources.count", len(results))
-                span.set_attribute(
-                    "schemas.count",
-                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
-                )
+            # Pagination is always on for this endpoint, so `results` is always a list of serialized sources.
+            results = response.data["results"]
+            span.set_attribute("sources.count", len(results))
+            span.set_attribute("schemas.count", sum(len(source.get("schemas") or []) for source in results))
             return response
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
