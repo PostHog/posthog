@@ -1652,6 +1652,11 @@ class TestPrinter(BaseTest):
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
 
+        # substring's length arg is optional in ClickHouse, so the two-arg form must compile.
+        self.assertEqual(self._expr("substring(event, 2)"), "substring(events.event, 2)")
+        self.assertEqual(self._expr("substring(event, 2, 3)"), "substring(events.event, 2, 3)")
+        self.assertEqual(self._expr("substringUTF8(event, 2)"), "substringUTF8(events.event, 2)")
+
     @parameterized.expand(
         [
             ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
