@@ -1,3 +1,5 @@
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+
 import {
     EventRateOverflowStrategy,
     MergeEventRateOverflowStrategy,
@@ -5,6 +7,30 @@ import {
 } from './overflow-strategy'
 
 describe('overflow strategies', () => {
+    describe('EventRateOverflowStrategy', () => {
+        it.each([['$pageview'], ['$identify'], [undefined]])('counts every event (%s) as one token', (event) => {
+            const strategy = new EventRateOverflowStrategy()
+
+            expect(strategy.countTokens(createTestEventHeaders({ event }))).toBe(1)
+        })
+    })
+
+    describe('MergeEventRateOverflowStrategy', () => {
+        it.each([
+            ['$identify', 1],
+            ['$create_alias', 1],
+            ['$merge_dangerously', 1],
+            ['$pageview', 0],
+            ['identify', 0],
+            ['$Identify', 0],
+            [undefined, 0],
+        ])('counts %s as %i tokens', (event, expected) => {
+            const strategy = new MergeEventRateOverflowStrategy()
+
+            expect(strategy.countTokens(createTestEventHeaders({ event }))).toBe(expected)
+        })
+    })
+
     describe('createAnalyticsOverflowStrategies', () => {
         const baseConfig = {
             eventBucketCapacity: 1000,
