@@ -35642,6 +35642,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
+     * * `azure_devops` - Azure Devops
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
@@ -35687,6 +35688,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
+      AzureDevops: 'azure_devops',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
       CustomerioApp: 'customerio-app',
@@ -35732,6 +35734,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob
+       * * `azure_devops` - Azure Devops
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
        * * `customerio-app` - Customerio App
@@ -76514,6 +76517,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
+     * * `azure_devops` - Azure Devops
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
@@ -76570,6 +76574,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
+      AzureDevops: 'azure_devops',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
       CustomerioApp: 'customerio-app',
