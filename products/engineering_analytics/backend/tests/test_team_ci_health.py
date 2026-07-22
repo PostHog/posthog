@@ -130,8 +130,11 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         return response.json()
 
+    def _roster(self) -> dict[str, dict]:
+        return {item["owner_team"]: item for item in self._get("team_ci_health")["items"]}
+
     def test_roster_uses_the_same_flake_proof_as_the_queue(self):
-        rows = {item["owner_team"]: item for item in self._get("team_ci_health")["items"]}
+        rows = self._roster()
 
         # Only the pass-on-retry test is proven flaky. The 3-PR test failed with no recovery, so it
         # is a regression here exactly as it is in the queue.
@@ -155,7 +158,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         assert "ghost-team" not in rows
 
     def test_restamped_test_lands_under_its_latest_owner_in_roster_and_drill_in(self):
-        rows = {item["owner_team"]: item for item in self._get("team_ci_health")["items"]}
+        rows = self._roster()
 
         # All evidence, prior window included, follows the latest stamp; the old team keeps nothing.
         assert "team-old" not in rows

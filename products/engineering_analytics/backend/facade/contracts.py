@@ -531,10 +531,10 @@ class FlakyTestClassification(StrEnum):
 class FlakyTestItem:
     """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
 
-    Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only
-    sees Backend CI. Evidence is counted per CI run, never per
-    span: one run fans a test across matrix legs, so only the run grain counts one failure once. See
-    ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute count.
+    Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only sees
+    Backend CI. Evidence is counted per CI run, never per span: one run fans a test across matrix
+    legs, so only the run grain counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why
+    every figure is an absolute count.
     """
 
     # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
