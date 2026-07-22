@@ -6,6 +6,10 @@ imports (no DB drivers) so the setup-path consumers (the warehouse_sources table
 model) add no boot cost.
 """
 
+from products.data_warehouse.backend.direct_clickhouse import (
+    DIRECT_CLICKHOUSE_DATABASE_OPTION,
+    DIRECT_CLICKHOUSE_TABLE_OPTION,
+)
 from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
@@ -24,6 +28,8 @@ from products.data_warehouse.backend.direct_snowflake import (
 )
 
 __all__ = [
+    "DIRECT_CLICKHOUSE_DATABASE_OPTION",
+    "DIRECT_CLICKHOUSE_TABLE_OPTION",
     "DIRECT_MYSQL_SCHEMA_OPTION",
     "DIRECT_MYSQL_TABLE_OPTION",
     "DIRECT_POSTGRES_CATALOG_OPTION",

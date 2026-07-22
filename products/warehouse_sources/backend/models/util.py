@@ -539,6 +539,27 @@ def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> di
     }
 
 
+def clickhouse_column_to_dwh_column(_column_name: str, clickhouse_type: str, nullable: bool) -> dict[str, Any]:
+    # The source is already ClickHouse, so the type string is a valid ClickHouse type — used verbatim.
+    # `system.columns.type` usually already encodes nullability, so only wrap when it doesn't.
+    ch_type = clickhouse_type.strip()
+    if nullable and not (ch_type.startswith("Nullable(") or ch_type.startswith("LowCardinality(Nullable(")):
+        ch_type = f"Nullable({ch_type})"
+    raw_clickhouse_type = clean_type(ch_type)
+    return {
+        "clickhouse": ch_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def clickhouse_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: clickhouse_column_to_dwh_column(column_name, clickhouse_type, nullable)
+        for column_name, clickhouse_type, nullable in columns
+    }
+
+
 def _is_safe_public_ip(host: str) -> bool:
     ip = ip_address(host)
 
