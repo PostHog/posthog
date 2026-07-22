@@ -1,8 +1,10 @@
 import re
 import json
 import statistics
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Optional
 
+from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
 
 import dagster
@@ -206,7 +208,7 @@ def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRu
 
 
 def queries_to_keep_fresh(
-    context: dagster.OpExecutionContext, days: int = 2, minimum_query_count: int = 10, max_shapes: int = 20000
+    context: dagster.OpExecutionContext, days: int = 2, minimum_query_count: int = 2, max_shapes: int = 40000
 ) -> list[dict]:
     """Fleet-wide demand selection: every (team, query shape) with at least
     `minimum_query_count` runs in the window, hottest first, capped at
@@ -323,35 +325,35 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
     return queries
 
 
+# Worker threads for the warm pass. The pass is IO-bound (cache checks, CH
+# reads/inserts), so a small pool cuts wall time ~8x at the widened selection
+# size; kept well under the OFFLINE per-user query-slot budget so a build wave
+# can't starve other traffic (the same slot pool the inline-build saturation
+# incidents exhausted).
+WARMING_SHAPE_CONCURRENCY = 8
+
+
 @dagster.op(retry_policy=cache_warming_retry_policy)
 def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
-    queries_warmed = 0
-    queries_skipped = 0
-    queries_failed = 0
-    queries_unsupported = 0
+    team_ids = {q["team_id"] for q in queries}
+    teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
+    missing_teams = team_ids - teams.keys()
+    if missing_teams:
+        context.log.warning(f"{len(missing_teams)} teams not found, skipping their shapes")
 
-    teams: dict[int, Team | None] = {}
-
-    for query_info in queries:
-        team_id = query_info["team_id"]
-        query_json = query_info["query_json"]
-        normalized_query_hash = query_info["normalized_query_hash"]
-
-        if team_id not in teams:
-            try:
-                teams[team_id] = Team.objects.get(pk=team_id)
-            except Team.DoesNotExist:
-                context.log.warning(f"Team {team_id} not found, skipping")
-                teams[team_id] = None
-        team = teams[team_id]
+    def _warm_one(query_info: dict) -> str:
+        team = teams.get(query_info["team_id"])
         if team is None:
-            continue
+            return "team_missing"
+        query_json = query_info["query_json"]
 
         try:
-            # Tag before any runner work so the whole request — including the lazy
-            # precompute gate, which lets warming traffic through regardless of the
-            # rollout flag — is classified as background warming.
-            tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+            # Query tags are thread-local, so they must be set here in the worker
+            # — not in the op thread — or the replay loses its background-warming
+            # identity, which both the lazy gate's rollout bypass and the
+            # selection's self-feedback exclusion key on (the eager warmer's
+            # missing-tags warnings came from exactly this).
+            tag_queries(team_id=team.pk, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
             query_json = maybe_opt_into_lazy_precompute(query_json)
 
@@ -361,31 +363,40 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             runner, query_json = build_replay_runner(team, query_json)
             if runner is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
-                queries_unsupported += 1
-                continue
+                return "unsupported"
 
             cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=runner.get_cache_key())
             cached_data = cache_manager.get_cache_data()
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])
-                is_stale = runner._is_stale(last_refresh)
-
-                if not is_stale:
+                if not runner._is_stale(last_refresh):
                     WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
-                    queries_skipped += 1
-                    continue
+                    return "skipped_fresh"
 
             # TODO: We shouldn't try to run a query if it failed last run
             runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
-            queries_warmed += 1
-
+            return "warmed"
         except Exception as e:
-            context.log.exception(f"Error warming query {normalized_query_hash} for team {team_id}")
+            context.log.exception(f"Error warming query {query_info['normalized_query_hash']} for team {team.pk}")
             capture_exception(e)
             WARMING_QUERIES_COUNTER.labels(outcome="failed").inc()
-            queries_failed += 1
+            return "failed"
+        finally:
+            # Pool threads hold their own Django connections; drop expired ones so
+            # a long pass doesn't accumulate stale connections per thread.
+            close_old_connections()
+
+    outcomes: dict[str, int] = {}
+    with ThreadPoolExecutor(max_workers=WARMING_SHAPE_CONCURRENCY) as pool:
+        for outcome in pool.map(_warm_one, queries):
+            outcomes[outcome] = outcomes.get(outcome, 0) + 1
+
+    queries_warmed = outcomes.get("warmed", 0)
+    queries_skipped = outcomes.get("skipped_fresh", 0)
+    queries_failed = outcomes.get("failed", 0)
+    queries_unsupported = outcomes.get("unsupported", 0)
 
     context.log.info(
         f"Warmed {queries_warmed} queries ({queries_skipped} already fresh, "

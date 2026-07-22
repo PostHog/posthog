@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags.cache_warming import (
     build_replay_runner,
     get_warmable_queries_op,
@@ -218,6 +219,31 @@ class TestFleetQuerySelection(BaseTest):
 
 
 class TestWarmQueriesOp(BaseTest):
+    def test_worker_threads_carry_warming_tags(self) -> None:
+        # Query tags are thread-local. If tagging moves back to the op thread,
+        # pool workers replay untagged and two things silently break: the lazy
+        # gate's rollout bypass (buckets stop building for non-enrolled teams)
+        # and the selection's self-feedback exclusion.
+        seen: list[bool] = []
+
+        def capture_tags(**kwargs) -> None:
+            seen.append(is_background_warming_request())
+            return None
+
+        with patch("products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=capture_tags):
+            warm_queries_op(
+                dagster.build_op_context(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(seen, [True])
+
     @patch("products.web_analytics.dags.cache_warming.capture_exception")
     def test_kind_without_runner_is_not_an_error(self, mock_capture: MagicMock) -> None:
         # Selection is by kind prefix, so kinds get_query_runner can't build
