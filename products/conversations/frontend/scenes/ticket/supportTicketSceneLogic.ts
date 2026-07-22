@@ -305,7 +305,8 @@ export interface supportTicketSceneLogicActions {
         isPrivate: boolean,
         onSuccess?: () => void,
         statusAfterSend?: TicketStatus,
-        extraRecipients?: { cc: string[]; bcc: string[] }
+        extraRecipients?: { cc: string[]; bcc: string[] },
+        attachmentMediaIds?: string[]
     ) => {
         content: string
         isPrivate: boolean
@@ -313,6 +314,7 @@ export interface supportTicketSceneLogicActions {
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
         extraRecipients: { cc: string[]; bcc: string[] } | undefined
+        attachmentMediaIds: string[] | undefined
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
@@ -462,7 +464,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             isPrivate: boolean,
             onSuccess?: () => void,
             statusAfterSend?: TicketStatus,
-            extraRecipients?: { cc: string[]; bcc: string[] }
+            extraRecipients?: { cc: string[]; bcc: string[] },
+            attachmentMediaIds?: string[]
         ) => ({
             content,
             richContent,
@@ -470,6 +473,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             onSuccess,
             statusAfterSend,
             extraRecipients,
+            attachmentMediaIds,
         }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
@@ -1050,15 +1054,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, richContent, isPrivate, onSuccess, statusAfterSend, extraRecipients }) => {
+        sendMessage: async ({
+            content,
+            richContent,
+            isPrivate,
+            onSuccess,
+            statusAfterSend,
+            extraRecipients,
+            attachmentMediaIds,
+        }) => {
             if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessageSending(false)
                 return
             }
             try {
-                // Cc/Bcc only ride along on customer-facing replies; the backend also drops them for notes.
+                // Cc/Bcc and attachments only ride along on customer-facing replies; the backend also drops them for notes.
                 const cc = !isPrivate ? (extraRecipients?.cc ?? []) : []
                 const bcc = !isPrivate ? (extraRecipients?.bcc ?? []) : []
+                const attachments = !isPrivate ? (attachmentMediaIds ?? []) : []
                 await api.comments.create(
                     {
                         content,
@@ -1070,6 +1083,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             is_private: isPrivate,
                             ...(cc.length > 0 ? { cc } : {}),
                             ...(bcc.length > 0 ? { bcc } : {}),
+                            ...(attachments.length > 0 ? { attachment_media_ids: attachments } : {}),
                         },
                     },
                     {}

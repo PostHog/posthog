@@ -11,11 +11,17 @@ from PIL import Image
 
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
+from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
 
 CONVERSATIONS_MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MiB
 MAX_ATTACHMENTS_PER_MESSAGE = 20
+
+# Per-file and combined caps for files an agent attaches to an outbound reply. The combined cap
+# keeps the assembled MIME payload under the size most mailbox providers accept (~25 MiB).
+MAX_OUTBOUND_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MiB
+MAX_OUTBOUND_ATTACHMENTS_TOTAL_BYTES = 25 * 1024 * 1024  # 25 MiB
 
 MAX_FILENAME_LENGTH = 255
 # Keep word chars, whitespace and a small punctuation set. Notably drops "[", "]"
@@ -51,17 +57,16 @@ def is_valid_image(content: bytes) -> bool:
         return False
 
 
-def save_file_to_uploaded_media(
+def save_uploaded_media(
     team: Team,
     file_name: str,
     content_type: str,
     content: bytes,
     *,
     validate_images: bool = True,
-) -> str | None:
-    """Persist a file to object storage via UploadedMedia.
+) -> UploadedMedia | None:
+    """Persist a file to object storage and return the UploadedMedia row, or None on failure.
 
-    Returns the absolute URL on success, None on failure.
     For image content types, validates the bytes are a real image unless
     validate_images is False.
     """
@@ -100,7 +105,58 @@ def save_file_to_uploaded_media(
         content_type=content_type,
         bytes_size=len(content),
     )
-    return uploaded_media.get_absolute_url()
+    return uploaded_media
+
+
+def save_file_to_uploaded_media(
+    team: Team,
+    file_name: str,
+    content_type: str,
+    content: bytes,
+    *,
+    validate_images: bool = True,
+) -> str | None:
+    """Persist a file to object storage via UploadedMedia.
+
+    Returns the absolute URL on success, None on failure.
+    """
+    media = save_uploaded_media(team, file_name, content_type, content, validate_images=validate_images)
+    return media.get_absolute_url() if media is not None else None
+
+
+def load_outbound_attachments(team_id: int, media_ids: list[str]) -> list[tuple[str, bytes, str]]:
+    """Fetch stored attachments for an outbound email, scoped to the ticket's team.
+
+    Returns ``(file_name, content, content_type)`` tuples in the requested order, skipping any
+    row that's missing, unreadable, or would push the combined payload past the provider cap.
+    Team-scoped by ``team_id`` so a comment can't reference another team's media.
+    """
+    if not media_ids:
+        return []
+
+    rows = {
+        str(m.id): m
+        for m in UploadedMedia.objects.filter(team_id=team_id, id__in=media_ids).exclude(media_location__isnull=True)
+    }
+
+    attachments: list[tuple[str, bytes, str]] = []
+    total = 0
+    for media_id in media_ids:
+        media = rows.get(str(media_id))
+        if media is None or media.media_location is None:
+            continue
+        content = object_storage.read_bytes(media.media_location, missing_ok=True)
+        if content is None:
+            logger.warning("conversations_outbound_attachment_missing", team_id=team_id, uploaded_media_id=media_id)
+            continue
+        total += len(content)
+        if total > MAX_OUTBOUND_ATTACHMENTS_TOTAL_BYTES:
+            logger.warning(
+                "conversations_outbound_attachments_over_total_cap", team_id=team_id, uploaded_media_id=media_id
+            )
+            break
+        attachments.append((media.file_name or "attachment", content, media.content_type or "application/octet-stream"))
+    return attachments
 
 
 def build_content_with_images(

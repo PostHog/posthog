@@ -20,7 +20,8 @@ export interface ChatViewProps {
         isPrivate: boolean,
         onSuccess: () => void,
         statusAfterSend?: TicketStatus,
-        extraRecipients?: ExtraRecipients
+        extraRecipients?: ExtraRecipients,
+        attachmentMediaIds?: string[]
     ) => void
     onLoadOlderMessages?: () => void
     header?: React.ReactNode
@@ -56,6 +57,8 @@ export interface ChatViewProps {
     unsavedTicketChanges?: string[]
     /** Show Cc/Bcc recipient inputs (agent email replies only) */
     showCcBcc?: boolean
+    /** Allow attaching arbitrary files to the reply (agent email replies only) */
+    showAttachments?: boolean
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
@@ -88,6 +91,7 @@ export function ChatView({
     sendAndSetStatusOptions,
     unsavedTicketChanges,
     showCcBcc = false,
+    showAttachments = false,
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
@@ -132,6 +136,7 @@ export function ChatView({
                     sendAndSetStatusOptions={sendAndSetStatusOptions}
                     unsavedTicketChanges={unsavedTicketChanges}
                     showCcBcc={showCcBcc}
+                    showAttachments={showAttachments}
                 />
             </div>
         </LemonCard>

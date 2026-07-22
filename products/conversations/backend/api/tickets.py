@@ -23,6 +23,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -37,6 +38,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
@@ -56,6 +58,12 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.attachments import (
+    MAX_ATTACHMENTS_PER_MESSAGE,
+    MAX_OUTBOUND_ATTACHMENT_BYTES,
+    sanitize_attachment_filename,
+    save_uploaded_media,
+)
 from products.conversations.backend.services.recipients import normalize_recipients
 
 from ee.models.rbac.role import Role
@@ -119,6 +127,16 @@ class TicketReplyRequestSerializer(serializers.Serializer):
             "never revealed to the other recipients. Ignored for private notes."
         ),
     )
+    attachment_media_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=MAX_ATTACHMENTS_PER_MESSAGE,
+        help_text=(
+            "IDs of files previously uploaded via the upload_attachment action, attached to the "
+            "outbound email as file attachments. Ignored for private notes."
+        ),
+    )
 
     def validate_message(self, value: str) -> str:
         if not value or not value.strip():
@@ -135,6 +153,17 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class AttachmentUploadRequestSerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="File to attach to an outbound reply (max 10MB).")
+
+
+class AttachmentUploadResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Uploaded file ID to pass as attachment_media_ids when replying.")
+    name = serializers.CharField(help_text="Sanitized file name.")
+    content_type = serializers.CharField(help_text="Detected MIME type of the file.")
+    size = serializers.IntegerField(help_text="File size in bytes.")
 
 
 class AiFeedbackRequestSerializer(serializers.Serializer):
@@ -184,6 +213,13 @@ class ComposeTicketSerializer(serializers.Serializer):
         required=False,
         default=list,
         help_text="Email addresses to blind-copy (Bcc) on the first message. Never revealed to the other recipients.",
+    )
+    attachment_media_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=MAX_ATTACHMENTS_PER_MESSAGE,
+        help_text="IDs of files previously uploaded via the upload_attachment action, attached to the first message.",
     )
 
     def validate_message(self, value: str) -> str:
@@ -390,7 +426,16 @@ TICKET_ID_PARAM = OpenApiParameter(
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "compose",
+        "reply",
+        "ai_feedback",
+        "upload_attachment",
+    ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -1203,7 +1248,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         is_private = data["is_private"]
 
         item_context: dict[str, Any] = {"author_type": "support", "is_private": is_private}
-        # Cc/Bcc only make sense on a customer-facing reply; a private note is never delivered.
+        # Cc/Bcc and attachments only make sense on a customer-facing reply; a private note is never delivered.
         if not is_private:
             cc = normalize_recipients(data.get("cc"), exclude=[ticket.email_from or ""])
             bcc = normalize_recipients(data.get("bcc"), exclude=[ticket.email_from or "", *cc])
@@ -1211,6 +1256,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 item_context["cc"] = cc
             if bcc:
                 item_context["bcc"] = bcc
+            attachment_ids = _existing_media_ids(self.team_id, data.get("attachment_media_ids"))
+            if attachment_ids:
+                item_context["attachment_media_ids"] = attachment_ids
 
         comment = Comment.objects.create(
             team=self.team,
@@ -1363,6 +1411,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             item_context: dict[str, Any] = {"author_type": "human", "is_private": False}
             if bcc:
                 item_context["bcc"] = bcc
+            attachment_ids = _existing_media_ids(team.id, data.get("attachment_media_ids"))
+            if attachment_ids:
+                item_context["attachment_media_ids"] = attachment_ids
 
             Comment.objects.create(
                 team=team,
@@ -1389,6 +1440,70 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             {"id": str(ticket.id), "ticket_number": ticket.ticket_number},
             status=drf_status.HTTP_201_CREATED,
         )
+
+    @extend_schema(
+        request=AttachmentUploadRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=AttachmentUploadResponseSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        pagination_class=None,
+        parser_classes=[MultiPartParser, FormParser],
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def upload_attachment(self, request, *args, **kwargs):
+        """Upload a file to attach to a support email reply or new outbound ticket.
+
+        Returns the stored file's ID, which the caller passes back as ``attachment_media_ids``
+        when sending. Unlike the image-only media upload, this accepts arbitrary file types.
+        """
+        if not self.team.conversations_enabled:
+            return Response({"detail": "Support is not enabled."}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        file = request.FILES.get("file")
+        if file is None:
+            return Response({"detail": "A file must be provided."}, status=drf_status.HTTP_400_BAD_REQUEST)
+        if file.size > MAX_OUTBOUND_ATTACHMENT_BYTES:
+            return Response(
+                {"detail": "File too large (max 10MB)."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        media = save_uploaded_media(
+            self.team,
+            sanitize_attachment_filename(file.name),
+            getattr(file, "content_type", None) or "application/octet-stream",
+            file.read(),
+            validate_images=False,
+        )
+        if media is None:
+            return Response(
+                {"detail": "Could not store the attachment. Object storage may be unavailable."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {"id": str(media.id), "name": media.file_name, "content_type": media.content_type, "size": file.size},
+            status=drf_status.HTTP_201_CREATED,
+        )
+
+
+def _existing_media_ids(team_id: int, media_ids: Sequence[uuid.UUID] | None) -> list[str]:
+    """Return the subset of media IDs that exist for this team, preserving request order.
+
+    Guards against a comment referencing another team's (or a non-existent) uploaded file.
+    """
+    if not media_ids:
+        return []
+    id_strs = [str(mid) for mid in media_ids]
+    existing = {
+        str(mid) for mid in UploadedMedia.objects.filter(team_id=team_id, id__in=id_strs).values_list("id", flat=True)
+    }
+    return [mid for mid in id_strs if mid in existing]
 
 
 def validate_assignee(assignee) -> None:

@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+
+import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
@@ -74,13 +76,14 @@ describe('MessageInput send-and-set-status dropdown', () => {
 
         await userEvent.click(screen.getByText(`${verb} and set pending`))
         expect(onSendMessage).toHaveBeenCalledTimes(1)
-        // showCcBcc defaults off here, so no extra recipients ride along.
+        // showCcBcc/showAttachments default off here, so no extra recipients or attachments ride along.
         expect(onSendMessage).toHaveBeenCalledWith(
             'hello',
             { type: 'doc' },
             isPrivate,
             expect.any(Function),
             'pending',
+            undefined,
             undefined
         )
     })
@@ -112,7 +115,48 @@ describe('MessageInput send-and-set-status dropdown', () => {
             false,
             expect.any(Function),
             undefined,
-            { cc: ['colleague@example.com'], bcc: ['finance@example.com'] }
+            { cc: ['colleague@example.com'], bcc: ['finance@example.com'] },
+            undefined
+        )
+    })
+
+    // Guards the attachment wiring: an uploaded file's ID must reach onSendMessage so it's attached to
+    // the outbound email. Regressing this silently drops the attachment.
+    test('passes uploaded attachment IDs through to onSendMessage when showAttachments is enabled', async () => {
+        const onSendMessage = jest.fn()
+        jest.spyOn(api.conversationsTickets, 'uploadAttachment').mockResolvedValue({
+            id: 'media-1',
+            name: 'howto.docx',
+            content_type: 'application/octet-stream',
+            size: 10,
+        })
+
+        render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={onSendMessage}
+                    messageSending={false}
+                    showAttachments
+                    draftContent={{ type: 'doc', content: [] }}
+                />
+            </Provider>
+        )
+
+        const file = new File(['contents'], 'howto.docx', { type: 'application/octet-stream' })
+        // SupportEditor is mocked, so the attachment picker is the only file input in the tree.
+        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+        fireEvent.change(fileInput, { target: { files: [file] } })
+        expect(await screen.findByText('howto.docx')).toBeInTheDocument()
+
+        await userEvent.click(screen.getByText('Send'))
+        expect(onSendMessage).toHaveBeenCalledWith(
+            'hello',
+            { type: 'doc' },
+            false,
+            expect.any(Function),
+            undefined,
+            undefined,
+            ['media-1']
         )
     })
 })
