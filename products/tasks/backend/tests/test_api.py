@@ -376,6 +376,44 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         ids = {r["id"] for r in response.json()["results"]}
         self.assertEqual(ids, {str(run.id)})
 
+    def test_retrieve_experiments_task_owned_by_another_user_is_visible(self):
+        # Flag-cleanup tasks are surfaced on the (team-visible) experiment, so any
+        # team member must be able to open them, not just whoever ended the experiment.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_update_experiments_task_owned_by_another_user_returns_404(self):
+        # Experiments tasks are team-readable but stay creator-driven: runs execute
+        # with the creator's credentials, so teammates must not be able to edit,
+        # run, or command them.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"title": "Hijacked"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertEqual(task.title, "Clean up feature flag my-experiment-flag")
+
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
         other_user = self.create_organization_user("victim")
@@ -1225,13 +1263,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
-    def test_create_task_rejects_internal_image_builder_origin(self):
+    @parameterized.expand(
+        [
+            ("image_builder",),
+            ("experiments",),
+        ]
+    )
+    def test_create_task_rejects_internal_origin(self, origin: str):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": "image_builder",
+                "origin_product": origin,
                 "repository": "posthog/posthog",
             },
             format="json",
