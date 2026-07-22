@@ -64,6 +64,7 @@ export interface supportTicketsSceneLogicValues {
         dateTo: string | null
     } | null
     dateTo: string | null
+    hasActiveFilters: boolean
     orderBy: string
     priorityFilter: TicketPriority[]
     searchQuery: string
@@ -96,6 +97,9 @@ export interface supportTicketsSceneLogicActions {
         status: TicketStatus
     }
     clearActiveView: () => {
+        value: true
+    }
+    clearFiltersKeepingSearch: () => {
         value: true
     }
     clearSelectedTickets: () => {
@@ -185,6 +189,18 @@ export interface supportTicketsSceneLogicMeta {
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
+        hasActiveFilters: (
+            statusFilter: TicketStatus[],
+            priorityFilter: TicketPriority[],
+            channelFilter: TicketChannel | 'all',
+            slaFilter: TicketSlaState | 'all',
+            aiTriageResultFilter: AITriageFilterValue[],
+            assigneeFilterEntries: AssigneeFilterEntry[],
+            tagsFilter: string[],
+            tagsExcludeFilter: string[],
+            dateFrom: string | null,
+            dateTo: string | null
+        ) => boolean
         currentFilters: (
             statusFilter: TicketStatus[],
             priorityFilter: TicketPriority[],
@@ -237,6 +253,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
         resetFilters: true,
+        clearFiltersKeepingSearch: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
@@ -431,6 +448,42 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             (s) => [s.assigneeFilter],
             (assigneeFilter: AssigneeFilterEntry[]): AssigneeFilterEntry[] => normalizeAssigneeFilter(assigneeFilter),
         ],
+        hasActiveFilters: [
+            (s) => [
+                s.statusFilter,
+                s.priorityFilter,
+                s.channelFilter,
+                s.slaFilter,
+                s.aiTriageResultFilter,
+                s.assigneeFilterEntries,
+                s.tagsFilter,
+                s.tagsExcludeFilter,
+                s.dateFrom,
+                s.dateTo,
+            ],
+            (
+                status: TicketStatus[],
+                priority: TicketPriority[],
+                channel: TicketChannel | 'all',
+                sla: TicketSlaState | 'all',
+                aiTriageResult: AITriageFilterValue[],
+                assignee: AssigneeFilterEntry[],
+                tags: string[],
+                tagsExclude: string[],
+                dateFrom: string | null,
+                dateTo: string | null
+            ): boolean =>
+                status.length > 0 ||
+                priority.length > 0 ||
+                channel !== 'all' ||
+                sla !== 'all' ||
+                aiTriageResult.length > 0 ||
+                assignee.length > 0 ||
+                tags.length > 0 ||
+                tagsExclude.length > 0 ||
+                dateFrom !== null ||
+                dateTo !== null,
+        ],
         currentFilters: [
             (s) => [
                 s.statusFilter,
@@ -606,6 +659,17 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.applyViewFilters({
                 ...DEFAULT_TICKET_FILTERS,
                 ...(dateRangeBeforeView ?? { dateFrom: null, dateTo: null }),
+            })
+        },
+        clearFiltersKeepingSearch: () => {
+            // Reset every filter to its default but keep the current search text, so the
+            // user can rerun the same search unconstrained (date range included → all time).
+            actions.clearActiveView()
+            actions.applyViewFilters({
+                ...DEFAULT_TICKET_FILTERS,
+                search: values.searchQuery,
+                dateFrom: null,
+                dateTo: null,
             })
         },
         setActiveView: ({ view }) => {
