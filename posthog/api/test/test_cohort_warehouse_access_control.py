@@ -14,15 +14,20 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseCreden
 
 from ee.models.rbac.access_control import AccessControl
 
+# The realistic way a cohort reaches a warehouse table: a behavioral filter whose hogql
+# event filter traverses the persons warehouse join (cohort filters reject direct
+# data_warehouse_* property types at the pydantic layer).
 WAREHOUSE_FILTERS = {
     "properties": {
         "type": "AND",
         "values": [
             {
-                "type": "data_warehouse_person_property",
-                "key": "extended_properties.bool_prop",
-                "value": "true",
-                "operator": "exact",
+                "type": "behavioral",
+                "key": "$pageview",
+                "value": "performed_event",
+                "event_type": "events",
+                "explicit_datetime": "-30d",
+                "event_filters": [{"type": "hogql", "key": "person.extended_properties.bool_prop = 'true'"}],
             }
         ],
     }
@@ -95,6 +100,7 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
         response = self._save_cohort()
 
         assert response.status_code == 400, response.content
+        assert "Can't save this cohort" in str(response.json())
         assert "extended_properties" in str(response.json())
         assert not Cohort.objects.filter(team=self.team).exists()
 
@@ -116,6 +122,7 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
         )
 
         assert response.status_code == 400, response.content
+        assert "Can't save this cohort" in str(response.json())
         assert "extended_properties" in str(response.json())
 
     def test_denied_member_cannot_update_via_legacy_groups(self):
@@ -130,4 +137,5 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
         )
 
         assert response.status_code == 400, response.content
+        assert "Can't save this cohort" in str(response.json())
         assert "extended_properties" in str(response.json())
