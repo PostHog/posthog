@@ -15,12 +15,15 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    ChannelArtifactListQuerySerializer,
     ChannelFeedMessageSerializer,
     ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
     ChannelWriteSerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
+    TaskRunLivingArtifactResponseSerializer,
+    TaskRunLivingArtifactsResponseSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
@@ -163,6 +166,64 @@ class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if message == "full":
             raise ValidationError("This channel's feed is full.")
         return Response(ChannelFeedMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+
+
+class ChannelArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    Read API for a channel's artifacts — the durable outputs of the channel's work
+    (canvases, documents, PRs), whether created by its tasks' runs or owned by the channel
+    directly. Writes stay on the run-scoped API until channel-owned creation has a consumer.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "head", "options"]
+    serializer_class = TaskRunLivingArtifactResponseSerializer
+
+    def _channel_id(self) -> str:
+        channel_id = self.kwargs.get("parent_lookup_channel_id")
+        if not channel_id:
+            raise NotFound("Channel ID is required")
+        try:
+            UUID(channel_id)
+        except (ValueError, TypeError):
+            raise NotFound("Channel not found")
+        return channel_id
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @validated_request(
+        query_serializer=ChannelArtifactListQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactsResponseSerializer,
+                description="Living artifacts attached to this channel",
+            ),
+            404: OpenApiResponse(description="Channel not found"),
+        },
+        summary="List a channel's living artifacts",
+        description=(
+            "The channel's durable outputs — artifacts created by its tasks' runs or owned by the "
+            "channel directly — most recently updated first."
+        ),
+        operation_id="tasks_channels_artifacts_list",
+    )
+    def list(self, request, *args, **kwargs):
+        artifacts = tasks_facade.list_channel_artifacts(
+            self._channel_id(),
+            self.team_id,
+            self._user_id(),
+            limit=request.validated_query_data["limit"],
+        )
+        if artifacts is None:
+            raise NotFound("Channel not found")
+        return Response(TaskRunLivingArtifactsResponseSerializer({"artifacts": artifacts}).data)
 
 
 class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

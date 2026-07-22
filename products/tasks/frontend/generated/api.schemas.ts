@@ -828,6 +828,121 @@ export interface PatchedSandboxEnvironmentWriteApi {
     custom_image_id?: string | null
 }
 
+export type TaskRunLivingArtifactOpenResponseApiVersionsItem = { [key: string]: unknown }
+
+/**
+ * * `slack_message` - slack_message
+ * * `slack_canvas` - slack_canvas
+ * * `document` - document
+ * * `spreadsheet` - spreadsheet
+ * * `dashboard` - dashboard
+ * * `file` - file
+ * * `github_pr` - github_pr
+ */
+export type ArtifactTypeEnumApi = (typeof ArtifactTypeEnumApi)[keyof typeof ArtifactTypeEnumApi]
+
+export const ArtifactTypeEnumApi = {
+    SlackMessage: 'slack_message',
+    SlackCanvas: 'slack_canvas',
+    Document: 'document',
+    Spreadsheet: 'spreadsheet',
+    Dashboard: 'dashboard',
+    File: 'file',
+    GithubPr: 'github_pr',
+} as const
+
+/**
+ * * `slack_message` - slack_message
+ * * `slack_canvas` - slack_canvas
+ * * `slack_file` - slack_file
+ * * `document_connector` - document_connector
+ * * `github_pr` - github_pr
+ */
+export type AdapterEnumApi = (typeof AdapterEnumApi)[keyof typeof AdapterEnumApi]
+
+export const AdapterEnumApi = {
+    SlackMessage: 'slack_message',
+    SlackCanvas: 'slack_canvas',
+    SlackFile: 'slack_file',
+    DocumentConnector: 'document_connector',
+    GithubPr: 'github_pr',
+} as const
+
+/**
+ * * `active` - active
+ * * `failed` - failed
+ */
+export type TaskArtifactStatusEnumApi = (typeof TaskArtifactStatusEnumApi)[keyof typeof TaskArtifactStatusEnumApi]
+
+export const TaskArtifactStatusEnumApi = {
+    Active: 'active',
+    Failed: 'failed',
+} as const
+
+export interface TaskRunLivingArtifactOpenResponseApi {
+    /** Stable living artifact id. Use this id when editing the artifact. */
+    id: string
+    /** Task id this living artifact belongs to. */
+    task_id: string
+    /** Task run id that created or currently owns this artifact. */
+    run_id: string
+    /**
+     * Channel this artifact belongs to, stamped from its task at create.
+     * @nullable
+     */
+    channel_id?: string | null
+    /** Project id that owns this artifact. */
+    team_id: number
+    /** Human-readable artifact name. */
+    name: string
+    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `document` - document
+     * * `spreadsheet` - spreadsheet
+     * * `dashboard` - dashboard
+     * * `file` - file
+     * * `github_pr` - github_pr */
+    artifact_type: ArtifactTypeEnumApi
+    /** Adapter that currently stores or edits the artifact.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
+     * * `document_connector` - document_connector
+     * * `github_pr` - github_pr */
+    adapter: AdapterEnumApi
+    /** Current registry status for the artifact.
+     *
+     * * `active` - active
+     * * `failed` - failed */
+    status: TaskArtifactStatusEnumApi
+    /** Adapter-specific location, such as S3 key or Slack canvas id. */
+    location: unknown
+    /** Adapter-specific metadata for external storage and source tracking. */
+    metadata: unknown
+    /** Current version number for the artifact. */
+    current_version: number
+    /** Chronological version records for this artifact. */
+    versions: TaskRunLivingArtifactOpenResponseApiVersionsItem[]
+    /**
+     * ISO timestamp when created.
+     * @nullable
+     */
+    created_at?: string | null
+    /**
+     * ISO timestamp when last updated.
+     * @nullable
+     */
+    updated_at?: string | null
+    /**
+     * Current artifact content when the adapter can read it directly.
+     * @nullable
+     */
+    content?: string | null
+}
+
 /**
  * Detail/create/update/run response for a task automation.
  */
@@ -977,6 +1092,81 @@ export interface ChannelWriteApi {
      * @maxLength 128
      */
     name: string
+}
+
+export type TaskRunLivingArtifactResponseApiVersionsItem = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactResponseApi {
+    /** Stable living artifact id. Use this id when editing the artifact. */
+    id: string
+    /** Task id this living artifact belongs to. */
+    task_id: string
+    /** Task run id that created or currently owns this artifact. */
+    run_id: string
+    /**
+     * Channel this artifact belongs to, stamped from its task at create.
+     * @nullable
+     */
+    channel_id?: string | null
+    /** Project id that owns this artifact. */
+    team_id: number
+    /** Human-readable artifact name. */
+    name: string
+    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `document` - document
+     * * `spreadsheet` - spreadsheet
+     * * `dashboard` - dashboard
+     * * `file` - file
+     * * `github_pr` - github_pr */
+    artifact_type: ArtifactTypeEnumApi
+    /** Adapter that currently stores or edits the artifact.
+     *
+     * * `slack_message` - slack_message
+     * * `slack_canvas` - slack_canvas
+     * * `slack_file` - slack_file
+     * * `document_connector` - document_connector
+     * * `github_pr` - github_pr */
+    adapter: AdapterEnumApi
+    /** Current registry status for the artifact.
+     *
+     * * `active` - active
+     * * `failed` - failed */
+    status: TaskArtifactStatusEnumApi
+    /** Adapter-specific location, such as S3 key or Slack canvas id. */
+    location: unknown
+    /** Adapter-specific metadata for external storage and source tracking. */
+    metadata: unknown
+    /** Current version number for the artifact. */
+    current_version: number
+    /** Chronological version records for this artifact. */
+    versions: TaskRunLivingArtifactResponseApiVersionsItem[]
+    /**
+     * ISO timestamp when created.
+     * @nullable
+     */
+    created_at?: string | null
+    /**
+     * ISO timestamp when last updated.
+     * @nullable
+     */
+    updated_at?: string | null
+}
+
+export interface TaskRunLivingArtifactsResponseApi {
+    /** Living artifacts for this task run. */
+    artifacts: TaskRunLivingArtifactResponseApi[]
+}
+
+export interface PaginatedTaskRunLivingArtifactsResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskRunLivingArtifactsResponseApi[]
 }
 
 export type ChannelFeedMessageDTOApiPayload = { [key: string]: unknown }
@@ -2758,121 +2948,6 @@ export interface StreamReadTokenResponseApi {
 }
 
 /**
- * * `slack_message` - slack_message
- * * `slack_canvas` - slack_canvas
- * * `document` - document
- * * `spreadsheet` - spreadsheet
- * * `dashboard` - dashboard
- * * `file` - file
- * * `github_pr` - github_pr
- */
-export type ArtifactTypeEnumApi = (typeof ArtifactTypeEnumApi)[keyof typeof ArtifactTypeEnumApi]
-
-export const ArtifactTypeEnumApi = {
-    SlackMessage: 'slack_message',
-    SlackCanvas: 'slack_canvas',
-    Document: 'document',
-    Spreadsheet: 'spreadsheet',
-    Dashboard: 'dashboard',
-    File: 'file',
-    GithubPr: 'github_pr',
-} as const
-
-/**
- * * `slack_message` - slack_message
- * * `slack_canvas` - slack_canvas
- * * `slack_file` - slack_file
- * * `document_connector` - document_connector
- * * `github_pr` - github_pr
- */
-export type AdapterEnumApi = (typeof AdapterEnumApi)[keyof typeof AdapterEnumApi]
-
-export const AdapterEnumApi = {
-    SlackMessage: 'slack_message',
-    SlackCanvas: 'slack_canvas',
-    SlackFile: 'slack_file',
-    DocumentConnector: 'document_connector',
-    GithubPr: 'github_pr',
-} as const
-
-/**
- * * `active` - active
- * * `failed` - failed
- */
-export type TaskArtifactStatusEnumApi = (typeof TaskArtifactStatusEnumApi)[keyof typeof TaskArtifactStatusEnumApi]
-
-export const TaskArtifactStatusEnumApi = {
-    Active: 'active',
-    Failed: 'failed',
-} as const
-
-export type TaskRunLivingArtifactResponseApiVersionsItem = { [key: string]: unknown }
-
-export interface TaskRunLivingArtifactResponseApi {
-    /** Stable living artifact id. Use this id when editing the artifact. */
-    id: string
-    /** Task id this living artifact belongs to. */
-    task_id: string
-    /** Task run id that created or currently owns this artifact. */
-    run_id: string
-    /**
-     * Channel this artifact belongs to, stamped from its task at create.
-     * @nullable
-     */
-    channel_id?: string | null
-    /** Project id that owns this artifact. */
-    team_id: number
-    /** Human-readable artifact name. */
-    name: string
-    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
-     *
-     * * `slack_message` - slack_message
-     * * `slack_canvas` - slack_canvas
-     * * `document` - document
-     * * `spreadsheet` - spreadsheet
-     * * `dashboard` - dashboard
-     * * `file` - file
-     * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
-    /** Adapter that currently stores or edits the artifact.
-     *
-     * * `slack_message` - slack_message
-     * * `slack_canvas` - slack_canvas
-     * * `slack_file` - slack_file
-     * * `document_connector` - document_connector
-     * * `github_pr` - github_pr */
-    adapter: AdapterEnumApi
-    /** Current registry status for the artifact.
-     *
-     * * `active` - active
-     * * `failed` - failed */
-    status: TaskArtifactStatusEnumApi
-    /** Adapter-specific location, such as S3 key or Slack canvas id. */
-    location: unknown
-    /** Adapter-specific metadata for external storage and source tracking. */
-    metadata: unknown
-    /** Current version number for the artifact. */
-    current_version: number
-    /** Chronological version records for this artifact. */
-    versions: TaskRunLivingArtifactResponseApiVersionsItem[]
-    /**
-     * ISO timestamp when created.
-     * @nullable
-     */
-    created_at?: string | null
-    /**
-     * ISO timestamp when last updated.
-     * @nullable
-     */
-    updated_at?: string | null
-}
-
-export interface TaskRunLivingArtifactsResponseApi {
-    /** Living artifacts for this task run. */
-    artifacts: TaskRunLivingArtifactResponseApi[]
-}
-
-/**
  * Optional metadata to persist with the living artifact.
  */
 export type TaskRunLivingArtifactCreateRequestApiMetadata = { [key: string]: unknown }
@@ -2919,72 +2994,6 @@ export interface TaskRunLivingArtifactCreateRequestApi {
     source_storage_path?: string
     /** Optional metadata to persist with the living artifact. */
     metadata?: TaskRunLivingArtifactCreateRequestApiMetadata
-}
-
-export type TaskRunLivingArtifactOpenResponseApiVersionsItem = { [key: string]: unknown }
-
-export interface TaskRunLivingArtifactOpenResponseApi {
-    /** Stable living artifact id. Use this id when editing the artifact. */
-    id: string
-    /** Task id this living artifact belongs to. */
-    task_id: string
-    /** Task run id that created or currently owns this artifact. */
-    run_id: string
-    /**
-     * Channel this artifact belongs to, stamped from its task at create.
-     * @nullable
-     */
-    channel_id?: string | null
-    /** Project id that owns this artifact. */
-    team_id: number
-    /** Human-readable artifact name. */
-    name: string
-    /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
-     *
-     * * `slack_message` - slack_message
-     * * `slack_canvas` - slack_canvas
-     * * `document` - document
-     * * `spreadsheet` - spreadsheet
-     * * `dashboard` - dashboard
-     * * `file` - file
-     * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
-    /** Adapter that currently stores or edits the artifact.
-     *
-     * * `slack_message` - slack_message
-     * * `slack_canvas` - slack_canvas
-     * * `slack_file` - slack_file
-     * * `document_connector` - document_connector
-     * * `github_pr` - github_pr */
-    adapter: AdapterEnumApi
-    /** Current registry status for the artifact.
-     *
-     * * `active` - active
-     * * `failed` - failed */
-    status: TaskArtifactStatusEnumApi
-    /** Adapter-specific location, such as S3 key or Slack canvas id. */
-    location: unknown
-    /** Adapter-specific metadata for external storage and source tracking. */
-    metadata: unknown
-    /** Current version number for the artifact. */
-    current_version: number
-    /** Chronological version records for this artifact. */
-    versions: TaskRunLivingArtifactOpenResponseApiVersionsItem[]
-    /**
-     * ISO timestamp when created.
-     * @nullable
-     */
-    created_at?: string | null
-    /**
-     * ISO timestamp when last updated.
-     * @nullable
-     */
-    updated_at?: string | null
-    /**
-     * Current artifact content when the adapter can read it directly.
-     * @nullable
-     */
-    content?: string | null
 }
 
 /**
@@ -3509,6 +3518,19 @@ export type TaskAutomationsListParams = {
 export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksChannelsArtifactsListParams = {
+    /**
+     * Maximum number of artifacts to return (most recently updated first).
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number
     /**

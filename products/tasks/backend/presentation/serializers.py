@@ -1437,6 +1437,18 @@ class ChannelFeedMessageWriteSerializer(serializers.Serializer):
         return value
 
 
+class ChannelArtifactListQuerySerializer(serializers.Serializer):
+    """Query parameters for listing a channel's living artifacts."""
+
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of artifacts to return (most recently updated first).",
+    )
+
+
 class TaskMentionQuerySerializer(serializers.Serializer):
     """Query parameters for listing mentions."""
 

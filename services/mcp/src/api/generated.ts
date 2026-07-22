@@ -44667,6 +44667,93 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - active
+     * * `failed` - failed
+     */
+    export type TaskArtifactStatusEnum = typeof TaskArtifactStatusEnum[keyof typeof TaskArtifactStatusEnum];
+
+
+    export const TaskArtifactStatusEnum = {
+      Active: 'active',
+      Failed: 'failed',
+    } as const;
+
+    export type TaskRunLivingArtifactResponseVersionsItem = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactResponse {
+      /** Stable living artifact id. Use this id when editing the artifact. */
+      id: string;
+      /** Task id this living artifact belongs to. */
+      task_id: string;
+      /** Task run id that created or currently owns this artifact. */
+      run_id: string;
+      /**
+         * Channel this artifact belongs to, stamped from its task at create.
+         * @nullable
+         */
+      channel_id?: string | null;
+      /** Project id that owns this artifact. */
+      team_id: number;
+      /** Human-readable artifact name. */
+      name: string;
+      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `document` - document
+       * * `spreadsheet` - spreadsheet
+       * * `dashboard` - dashboard
+       * * `file` - file
+       * * `github_pr` - github_pr */
+      artifact_type: ArtifactTypeEnum;
+      /** Adapter that currently stores or edits the artifact.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `slack_file` - slack_file
+       * * `document_connector` - document_connector
+       * * `github_pr` - github_pr */
+      adapter: AdapterEnum;
+      /** Current registry status for the artifact.
+       *
+       * * `active` - active
+       * * `failed` - failed */
+      status: TaskArtifactStatusEnum;
+      /** Adapter-specific location, such as S3 key or Slack canvas id. */
+      location: unknown;
+      /** Adapter-specific metadata for external storage and source tracking. */
+      metadata: unknown;
+      /** Current version number for the artifact. */
+      current_version: number;
+      /** Chronological version records for this artifact. */
+      versions: TaskRunLivingArtifactResponseVersionsItem[];
+      /**
+         * ISO timestamp when created.
+         * @nullable
+         */
+      created_at?: string | null;
+      /**
+         * ISO timestamp when last updated.
+         * @nullable
+         */
+      updated_at?: string | null;
+    }
+
+    export interface TaskRunLivingArtifactsResponse {
+      /** Living artifacts for this task run. */
+      artifacts: TaskRunLivingArtifactResponse[];
+    }
+
+    export interface PaginatedTaskRunLivingArtifactsResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskRunLivingArtifactsResponse[];
+    }
+
+    /**
      * * `not_started` - Not Started
      * * `queued` - Queued
      * * `in_progress` - In Progress
@@ -66482,18 +66569,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `active` - active
-     * * `failed` - failed
-     */
-    export type TaskArtifactStatusEnum = typeof TaskArtifactStatusEnum[keyof typeof TaskArtifactStatusEnum];
-
-
-    export const TaskArtifactStatusEnum = {
-      Active: 'active',
-      Failed: 'failed',
-    } as const;
-
-    /**
      * Request body for creating or updating a task automation.
      */
     export interface TaskAutomationWrite {
@@ -67287,72 +67362,6 @@ export namespace Schemas {
          * @nullable
          */
       content?: string | null;
-    }
-
-    export type TaskRunLivingArtifactResponseVersionsItem = { [key: string]: unknown };
-
-    export interface TaskRunLivingArtifactResponse {
-      /** Stable living artifact id. Use this id when editing the artifact. */
-      id: string;
-      /** Task id this living artifact belongs to. */
-      task_id: string;
-      /** Task run id that created or currently owns this artifact. */
-      run_id: string;
-      /**
-         * Channel this artifact belongs to, stamped from its task at create.
-         * @nullable
-         */
-      channel_id?: string | null;
-      /** Project id that owns this artifact. */
-      team_id: number;
-      /** Human-readable artifact name. */
-      name: string;
-      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
-       *
-       * * `slack_message` - slack_message
-       * * `slack_canvas` - slack_canvas
-       * * `document` - document
-       * * `spreadsheet` - spreadsheet
-       * * `dashboard` - dashboard
-       * * `file` - file
-       * * `github_pr` - github_pr */
-      artifact_type: ArtifactTypeEnum;
-      /** Adapter that currently stores or edits the artifact.
-       *
-       * * `slack_message` - slack_message
-       * * `slack_canvas` - slack_canvas
-       * * `slack_file` - slack_file
-       * * `document_connector` - document_connector
-       * * `github_pr` - github_pr */
-      adapter: AdapterEnum;
-      /** Current registry status for the artifact.
-       *
-       * * `active` - active
-       * * `failed` - failed */
-      status: TaskArtifactStatusEnum;
-      /** Adapter-specific location, such as S3 key or Slack canvas id. */
-      location: unknown;
-      /** Adapter-specific metadata for external storage and source tracking. */
-      metadata: unknown;
-      /** Current version number for the artifact. */
-      current_version: number;
-      /** Chronological version records for this artifact. */
-      versions: TaskRunLivingArtifactResponseVersionsItem[];
-      /**
-         * ISO timestamp when created.
-         * @nullable
-         */
-      created_at?: string | null;
-      /**
-         * ISO timestamp when last updated.
-         * @nullable
-         */
-      updated_at?: string | null;
-    }
-
-    export interface TaskRunLivingArtifactsResponse {
-      /** Living artifacts for this task run. */
-      artifacts: TaskRunLivingArtifactResponse[];
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -79218,6 +79227,19 @@ export namespace Schemas {
     export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksChannelsArtifactsListParams = {
+    /**
+     * Maximum number of artifacts to return (most recently updated first).
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**

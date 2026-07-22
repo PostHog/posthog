@@ -35,6 +35,7 @@ import type {
     PaginatedTaskDetailDTOListApi,
     PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
+    PaginatedTaskRunLivingArtifactsResponseListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
     PatchedChannelWriteApi,
@@ -96,6 +97,7 @@ import type {
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
     TaskWriteApi,
+    TasksChannelsArtifactsListParams,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -602,6 +604,25 @@ export const sandboxDestroy = async (projectId: string, id: string, options?: Re
     })
 }
 
+export const getTasksArtifactsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_artifacts/${id}/`
+}
+
+/**
+ * A stable artifact handle plus the current content when the adapter supports reads.
+ * @summary Open a living artifact
+ */
+export const tasksArtifactsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactOpenResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactOpenResponseApi>(getTasksArtifactsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -773,6 +794,45 @@ export const taskChannelsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelWriteApi),
     })
+}
+
+export const getTasksChannelsArtifactsListUrl = (
+    projectId: string,
+    channelId: string,
+    params?: TasksChannelsArtifactsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_channels/${channelId}/artifacts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_channels/${channelId}/artifacts/`
+}
+
+/**
+ * The channel's durable outputs — artifacts created by its tasks' runs or owned by the channel directly — most recently updated first.
+ * @summary List a channel's living artifacts
+ */
+export const tasksChannelsArtifactsList = async (
+    projectId: string,
+    channelId: string,
+    params?: TasksChannelsArtifactsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskRunLivingArtifactsResponseListApi> => {
+    return apiMutator<PaginatedTaskRunLivingArtifactsResponseListApi>(
+        getTasksChannelsArtifactsListUrl(projectId, channelId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTaskChannelsFeedListUrl = (
