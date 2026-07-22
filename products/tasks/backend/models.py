@@ -874,7 +874,17 @@ class TaskThreadMessage(TeamScopedRootMixin):
 
     class Meta:
         db_table = "posthog_task_thread_message"
-        indexes = [models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created")]
+        indexes = [
+            models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created"),
+            # Activity feed set C: messages a given user authored across a team's tasks.
+            models.Index(fields=["team", "author", "created_at"], name="task_thread_author_created_idx"),
+            # Activity feed awaiting-input signal: latest turn-complete row per task.
+            models.Index(
+                fields=["team", "task", "created_at"],
+                name="task_thread_turn_complete_idx",
+                condition=models.Q(event="turn_complete"),
+            ),
+        ]
 
     def __str__(self):
         return f"Thread message {self.id} on task {self.task_id}"

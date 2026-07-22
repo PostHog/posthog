@@ -27,6 +27,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelFeedMessageDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    TaskActivityDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
     TaskMentionDTO,
@@ -1461,6 +1462,51 @@ class TaskMentionSerializer(DataclassSerializer):
             "author",
             "content",
             "created_at",
+        ]
+
+
+class TaskActivityQuerySerializer(serializers.Serializer):
+    """Query parameters for the task-centric activity feed."""
+
+    since = serializers.DateTimeField(
+        required=False, help_text="Only return tasks whose latest activity is after this ISO 8601 timestamp."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of tasks to return (most recent activity first).",
+    )
+
+
+class TaskActivitySerializer(DataclassSerializer):
+    """Response shape for one task in the requester's activity feed (one row per task)."""
+
+    latest_author = TaskUserBasicInfoSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Author of the thread message tied to the latest activity, when one applies.",
+    )
+    activity_kind = serializers.CharField(
+        help_text='Winning signal for this row: "awaiting_input", "message", "mention", or "created".'
+    )
+    snippet = serializers.CharField(
+        help_text="Content of the thread message tied to the latest activity; empty for task-creation rows."
+    )
+
+    class Meta:
+        dataclass = TaskActivityDTO
+        fields = [
+            "task_id",
+            "task_title",
+            "channel_id",
+            "channel_name",
+            "activity_at",
+            "activity_kind",
+            "snippet",
+            "latest_author",
+            "latest_message_id",
         ]
 
 
