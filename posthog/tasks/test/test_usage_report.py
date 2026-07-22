@@ -4653,12 +4653,14 @@ class TestTaskSandboxUsageReport(APIBaseTest):
     PERIOD_START = datetime(2026, 1, 2, tzinfo=UTC)
     PERIOD_END = datetime(2026, 1, 3, tzinfo=UTC)
 
-    def _session(self, **overrides) -> None:
-        from products.tasks.backend.models import SandboxSession, Task, TaskRun
+    def _session(self, **overrides: Any) -> None:
+        # String-based model access (like ErrorTrackingIssue above): the tasks product
+        # only exposes its facade to static imports from the posthog module.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        SandboxSession = apps.get_model("tasks", "SandboxSession")
 
-        task = Task.objects.create(
-            team=self.team, title="t", description="", origin_product=Task.OriginProduct.USER_CREATED
-        )
+        task = Task.objects.create(team=self.team, title="t", description="", origin_product="user_created")
         run = TaskRun.objects.create(task=task, team=self.team)
         defaults: dict = {
             "team": self.team,

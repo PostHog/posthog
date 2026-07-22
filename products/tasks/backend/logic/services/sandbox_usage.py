@@ -99,7 +99,8 @@ def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
     run state).
     """
     now = timezone.now()
-    open_sessions = SandboxSession.objects.for_team(team_id).filter(task_run_id=run_id, ended_at__isnull=True)
+    run_uuid = run_id if isinstance(run_id, UUID) else UUID(run_id)
+    open_sessions = SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=True)
     open_sessions.update(last_user_activity_at=now)
     open_sessions.filter(user_attributed_at__isnull=True).update(user_attributed_at=now)
 
