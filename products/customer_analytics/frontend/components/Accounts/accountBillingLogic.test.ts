@@ -55,13 +55,20 @@ describe('accountBillingLogic', () => {
             logic.mount()
         }
 
-        it('loads every saved insight configured for the kind', async () => {
+        it('loads every saved insight configured for the kind, with product-attribution query tags', async () => {
             mountForKind()
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.savedInsights?.map((insight) => insight.short_id)).toEqual(
                 BILLING_INSIGHT_SHORT_IDS[kind]
             )
+            // Without these tags the ad-hoc SQL is untagged and local dev rejects it (UntaggedQueryError).
+            for (const insight of logic.values.savedInsights ?? []) {
+                expect((insight.query as Record<string, any>).source.tags).toEqual({
+                    productKey: 'customer_analytics',
+                    scene: 'CustomerAnalytics',
+                })
+            }
         })
 
         it('injects the external id into each saved insight variables', async () => {

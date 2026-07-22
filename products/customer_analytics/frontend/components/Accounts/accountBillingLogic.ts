@@ -18,7 +18,13 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { insightsApi } from 'scenes/insights/utils/api'
 
-import { DataVisualizationNode, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataVisualizationNode,
+    HogQLVariable,
+    NodeKind,
+    ProductKey,
+    QueryLogTags,
+} from '~/queries/schema/schema-general'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { Node } from '../../../../../frontend/src/queries/schema/schema-general'
@@ -36,6 +42,26 @@ export const BILLING_INSIGHT_SHORT_IDS: Record<AccountBillingKind, InsightShortI
 const ORG_VARIABLE = 'billing_org_id'
 const START_VARIABLE = 'billing_start_date'
 const END_VARIABLE = 'billing_end_date'
+
+// Attributes the saved insights' ad-hoc SQL to this product — an untagged ClickHouse query is
+// rejected in local dev (UntaggedQueryError), and the insight's SQL may reference no table the
+// backend could attribute it by.
+const BILLING_QUERY_TAGS: QueryLogTags = { productKey: ProductKey.CUSTOMER_ANALYTICS, scene: 'CustomerAnalytics' }
+
+function withBillingQueryTags(insight: QueryBasedInsightModel): QueryBasedInsightModel {
+    const query = insight.query
+    if (!query || query.kind !== NodeKind.DataVisualizationNode) {
+        return insight
+    }
+    const dataViz = query as DataVisualizationNode
+    return {
+        ...insight,
+        query: {
+            ...dataViz,
+            source: { ...dataViz.source, tags: { ...BILLING_QUERY_TAGS, ...dataViz.source.tags } },
+        },
+    }
+}
 
 export interface BillingDateRange {
     date_from: string | null
@@ -219,7 +245,9 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                         })
                     )
                     breakpoint()
-                    return insights.filter((insight): insight is QueryBasedInsightModel => insight !== null)
+                    return insights
+                        .filter((insight): insight is QueryBasedInsightModel => insight !== null)
+                        .map(withBillingQueryTags)
                 },
             },
         ],
