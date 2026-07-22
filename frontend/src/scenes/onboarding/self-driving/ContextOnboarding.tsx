@@ -23,7 +23,7 @@ import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
 // team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
 import { type ContextOnboardingStepId, onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
-import { useWizardCommand } from '../shared/SetupWizardBanner'
+import { useWizardCommand } from '../shared/useWizardCommand'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
 import { activeCloudRunLogic, type CloudRunHandle } from '../shared/wizard-sync/activeCloudRunLogic'
 import { installationProgressLogic } from '../shared/wizard-sync/installationProgressLogic'

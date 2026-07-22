@@ -45,10 +45,10 @@ from products.replay_vision.backend.proposers import get_proposer
 
 logger = structlog.get_logger(__name__)
 
-_SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_SUGGESTION_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 # The agentic path digs through sessions before rewriting, so give it the stronger model.
-_AGENT_MODEL = "gemini-3-flash-preview"
+_AGENT_MODEL = "gemini-3.6-flash"
 _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
 _MAX_DISMISSED_EXAMPLES = 3
