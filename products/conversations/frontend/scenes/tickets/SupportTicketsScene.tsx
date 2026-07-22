@@ -95,8 +95,17 @@ function SupportTicketsBulkActions(): JSX.Element {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
-    const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
+    const {
+        tickets,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+        sorting,
+        selectedTicketIds,
+        searchQuery,
+        hasActiveFilters,
+    } = useValues(logic)
+    const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
     const { currentTeam } = useValues(teamLogic)
@@ -168,10 +177,23 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         toggleRow,
     ])
 
+    const emptyState =
+        searchQuery && hasActiveFilters ? (
+            <div className="flex flex-col items-center gap-2 py-2">
+                <span>No tickets match your search with the current filters applied.</span>
+                <LemonButton type="secondary" size="small" onClick={() => clearFiltersKeepingSearch()}>
+                    Search again without filters
+                </LemonButton>
+            </div>
+        ) : (
+            'No tickets'
+        )
+
     return (
         <LemonTable<Ticket>
             dataSource={tickets}
             rowKey="id"
+            emptyState={emptyState}
             loading={ticketsLoading}
             // Keep rows clickable while a background refresh is in flight; the loading overlay
             // otherwise captures pointer events and blocks navigation on every reload.
