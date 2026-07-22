@@ -5,6 +5,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 
@@ -55,6 +57,7 @@ def query_workflow_flakiness(
     curated: CuratedGitHubSource,
     date_from: datetime,
     min_failed_duration_seconds: int = NO_OP_JOB_MAX_SECONDS,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[FlakyJobRun]:
     jobs_source = curated.jobs_source()
     if jobs_source is None:
@@ -64,6 +67,7 @@ def query_workflow_flakiness(
             "__RUNS_SOURCE__", curated.run_source(started_floor=True)
         ),
         query_type="engineering_analytics.workflow_flakiness",
+        workload=workload,
         placeholders={
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),

@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.logic.sources import (
 from products.signals.backend.facade.api import set_signal_source_types_enabled, signal_source_types_state
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 
 CI_SIGNAL_SOURCE_TYPES = (
     SOURCE_TYPE_FLAKY_CHECK,
@@ -71,7 +72,7 @@ def update_ci_signals_config(
     config = None
     if enabled:
         # list_github_sources yields one entry per (source, repo); dedupe so a multi-repo source
-        # snapshots once — duplicate ids would become duplicate sweep targets, each rescanning
+        # snapshots once; duplicate ids would become duplicate sweep targets, each rescanning
         # every repo and racing the emission ledger inside one batch.
         authorized = list(
             dict.fromkeys(
@@ -108,7 +109,7 @@ class AuthorizedCISignalSource:
 def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalSource]:
     """The sources the coordinator may scan: the enabled snapshot re-filtered through the enabling
     user's *current* access. Every edge fails closed (deleted/revoked source, missing snapshot,
-    deactivated authorizer) — never widens to all of the team's sources."""
+    deactivated authorizer) and never widens to all of the team's sources."""
     row = (
         SignalSourceConfig.objects.filter(
             team_id=team.id,
@@ -144,29 +145,39 @@ def _sync_status(team: Team, user_access_control: UserAccessControl | None) -> C
     }
     if not source_ids:
         return None
-    schemas = list(
+    # Schema names may be repo-qualified (`owner/repo.endpoint`), so resolve endpoints through the
+    # naming facade and aggregate per (source, repo); sources with no CI schemas syncing don't gate.
+    schemas = (
         ExternalDataSchema.objects.filter(
             team_id=team.id,
             source_id__in=source_ids,
-            name__in=CI_SIGNAL_REQUIRED_SCHEMAS,
             should_sync=True,
         )
         .exclude(source__deleted=True)
         .exclude(deleted=True)
-        .values_list("source_id", "name", "status")
+        .values_list("source_id", "name", "status", "sync_type_config")
     )
+    required = set(CI_SIGNAL_REQUIRED_SCHEMAS)
     failure_statuses = {
         ExternalDataSchema.Status.FAILED,
         ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
         ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
     }
-    completed_by_source: dict[UUID, set[str]] = {}
-    for source_id, name, status in schemas:
+    syncing_by_group: dict[tuple[UUID, str], set[str]] = {}
+    completed_by_group: dict[tuple[UUID, str], set[str]] = {}
+    for source_id, name, status, sync_type_config in schemas:
+        metadata = sync_type_config.get("schema_metadata") if isinstance(sync_type_config, dict) else None
+        repository, endpoint = github_schema_repo_endpoint(metadata, name, None)
+        if endpoint not in required:
+            continue
+        if status in failure_statuses:
+            return CISignalsSyncStatus.FAILED
+        group = (source_id, (repository or "").lower())
+        syncing_by_group.setdefault(group, set()).add(endpoint)
         if status == ExternalDataSchema.Status.COMPLETED:
-            completed_by_source.setdefault(source_id, set()).add(name)
-    required = set(CI_SIGNAL_REQUIRED_SCHEMAS)
-    if any(status in failure_statuses for _, _, status in schemas):
-        return CISignalsSyncStatus.FAILED
-    if all(completed_by_source.get(source_id, set()) >= required for source_id in source_ids):
+            completed_by_group.setdefault(group, set()).add(endpoint)
+    if not syncing_by_group:
+        return CISignalsSyncStatus.RUNNING
+    if all(completed_by_group.get(group, set()) >= required for group in syncing_by_group):
         return CISignalsSyncStatus.COMPLETED
     return CISignalsSyncStatus.RUNNING

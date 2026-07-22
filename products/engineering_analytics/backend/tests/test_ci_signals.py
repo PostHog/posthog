@@ -10,13 +10,17 @@ from unittest import mock
 
 import pandas as pd
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.engineering_analytics.backend.facade.contracts import CISignalsSyncStatus
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
+    CI_SIGNAL_REQUIRED_SCHEMAS,
     CI_SIGNAL_SOURCE_TYPES,
     DRY_RUN_CONFIG_KEY,
+    _sync_status,
     is_dry_run,
     list_authorized_ci_signal_sources,
     update_ci_signals_config,
@@ -280,7 +284,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
 
     def test_one_repos_total_failure_does_not_abort_sibling_repos(self) -> None:
         # detect_all raises when every detector fails for a repo; that must not discard a healthy
-        # sibling's findings — otherwise one repo's transient warehouse error blinds the whole source.
+        # sibling's findings; otherwise one repo's transient warehouse error blinds the whole source.
         source = self._two_synced_repo_source()
         uac = UserAccessControl(user=self.user, team=self.team)
 
@@ -302,7 +306,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
         assert {finding.source_id for finding in findings} == {"acme/two:ci:flaky"}
 
     def test_all_repos_failing_re_raises_so_the_activity_retries(self) -> None:
-        # But if every scanned repo fails, surface it — a swallowed all-fail would read as healthy CI.
+        # But if every scanned repo fails, surface it: a swallowed all-fail would read as healthy CI.
         source = self._two_synced_repo_source()
         uac = UserAccessControl(user=self.user, team=self.team)
         with mock.patch(f"{_DETECT}.detect_all", side_effect=RuntimeError("clickhouse down")):
@@ -349,7 +353,7 @@ class TestCISignalSourceAuthorization(BaseTest):
         self.user.is_active = True
         self.user.save()
 
-        # An authorizer removed from the organization no longer authorizes anything — at discovery
+        # An authorizer removed from the organization no longer authorizes anything, at discovery
         # and again at detection time (retries can run long after discovery).
         self.user.organization_memberships.all().delete()
         assert list_authorized_ci_signal_sources(team=self.team) == []
@@ -422,7 +426,7 @@ class TestCISignalEmissionLedger(BaseTest):
     def test_finding_of_a_disabled_source_type_is_not_emitted_or_recorded(self) -> None:
         # emit_signal silently drops a signal whose source_type is disabled (e.g. one type turned off
         # via the generic config endpoint). Recording it would suppress the finding forever, so the
-        # coordinator skips it and leaves the ledger clean — a later re-enable then emits it fresh.
+        # coordinator skips it and leaves the ledger clean; a later re-enable then emits it fresh.
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         target = CISignalTarget(team_id=self.team.id, source_id="gh-1", authorized_by_user_id=self.user.id)
@@ -445,6 +449,73 @@ class TestCISignalEmissionLedger(BaseTest):
         row.config = {**row.config, DRY_RUN_CONFIG_KEY: True}
         row.save(update_fields=["config"])
         assert is_dry_run(team=self.team) is True
+
+    def test_re_enable_preserves_operator_config_keys(self) -> None:
+        # A routine off/on toggle must not flip a shadow-mode team live by wiping dry_run.
+        create_github_source(self.team, prefix="one_", source_id="gh-dry")
+        update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)
+        for row in SignalSourceConfig.objects.filter(team=self.team, source_product=SOURCE_PRODUCT):
+            row.config = {**row.config, DRY_RUN_CONFIG_KEY: True}
+            row.save(update_fields=["config"])
+        update_ci_signals_config(team=self.team, enabled=False, created_by_id=self.user.id)
+        update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)
+        assert is_dry_run(team=self.team) is True
+        row = SignalSourceConfig.objects.get(
+            team=self.team, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK
+        )
+        # The authorization snapshot still refreshes alongside the preserved operator keys.
+        assert row.config[AUTHORIZED_SOURCES_CONFIG_KEY]
+
+
+class TestSyncStatus(BaseTest):
+    def _github_source_with_schemas(self, *, source_id: str, repo: str, statuses: dict[str, str]) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=source_id,
+            connection_id=source_id,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix=f"{source_id.replace('-', '')}_",
+            job_inputs={"repositories": [repo]},
+        )
+        for endpoint, status in statuses.items():
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name=f"{repo}.{endpoint}",
+                should_sync=True,
+                status=status,
+                sync_type_config={"schema_metadata": {"source_repository": repo, "source_endpoint": endpoint}},
+            )
+
+    @parameterized.expand(
+        [
+            ("all_completed", {}, CISignalsSyncStatus.COMPLETED),
+            ("one_failed", {"workflow_runs": ExternalDataSchema.Status.FAILED}, CISignalsSyncStatus.FAILED),
+            ("one_running", {"workflow_jobs": ExternalDataSchema.Status.RUNNING}, CISignalsSyncStatus.RUNNING),
+        ]
+    )
+    def test_sync_status_resolves_repo_qualified_schema_names(
+        self, _name: str, overrides: dict[str, str], expected: CISignalsSyncStatus
+    ) -> None:
+        # Multi-repo sources qualify schema names; a bare-name match would pin the status at
+        # RUNNING forever and never surface FAILED.
+        statuses = dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchema.Status.COMPLETED)
+        statuses.update(overrides)
+        self._github_source_with_schemas(source_id="gh-sync", repo="acme/one", statuses=statuses)
+        assert _sync_status(self.team, None) == expected
+
+    def test_source_without_ci_schemas_does_not_gate_completion(self) -> None:
+        self._github_source_with_schemas(
+            source_id="gh-ci",
+            repo="acme/one",
+            statuses=dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchema.Status.COMPLETED),
+        )
+        # An issues-only GitHub source (no CI tables syncing) must not pin the status at RUNNING.
+        self._github_source_with_schemas(
+            source_id="gh-issues", repo="acme/two", statuses={"issues": ExternalDataSchema.Status.RUNNING}
+        )
+        assert _sync_status(self.team, None) == CISignalsSyncStatus.COMPLETED
 
 
 class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
@@ -545,7 +616,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
 
     def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun(self) -> None:
         # The sweep re-reads a rolling window hourly. Keying a recurring flake per rerun turned 51
-        # flaky jobs into 905 signals against real PostHog/posthog data — one card per occurrence.
+        # flaky jobs into 905 signals against real PostHog/posthog data: one card per occurrence.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
             _run_row(run_id, "CI", f"sha{run_id}", "success", now - timedelta(hours=run_id), 60, run_attempt=2)
@@ -678,7 +749,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _run_row(2, "slow-ci", "c2", "success", current - timedelta(hours=1), 120),
             _run_row(3, "slow-ci", "b1", "success", baseline, 10),
             _run_row(4, "slow-ci", "b2", "success", baseline - timedelta(hours=1), 10),
-            # steady-ci: 100s → 104s (+4% / +4s) — fails the absolute-jump guard → no signal.
+            # steady-ci: 100s → 104s (+4% / +4s) fails the absolute-jump guard → no signal.
             _run_row(5, "steady-ci", "c3", "success", current, 104),
             _run_row(6, "steady-ci", "c4", "success", current - timedelta(hours=1), 104),
             _run_row(7, "steady-ci", "b3", "success", baseline, 100),

@@ -4,6 +4,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 
@@ -21,7 +23,9 @@ _SELECT = f"""
 """
 
 
-def query_default_branches(*, curated: CuratedGitHubSource, date_from: datetime) -> dict[tuple[str, str], str]:
+def query_default_branches(
+    *, curated: CuratedGitHubSource, date_from: datetime, workload: Workload = Workload.DEFAULT
+) -> dict[tuple[str, str], str]:
     response = curated.run(
         # started_floor lets the scan prune on the raw-string floor; the parsed run_started_at
         # filter alone can't push down, so without it this full-scans the runs table each sweep.
@@ -31,5 +35,6 @@ def query_default_branches(*, curated: CuratedGitHubSource, date_from: datetime)
             "date_from": ast.Constant(value=date_from),
             "run_started_floor": run_started_floor_constant(date_from),
         },
+        workload=workload,
     )
     return {(owner, repo): branch for owner, repo, branch in response.results or [] if branch}

@@ -11,6 +11,8 @@ from urllib.parse import quote
 
 import structlog
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.default_branches import query_default_branches
@@ -36,7 +38,7 @@ from products.signals.backend.enums import ReportPriority
 logger = structlog.get_logger(__name__)
 
 # Meets WEIGHT_THRESHOLD alone, as github/linear/zendesk do per issue: one condition warrants a
-# report. A sub-1.0 weight waits for corroboration that never comes — each condition emits once.
+# report. A sub-1.0 weight waits for corroboration that never comes; each condition emits once.
 SIGNAL_WEIGHT = 1.0
 
 # Flaky: failed then passed on a later attempt of the same run, on >= min runs in the window.
@@ -94,7 +96,7 @@ def detect_flaky_checks(
 ) -> list[CISignalFinding]:
     now = datetime.now(UTC)
     date_from = now - timedelta(days=window_days)
-    observations = query_workflow_flakiness(curated=curated, date_from=date_from)
+    observations = query_workflow_flakiness(curated=curated, date_from=date_from, workload=Workload.OFFLINE)
     by_job: dict[tuple[str, str, str, str], list[FlakyJobRun]] = defaultdict(list)
     for row in observations:
         by_job[_job_key(row)].append(row)
@@ -158,11 +160,16 @@ def detect_broken_default_branch(
 ) -> list[CISignalFinding]:
     now = datetime.now(UTC)
     date_from = now - timedelta(hours=window_hours)
-    default_branches = query_default_branches(curated=curated, date_from=date_from)
+    default_branches = query_default_branches(curated=curated, date_from=date_from, workload=Workload.OFFLINE)
     findings: list[CISignalFinding] = []
     for branch in sorted(set(default_branches.values())):
         for item in query_workflow_health(
-            curated=curated, date_from=date_from, date_to=now, branch=branch, run_scope=WorkflowHealthRunScope.ALL
+            curated=curated,
+            date_from=date_from,
+            date_to=now,
+            branch=branch,
+            run_scope=WorkflowHealthRunScope.ALL,
+            workload=Workload.OFFLINE,
         ):
             # Keep only repos whose default branch this actually is.
             if default_branches.get((item.repo.owner, item.repo.name)) != branch:
@@ -229,7 +236,12 @@ def detect_ci_duration_regressions(
     current = {
         (i.repo.owner, i.repo.name, i.workflow_name): i
         for i in query_workflow_health(
-            curated=curated, date_from=now - window, date_to=now, branch=None, run_scope=WorkflowHealthRunScope.ALL
+            curated=curated,
+            date_from=now - window,
+            date_to=now,
+            branch=None,
+            run_scope=WorkflowHealthRunScope.ALL,
+            workload=Workload.OFFLINE,
         )
     }
     baseline = {
@@ -240,12 +252,13 @@ def detect_ci_duration_regressions(
             date_to=now - window,
             branch=None,
             run_scope=WorkflowHealthRunScope.ALL,
+            workload=Workload.OFFLINE,
         )
     }
     findings: list[CISignalFinding] = []
     for key, cur in current.items():
         base = baseline.get(key)
-        # Gate on the population p95 is actually computed over — real (non-no-op) successful runs.
+        # Gate on the population p95 is actually computed over: real (non-no-op) successful runs.
         # successful_run_count counts no-op gate successes too, so gating on it would let a window of
         # mostly no-ops with a handful of real runs pass min_runs while the p95 is a 3-sample figure a
         # single slow run swings past the threshold, firing a false regression.

@@ -162,6 +162,7 @@ export function AgentsRoster(): JSX.Element {
         pgAnalyzeIssuesConfig,
         healthChecksConfig,
         ciSignalsConfig,
+        ciSignalsConfigLoading,
         ciSignalsIsFullyEnabled,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
@@ -251,7 +252,8 @@ export function AgentsRoster(): JSX.Element {
                 case 'engineering_analytics':
                     return {
                         armed: ciSignalsIsFullyEnabled,
-                        loading: isCiSignalsToggling,
+                        // Config load counts as loading: rendering Connect before it resolves misleads.
+                        loading: isCiSignalsToggling || ciSignalsConfigLoading,
                         requiresSetup: !(ciSignalsConfig?.configured ?? false),
                         syncStatus: ciSignalsConfig?.sync_status,
                     }
@@ -279,6 +281,7 @@ export function AgentsRoster(): JSX.Element {
             pgAnalyzeIssuesConfig,
             isPgAnalyzeIssuesToggling,
             ciSignalsConfig,
+            ciSignalsConfigLoading,
             ciSignalsIsFullyEnabled,
             isCiSignalsToggling,
         ]

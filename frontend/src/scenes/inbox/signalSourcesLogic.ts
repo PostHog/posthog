@@ -657,12 +657,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
 
     listeners(({ actions, values }) => {
         // If the required table for a signal source is not yet syncing on the existing DW source,
-        // enable it so the signals workflow has data to process.
+        // enable it. Multi-repo sources qualify schema names (`owner/repo.endpoint`): match by suffix.
         async function ensureRequiredTableSyncing(dwSourceType: string, tableName: string): Promise<void> {
+            const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
+                schema.name === tableName || schema.name.endsWith(`.${tableName}`)
             const schemas = values.dataWarehouseSources?.results
                 ?.filter((source: ExternalDataSource) => source.source_type === dwSourceType)
                 .flatMap((source: ExternalDataSource) => source.schemas ?? [])
-                .filter((schema: ExternalDataSourceSchema) => schema.name === tableName && !schema.should_sync)
+                .filter((schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync)
             await Promise.all(
                 (schemas ?? []).map((schema: ExternalDataSourceSchema) =>
                     api.externalDataSchemas.update(schema.id, { should_sync: true })
@@ -672,8 +674,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
 
         return {
             loadCiSignalsConfigFailure: ({ error, errorObject }) => {
-                // A silent failure leaves the card claiming setup is required for a source that may
-                // already be enabled, so surface it instead of rendering a misleading 'Connect' prompt.
+                // Silent failure would leave the card claiming setup is required for an armed source.
                 lemonToast.error(errorObject?.detail || error || 'Failed to load CI signals status')
             },
             openSourcesModal: () => {

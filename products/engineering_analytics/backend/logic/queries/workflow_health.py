@@ -20,6 +20,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     TimeToGreenBucket,
@@ -159,6 +161,7 @@ def query_workflow_health(
     date_to: datetime | None,
     branch: str | None,
     run_scope: WorkflowHealthRunScope,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[WorkflowHealthItem]:
     granularity = pick_granularity(date_from, date_to)
     placeholders: dict[str, ast.Expr] = {
@@ -184,6 +187,7 @@ def query_workflow_health(
         fill(_SELECT),
         query_type="engineering_analytics.workflow_health",
         placeholders=placeholders,
+        workload=workload,
     )
     if not response.results:
         return []
@@ -192,6 +196,7 @@ def query_workflow_health(
         fill(_BUCKET_SELECT),
         query_type="engineering_analytics.workflow_health_buckets",
         placeholders=placeholders,
+        workload=workload,
     )
 
     end = date_to or datetime.now(tz=date_from.tzinfo)
@@ -206,6 +211,7 @@ def query_workflow_health(
             "prev_from": ast.Constant(value=prev_from),
             "run_started_floor": run_started_floor_constant(prev_from),
         },
+        workload=workload,
     )
     prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
         (repo_owner, repo_name, workflow_name): opt_float(success_rate)
@@ -221,7 +227,7 @@ def query_workflow_health(
         )
 
     cost_by_workflow = query_workflow_window_costs(
-        curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope
+        curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope, workload=workload
     )
     window = window_buckets(date_from, date_to, granularity)
     return [
