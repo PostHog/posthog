@@ -90,6 +90,8 @@ describe('EmailService', () => {
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesConfigurationSet: hub.SES_CONFIGURATION_SET,
+                sesConfigurationSetUntracked: hub.SES_CONFIGURATION_SET_UNTRACKED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -106,7 +108,14 @@ describe('EmailService', () => {
     describe('when SES is not configured', () => {
         it('should not crash on construction and should fail explicitly on send', async () => {
             const serviceWithoutSES = new EmailService(
-                { sesAccessKeyId: '', sesSecretAccessKey: '', sesRegion: '', sesEndpoint: '' },
+                {
+                    sesAccessKeyId: '',
+                    sesSecretAccessKey: '',
+                    sesRegion: '',
+                    sesEndpoint: '',
+                    sesConfigurationSet: 'posthog-messaging',
+                    sesConfigurationSetUntracked: '',
+                },
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
@@ -450,6 +459,40 @@ describe('EmailService', () => {
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })
+        })
+
+        it('skips our tracking pixel + link rewriting and uses the untracked config set when the step disables tracking', async () => {
+            const untrackedService = new EmailService(
+                {
+                    sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                    sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                    sesRegion: hub.SES_REGION,
+                    sesEndpoint: hub.SES_ENDPOINT,
+                    sesConfigurationSet: 'posthog-messaging',
+                    sesConfigurationSetUntracked: 'posthog-messaging-untracked',
+                },
+                hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres),
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            )
+            const untrackedSendSpy = jest
+                .spyOn(untrackedService.sesV2Client!, 'send')
+                .mockResolvedValue({ MessageId: 'test-message-id' } as never)
+
+            const html = '<body>Hi <a href="https://example.com">Click me</a></body>'
+            invocation.hogFunction.metadata = { disable_tracking: true }
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html })
+
+            const result = await untrackedService.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const sentInput = (untrackedSendSpy.mock.calls[0][0] as { input: any }).input
+            expect(sentInput.ConfigurationSetName).toBe('posthog-messaging-untracked')
+            // No pixel appended, href left untouched — the HTML is sent verbatim.
+            expect(sentInput.Content.Simple.Body.Html.Data).toBe(html)
         })
 
         it('records a send-time metric for normal sends but not for test sends', async () => {

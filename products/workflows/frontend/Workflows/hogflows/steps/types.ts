@@ -280,6 +280,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            // When true, skip open/click tracking for this email step (no pixel, no link rewriting,
+            // untracked SES config set). Absent or false keeps tracking on.
+            disable_tracking: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),

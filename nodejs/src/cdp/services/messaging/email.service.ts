@@ -12,6 +12,7 @@ import {
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { logger } from '~/common/utils/logger'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
@@ -80,6 +81,10 @@ export interface EmailServiceConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
+    // Default configuration set (open/click tracking on) and the untracked one used when a send opts
+    // out of tracking. See config.ts for the semantics of an empty untracked set.
+    sesConfigurationSet: string
+    sesConfigurationSetUntracked: string
 }
 
 /**
@@ -330,6 +335,29 @@ export class EmailService {
         return `Skipping send: recipient(s) on the suppression list — ${suppressed.join(', ')}`
     }
 
+    // A send opts out of open/click tracking when its email step sets `disable_tracking`. When opted
+    // out we skip our tracking pixel + link rewriting and route through the untracked SES config set,
+    // so recipients under consent-before-tracking rules (e.g. France's CNIL, Italy) aren't tracked.
+    private isTrackingDisabled(invocation: CyclotronJobInvocationHogFunction): boolean {
+        return invocation.hogFunction?.metadata?.disable_tracking === true
+    }
+
+    // Pick the SES configuration set for a send. Tracked sends use the default set; opted-out sends
+    // use the untracked set when provisioned. If it isn't provisioned yet we fall back to the default
+    // set (our own pixel/links are already skipped) and warn, since SES keeps tracking at the ESP layer.
+    private resolveConfigurationSetName(trackingDisabled: boolean): string {
+        if (!trackingDisabled) {
+            return this.sesConfig.sesConfigurationSet
+        }
+        if (this.sesConfig.sesConfigurationSetUntracked) {
+            return this.sesConfig.sesConfigurationSetUntracked
+        }
+        logger.warn(
+            '[EmailService] Email step opted out of tracking but SES_CONFIGURATION_SET_UNTRACKED is not configured; SES will keep tracking opens/clicks via the default configuration set'
+        )
+        return this.sesConfig.sesConfigurationSet
+    }
+
     private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
@@ -356,7 +384,11 @@ export class EmailService {
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
             ...(params.html
-                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest) }
+                ? {
+                      html: this.isTrackingDisabled(result.invocation)
+                          ? params.html
+                          : addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
+                  }
                 : {}),
         }
 
@@ -395,11 +427,14 @@ export class EmailService {
         const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
+        const trackingDisabled = this.isTrackingDisabled(result.invocation)
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
+                          trackingDisabled
+                              ? params.html
+                              : addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
                           params.preheader
                       ),
                       Charset: 'UTF-8',
@@ -427,7 +462,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: 'posthog-messaging',
+            ConfigurationSetName: this.resolveConfigurationSetName(trackingDisabled),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],

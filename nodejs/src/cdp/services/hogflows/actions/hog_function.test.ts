@@ -57,6 +57,8 @@ describe('HogFunctionHandler', () => {
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesConfigurationSet: hub.SES_CONFIGURATION_SET,
+                sesConfigurationSetUntracked: hub.SES_CONFIGURATION_SET_UNTRACKED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),

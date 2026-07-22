@@ -134,6 +134,14 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
+    // Default SES configuration set. Has open/click tracking enabled at the ESP layer.
+    SES_CONFIGURATION_SET: string
+    // SES configuration set for sends that opt out of open/click tracking. Must share the same SNS
+    // event destination so Send/Delivery/Bounce/Complaint events still flow (suppression + metrics
+    // depend on them), but with open/click tracking disabled. Empty string means it isn't provisioned
+    // yet — opted-out sends then fall back to SES_CONFIGURATION_SET (our own pixel/links are still
+    // skipped, but SES keeps tracking) and a warning is logged.
+    SES_CONFIGURATION_SET_UNTRACKED: string
 
     // Two independent kill switches for the email suppression list, both OFF by default so the
     // feature ships dark. WRITE controls whether the SES webhook populates the list; ENFORCE
@@ -302,6 +310,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        SES_CONFIGURATION_SET: 'posthog-messaging',
+        SES_CONFIGURATION_SET_UNTRACKED: '',
         EMAIL_SUPPRESSION_WRITE_ENABLED: false,
         EMAIL_SUPPRESSION_ENFORCE_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,

@@ -11,6 +11,7 @@ import {
     LemonInput,
     LemonLabel,
     LemonSelect,
+    LemonSwitch,
 } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -26,7 +27,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
+import { isEmailAction, isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
 import type { HogFlowAction } from '../types'
 import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
@@ -157,6 +158,30 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 />
                             </div>
                         </LemonLabel>
+                    </div>
+                </>
+            )}
+
+            {isEmailAction(action) && (
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="flex flex-col gap-1 px-2 py-1">
+                        <LemonSwitch
+                            checked={!action.config.disable_tracking}
+                            onChange={(checked) => {
+                                setWorkflowAction(action.id, {
+                                    ...action,
+                                    config: { ...action.config, disable_tracking: !checked },
+                                })
+                            }}
+                            label="Track opens and link clicks"
+                            bordered
+                            fullWidth
+                        />
+                        <span className="text-xs text-secondary">
+                            Turn off to send without a tracking pixel or rewritten links, for recipients who haven't
+                            consented to tracking. Delivery and bounce handling still work.
+                        </span>
                     </div>
                 </>
             )}

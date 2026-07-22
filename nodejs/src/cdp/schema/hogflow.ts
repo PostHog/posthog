@@ -175,6 +175,11 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            // When true, skip open/click tracking for this email step: no tracking pixel, no link
+            // rewriting, and the send routes through the untracked SES configuration set. Absent or
+            // false keeps the current tracking behavior. Lets senders comply with consent-before-tracking
+            // rules (e.g. France's CNIL, Italy) without turning off delivery/bounce handling.
+            disable_tracking: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),

@@ -328,6 +328,7 @@ export interface workflowMetricsSummaryLogicValues {
     convertedUsersUrl: string
     emailActions: ({
         config: {
+            disable_tracking?: boolean | undefined
             inputs: Record<
                 string,
                 {
@@ -535,6 +536,7 @@ export interface workflowMetricsSummaryLogicMeta {
         loading: (appMetricsTrendsLoading: boolean, completedLoading: boolean) => boolean
         emailActions: (workflow: HogFlow) => ({
             config: {
+                disable_tracking?: boolean | undefined
                 inputs: Record<
                     string,
                     {
@@ -647,7 +649,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            }, // appMetricsLogic
+            },
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -657,7 +659,7 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            ) => AppMetricsTimeSeriesResponse | null,
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
@@ -667,6 +669,7 @@ export interface workflowMetricsSummaryLogicMeta {
         emailMetricsRows: (
             emailActions: ({
                 config: {
+                    disable_tracking?: boolean | undefined
                     inputs: Record<
                         string,
                         {

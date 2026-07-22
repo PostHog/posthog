@@ -146,6 +146,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
+        | 'SES_CONFIGURATION_SET'
+        | 'SES_CONFIGURATION_SET_UNTRACKED'
         | 'EMAIL_SUPPRESSION_WRITE_ENABLED'
         | 'EMAIL_SUPPRESSION_ENFORCE_ENABLED'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
@@ -411,6 +413,8 @@ export function createCdpCoreServices(
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
             sesEndpoint: config.SES_ENDPOINT,
+            sesConfigurationSet: config.SES_CONFIGURATION_SET,
+            sesConfigurationSetUntracked: config.SES_CONFIGURATION_SET_UNTRACKED,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
