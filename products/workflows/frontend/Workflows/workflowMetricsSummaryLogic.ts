@@ -46,6 +46,7 @@ export type EmailMetric =
     | 'email_bounce_prevented'
     | 'email_blocked'
     | 'email_spam'
+    | 'email_suspended'
 
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
 
@@ -99,6 +100,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Bounce prevented': getColorVar('data-color-7'),
     Blocked: getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
+    Suspended: getColorVar('data-color-10'),
     Skipped: getColorVar('data-color-2'),
     // Workflow run + batch-job metrics
     Success: getColorVar('success'),
@@ -211,6 +213,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: METRIC_COLORS['Marked as spam'],
         metricNames: ['email_spam'],
     },
+    email_suspended: {
+        name: 'Suspended',
+        description:
+            'Total number of emails that were not sent because email sending is suspended for this project. Check the Reputation tab for details.',
+        color: METRIC_COLORS['Suspended'],
+        metricNames: ['email_suspended'],
+    },
 }
 
 // Push has no delivery-receipt channel like email's SES webhook (FCM/APNs respond synchronously), so
@@ -256,6 +265,8 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
+    // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
+    email_suspended: { search: 'Skipping send', levels: ['WARN'] },
 }
 
 // Build the router search params that point the Invocations tab at the runs behind the given email
@@ -293,6 +304,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_bounce_prevented',
     'email_blocked',
     'email_spam',
+    'email_suspended',
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed']

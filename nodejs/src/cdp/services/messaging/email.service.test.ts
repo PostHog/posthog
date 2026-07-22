@@ -492,6 +492,43 @@ describe('EmailService', () => {
             })
         })
 
+        describe('team suspension enforcement at send time', () => {
+            // Guards the reputation kill switch: while a team is suspended, no send path may
+            // reach SES — including editor test sends, which count against the tenant too.
+            it('does not call SES while the team is suspended and records email_suspended', async () => {
+                jest.spyOn(service['teamWorkflowsConfigService'], 'isEmailSendingSuspended').mockResolvedValue(true)
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_suspended'])
+                expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+            })
+
+            it('blocks editor test sends while suspended without recording metrics', async () => {
+                jest.spyOn(service['teamWorkflowsConfigService'], 'isEmailSendingSuspended').mockResolvedValue(true)
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics).toEqual([])
+            })
+
+            it('fails open when the suspension lookup errors', async () => {
+                // The config lookup rejecting must never block a legitimate send. Rejects once:
+                // the suspension check is the first config read; later reads use the real loader.
+                jest.spyOn(service['teamWorkflowsConfigService'], 'get').mockRejectedValueOnce(new Error('pg down'))
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+            })
+        })
+
         it('should include cc addresses in SES destination', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
