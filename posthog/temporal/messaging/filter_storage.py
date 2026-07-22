@@ -21,6 +21,8 @@ import structlog
 from posthog.redis import get_client
 from posthog.temporal.messaging.types import BehavioralEventFilter, PersonPropertyFilter
 
+from products.cohorts.backend.models.cohort import Cohort
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, Operation
 
 KEY_PREFIX = "backfill_person_properties_filters:"
@@ -61,6 +63,44 @@ def combine_filter_bytecodes(filters: list[PersonPropertyFilter]) -> list[Any]:
     combined.append(valid_count)
 
     return combined
+
+
+def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter]:
+    """Extract person-property filters (conditionHash, bytecode, key) from a realtime cohort.
+
+    Recursively traverses the AND/OR filter tree, collecting person leaves that carry a
+    conditionHash, bytecode, and key. Leaves missing any of those can't be evaluated later,
+    so they're skipped rather than raised on. Shared by the person-properties backfill command
+    and the reconciliation workflow so person-filter encoding changes land in one place.
+    """
+    filters: list[PersonPropertyFilter] = []
+    properties = (cohort.filters or {}).get("properties")
+    if not properties:
+        return filters
+
+    def traverse(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        node_type = node.get("type")
+        if node_type in ("AND", "OR"):
+            for child in node.get("values", []):
+                traverse(child)
+            return
+        if node_type != "person":
+            return
+        condition_hash = node.get("conditionHash")
+        bytecode = node.get("bytecode")
+        property_key = node.get("key")
+        if not condition_hash or not bytecode or not property_key:
+            return
+        filters.append(
+            PersonPropertyFilter(
+                condition_hash=condition_hash, bytecode=bytecode, cohort_ids=[], property_key=property_key
+            )
+        )
+
+    traverse(properties)
+    return filters
 
 
 def store_filters(filters: list[PersonPropertyFilter], team_id: int, ttl: int = DEFAULT_TTL) -> str:

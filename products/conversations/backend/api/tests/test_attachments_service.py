@@ -32,6 +32,32 @@ class TestAttachmentsService(SimpleTestCase):
         assert "image" in node_types
         assert "paragraph" in node_types
 
+    def test_build_content_seeds_text_when_no_rich_content(self) -> None:
+        # Guards the Zendesk-import regression: a comment with an image passes rich_content=None,
+        # and the body text must be seeded as a paragraph node or it's dropped from the UI.
+        images = [{"url": "https://app.posthog.com/uploaded_media/img", "name": "shot.png"}]
+        _content, rich_content = build_content_with_images("please see the screenshot", None, images, [])
+
+        assert rich_content is not None
+        text = "".join(
+            c.get("text", "") for n in rich_content["content"] if n["type"] == "paragraph" for c in n.get("content", [])
+        )
+        assert "please see the screenshot" in text
+
+    def test_build_content_seeds_multiline_text_as_separate_paragraphs(self) -> None:
+        # A single text node collapses newlines to spaces in the renderer, so a multi-line
+        # body must become one paragraph per line.
+        images = [{"url": "https://app.posthog.com/uploaded_media/img", "name": "shot.png"}]
+        _content, rich_content = build_content_with_images("first line\n\nsecond line", None, images, [])
+
+        assert rich_content is not None
+        paragraphs = [
+            "".join(c.get("text", "") for c in n.get("content", []))
+            for n in rich_content["content"]
+            if n["type"] == "paragraph"
+        ]
+        assert paragraphs == ["first line", "second line"]
+
     def test_build_content_no_attachments_returns_unchanged(self) -> None:
         content, rich_content = build_content_with_images("just text", None, [], [])
         assert content == "just text"

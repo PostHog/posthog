@@ -3,12 +3,19 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { truncate } from 'lib/utils/strings'
 
+import {
+    AlertEvaluationHistoryChart,
+    AlertEvaluationHistoryPoint,
+    AlertEvaluationThreshold,
+} from 'products/alerts/frontend/components/AlertEvaluationHistoryChart'
 import {
     LogsAlertConfigurationApi,
     LogsAlertEventApi,
     LogsAlertEventKindEnumApi,
+    LogsAlertThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertEventHistoryLogicProps, logsAlertEventHistoryLogic } from './logsAlertEventHistoryLogic'
@@ -23,9 +30,9 @@ export function LogsAlertEventHistoryModal({ alert, onClose }: LogsAlertEventHis
         <LemonModal
             isOpen={alert !== null}
             onClose={onClose}
-            width={640}
+            width={960}
             title={alert ? `Alert history · ${alert.name}` : 'Alert history'}
-            description="Transitions, errors, and user actions."
+            description="Evaluations, transitions, errors, and user actions."
         >
             {alert ? <LogsAlertEventHistoryContent alert={alert} /> : null}
         </LemonModal>
@@ -37,14 +44,34 @@ export function LogsAlertEventHistoryContent({ alert }: { alert: LogsAlertConfig
 
     return (
         <BindLogic logic={logsAlertEventHistoryLogic} props={logicProps}>
-            <LogsAlertEventTimeline />
+            <LogsAlertEventTimeline alert={alert} />
         </BindLogic>
     )
 }
 
-function LogsAlertEventTimeline(): JSX.Element {
+function getHistoryThresholds(alert: LogsAlertConfigurationApi): AlertEvaluationThreshold[] {
+    const thresholdValue = alert.threshold_count ?? 100
+    if (alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below) {
+        return [{ direction: 'lower', value: thresholdValue, label: `Below (${thresholdValue})` }]
+    }
+    return [{ direction: 'upper', value: thresholdValue, label: `Above (${thresholdValue})` }]
+}
+
+function getHistoryPoints(events: LogsAlertEventApi[]): AlertEvaluationHistoryPoint[] {
+    return events
+        .filter((event) => event.kind === LogsAlertEventKindEnumApi.Check && event.result_count !== null)
+        .sort((left, right) => left.created_at.localeCompare(right.created_at))
+        .map((event) => ({
+            label: dayjs(event.created_at).format('MMM D, HH:mm'),
+            value: event.result_count ?? 0,
+            firedAtTime: event.state_after === 'firing',
+        }))
+}
+
+function LogsAlertEventTimeline({ alert }: { alert: LogsAlertConfigurationApi }): JSX.Element {
     const { eventsPage, eventsPageLoading } = useValues(logsAlertEventHistoryLogic)
     const { loadMore } = useActions(logsAlertEventHistoryLogic)
+    const historyPoints = getHistoryPoints(eventsPage.results)
 
     const columns: LemonTableColumns<LogsAlertEventApi> = [
         {
@@ -74,13 +101,22 @@ function LogsAlertEventTimeline(): JSX.Element {
             : ''
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-4">
+            {historyPoints.length > 0 ? (
+                <AlertEvaluationHistoryChart
+                    points={historyPoints}
+                    valueLabel="Matching logs"
+                    thresholds={getHistoryThresholds(alert)}
+                    historyLimit={Math.max(historyPoints.length, 1)}
+                    evaluationNoun="evaluation"
+                />
+            ) : null}
             <LemonTable
                 columns={columns}
                 dataSource={eventsPage.results}
                 rowKey="id"
                 loading={eventsPageLoading}
-                emptyState="No events yet. Transitions and user actions will appear here."
+                emptyState="No events yet. Evaluations, transitions, and user actions will appear here."
                 size="small"
                 expandable={{
                     rowExpandable: () => true,
@@ -121,20 +157,11 @@ function describeEvent(event: LogsAlertEventApi): EventDescription {
     if (event.kind !== LogsAlertEventKindEnumApi.Check) {
         return { ...CONTROL_PLANE_DESCRIPTIONS[event.kind], detail: formatTransition(event) }
     }
-
     if (event.error_message && event.state_after === 'broken') {
-        return {
-            label: 'Auto-disabled',
-            type: 'caution',
-            detail: '5 consecutive errors',
-        }
+        return { label: 'Auto-disabled', type: 'caution', detail: '5 consecutive errors' }
     }
     if (event.error_message) {
-        return {
-            label: 'Errored',
-            type: 'warning',
-            detail: truncate(event.error_message, 80),
-        }
+        return { label: 'Errored', type: 'warning', detail: truncate(event.error_message, 80) }
     }
     if (event.state_before !== 'firing' && event.state_after === 'firing') {
         return {

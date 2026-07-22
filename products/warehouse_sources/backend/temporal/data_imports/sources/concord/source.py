@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConcordSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
+    ConcordSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -122,6 +124,7 @@ Leave **Organization ID** blank to use the first organization your API key can a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CONCORD_ENDPOINTS[endpoint]
@@ -141,7 +144,11 @@ Leave **Organization ID** blank to use the first organization your API key can a
         return schemas
 
     def validate_credentials(
-        self, config: ConcordSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConcordSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_concord_credentials(config.api_key, config.environment):
             return True, None

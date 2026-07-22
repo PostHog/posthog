@@ -68,6 +68,7 @@ from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from .global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
@@ -175,6 +176,7 @@ __all__ = [
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
     "EventIngestionRestrictionConfig",
+    "GlobalRateLimitThresholdConfig",
     "UploadedMedia",
     "User",
     "RepoRoutingRule",

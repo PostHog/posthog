@@ -7,6 +7,7 @@ import {
     IconClock,
     IconCompass,
     IconDatabase,
+    IconEye,
     IconGithub,
     IconGraph,
     IconList,
@@ -79,12 +80,13 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'session_replay', label: 'Session replay', icon: <IconRewindPlay /> },
+    { value: 'replay_vision', label: 'Replay vision', icon: <IconEye /> },
     { value: 'error_tracking', label: 'Error tracking', icon: <IconBug /> },
     { value: 'llm_analytics', label: 'AI observability', icon: <IconBrain /> },
     { value: 'github', label: 'GitHub', icon: <IconGithub /> },
     { value: 'linear', label: 'Linear', icon: <IconStack /> },
     { value: 'zendesk', label: 'Zendesk', icon: <IconReceipt /> },
-    { value: 'conversations', label: 'Conversations', icon: <IconSupport /> },
+    { value: 'conversations', label: 'Support', icon: <IconSupport /> },
     { value: 'pganalyze', label: 'pganalyze', icon: <IconDatabase /> },
     { value: 'analytics', label: 'Product analytics', icon: <IconGraph /> },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },

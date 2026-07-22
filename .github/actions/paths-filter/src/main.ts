@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import {GetResponseDataTypeFromEndpointMethod} from '@octokit/types'
-import {MergeGroupEvent, PullRequest, PushEvent} from '@octokit/webhooks-types'
+import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
 import {Filter, FilterResults} from './filter'
 import {File, ChangeStatus} from './file'
@@ -96,18 +96,6 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       const defaultBranch = github.context.payload.repository?.default_branch
       const currentRef = await git.getCurrentRef()
       return await git.getChanges(base || baseSha || defaultBranch, currentRef)
-    }
-    // To keep backward compatibility, manual inputs take precedence over
-    // commits in GitHub merge queue event.
-    case 'merge_group': {
-      const mergeGroup = github.context.payload as MergeGroupEvent
-      if (!base) {
-        base = mergeGroup.merge_group.base_sha
-      }
-      if (!ref) {
-        ref = mergeGroup.merge_group.head_sha
-      }
-      break
     }
   }
 
