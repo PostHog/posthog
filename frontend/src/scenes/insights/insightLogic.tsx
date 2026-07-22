@@ -765,6 +765,19 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     props.dashboardId &&
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
+                    // A dashboard-scoped refresh (`sourceDashboardId` set) bakes that dashboard's filter
+                    // overrides — e.g. its date range — into the returned `query`/`result`. This logic
+                    // instance is keyed `${shortId}/on-dashboard-${dashboardId}`, so the dashboard tile and
+                    // the open insight editor share it; letting the overridden query in would silently revert
+                    // a date range the user is editing when they save. The insight's canonical query must never
+                    // become a dashboard-filtered view — the tile card renders from dashboardLogic's own tile
+                    // state, not from here, so dropping these keeps rendering unaffected while protecting edits.
+                    // A save or undo arrives with `sourceDashboardId` unset and carries the real query, so it
+                    // still merges normally (that path is how a genuine query change propagates here).
+                    if (sourceDashboardId != null) {
+                        const { query: _query, result: _result, ...insightWithoutDashboardOverrides } = insight
+                        return { ...state, ...insightWithoutDashboardOverrides }
+                    }
                     return { ...state, ...insight }
                 }
                 return state

@@ -1169,4 +1169,65 @@ describe('insightLogic', () => {
                 })
         })
     })
+
+    describe('updateDashboardInsight query merge', () => {
+        // An insight opened for editing from a dashboard reuses the dashboard tile's keyed logic
+        // (`${shortId}/on-dashboard-${dashboardId}`). A dashboard tile refresh returns the insight with
+        // that dashboard's filter overrides (e.g. its date range) baked into `query` — it must not clobber
+        // the canonical query the editor persists on save.
+        const CANONICAL_QUERY = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+                dateRange: { date_from: 'all' },
+            },
+        }
+        const DASHBOARD_OVERRIDDEN_QUERY = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+                dateRange: { date_from: '-14d' },
+            },
+        }
+
+        const insightProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: MOCK_DASHBOARD_ID,
+        }
+
+        beforeEach(() => {
+            logic = insightLogic({ ...insightProps, cachedInsight: insightModelWith({ query: CANONICAL_QUERY }) })
+            logic.mount()
+        })
+
+        it('does not overwrite the canonical query on a dashboard-scoped refresh', async () => {
+            dashboardsModel.actions.updateDashboardInsight(
+                insightModelWith({
+                    short_id: Insight42,
+                    query: DASHBOARD_OVERRIDDEN_QUERY,
+                    dashboards: [MOCK_DASHBOARD_ID],
+                    dashboard_tiles: [{ dashboard_id: MOCK_DASHBOARD_ID }],
+                }),
+                undefined,
+                MOCK_DASHBOARD_ID
+            )
+
+            await expectLogic(logic).toMatchValues({ insight: partial({ query: CANONICAL_QUERY }) })
+        })
+
+        it('applies the query from a non-scoped update such as a save', async () => {
+            // No sourceDashboardId — this carries the real saved query, so it must be applied.
+            dashboardsModel.actions.updateDashboardInsight(
+                insightModelWith({
+                    short_id: Insight42,
+                    query: DASHBOARD_OVERRIDDEN_QUERY,
+                    dashboards: [MOCK_DASHBOARD_ID],
+                })
+            )
+
+            await expectLogic(logic).toMatchValues({ insight: partial({ query: DASHBOARD_OVERRIDDEN_QUERY }) })
+        })
+    })
 })
