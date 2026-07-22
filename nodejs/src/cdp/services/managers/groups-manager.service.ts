@@ -126,6 +126,13 @@ export class GroupsManagerService {
             return
         }
 
+        // Malformed invocations can arrive without `project`. Guard so a single bad item
+        // doesn't throw and fail its whole batch, mirroring the person stub in the consumer.
+        if (!globals.project) {
+            globals.groups = {}
+            return
+        }
+
         globals.groups = await this.getGroupsForEvent(globals.project.id, globals.event.properties, globals.project.url)
     }
 

@@ -254,6 +254,18 @@ describe('Groups Manager', () => {
         expect(mockFetchGroupsByKeys).not.toHaveBeenCalled()
     })
 
+    it('sets empty groups when project is missing instead of throwing', async () => {
+        const globals = createHogExecutionGlobals({
+            groups: undefined,
+            event: { properties: { $groups: { GroupA: 'id-1' } } } as any,
+        })
+        delete (globals as any).project
+        await groupsManager.addGroupsToGlobals(globals)
+
+        expect(globals.groups).toEqual({})
+        expect(mockFetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+    })
+
     it('skips enrichment when groups already set', async () => {
         const existingGroups = { SomeGroup: { id: 'existing', index: 0, type: 'SomeGroup', url: '', properties: {} } }
         const globals = createHogExecutionGlobals({
