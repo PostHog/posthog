@@ -1481,7 +1481,7 @@ export const fileSystemTypes = {
     ticket: {
         name: 'Ticket',
         iconType: 'conversations',
-        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.supportTicketDetail(ref),
         filterKey: 'ticket',
     },
@@ -2237,7 +2237,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.supportTickets(),
         type: 'conversations',
         iconType: 'conversations',
-        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
         sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
     },
