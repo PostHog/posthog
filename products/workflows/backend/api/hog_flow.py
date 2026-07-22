@@ -2342,8 +2342,9 @@ class HogFlowViewSet(
             locked.draft_updated_at = timezone.now()
             locked.save(update_fields=["draft", "draft_updated_at"])
 
-        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
+        self._report_workflow_action("hog_flow_revision_restored", locked, {"version": revision.version})
 
         return Response(self.get_serializer(locked).data)
 
