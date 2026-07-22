@@ -489,6 +489,18 @@ describe('extractModalityTokens()', () => {
                 expected1hTokens: 100,
             },
             {
+                name: 'Vercel rawUsage.providerMetadata.amazonBedrock.usage',
+                usage: {
+                    rawUsage: {
+                        providerMetadata: {
+                            amazonBedrock: { usage: vercelBedrockUsage },
+                        },
+                    },
+                },
+                expected5mTokens: 148,
+                expected1hTokens: 100,
+            },
+            {
                 name: 'legacy providerMetadata.bedrock.usage with only five-minute writes',
                 usage: {
                     providerMetadata: {
