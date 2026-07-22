@@ -3,30 +3,29 @@ import { EventHeaders } from '~/types'
 /**
  * A pluggable overflow condition for the main-lane overflow redirect.
  *
- * Strategies are pure classifiers: they only decide how many tokens an event
- * consumes from their bucket. All state (the token buckets, keyed on
- * token:distinct_id) is owned by the redirect service, one bucket set per
- * strategy. A key is redirected to overflow when any strategy's bucket is
- * exhausted.
+ * A strategy is a metrics label plus a pure token-counting function. All state
+ * (the token buckets, keyed on token:distinct_id) is owned by the redirect
+ * service, one bucket set per strategy. A key is redirected to overflow when
+ * any strategy's bucket is exhausted.
  */
 export interface OverflowStrategy {
+    /** Metrics label, e.g. 'event_rate'. Renaming it renames the Prometheus series. */
+    label: string
     /** Tokens this event consumes from the strategy's bucket; 0 = not counted. */
-    countTokens(headers: EventHeaders): number
+    countTokens: (headers: EventHeaders) => number
 }
 
 /** Pairs a strategy with the limits for its token buckets. */
-export interface OverflowStrategyEntry {
-    strategy: OverflowStrategy
+export interface OverflowStrategyEntry extends OverflowStrategy {
     bucketCapacity: number
     replenishRate: number
 }
 
 /** Counts every event: the overall event-rate overflow condition. */
-export class EventRateOverflowStrategy implements OverflowStrategy {
-    countTokens(): number {
-        return 1
-    }
-}
+export const eventRateStrategy = (): OverflowStrategy => ({
+    label: 'event_rate',
+    countTokens: () => 1,
+})
 
 /** Events that can trigger a person merge - the expensive person-processing path. */
 const MERGE_EVENT_NAMES = new Set(['$identify', '$create_alias', '$merge_dangerously'])
@@ -40,11 +39,10 @@ export function isMergeEvent(eventName: string | undefined): boolean {
  * dedicated (much lower) rate than the overall event rate. Events without an
  * event name header are not counted (fail open).
  */
-export class MergeEventRateOverflowStrategy implements OverflowStrategy {
-    countTokens(headers: EventHeaders): number {
-        return isMergeEvent(headers.event) ? 1 : 0
-    }
-}
+export const mergeEventRateStrategy = (): OverflowStrategy => ({
+    label: 'merge_event_rate',
+    countTokens: (headers) => (isMergeEvent(headers.event) ? 1 : 0),
+})
 
 /**
  * Strategy set for the analytics events pipeline: overall event rate, plus a
@@ -59,14 +57,14 @@ export function createAnalyticsOverflowStrategies(config: {
 }): OverflowStrategyEntry[] {
     const strategies: OverflowStrategyEntry[] = [
         {
-            strategy: new EventRateOverflowStrategy(),
+            ...eventRateStrategy(),
             bucketCapacity: config.eventBucketCapacity,
             replenishRate: config.eventReplenishRate,
         },
     ]
     if (config.mergeEventBucketCapacity > 0) {
         strategies.push({
-            strategy: new MergeEventRateOverflowStrategy(),
+            ...mergeEventRateStrategy(),
             bucketCapacity: config.mergeEventBucketCapacity,
             replenishRate: config.mergeEventReplenishRate,
         })

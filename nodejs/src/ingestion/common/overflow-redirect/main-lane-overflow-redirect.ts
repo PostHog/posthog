@@ -14,7 +14,7 @@ import {
 } from './metrics'
 import { OverflowEventGroup, OverflowRedirectService } from './overflow-redirect-service'
 import { OverflowRedisRepository, OverflowType, memberKey } from './overflow-redis-repository'
-import { OverflowStrategy, OverflowStrategyEntry } from './overflow-strategy'
+import { OverflowStrategyEntry } from './overflow-strategy'
 
 export interface MainLaneOverflowRedirectConfig {
     redisRepository: OverflowRedisRepository
@@ -45,7 +45,11 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 1_000_000
  */
 export class MainLaneOverflowRedirect implements OverflowRedirectService {
     private localCache: LRUCache<string, boolean>
-    private strategies: { label: string; strategy: OverflowStrategy; limiter: MemoryRateLimiter }[]
+    private strategies: {
+        label: string
+        countTokens: OverflowStrategyEntry['countTokens']
+        limiter: MemoryRateLimiter
+    }[]
     private redisRepository: OverflowRedisRepository
     private overflowType: OverflowType
 
@@ -56,9 +60,8 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
             ttl: config.localCacheTTLSeconds * 1000,
         })
         this.strategies = config.strategies.map((entry) => ({
-            // The class name is the metrics label: renaming a strategy renames its label.
-            label: entry.strategy.constructor.name,
-            strategy: entry.strategy,
+            label: entry.label,
+            countTokens: entry.countTokens,
             limiter: new MemoryRateLimiter(entry.bucketCapacity, entry.replenishRate),
         }))
         this.overflowType = config.overflowType
@@ -144,10 +147,10 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
             // Consume from every strategy (no short-circuit) so buckets drain
             // consistently; any exhausted bucket flags the key.
             let allowed = true
-            for (const { label, strategy, limiter } of this.strategies) {
+            for (const { label, countTokens, limiter } of this.strategies) {
                 let tokens = 0
                 for (const headers of group.headersPerEvent) {
-                    tokens += strategy.countTokens(headers)
+                    tokens += countTokens(headers)
                 }
                 if (tokens === 0) {
                     continue

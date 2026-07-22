@@ -1,22 +1,15 @@
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
-import {
-    EventRateOverflowStrategy,
-    MergeEventRateOverflowStrategy,
-    OverflowStrategy,
-    createAnalyticsOverflowStrategies,
-} from './overflow-strategy'
+import { createAnalyticsOverflowStrategies, eventRateStrategy, mergeEventRateStrategy } from './overflow-strategy'
 
 describe('overflow strategies', () => {
-    describe('EventRateOverflowStrategy', () => {
+    describe('eventRateStrategy', () => {
         it.each([['$pageview'], ['$identify'], [undefined]])('counts every event (%s) as one token', (event) => {
-            const strategy: OverflowStrategy = new EventRateOverflowStrategy()
-
-            expect(strategy.countTokens(createTestEventHeaders({ event }))).toBe(1)
+            expect(eventRateStrategy().countTokens(createTestEventHeaders({ event }))).toBe(1)
         })
     })
 
-    describe('MergeEventRateOverflowStrategy', () => {
+    describe('mergeEventRateStrategy', () => {
         it.each([
             ['$identify', 1],
             ['$create_alias', 1],
@@ -26,9 +19,7 @@ describe('overflow strategies', () => {
             ['$Identify', 0],
             [undefined, 0],
         ])('counts %s as %i tokens', (event, expected) => {
-            const strategy = new MergeEventRateOverflowStrategy()
-
-            expect(strategy.countTokens(createTestEventHeaders({ event }))).toBe(expected)
+            expect(mergeEventRateStrategy().countTokens(createTestEventHeaders({ event }))).toBe(expected)
         })
     })
 
@@ -43,9 +34,7 @@ describe('overflow strategies', () => {
         it('includes the merge strategy when its capacity is positive', () => {
             const strategies = createAnalyticsOverflowStrategies(baseConfig)
 
-            expect(strategies).toHaveLength(2)
-            expect(strategies[0].strategy).toBeInstanceOf(EventRateOverflowStrategy)
-            expect(strategies[1].strategy).toBeInstanceOf(MergeEventRateOverflowStrategy)
+            expect(strategies.map((s) => s.label)).toEqual(['event_rate', 'merge_event_rate'])
         })
 
         it('omits the merge strategy entirely when its capacity is 0', () => {
@@ -53,8 +42,7 @@ describe('overflow strategies', () => {
             // omitted, not included with capacity 0
             const strategies = createAnalyticsOverflowStrategies({ ...baseConfig, mergeEventBucketCapacity: 0 })
 
-            expect(strategies).toHaveLength(1)
-            expect(strategies[0].strategy).toBeInstanceOf(EventRateOverflowStrategy)
+            expect(strategies.map((s) => s.label)).toEqual(['event_rate'])
         })
     })
 })

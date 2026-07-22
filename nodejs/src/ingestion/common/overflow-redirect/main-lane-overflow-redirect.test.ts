@@ -4,7 +4,7 @@ import { HealthCheckResultOk } from '~/types'
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
 import { OverflowEventGroup } from './overflow-redirect-service'
 import { OverflowRedisRepository } from './overflow-redis-repository'
-import { EventRateOverflowStrategy, MergeEventRateOverflowStrategy } from './overflow-strategy'
+import { eventRateStrategy, mergeEventRateStrategy } from './overflow-strategy'
 
 const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
     batchCheck: jest.fn().mockResolvedValue(new Map()),
@@ -34,7 +34,7 @@ describe('MainLaneOverflowRedirect', () => {
         return new MainLaneOverflowRedirect({
             redisRepository: mockRepository,
             localCacheTTLSeconds: 60,
-            strategies: [{ strategy: new EventRateOverflowStrategy(), bucketCapacity: 10, replenishRate: 1 }],
+            strategies: [{ ...eventRateStrategy(), bucketCapacity: 10, replenishRate: 1 }],
             overflowType: 'events',
             ...overrides,
         })
@@ -222,8 +222,8 @@ describe('MainLaneOverflowRedirect', () => {
         const createMergeAwareService = (): MainLaneOverflowRedirect =>
             createService({
                 strategies: [
-                    { strategy: new EventRateOverflowStrategy(), bucketCapacity: 100, replenishRate: 1 },
-                    { strategy: new MergeEventRateOverflowStrategy(), bucketCapacity: 3, replenishRate: 0.01 },
+                    { ...eventRateStrategy(), bucketCapacity: 100, replenishRate: 1 },
+                    { ...mergeEventRateStrategy(), bucketCapacity: 3, replenishRate: 0.01 },
                 ],
             })
 
