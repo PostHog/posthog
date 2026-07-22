@@ -1,10 +1,12 @@
 //! Best-effort, fire-and-forget emission of ingestion warnings to Kafka.
 //!
 //! Two transports share the registry ([`WarningType`], generated from the
-//! Node.js source of truth): services that only know API tokens (capture)
-//! emit through the `$$client_ingestion_warning` event envelope below, and
-//! services that know `team_id` (personhog leader/writer) build the final
-//! topic payload themselves via [`direct::build_direct_warning_payload`].
+//! Node.js source of truth) and one builder ([`serializer::Warning`]):
+//! services that only know API tokens (capture) commit via
+//! [`serializer::Warning::into_event_envelope`], and services that know `team_id`
+//! (personhog leader/writer) commit the terminal row via
+//! [`serializer::Warning::into_row`]. See `serializer.rs` for the
+//! field-by-field correspondence and the trust rationale.
 //!
 //! Envelope producers call [`WarningEmitter::emit`] with the offending
 //! event's API token, a source, a registered [`WarningType`], and caller
@@ -30,7 +32,6 @@
 //! identical; see [`serializer`] and
 //! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
 
-pub mod direct;
 pub mod registry;
 pub mod serializer;
 pub mod test_support;
@@ -38,7 +39,6 @@ pub mod throttle;
 
 use std::time::Duration;
 
-use chrono::Utc;
 use common_kafka::kafka_producer::ThreadedKafkaContext;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
@@ -188,15 +188,13 @@ impl WarningEmitter for KafkaWarningEmitter {
             }
         }
 
-        let serialized = serializer::build_warning_event(
-            &token,
-            source,
-            warning,
-            extra_details,
-            count,
-            Utc::now(),
-        )
-        .and_then(|event| serde_json::to_vec(&event).map(|payload| (payload, event.to_headers())));
+        let serialized = serializer::Warning::new(warning)
+            .with_details(extra_details)
+            .with_count(count)
+            .into_event_envelope(&token, source)
+            .and_then(|event| {
+                serde_json::to_vec(&event).map(|payload| (payload, event.to_headers()))
+            });
 
         let (payload, headers) = match serialized {
             Ok((payload, headers)) => (payload, OwnedHeaders::from(headers)),
