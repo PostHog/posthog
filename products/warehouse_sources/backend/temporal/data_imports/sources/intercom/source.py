@@ -63,6 +63,15 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             "Intercom access token not found": "Intercom OAuth access token is missing. Please reconnect your Intercom account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The `companies` table walks Intercom's companies Scroll API (`_iter_companies` in
+        # intercom.py). The scroll cursor expires mid-walk on idle timeout or when a
+        # concurrent sync steals the workspace's single scroll slot, and the continuation
+        # then 404s (see `_is_scroll_expired`). `companies` is full-refresh, so a fresh
+        # Temporal attempt opens a new scroll and restarts cleanly — transient and
+        # self-recovering, not a real bug.
+        return {"Not Found for url: https://api.intercom.io/companies/scroll"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
