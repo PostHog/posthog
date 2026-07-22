@@ -38,6 +38,7 @@ export const sharedMeta: Meta = {
     decorators: [
         mswDecorator({
             post: {
+                // nosemgrep: no-environments-api-urls-frontend -- MSW mock must match maxThreadLogic's real request path; the conversations API lives on /api/environments/
                 '/api/environments/:team_id/conversations/': () => new HttpResponse(chatResponseChunk),
             },
             get: {
@@ -48,7 +49,9 @@ export const sharedMeta: Meta = {
                         is_ai_data_processing_approved: true,
                     },
                 ],
+                // nosemgrep: no-environments-api-urls-frontend -- MSW mock must match maxThreadLogic's real request path; the conversations API lives on /api/environments/
                 '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                // nosemgrep: no-environments-api-urls-frontend -- MSW mock must match maxThreadLogic's real request path; the conversations API lives on /api/environments/
                 [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
                     200,
                     {
