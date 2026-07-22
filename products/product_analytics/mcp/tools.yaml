@@ -121,6 +121,13 @@ tools:
         title: Delete insight
         description: |
             Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.
+        param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
         soft_delete: true
     insight-get:
         operation: insights_retrieve
@@ -142,6 +149,13 @@ tools:
             - format
             - refresh
             - from_dashboard
+        param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
         response:
             exclude:
                 - result
@@ -175,6 +189,12 @@ tools:
             - favorited
             - dashboards
         param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
             query:
                 schema_ref: InsightQuery
             dashboards:
