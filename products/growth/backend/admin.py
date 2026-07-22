@@ -281,6 +281,9 @@ def _config_has_results(config: EnrichmentPromptConfig) -> bool:
 # archived-Harmonic payload paths worth feeding a prompt. Extend freely; stored rows with
 # values outside these lists still render (choices are unioned with the instance's values).
 GATEWAY_MODEL_CHOICES = [
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.1",
     "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
