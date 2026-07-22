@@ -3793,6 +3793,24 @@ class TestAzureDevOpsIntegration:
 
     @patch("posthog.models.integration.AzureDevOpsIntegration.list_repositories")
     @patch("posthog.models.integration.AzureDevOpsClient.request")
+    def test_create_branch_with_empty_ref_update_result_fails(self, mock_request, mock_list_repos):
+        from posthog.models.integration import AzureDevOpsIntegration
+
+        mock_list_repos.return_value = [{"id": "repo-id-1", "name": "my-repo", "default_branch": "main"}]
+        mock_request.side_effect = [
+            MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={"value": [{"name": "refs/heads/main", "objectId": "abc123"}]}),
+            ),
+            MagicMock(status_code=200, json=MagicMock(return_value={"value": []})),
+        ]
+
+        result = AzureDevOpsIntegration(self._integration()).create_branch("my-repo", "feature/x")
+
+        assert result == {"success": False, "error": "Failed to create branch"}
+
+    @patch("posthog.models.integration.AzureDevOpsIntegration.list_repositories")
+    @patch("posthog.models.integration.AzureDevOpsClient.request")
     def test_create_pull_request_targets_right_branches_and_url(self, mock_request, mock_list_repos):
         from posthog.models.integration import AzureDevOpsIntegration
 

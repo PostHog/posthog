@@ -11,7 +11,7 @@ export const AzureDevOps = defineIntegration(
         logo: ICONS['azure-devops'],
         subtitle: 'Connect your Azure DevOps repositories to PostHog',
         description:
-            'Connect an Azure DevOps project so PostHog can discover repositories and open code changes through a shared code-host interface.',
+            'Connect an Azure DevOps project so PostHog can browse your repositories, create branches, and open pull requests for you.',
         capabilities: [
             'Browse repositories in an Azure DevOps project',
             'Create branches for code changes',

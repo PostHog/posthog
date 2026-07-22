@@ -4,6 +4,7 @@ from posthog.egress.azure_devops.transport import (
     AzureDevOpsAuthenticationError,
     AzureDevOpsClient,
     AzureDevOpsRetryableError,
+    AzureDevOpsUnexpectedRedirectError,
     normalize_azure_devops_identifier,
     normalize_azure_devops_organization,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "AzureDevOpsAuthenticationError",
     "AzureDevOpsClient",
     "AzureDevOpsRetryableError",
+    "AzureDevOpsUnexpectedRedirectError",
     "normalize_azure_devops_identifier",
     "normalize_azure_devops_organization",
 ]

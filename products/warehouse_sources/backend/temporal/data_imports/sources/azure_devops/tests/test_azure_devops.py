@@ -5,8 +5,9 @@ from urllib.parse import urlparse
 import pytest
 from unittest import mock
 
+from posthog.egress.azure_devops import AzureDevOpsAuthenticationError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
-    AzureDevOpsAuthError,
     AzureDevOpsResumeConfig,
     _flatten_revision,
     _format_datetime,
@@ -289,7 +290,7 @@ class TestGetRows:
         mock_session.return_value.request.return_value = response
 
         manager = _make_manager()
-        with pytest.raises(AzureDevOpsAuthError):
+        with pytest.raises(AzureDevOpsAuthenticationError):
             list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager))
 
 

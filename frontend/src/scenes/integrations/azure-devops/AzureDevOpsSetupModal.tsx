@@ -28,7 +28,7 @@ export const AzureDevOpsSetupModal = (props: AzureDevOpsSetupModalLogicProps): J
                     <LemonField
                         name="organization"
                         label="Organization"
-                        help="Use the first path segment from dev.azure.com/your-organization."
+                        help="Your organization name, as it appears in dev.azure.com/your-organization. Pasting the full URL also works."
                     >
                         <LemonInput type="text" placeholder="your-organization" />
                     </LemonField>
@@ -51,7 +51,11 @@ export const AzureDevOpsSetupModal = (props: AzureDevOpsSetupModalLogicProps): J
                             </>
                         }
                     >
-                        <LemonInput type="password" autoComplete="new-password" />
+                        <LemonInput
+                            type="password"
+                            autoComplete="new-password"
+                            placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        />
                     </LemonField>
                     <div className="flex justify-end">
                         <LemonButton type="primary" htmlType="submit" loading={isAzureDevOpsIntegrationSubmitting}>

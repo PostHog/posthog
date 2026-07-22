@@ -3,7 +3,13 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from posthog.egress.azure_devops import AZURE_DEVOPS_API_VERSION, AzureDevOpsAuthenticationError, AzureDevOpsClient
+from posthog.egress.azure_devops import (
+    AZURE_DEVOPS_API_VERSION,
+    AzureDevOpsAuthenticationError,
+    AzureDevOpsClient,
+    AzureDevOpsRetryableError,
+    AzureDevOpsUnexpectedRedirectError,
+)
 
 
 class TestAzureDevOpsClient:
@@ -33,6 +39,33 @@ class TestAzureDevOpsClient:
                 "/_apis/projects",
                 endpoint="/_apis/projects",
             )
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.egress.azure_devops.transport.requests.request")
+    def test_get_retries_are_capped_by_max_attempts(self, mock_request: MagicMock, _mock_sleep: MagicMock) -> None:
+        mock_request.return_value = MagicMock(status_code=500)
+
+        with pytest.raises(AzureDevOpsRetryableError):
+            AzureDevOpsClient("my-org", "pat-token", source="test", max_attempts=2).request(
+                "GET",
+                "/_apis/projects",
+                endpoint="/_apis/projects",
+            )
+
+        assert mock_request.call_count == 2
+
+    @patch("posthog.egress.azure_devops.transport.requests.request")
+    def test_3xx_is_treated_as_an_error(self, mock_request: MagicMock) -> None:
+        mock_request.return_value = MagicMock(status_code=302)
+
+        with pytest.raises(AzureDevOpsUnexpectedRedirectError, match="unexpected redirect .*302"):
+            AzureDevOpsClient("my-org", "pat-token", source="test").request(
+                "GET",
+                "/_apis/projects",
+                endpoint="/_apis/projects",
+            )
+
+        mock_request.assert_called_once()
 
     @patch("posthog.egress.azure_devops.transport.requests.request")
     def test_post_transport_error_is_not_retried(self, mock_request: MagicMock) -> None:

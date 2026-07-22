@@ -7,11 +7,7 @@ from urllib.parse import quote
 import requests
 from structlog.types import FilteringBoundLogger
 
-from posthog.egress.azure_devops import (
-    AzureDevOpsAuthenticationError,
-    AzureDevOpsClient,
-    normalize_azure_devops_organization,
-)
+from posthog.egress.azure_devops import AzureDevOpsClient, normalize_azure_devops_organization
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
@@ -22,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 
 PAGE_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 60
-AzureDevOpsAuthError = AzureDevOpsAuthenticationError
 
 
 @dataclasses.dataclass
@@ -34,10 +29,8 @@ class AzureDevOpsResumeConfig:
 
 
 def _get_session(personal_access_token: str) -> requests.Session:
-    session = make_tracked_session(redact_values=(personal_access_token,))
-    # PATs go in the Basic-auth password with an empty username.
-    session.auth = ("", personal_access_token)
-    return session
+    # Auth is supplied per request by AzureDevOpsClient; the session only carries tracking + redaction.
+    return make_tracked_session(redact_values=(personal_access_token,))
 
 
 def _validate_organization(organization: str) -> str:
@@ -70,12 +63,14 @@ def validate_credentials(organization: str, personal_access_token: str) -> bool:
     than a 401, so only an exact 200 counts."""
     try:
         org = _validate_organization(organization)
+        # max_attempts=2: called from the source-creation web request, so fail fast instead of pinning workers.
         response = AzureDevOpsClient(
             org,
             personal_access_token,
             source="warehouse_source",
             session=_get_session(personal_access_token),
             timeout=10,
+            max_attempts=2,
         ).request("GET", "/_apis/projects", endpoint="/_apis/projects", params={"$top": 1})
         return response.status_code == 200
     except Exception:
@@ -103,8 +98,8 @@ def get_rows(
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
-    def fetch(path: str, params: dict[str, Any]) -> requests.Response:
-        response = client.request("GET", path, endpoint=config.path, params=params)
+    def fetch(path: str, params: dict[str, Any], endpoint: str | None = None) -> requests.Response:
+        response = client.request("GET", path, endpoint=endpoint or config.path, params=params)
 
         if not response.ok:
             logger.error(f"Azure DevOps API error: status={response.status_code}, body={response.text}, path={path}")
@@ -125,14 +120,14 @@ def get_rows(
         return params
 
     def iterate_header_token(
-        path: str, extra: dict[str, Any], use_base_params: bool = True
+        path: str, extra: dict[str, Any], use_base_params: bool = True, endpoint: str | None = None
     ) -> Iterator[list[dict[str, Any]]]:
         token: Optional[str] = None
         while True:
             params = {**(base_params() if use_base_params else {}), **extra, "$top": PAGE_SIZE}
             if token:
                 params["continuationToken"] = token
-            response = fetch(path, params)
+            response = fetch(path, params, endpoint=endpoint)
             items = response.json().get("value", []) or []
             if items:
                 yield items
@@ -156,7 +151,7 @@ def get_rows(
         # Project enumeration is independent of the data endpoint being synced,
         # so it must not carry that endpoint's incremental filter.
         names: list[str] = []
-        for page in iterate_header_token("/_apis/projects", {}, use_base_params=False):
+        for page in iterate_header_token("/_apis/projects", {}, use_base_params=False, endpoint="/_apis/projects"):
             names.extend(item["name"] for item in page if item.get("name"))
         return names
 

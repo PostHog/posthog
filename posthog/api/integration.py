@@ -42,7 +42,11 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
-from posthog.models.code_host_integration import UnsupportedCodeHostIntegrationError, code_host_integration_for
+from posthog.models.code_host_integration import (
+    CodeHostIntegrationError,
+    UnsupportedCodeHostIntegrationError,
+    code_host_integration_for,
+)
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
@@ -1560,16 +1564,12 @@ class IntegrationViewSet(
 
         try:
             code_host = code_host_integration_for(self.get_object())
-        except UnsupportedCodeHostIntegrationError as error:
-            raise ValidationError(str(error)) from error
-
-        try:
             page = code_host.list_repositories(
                 search=query_serializer.validated_data["search"],
                 limit=query_serializer.validated_data["limit"],
                 offset=query_serializer.validated_data["offset"],
             )
-        except AzureDevOpsIntegrationError as error:
+        except (UnsupportedCodeHostIntegrationError, CodeHostIntegrationError) as error:
             raise ValidationError(str(error)) from error
         return Response(page.as_dict())
 

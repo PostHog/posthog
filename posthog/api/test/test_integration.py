@@ -2142,6 +2142,24 @@ class TestAzureDevOpsIntegrationAPI:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Azure DevOps request failed"
 
+    @patch("posthog.models.code_host_integration.GitHubIntegration.list_cached_repositories")
+    def test_code_host_repositories_returns_a_validation_error_for_github_failures(
+        self, mock_list_repositories: MagicMock, client: HttpClient
+    ):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB,
+            integration_id="12345",
+            config={"organization": "my-org"},
+        )
+        mock_list_repositories.side_effect = GitHubIntegrationError("GitHub is unavailable")
+        client.force_login(self.user)
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/{integration.id}/code_host_repositories/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "GitHub is unavailable"
+
 
 class TestGitHubIntegrationStateValidation:
     @pytest.fixture(autouse=True)

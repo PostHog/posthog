@@ -35,6 +35,10 @@ class AzureDevOpsAuthenticationError(Exception):
     pass
 
 
+class AzureDevOpsUnexpectedRedirectError(Exception):
+    pass
+
+
 def normalize_azure_devops_identifier(value: str, name: str) -> str:
     normalized = value.strip()
     if (
@@ -67,12 +71,14 @@ class AzureDevOpsClient:
         source: str,
         session: requests.Session | None = None,
         timeout: float = AZURE_DEVOPS_REQUEST_TIMEOUT_SECONDS,
+        max_attempts: int = AZURE_DEVOPS_MAX_RETRY_ATTEMPTS,
     ) -> None:
         self.organization = normalize_azure_devops_organization(organization)
         self.personal_access_token = personal_access_token
         self.source = source
         self.session = session
         self.timeout = timeout
+        self.max_attempts = max_attempts
 
     def request(
         self,
@@ -96,7 +102,7 @@ class AzureDevOpsClient:
 
         retryer = Retrying(
             retry=retry_if_exception_type((AzureDevOpsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-            stop=stop_after_attempt(AZURE_DEVOPS_MAX_RETRY_ATTEMPTS),
+            stop=stop_after_attempt(self.max_attempts),
             wait=wait_exponential_jitter(initial=2, max=120),
             reraise=True,
         )
@@ -144,6 +150,11 @@ class AzureDevOpsClient:
         if response.status_code == 203:
             raise AzureDevOpsAuthenticationError(
                 "Azure DevOps returned a sign-in page (203); the personal access token is invalid or expired."
+            )
+        # Redirects are never followed (allow_redirects=False), so a 3xx body is not the JSON callers expect.
+        if 300 <= response.status_code < 400:
+            raise AzureDevOpsUnexpectedRedirectError(
+                f"Azure DevOps returned an unexpected redirect (status {response.status_code})"
             )
         if response.status_code == 429 or response.status_code >= 500:
             raise AzureDevOpsRetryableError(response)

@@ -47,6 +47,7 @@ from posthog.egress.azure_devops import (
     AzureDevOpsAuthenticationError,
     AzureDevOpsClient,
     AzureDevOpsRetryableError,
+    AzureDevOpsUnexpectedRedirectError,
     normalize_azure_devops_identifier,
     normalize_azure_devops_organization,
 )
@@ -3451,11 +3452,13 @@ class AzureDevOpsIntegration:
             raise AzureDevOpsIntegrationError(str(error)) from error
         project = cls._validate_identifier(project, "project")
 
+        # max_attempts=2: runs in synchronous web requests, so fail fast instead of pinning workers on backoff.
         client = AzureDevOpsClient(
             organization,
             personal_access_token,
             source="integration",
             timeout=10,
+            max_attempts=2,
         )
         try:
             response = client.request(
@@ -3463,7 +3466,12 @@ class AzureDevOpsIntegration:
                 f"/_apis/projects/{quote(project)}",
                 endpoint="/_apis/projects/{project}",
             )
-        except (AzureDevOpsAuthenticationError, AzureDevOpsRetryableError, requests.RequestException) as error:
+        except (
+            AzureDevOpsAuthenticationError,
+            AzureDevOpsRetryableError,
+            AzureDevOpsUnexpectedRedirectError,
+            requests.RequestException,
+        ) as error:
             raise AzureDevOpsIntegrationError(
                 f"Could not access Azure DevOps project '{organization}/{project}'. "
                 "Check the organization, project, and token, then try again."
@@ -3490,12 +3498,20 @@ class AzureDevOpsIntegration:
         if integration.kind != Integration.IntegrationKind.AZURE_DEVOPS:
             raise Exception("AzureDevOpsIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
-        self._client = AzureDevOpsClient(
-            self.organization,
-            self._access_token,
-            source="integration",
-            timeout=10,
-        )
+        access_token = self._access_token
+        if not access_token:
+            raise AzureDevOpsIntegrationError("Azure DevOps integration has no personal access token stored")
+        try:
+            # max_attempts=2: runs in synchronous web requests, so fail fast instead of pinning workers on backoff.
+            self._client = AzureDevOpsClient(
+                self.organization,
+                access_token,
+                source="integration",
+                timeout=10,
+                max_attempts=2,
+            )
+        except ValueError as error:
+            raise AzureDevOpsIntegrationError(str(error)) from error
 
     @property
     def organization(self) -> str:
@@ -3506,7 +3522,7 @@ class AzureDevOpsIntegration:
         return dot_get(self.integration.config, "project")
 
     @property
-    def _access_token(self) -> str:
+    def _access_token(self) -> str | None:
         return self.integration.sensitive_config.get("access_token")
 
     def _git_path(self, *segments: str) -> str:
@@ -3523,11 +3539,21 @@ class AzureDevOpsIntegration:
         json: dict[str, Any] | list[dict[str, Any]] | None = None,
     ) -> requests.Response:
         try:
-            return self._client.request(method, path, endpoint=endpoint, params=params, json=json)
-        except (AzureDevOpsAuthenticationError, AzureDevOpsRetryableError, requests.RequestException) as error:
+            response = self._client.request(method, path, endpoint=endpoint, params=params, json=json)
+        except AzureDevOpsAuthenticationError as error:
+            self._set_errors(ERROR_TOKEN_REFRESH_FAILED)
+            raise AzureDevOpsIntegrationError("Azure DevOps personal access token is invalid or expired") from error
+        except (AzureDevOpsRetryableError, AzureDevOpsUnexpectedRedirectError, requests.RequestException) as error:
             raise AzureDevOpsIntegrationError(
                 "Azure DevOps request failed. Check the connection and try again."
             ) from error
+        self._set_errors("")
+        return response
+
+    def _set_errors(self, errors: str) -> None:
+        if self.integration.errors != errors:
+            self.integration.errors = errors
+            self.integration.save(update_fields=["errors"])
 
     def list_repositories(self) -> list[dict[str, Any]]:
         """List the repositories in the configured organization/project."""
@@ -3549,20 +3575,20 @@ class AzureDevOpsIntegration:
             for repo in response.json().get("value", [])
         ]
 
-    def _resolve_repository_id(self, repository: str) -> str:
+    def _find_repository(self, repository: str) -> dict[str, Any]:
         # Accept either a repository name or its id.
         for repo in self.list_repositories():
             if repository in (repo["id"], repo["name"]):
-                return repo["id"]
-        raise AzureDevOpsIntegrationError(f"Repository '{repository}' not found in {self.organization}/{self.project}")
+                return repo
+        raise AzureDevOpsIntegrationError(
+            f"Repository '{repository}' not found in project '{self.organization}/{self.project}'"
+        )
 
     def get_default_branch(self, repository: str) -> str | None:
-        for repo in self.list_repositories():
-            if repository in (repo["id"], repo["name"]):
-                return repo["default_branch"]
-        return None
+        return self._find_repository(repository)["default_branch"]
 
     def _get_branch_sha(self, repository_id: str, branch: str) -> str | None:
+        """Return the commit sha for ``branch``, or None when the branch does not exist."""
         response = self._request(
             "GET",
             self._git_path("repositories", repository_id, "refs"),
@@ -3570,7 +3596,7 @@ class AzureDevOpsIntegration:
             params={"filter": f"heads/{branch}"},
         )
         if response.status_code != 200:
-            return None
+            raise AzureDevOpsIntegrationError(f"Failed to look up branch '{branch}' (status {response.status_code})")
         for ref in response.json().get("value", []):
             if ref.get("name") == f"refs/heads/{branch}":
                 return ref.get("objectId")
@@ -3578,10 +3604,11 @@ class AzureDevOpsIntegration:
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch (defaults to the repo default branch)."""
-        repository_id = self._resolve_repository_id(repository)
+        repo = self._find_repository(repository)
+        repository_id = repo["id"]
 
         if not base_branch:
-            base_branch = self.get_default_branch(repository)
+            base_branch = repo["default_branch"]
         if not base_branch:
             return {"success": False, "error": "Could not determine base branch"}
 
@@ -3604,8 +3631,9 @@ class AzureDevOpsIntegration:
         )
 
         if response.status_code in (200, 201):
-            result = response.json().get("value", [{}])[0]
-            if result.get("success", True):
+            values = response.json().get("value") or []
+            result = values[0] if values else {}
+            if result.get("success") is True:
                 return {"success": True, "branch_name": branch_name, "sha": base_sha}
             return {"success": False, "error": result.get("customMessage") or "Failed to create branch"}
         return {
@@ -3618,10 +3646,11 @@ class AzureDevOpsIntegration:
         self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None
     ) -> dict[str, Any]:
         """Create a pull request from ``head_branch`` into ``base_branch``."""
-        repository_id = self._resolve_repository_id(repository)
+        repo = self._find_repository(repository)
+        repository_id = repo["id"]
 
         if not base_branch:
-            base_branch = self.get_default_branch(repository)
+            base_branch = repo["default_branch"]
         if not base_branch:
             return {"success": False, "error": "Could not determine base branch"}
 

@@ -1,13 +1,40 @@
+"""Provider-neutral adapter layer over ``Integration`` for code hosts.
+
+No Django model lives here: each adapter wraps an existing ``Integration`` row
+behind the shared ``CodeHostIntegration`` protocol and translates its
+provider-specific errors into ``CodeHostIntegrationError``.
+"""
+
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 from urllib.parse import quote
 
 from posthog.egress.azure_devops import AZURE_DEVOPS_BASE_URL
-from posthog.models.integration import AzureDevOpsIntegration, GitHubIntegration, Integration
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import (
+    AzureDevOpsIntegration,
+    AzureDevOpsIntegrationError,
+    GitHubIntegration,
+    Integration,
+)
 
 
 class UnsupportedCodeHostIntegrationError(Exception):
     pass
+
+
+class CodeHostIntegrationError(Exception):
+    pass
+
+
+@contextmanager
+def _as_code_host_error(*provider_errors: type[Exception]) -> Iterator[None]:
+    try:
+        yield
+    except provider_errors as error:
+        raise CodeHostIntegrationError(str(error)) from error
 
 
 @dataclass(frozen=True)
@@ -59,7 +86,8 @@ class GitHubCodeHostIntegration:
         self.github = GitHubIntegration(integration)
 
     def list_repositories(self, *, search: str, limit: int, offset: int) -> CodeHostRepositoryPage:
-        repositories, has_more = self.github.list_cached_repositories(search=search, limit=limit, offset=offset)
+        with _as_code_host_error(GitHubIntegrationError):
+            repositories, has_more = self.github.list_cached_repositories(search=search, limit=limit, offset=offset)
         return CodeHostRepositoryPage(
             repositories=[
                 CodeHostRepository(
@@ -76,10 +104,12 @@ class GitHubCodeHostIntegration:
         )
 
     def get_default_branch(self, repository: str) -> str:
-        return self.github.get_default_branch(repository)
+        with _as_code_host_error(GitHubIntegrationError):
+            return self.github.get_default_branch(repository)
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
-        return self.github.create_branch(self._repository_name(repository), branch_name, base_branch)
+        with _as_code_host_error(GitHubIntegrationError):
+            return self.github.create_branch(self._repository_name(repository), branch_name, base_branch)
 
     def create_pull_request(
         self,
@@ -89,7 +119,10 @@ class GitHubCodeHostIntegration:
         head_branch: str,
         base_branch: str | None = None,
     ) -> dict[str, Any]:
-        return self.github.create_pull_request(self._repository_name(repository), title, body, head_branch, base_branch)
+        with _as_code_host_error(GitHubIntegrationError):
+            return self.github.create_pull_request(
+                self._repository_name(repository), title, body, head_branch, base_branch
+            )
 
     def clone_url(self, repository: str) -> str:
         full_name = repository if "/" in repository else f"{self.github.organization()}/{repository}"
@@ -102,30 +135,39 @@ class GitHubCodeHostIntegration:
 
 class AzureDevOpsCodeHostIntegration:
     def __init__(self, integration: Integration) -> None:
-        self.azure_devops = AzureDevOpsIntegration(integration)
+        with _as_code_host_error(AzureDevOpsIntegrationError):
+            self.azure_devops = AzureDevOpsIntegration(integration)
 
     def list_repositories(self, *, search: str, limit: int, offset: int) -> CodeHostRepositoryPage:
-        repositories = [
-            CodeHostRepository(
-                id=str(repository["id"]),
-                name=repository["name"],
-                full_name=(f"{self.azure_devops.organization}/{self.azure_devops.project}/{repository['name']}"),
-                provider=Integration.IntegrationKind.AZURE_DEVOPS.value,
-                default_branch=repository.get("default_branch"),
+        search_query = search.strip().casefold()
+        with _as_code_host_error(AzureDevOpsIntegrationError):
+            provider_repositories = self.azure_devops.list_repositories()
+        repositories = []
+        for repository in provider_repositories:
+            full_name = f"{self.azure_devops.organization}/{self.azure_devops.project}/{repository['name']}"
+            if search_query and search_query not in full_name.casefold():
+                continue
+            repositories.append(
+                CodeHostRepository(
+                    id=str(repository["id"]),
+                    name=repository["name"],
+                    full_name=full_name,
+                    provider=Integration.IntegrationKind.AZURE_DEVOPS.value,
+                    default_branch=repository.get("default_branch"),
+                )
             )
-            for repository in self.azure_devops.list_repositories()
-            if not search or search.lower() in repository["name"].lower()
-        ]
         return CodeHostRepositoryPage(
             repositories=repositories[offset : offset + limit],
             has_more=len(repositories) > offset + limit,
         )
 
     def get_default_branch(self, repository: str) -> str | None:
-        return self.azure_devops.get_default_branch(self._repository_name(repository))
+        with _as_code_host_error(AzureDevOpsIntegrationError):
+            return self.azure_devops.get_default_branch(self._repository_name(repository))
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
-        return self.azure_devops.create_branch(self._repository_name(repository), branch_name, base_branch)
+        with _as_code_host_error(AzureDevOpsIntegrationError):
+            return self.azure_devops.create_branch(self._repository_name(repository), branch_name, base_branch)
 
     def create_pull_request(
         self,
@@ -135,9 +177,10 @@ class AzureDevOpsCodeHostIntegration:
         head_branch: str,
         base_branch: str | None = None,
     ) -> dict[str, Any]:
-        return self.azure_devops.create_pull_request(
-            self._repository_name(repository), title, body, head_branch, base_branch
-        )
+        with _as_code_host_error(AzureDevOpsIntegrationError):
+            return self.azure_devops.create_pull_request(
+                self._repository_name(repository), title, body, head_branch, base_branch
+            )
 
     def clone_url(self, repository: str) -> str:
         repository_name = self._repository_name(repository)
