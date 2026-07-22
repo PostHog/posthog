@@ -300,10 +300,13 @@ describeAddon('native image collection', () => {
         expect(result.lines!.toString()).not.toContain('image:')
     })
 
-    it('throws when pseudoTeam is passed without contentKey', () => {
+    it('rejects when pseudoTeam and contentKey are not passed together', async () => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
-        expect(() => rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, PSEUDO_TEAM)).toThrow(
-            'must be passed together'
-        )
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, PSEUDO_TEAM, undefined)
+        ).rejects.toThrow('must be passed together')
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, CONTENT_KEY)
+        ).rejects.toThrow('must be passed together')
     })
 })
