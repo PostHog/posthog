@@ -383,6 +383,7 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_failure_occurrences_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
