@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from posthog.test.base import APIBaseTest
@@ -1156,19 +1156,22 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def test_partial_update_stamps_schedule_changed_at_only_for_schedule_changes(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 
+        # Re-fetches rather than refresh_from_db so mypy doesn't narrow the attribute
+        # (it can't see the mutation and would mark later assertions unreachable).
+        def stored_stamp() -> datetime | None:
+            return SignalScoutConfig.all_teams.get(id=config.id).schedule_changed_at
+
         emit_response = self.client.patch(self._detail_url(str(config.id)), data={"emit": False}, format="json")
 
         assert emit_response.status_code == status.HTTP_200_OK
-        config.refresh_from_db()
-        assert config.schedule_changed_at is None
+        assert stored_stamp() is None
 
         cron_response = self.client.patch(
             self._detail_url(str(config.id)), data={"run_cron_schedule": "0 9 * * *"}, format="json"
         )
 
         assert cron_response.status_code == status.HTTP_200_OK
-        config.refresh_from_db()
-        first_stamp = config.schedule_changed_at
+        first_stamp = stored_stamp()
         assert first_stamp is not None
 
         noop_response = self.client.patch(
@@ -1176,8 +1179,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
 
         assert noop_response.status_code == status.HTTP_200_OK
-        config.refresh_from_db()
-        assert config.schedule_changed_at == first_stamp
+        assert stored_stamp() == first_stamp
 
     def test_partial_update_rejects_invalid_cron_schedule(self) -> None:
         # Wiring guard for the serializer-level validation matrix in TestRunCronScheduleValidation.
