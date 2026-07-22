@@ -106,7 +106,9 @@ def test_drops_gateway_owned_properties_and_stamps_trace_id(mock_get_client: Moc
     assert "x-posthog-property-ai_product" not in headers
     assert "x-posthog-property-$ai_billable" not in headers
     assert headers["x-posthog-property-ai_feature"] == "survey_translation"
-    assert headers["x-posthog-property-llm_trace_id"] == trace_id
+    # The gateway stamps this as the generation's $ai_trace_id, so the id handed
+    # back to callers is the one ratings and trace links join on.
+    assert headers["x-posthog-trace-id"] == trace_id
 
 
 @patch("products.surveys.backend.llm.gateway.get_llm_client")

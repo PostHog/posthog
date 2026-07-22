@@ -76,10 +76,9 @@ def generate_structured_output(
 ) -> tuple[T, str]:
     """Ask the gateway for JSON matching `response_schema`.
 
-    Returns the validated model and a trace id. The trace id is generated here and
-    stamped as an `llm_trace_id` event property: the gateway's OpenAI route derives
-    `$ai_trace_id` itself and offers no header to override it, so the returned id
-    correlates via that property rather than via `$ai_trace_id`.
+    Returns the validated model and a trace id. The id rides the `x-posthog-trace-id`
+    header, which the gateway stamps as the captured generation's `$ai_trace_id`, so
+    callers can join ratings and trace links onto the generation.
     """
     client = get_llm_client(product, team_id=team_id).with_options(max_retries=MAX_RETRIES)
 
@@ -89,9 +88,9 @@ def generate_structured_output(
         for key, value in (posthog_properties or {}).items()
         if key not in _GATEWAY_OWNED_PROPERTIES and value is not None
     }
-    properties["llm_trace_id"] = trace_id
 
     extra_headers = {f"x-posthog-property-{key}": _header_value(value) for key, value in properties.items()}
+    extra_headers["x-posthog-trace-id"] = trace_id
 
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": f"{system_prompt}\n\n{_schema_instruction(response_schema)}"},
