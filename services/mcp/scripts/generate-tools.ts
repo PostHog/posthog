@@ -468,6 +468,12 @@ interface SchemaComposition {
     renamedFields: Record<string, string>
     /** Maps param name → fallback key for optional params with state fallbacks */
     paramFallbacks: Record<string, string>
+    /**
+     * Maps canonical param name → accepted alias keys, from `param_overrides.<param>.aliases`.
+     * `generateToolCode` wraps the composed schema with
+     * `z.preprocess(normalizeParamAliases(...), ...)` when non-empty.
+     */
+    paramAliases: Record<string, string[]>
 }
 
 function composeToolSchema(
@@ -654,10 +660,13 @@ function composeToolSchema(
     //   - description   → wrap the existing Orval-derived field with .describe(...)
     //   - optional+fallback → make param optional and resolve from state when omitted
     //   - cast          → wrap with z.preprocess(...) from @/tools/cast-helpers
+    //   - aliases       → collected here; generateToolCode wraps the finished schema
+    //                     with z.preprocess(normalizeParamAliases(...), ...)
     const toolInputsImports: string[] = []
     const castHelperImports = new Set<string>()
     const schemaRefBlocks: string[] = []
     const paramFallbacks: Record<string, string> = {}
+    const paramAliases: Record<string, string[]> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
     // the body builder for write ops — otherwise the override is in the schema but
     // the handler never forwards the value to the API. On PATCH (partial update) the
@@ -671,6 +680,10 @@ function composeToolSchema(
             // Track optional params with state fallbacks
             if (override.optional && override.fallback) {
                 paramFallbacks[paramName] = override.fallback
+            }
+
+            if (override.aliases?.length) {
+                paramAliases[paramName] = override.aliases
             }
 
             // An `optional` override must also surface as optional in the agent-facing
@@ -812,6 +825,7 @@ function composeToolSchema(
         variantSpecificBodyFieldNames,
         renamedFields,
         paramFallbacks,
+        paramAliases,
     }
 }
 
@@ -1026,6 +1040,19 @@ function generateToolCode(
             schemaExpr = `(${schemaExpr}).superRefine(${fn})`
             composition.toolInputsImports.push(fn)
         }
+    }
+
+    // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
+    // param before validation. Outermost wrapper so the rename happens before any
+    // field schema or validator runs; zod 4 renders a preprocess as the wrapped
+    // schema in JSON Schema output, so the advertised schema is unchanged.
+    const aliasEntries = Object.entries(composition.paramAliases)
+    if (aliasEntries.length > 0) {
+        composition.castHelperImports.add('normalizeParamAliases')
+        const aliasMapLiteral = `{ ${aliasEntries
+            .map(([canonical, aliases]) => `${canonical}: [${aliases.map((a) => `'${a}'`).join(', ')}]`)
+            .join(', ')} }`
+        schemaExpr = `z.preprocess(normalizeParamAliases(${aliasMapLiteral}), ${schemaExpr})`
     }
 
     const schemaDecl = `const ${schemaName} = ${schemaExpr}`

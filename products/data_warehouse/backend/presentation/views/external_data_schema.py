@@ -9,7 +9,7 @@ import temporalio
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -1303,6 +1303,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSchema):
+            if obj.source.is_system_managed:
+                raise PermissionDenied("This schema is managed by PostHog and cannot be changed through this API.")
 
     @extend_schema(exclude=True)
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:

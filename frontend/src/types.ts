@@ -12,6 +12,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import type { ProductSetupProbe } from 'lib/components/ProductEmptyState/setupProbes'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -79,6 +80,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import type {
+    LLMPromptApi,
     LLMPromptListApi,
     LLMPromptResolveResponseApi,
     LLMPromptVersionSummaryApi,
@@ -312,6 +314,7 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    ReplayScanner = 'replay_scanner',
     Toolbar = 'toolbar',
 }
 
@@ -482,7 +485,6 @@ export interface InAppNotification {
     body: string
     read: boolean
     read_at: string | null
-    archivable: boolean
     resource_type: string | null
     resource_id: string
     target_type: string
@@ -5745,6 +5747,7 @@ export const API_SCOPE_OBJECTS = [
     'llm_provider_key',
     'llm_skill',
     'logs',
+    'loop',
     'marketing_analytics',
     'mcp_analytics',
     'metrics',
@@ -5981,6 +5984,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
@@ -6184,6 +6188,14 @@ export interface ExternalDataSourceCreatePayload {
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
+}
+
+/** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
+export interface WarehouseTableFileUpload {
+    upload_id: string
+    filename: string
+    file_format: string
+    size_bytes: number
 }
 
 export interface ExternalDataSourceConnectionMetadata {
@@ -7549,6 +7561,12 @@ export interface ProductManifest {
     treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
+    /**
+     * Boot-time setup-status probe for this product's empty state. Aggregated across
+     * manifests into `productSetupProbes` and answered by one combined event-count
+     * query at app boot (see `productSetupPreloadLogic`).
+     */
+    setupProbe?: ProductSetupProbe
 }
 
 export interface ProjectTreeRef {
@@ -7777,6 +7795,8 @@ export interface LLMPrompt {
     latest_version: number
     version_count: number
     first_version_created_at: string
+    /** Key for this prompt's rows in the activity log (History tab). */
+    activity_item_id: LLMPromptApi['activity_item_id']
     /** All labels on the prompt with the version each points to. Only present on list responses. */
     all_labels?: LLMPromptListApi['all_labels']
 }

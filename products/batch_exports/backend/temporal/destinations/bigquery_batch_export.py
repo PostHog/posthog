@@ -287,9 +287,11 @@ class BigQueryTable(Table[BigQueryField]):
         primary_key: collections.abc.Iterable[str] = (),
         version_key: collections.abc.Iterable[str] = (),
         time_partitioning: bigquery.table.TimePartitioning | None = None,
+        expires: dt.datetime | None = None,
     ) -> None:
         super().__init__(name, fields, parents, primary_key, version_key)
         self.time_partitioning = time_partitioning
+        self.expires = expires
 
     @classmethod
     def from_bigquery_table(
@@ -302,8 +304,11 @@ class BigQueryTable(Table[BigQueryField]):
         parents = (table.project, table.dataset_id)
         fields = tuple(BigQueryField.from_destination_field(field) for field in table.schema)
         time_partitioning = table.time_partitioning
+        expires = table.expires
 
-        return cls(name, fields, parents, primary_key, version_key, time_partitioning=time_partitioning)
+        return cls(
+            name, fields, parents, primary_key, version_key, time_partitioning=time_partitioning, expires=expires
+        )
 
     @classmethod
     def from_arrow_schema(
@@ -630,8 +635,11 @@ class BigQueryClient:
 
         bq_table = bigquery.Table(table.fully_qualified_name, schema=schema)
 
-        if isinstance(table, BigQueryTable) and table.time_partitioning is not None:
-            bq_table.time_partitioning = table.time_partitioning
+        if isinstance(table, BigQueryTable):
+            if table.time_partitioning is not None:
+                bq_table.time_partitioning = table.time_partitioning
+            if table.expires is not None:
+                bq_table.expires = table.expires
 
         created_bq_table = await asyncio.to_thread(self.sync_client.create_table, bq_table, exists_ok=exists_ok)
 
@@ -1491,6 +1499,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         version_key=bigquery_target_table.version_key,
                         # Do not partition the consumer table to avoid running into quota errors.
                         time_partitioning=None,
+                        # Should always be more than largest timeout, could also be shorter
+                        # for intervals with shorter timeouts.
+                        expires=dt.datetime.now(dt.UTC) + dt.timedelta(days=7),
                     )
 
                     if inputs.use_json_type:

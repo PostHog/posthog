@@ -70,8 +70,10 @@ def _format_created_at(value: Any) -> str:
 
 
 def _build_query(config: BraintreeEndpointConfig) -> str:
+    # Braintree's search fields declare `input` as non-null, even though every
+    # field within the input type is optional (an empty object matches everything).
     return f"""
-query ($input: {config.input_type}, $first: Int!, $after: String) {{
+query ($input: {config.input_type}!, $first: Int!, $after: String) {{
   search {{
     {config.search_field} (input: $input, first: $first, after: $after) {{
       pageInfo {{ hasNextPage }}
@@ -164,7 +166,7 @@ def get_rows(
         return _execute(session, url, query, variables, logger)
 
     while True:
-        data = execute({"input": search_input or None, "first": PAGE_SIZE, "after": after})
+        data = execute({"input": search_input, "first": PAGE_SIZE, "after": after})
         connection = ((data.get("search") or {}).get(config.search_field)) or {}
         edges = connection.get("edges") or []
         items = [edge.get("node") for edge in edges if edge.get("node")]
