@@ -102,6 +102,9 @@ const CASE_SENSITIVE_ILLEGAL_IDS = new Set(
 /** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
 class MergeFoldLimitError extends Error {}
 
+/** Thrown inside the fold transaction to roll it back when a concurrent merge invalidated the fetched sources. */
+class MergeFoldConflictError extends Error {}
+
 export const isDistinctIdIllegal = (id: string): boolean => {
     const trimmed = id.trim()
     return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
@@ -405,8 +408,20 @@ export class PersonMergeService {
             // re-runs its own merge (a no-op if the fold partially landed), and
             // later events in the run process individually with full retries.
             plan.status = 'abandoned'
-            const reason = error instanceof MergeFoldLimitError ? 'limit' : 'error'
+            const reason =
+                error instanceof MergeFoldLimitError
+                    ? 'limit'
+                    : error instanceof MergeFoldConflictError
+                      ? 'conflict'
+                      : 'error'
             mergeFoldFallbackCounter.labels({ reason }).inc()
+            // The batch store's caches were updated optimistically inside the
+            // rolled-back transaction (distinct id → target mappings); purge
+            // them so the sequential fallback re-reads committed state.
+            this.context.personStore.removeDistinctIdFromCache(this.context.team.id, plan.targetDistinctId)
+            for (const pair of plan.pairs) {
+                this.context.personStore.removeDistinctIdFromCache(this.context.team.id, pair.anonDistinctId)
+            }
             logger.warn('🤔', 'folded merge failed, falling back to sequential merges', {
                 team_id: this.context.team.id,
                 distinct_id: plan.targetDistinctId,
@@ -419,23 +434,27 @@ export class PersonMergeService {
     }
 
     /**
-     * Aborts the fold (rolling back the transaction) when the folded move
-     * would violate the merge mode's bounds: a per-source distinct-id count
-     * over the LIMIT/ASYNC move limit (those events need their own per-event
-     * DLQ/redirect decision), or a total move larger than batched SYNC's
-     * per-statement batch size. Typical storm sources have one or two distinct
-     * ids, so this is one cheap indexed GROUP BY that almost never trips.
+     * Counts each folded source's distinct ids inside the transaction and
+     * aborts the fold (rolling it back) when:
+     * - a source is missing entirely — it was merged away between the locked
+     *   fetch (whose locks were released at statement end) and the transaction,
+     *   so its already-computed property contribution would be stale;
+     * - a source's count exceeds the LIMIT/ASYNC move limit — those events
+     *   need their own per-event DLQ/redirect decision;
+     * - the total exceeds batched SYNC's per-statement batch size.
+     * Returns the expected total so the caller can verify the move touched
+     * exactly that many rows. One cheap indexed GROUP BY that rarely trips.
      */
-    private async assertFoldWithinMoveBounds(
+    private async assertFoldSourcesWithinMoveBounds(
         tx: PersonsStoreTransactionForBatch,
         mergeSources: InternalPerson[]
-    ): Promise<void> {
+    ): Promise<number> {
+        if (mergeSources.length === 0) {
+            return 0
+        }
         const mergeMode = this.context.mergeMode
         const limit = mergeMode.type === 'SYNC' ? undefined : mergeMode.limit
         const batchSize = mergeMode.type === 'SYNC' ? mergeMode.batchSize : undefined
-        if ((limit === undefined && batchSize === undefined) || mergeSources.length === 0) {
-            return
-        }
 
         const counts = await tx.countDistinctIdsForPersons(
             this.context.team.id,
@@ -443,7 +462,11 @@ export class PersonMergeService {
             this.context.distinctId
         )
         let total = 0
-        for (const count of counts.values()) {
+        for (const source of mergeSources) {
+            const count = counts.get(source.id)
+            if (count === undefined) {
+                throw new MergeFoldConflictError('folded merge source lost its distinct ids concurrently')
+            }
             if (limit !== undefined && count > limit) {
                 throw new MergeFoldLimitError('folded merge source exceeds distinct id move limit')
             }
@@ -452,6 +475,7 @@ export class PersonMergeService {
         if (batchSize !== undefined && total > batchSize) {
             throw new MergeFoldLimitError('folded merge move exceeds sync batch size')
         }
+        return total
     }
 
     private async executeFoldedMerge(plan: MergeFoldPlan, currentAnonDistinctId: string): Promise<PersonMergeResult> {
@@ -562,7 +586,7 @@ export class PersonMergeService {
         const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
             'mergePeopleFold',
             async (tx) => {
-                await this.assertFoldWithinMoveBounds(tx, mergeSources)
+                const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
 
                 let person = currentTarget
                 let updateMessages: PersonMessage[] = []
@@ -586,6 +610,13 @@ export class PersonMergeService {
                 )
                 if (!moveResult.success) {
                     throw new TargetPersonNotFoundError('Target person no longer exists')
+                }
+                // A mismatch means a concurrent merge touched the sources
+                // between the count and the move; abort so the sequential path
+                // (whose zero-moved handling retries with fresh persons) takes
+                // over rather than merging stale source properties.
+                if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
+                    throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
                 }
 
                 const addMessages: PersonMessage[] = []

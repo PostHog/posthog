@@ -631,5 +631,48 @@ describe('createProcessPersonsStep', () => {
             const distinctIds = await fetchDistinctIdValues(infra.postgres, target)
             expect(distinctIds.sort()).toEqual(['anon-2', 'user-1'])
         })
+
+        it('merges sequentially after a mid-transaction fold failure poisons the batch caches', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            await createPersonWithProps('user-1', { t: 1 })
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            // Fail the fold after the move has already updated the batch
+            // caches; the rollback leaves them pointing anon-1 at the target.
+            // Without the cache purge, the sequential fallback resolves anon-1
+            // to the target from cache and skips a merge that never committed.
+            jest.spyOn(personRepository, 'deletePersons').mockRejectedValueOnce(new Error('fold delete failed'))
+
+            await runIdentifies([identifyEvent('anon-1', 'user-1')], plan, foldOptions)
+
+            expect(plan.status).toBe('abandoned')
+            // The sequential fallback merges the current event's pair correctly
+            // (anon-2's pair had no event of its own in this test)
+            await personsStore.flush()
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+            expect(distinctIds.sort()).toEqual(['anon-1', 'user-1'])
+            expect(persons[0].properties).toEqual(expect.objectContaining({ a: 1, t: 1 }))
+        })
+
+        it('abandons the fold when sources changed between fetch and transaction', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            await createPersonWithProps('user-1', {})
+            const plan = planFor('user-1', 'anon-1')
+
+            // Simulate a concurrent merge emptying the source between the
+            // locked fetch and the transaction's count.
+            jest.spyOn(personRepository, 'countDistinctIdsForPersons').mockResolvedValueOnce(new Map())
+
+            await runIdentifies([identifyEvent('anon-1', 'user-1')], plan, foldOptions)
+
+            expect(plan.status).toBe('abandoned')
+            // The sequential fallback still completes the merge correctly
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+            expect(distinctIds.sort()).toEqual(['anon-1', 'user-1'])
+        })
     })
 })
