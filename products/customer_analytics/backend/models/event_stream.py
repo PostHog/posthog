@@ -19,10 +19,6 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
         db_constraint=False,
         related_name="customer_analytics_event_streams",
     )
-    # CASCADE, not SET_NULL: created_by is the owner, and an ownerless stream would keep
-    # delivering to Slack with nobody able to manage it. Destination archiving happens in
-    # the facade delete path, not here — this cascade leaves the HogFunction behind (see
-    # COMPROMISES.md).
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
 
     enabled = models.BooleanField(default=False)
