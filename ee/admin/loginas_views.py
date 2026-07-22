@@ -300,6 +300,8 @@ def get_impersonation_ticket(request):
     if not ticket:
         return JsonResponse({"error": "Not found"}, status=404)
 
+    # TODO: cap/paginate to the most recent N messages so a very long thread can't
+    # force an oversized response, matching the widget messages endpoint.
     comments = (
         Comment.objects.filter(
             team_id=ticket.team_id,
