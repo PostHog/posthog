@@ -762,6 +762,15 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         isShared: boolean
     }
+    reportDashboardTileIgnoreDashboardFiltersToggled: (
+        dashboardId: number | undefined,
+        insightId: number | null,
+        ignored: boolean
+    ) => {
+        dashboardId: number | undefined
+        ignored: boolean
+        insightId: number | null
+    }
     reportDashboardTileInsertedInline: (
         tileType: DashboardAddTileType,
         column: number,
@@ -2099,6 +2108,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ dashboard, changeType, properties }),
+        reportDashboardTileIgnoreDashboardFiltersToggled: (
+            dashboardId: number | undefined,
+            insightId: number | null,
+            ignored: boolean
+        ) => ({ dashboardId, insightId, ignored }),
         reportDashboardLayoutZoomChanged: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             layoutZoom: number,
@@ -3043,6 +3057,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboard?.id,
                 change_type: changeType,
                 ...properties,
+            })
+        },
+        reportDashboardTileIgnoreDashboardFiltersToggled: async ({ dashboardId, insightId, ignored }) => {
+            posthog.capture('dashboard tile ignore dashboard filters toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                ignored,
             })
         },
         reportDashboardLayoutZoomChanged: async ({ dashboard, layoutZoom, source }) => {
