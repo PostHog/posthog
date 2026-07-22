@@ -25,29 +25,29 @@ pytestmark = [pytest.mark.django_db]
 
 
 _PATCH_TARGETS = {
-    "is_cdc_enabled_for_team": "products.data_warehouse.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+    "is_cdc_enabled_for_team": "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
     # Single private method backing both add_table/remove_table on the adapter — patching it
     # no-ops the engine-side ALTER PUBLICATION without touching parse_cdc_config gating.
     "alter_cdc_publication": (
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter._alter_publication_membership"
     ),
     "external_data_workflow_exists": (
-        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists"
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists"
     ),
     "sync_external_data_job_workflow": (
-        "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
     ),
     "sync_cdc_extraction_schedule": (
-        "products.data_warehouse.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
     ),
     "cancel_external_data_workflow": (
-        "products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
     ),
     "trigger_external_data_workflow": (
-        "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
     ),
     "is_any_external_data_schema_paused": (
-        "products.data_warehouse.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused"
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused"
     ),
 }
 

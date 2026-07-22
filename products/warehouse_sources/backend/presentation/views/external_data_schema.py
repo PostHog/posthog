@@ -39,10 +39,6 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
-from products.data_warehouse.backend.presentation.views.source_api_versions import (
-    ExternalDataSourceApiVersionDeprecationSerializer,
-    api_version_deprecation_payload,
-)
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
@@ -63,6 +59,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
+)
 
 logger = structlog.get_logger(__name__)
 

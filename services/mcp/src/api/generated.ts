@@ -12539,6 +12539,38 @@ export namespace Schemas {
     }
 
     /**
+     * @nullable
+     */
+    export type BatchImportResponseCreatedBy = { [key: string]: unknown } | null;
+
+    /**
+     * Serializer for BatchImport responses that matches frontend expectations
+     */
+    export interface BatchImportResponse {
+      readonly id: string;
+      readonly source_type: string;
+      readonly content_type: string;
+      status?: BatchImportStatusEnum;
+      readonly display_status: string;
+      /** @nullable */
+      readonly start_date: string | null;
+      /** @nullable */
+      readonly end_date: string | null;
+      /** @nullable */
+      readonly created_by: BatchImportResponseCreatedBy;
+      readonly created_at: string;
+      /** @nullable */
+      status_message: string | null;
+      state?: unknown;
+      /** Whether this job is a trial run (stores browsable results instead of ingesting). */
+      readonly is_trial: boolean;
+      /** @nullable */
+      readonly trial_record_limit: number | null;
+      /** @nullable */
+      readonly promoted_from_trial_id: string | null;
+    }
+
+    /**
      * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
      * @nullable
      */
@@ -39962,6 +39994,8 @@ export namespace Schemas {
          */
       members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
+      /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+      members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count: number;
       /** @nullable */
@@ -49686,6 +49720,8 @@ export namespace Schemas {
          */
       members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
+      /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+      members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count?: number;
       /** @nullable */
@@ -51492,44 +51528,26 @@ export namespace Schemas {
       summary?: string;
     }
 
-    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
-
-
-    export const ScoutOriginEnum = {
-      Canonical: 'canonical',
-      Custom: 'custom',
-    } as const;
-
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
-     *
-     * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
-     * when it discovers a scout skill; this serializer lets agents tune the row.
+     * Editable schedule, enablement, and emit posture for one scout config.
      */
-    export interface PatchedSignalScoutConfig {
-      readonly id?: string;
-      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-      readonly skill_name?: string;
-      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-      readonly description?: string;
-      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-      readonly scout_origin?: ScoutOriginEnum;
+    export interface PatchedSignalScoutConfigUpdate {
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       emit?: boolean;
       /**
-         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+         * Minutes between runs (30–43200). Use 1440 for a daily schedule.
          * @minimum 30
          * @maximum 43200
          */
       run_interval_minutes?: number;
       /**
-         * When the coordinator last dispatched this scout. Null if it has never run.
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule.
+         * @maxLength 100
          * @nullable
          */
-      readonly last_run_at?: string | null;
-      readonly created_at?: string;
+      run_cron_schedule?: string | null;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -60355,6 +60373,14 @@ export namespace Schemas {
       limits: ScoutLimits;
     }
 
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
      * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
@@ -60968,15 +60994,20 @@ export namespace Schemas {
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-      enabled?: boolean;
+      readonly enabled: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-      emit?: boolean;
+      readonly emit: boolean;
       /**
          * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
          * @minimum 30
          * @maximum 43200
          */
-      run_interval_minutes?: number;
+      readonly run_interval_minutes: number;
+      /**
+         * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+         * @nullable
+         */
+      readonly run_cron_schedule: string | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -61007,6 +61038,12 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
     }
 
     /**
@@ -68291,6 +68328,22 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    /**
+     * One page of trial-run results, proxied from the trial output store.
+     */
+    export interface TrialRecordsResponse {
+      /** Trial records in source order: each has seq (global index), source (the original source event), outputs (the event(s) it would produce), and error (why it would be dropped, if it would be). */
+      records: unknown[];
+      /** Zero-based index of this page. */
+      page: number;
+      /** Number of result pages written so far. */
+      total_pages: number;
+      /** Number of source records processed so far. */
+      total_records: number;
+      /** Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range. */
+      summary: unknown;
     }
 
     export interface UpdateAppInput {
@@ -77485,6 +77538,13 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type ManagedMigrationsTrialRecordsRetrieveParams = {
+    /**
+     * Zero-based results page index (see total_pages in the response).
+     */
+    page?: number;
+    };
 
     export type MarketingAnalyticsDataSourcesRetrieveParams = {
     /**
