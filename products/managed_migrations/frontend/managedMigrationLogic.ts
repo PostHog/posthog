@@ -290,7 +290,12 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     }
                     await breakpoint(100)
                     const projectId = String(ApiConfig.getCurrentProjectId())
-                    return await managedMigrationsTrialRecordsRetrieve(projectId, values.trialResultsId, { page })
+                    const response = await managedMigrationsTrialRecordsRetrieve(projectId, values.trialResultsId, {
+                        page,
+                    })
+                    // Drop out-of-order responses so stale pages can't overwrite newer state.
+                    breakpoint()
+                    return response
                 },
                 closeTrialResults: () => null,
             },
@@ -475,6 +480,9 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             actions.closeTrialResults()
         },
         promoteTrial: ({ id }) => {
+            if (values.promotingMigrationId) {
+                return
+            }
             const trial = values.migrations.find((migration: ManagedMigration) => migration.id === id)
             const failedRecords = trial?.state?.trial?.summary?.dropped_records ?? 0
             if (failedRecords === 0) {

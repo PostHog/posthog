@@ -510,6 +510,9 @@ export function ManagedMigrations(): JSX.Element {
                                 key: 'actions',
                                 render: (_: any, migration: ManagedMigrationData) => {
                                     if (migration.is_trial && migration.display_status === 'completed') {
+                                        const alreadyPromoted = migrations.some(
+                                            (other) => other.promoted_from_trial_id === migration.id
+                                        )
                                         return (
                                             <div className="flex gap-2">
                                                 <LemonButton
@@ -525,7 +528,11 @@ export function ManagedMigrations(): JSX.Element {
                                                     onClick={() => promoteTrial(migration.id)}
                                                     loading={promotingMigrationId === migration.id}
                                                     disabledReason={
-                                                        promotingMigrationId ? 'Starting import…' : undefined
+                                                        alreadyPromoted
+                                                            ? 'This trial already started a full import'
+                                                            : promotingMigrationId
+                                                              ? 'Starting import…'
+                                                              : undefined
                                                     }
                                                 >
                                                     Run full import

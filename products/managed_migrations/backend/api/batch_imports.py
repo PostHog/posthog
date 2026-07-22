@@ -3,6 +3,8 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import cast
 
+from django.db import transaction
+
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
@@ -478,6 +480,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
         read_only=True, help_text="Whether this job is a trial run (stores browsable results instead of ingesting)."
     )
     trial_record_limit = serializers.SerializerMethodField()
+    promoted_from_trial_id = serializers.SerializerMethodField()
 
     class Meta:
         model = BatchImport
@@ -495,6 +498,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             "state",
             "is_trial",
             "trial_record_limit",
+            "promoted_from_trial_id",
         ]
 
     @extend_schema_field({"type": "string"})
@@ -521,6 +525,11 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
         data_format = obj.import_config.get("data_format", {})
         content = data_format.get("content", {})
         return content.get("type", "captured")
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_promoted_from_trial_id(self, obj):
+        """Id of the trial run this real import was promoted from, if any."""
+        return obj.import_config.get("promoted_from_trial_id")
 
     @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
@@ -796,20 +805,49 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if trial.status != BatchImport.Status.COMPLETED:
             return Response({"error": "Only completed trial runs can be promoted"}, status=status.HTTP_400_BAD_REQUEST)
 
-        conflict = self._running_import_conflict(is_trial=False)
-        if conflict:
-            return conflict
+        with transaction.atomic():
+            # Lock the trial row so concurrent promotes of the same trial serialize
+            # behind the already-promoted check below.
+            trial = BatchImport.objects.select_for_update().get(pk=trial.pk)
 
-        import_config = deepcopy(trial.import_config)
-        import_config["sink"] = {"type": "capture", "send_rate": 1000}
+            promoted = BatchImport.objects.filter(
+                team_id=self.team_id, import_config__promoted_from_trial_id=str(trial.id)
+            ).first()
+            if promoted is not None:
+                return Response(
+                    {
+                        "error": "This trial has already been promoted to a full import.",
+                        "detail": f"The import created from this trial is {promoted.id}.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        migration = BatchImport.objects.create(
-            team_id=self.team_id,
-            created_by_id=cast(User, request.user).pk,
-            import_config=import_config,
-            secrets=trial.secrets,
+            conflict = self._running_import_conflict(is_trial=False)
+            if conflict:
+                return conflict
+
+            import_config = deepcopy(trial.import_config)
+            import_config["sink"] = {"type": "capture", "send_rate": 1000}
+            # The worker ignores unknown config keys and never writes import_config
+            # back, so this link doubles as the promotion single-use marker.
+            import_config["promoted_from_trial_id"] = str(trial.id)
+
+            migration = BatchImport.objects.create(
+                team_id=self.team_id,
+                created_by_id=cast(User, request.user).pk,
+                import_config=import_config,
+                secrets=trial.secrets,
+            )
+
+        response_data = BatchImportResponseSerializer(migration).data
+        self._capture_batch_import_created(
+            request,
+            migration,
+            {
+                "promoted_from_trial_id": str(trial.id),
+                "source_type": response_data["source_type"],
+                "content_type": response_data["content_type"],
+            },
         )
 
-        self._capture_batch_import_created(request, migration, {"promoted_from_trial_id": str(trial.id)})
-
-        return Response(BatchImportResponseSerializer(migration).data, status=status.HTTP_201_CREATED)
+        return Response(response_data, status=status.HTTP_201_CREATED)

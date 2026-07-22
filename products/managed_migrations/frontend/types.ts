@@ -41,6 +41,7 @@ export interface BaseManagedMigration {
     display_status: ManagedMigrationStatus
     is_trial: boolean
     trial_record_limit: number | null
+    promoted_from_trial_id: string | null
     created_by: {
         id: number
         uuid: string

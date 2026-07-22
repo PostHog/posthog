@@ -1148,6 +1148,23 @@ class TestBatchImportTrialAPI(APIBaseTest):
         self.assertEqual(promoted.secrets, trial.secrets)
         self.assertEqual(promoted.status, BatchImport.Status.RUNNING)
         self.assertFalse(response.json()["is_trial"])
+        self.assertEqual(response.json()["promoted_from_trial_id"], str(trial.id))
+
+    def test_promote_is_single_use(self):
+        trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
+
+        first = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+        self.assertEqual(first.status_code, 201, first.json())
+
+        # Once the promoted import is no longer running, the RUNNING-conflict
+        # check no longer applies — re-promotion must still be rejected.
+        BatchImport.objects.filter(id=first.json()["id"]).update(status=BatchImport.Status.COMPLETED)
+
+        second = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{trial.id}/promote")
+
+        self.assertEqual(second.status_code, 400)
+        self.assertIn("already been promoted", second.json()["error"])
+        self.assertEqual(BatchImport.objects.filter(team_id=self.team.id).exclude(id=trial.id).count(), 1)
 
     @parameterized.expand(
         [

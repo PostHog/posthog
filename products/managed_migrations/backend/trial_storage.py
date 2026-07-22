@@ -13,7 +13,7 @@ from django.conf import settings
 import structlog
 from boto3 import client as boto3_client
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +54,10 @@ def _read_object(key: str) -> bytes:
             raise TrialResultsUnavailable(f"trial object {key} not found") from exc
         # Anything else (NoSuchBucket, auth failures, …) is a storage misconfiguration,
         # not expired results — surface it as an error instead of "expired".
+        logger.exception("managed_migrations.trial_storage.read_failed", key=key)
+        raise
+    except BotoCoreError:
+        # Connection-level failures (endpoint unreachable, timeouts) — log and surface.
         logger.exception("managed_migrations.trial_storage.read_failed", key=key)
         raise
 

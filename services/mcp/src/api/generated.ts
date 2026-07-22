@@ -12554,6 +12554,8 @@ export namespace Schemas {
       readonly is_trial: boolean;
       /** @nullable */
       readonly trial_record_limit: number | null;
+      /** @nullable */
+      readonly promoted_from_trial_id: string | null;
     }
 
     /**
