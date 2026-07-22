@@ -296,6 +296,18 @@ class TestOffsetPagination:
 
 
 class TestPaginationAbuseGuards:
+    def test_oversized_session_id_accumulation_raises(self):
+        # A host controls both the count and size of session ids returned while scoping the runs
+        # query; without a cumulative cap, accumulating every id would let a hostile host exhaust a
+        # shared worker's memory well before MAX_PAGES_PER_RUN ever trips.
+        manager = FakeManager()
+        huge_id = "x" * 50_000
+        page_size = LANGSMITH_ENDPOINTS["projects"].page_size
+
+        with mock.patch(_FETCH_PAGE, return_value=[{"id": huge_id} for _ in range(page_size)]):
+            with pytest.raises(LangSmithResponseTooLargeError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
     def test_repeated_runs_cursor_raises(self):
         # A host that hands back a cursor it already gave us would loop forever; the walk must bail
         # instead of spinning until the week-long activity timeout.

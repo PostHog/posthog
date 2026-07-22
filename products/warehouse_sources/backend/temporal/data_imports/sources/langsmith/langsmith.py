@@ -60,6 +60,13 @@ MAX_CURSOR_BYTES = 8 * 1024
 # make hitting this in one attempt take days.
 MAX_PAGES_PER_RUN = 50_000
 
+# Cap the total bytes of session ids accumulated while scoping the runs query. `host` is
+# user-controlled and returns arbitrary `id` strings on every project page, so without a cumulative
+# cap a host could return unboundedly many (or oversized) ids across thousands of pages — well
+# before MAX_PAGES_PER_RUN trips — and exhaust a shared import worker's memory. ~58k real UUIDs'
+# worth, far beyond any legitimate workspace's tracing-project count.
+MAX_SESSION_IDS_BYTES = 2 * 1024 * 1024
+
 
 class LangSmithRetryableError(Exception):
     pass
@@ -337,6 +344,7 @@ def _list_session_ids(
     """
     config = LANGSMITH_ENDPOINTS["projects"]
     ids: list[str] = []
+    ids_bytes = 0
     offset = 0
     pages = 0
     while True:
@@ -345,7 +353,17 @@ def _list_session_ids(
         rows = data if isinstance(data, list) else []
         if not rows:
             break
-        ids.extend(row["id"] for row in rows if row.get("id"))
+        for row in rows:
+            row_id = row.get("id")
+            if not row_id:
+                continue
+            ids.append(row_id)
+            ids_bytes += len(row_id.encode())
+            if ids_bytes > MAX_SESSION_IDS_BYTES:
+                raise LangSmithResponseTooLargeError(
+                    f"LangSmith returned an oversized set of tracing-project ids "
+                    f"(> {MAX_SESSION_IDS_BYTES} bytes) while scoping the runs query"
+                )
         if len(rows) < config.page_size:
             break
         offset += config.page_size
