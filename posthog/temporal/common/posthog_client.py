@@ -21,6 +21,16 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 
+def _is_benign_application_error(e: BaseException) -> bool:
+    """An activity or workflow can flag an expected, non-defect failure (a user-input condition,
+    not a bug) by raising an ApplicationError with category BENIGN. Temporal treats BENIGN as
+    "log at DEBUG, record no metrics"; we mirror that intent by keeping it out of error tracking."""
+    return (
+        isinstance(e, temporalio.exceptions.ApplicationError)
+        and e.category == temporalio.exceptions.ApplicationErrorCategory.BENIGN
+    )
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -66,11 +76,16 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
+            # Cancellations (worker drain, activity timeout, workflow cancellation), our own
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # rate limiter already records via record_outbound_decision), and activities that
+            # deliberately flag an expected failure as BENIGN are expected control flow, not
+            # defects — re-raise without reporting them to error tracking.
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or _is_benign_application_error(e)
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
@@ -106,6 +121,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if _is_benign_application_error(e):
+                raise  # Workflow flagged an expected, non-defect failure as BENIGN
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

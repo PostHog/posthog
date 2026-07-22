@@ -3,13 +3,17 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.run_wizard import (
+    WIZARD_FRAMEWORK_NOT_DETECTED_ERROR_TYPE,
     WIZARD_PACKAGE,
     WIZARD_RUN_TIMEOUT_SECONDS,
+    WIZARD_TIMEOUT_EXIT_CODE,
     _build_wizard_command,
     _format_wizard_output,
+    _wizard_failure_error,
     _wizard_region,
 )
 
@@ -51,6 +55,40 @@ class TestBuildWizardCommand(SimpleTestCase):
         ):
             assert _wizard_region() == expected
             assert f"--region {expected}" in _build_wizard_command("/tmp/workspace/repos/a/b", 1)
+
+    def test_no_error_on_success(self) -> None:
+        assert _wizard_failure_error(ExecutionResult(stdout="all done", stderr="", exit_code=0)) is None
+
+    def test_timeout_exit_is_a_generic_runtime_error(self) -> None:
+        error = _wizard_failure_error(ExecutionResult(stdout="", stderr="", exit_code=WIZARD_TIMEOUT_EXIT_CODE))
+
+        assert isinstance(error, RuntimeError) and not isinstance(error, ApplicationError)
+        assert "timed out" in str(error)
+
+    @parameterized.expand(
+        [
+            ("Could not auto-detect your framework",),
+            # Case-insensitive so a wizard casing tweak doesn't silently reclassify it as a defect.
+            ("ERROR: could not AUTO-DETECT YOUR FRAMEWORK in this repo",),
+        ]
+    )
+    def test_framework_not_detected_is_a_benign_non_retryable_application_error(self, stdout: str) -> None:
+        # The whole point of the fix: an unsupported repo is a user-input condition, so it must NOT
+        # surface as a bare RuntimeError (which the interceptor reports to error tracking). It must be
+        # a benign, non-retryable ApplicationError the interceptor skips.
+        error = _wizard_failure_error(ExecutionResult(stdout=stdout, stderr="", exit_code=1))
+
+        assert isinstance(error, ApplicationError)
+        assert error.type == WIZARD_FRAMEWORK_NOT_DETECTED_ERROR_TYPE
+        assert error.non_retryable is True
+        assert error.category == ApplicationErrorCategory.BENIGN
+
+    def test_other_non_zero_exit_is_a_generic_runtime_error(self) -> None:
+        # A genuinely unexpected failure stays a plain RuntimeError so it's still reported.
+        error = _wizard_failure_error(ExecutionResult(stdout="Something went wrong: boom", stderr="", exit_code=1))
+
+        assert type(error) is RuntimeError
+        assert "exit 1" in str(error) and "boom" in str(error)
 
     def test_format_wizard_output_captures_exit_code_stdout_and_stderr(self) -> None:
         # The agent reads this file to understand what the wizard did; dropping stderr (where wizard
