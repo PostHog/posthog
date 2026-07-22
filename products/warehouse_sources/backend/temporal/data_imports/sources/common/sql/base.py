@@ -32,6 +32,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    database_stats_enabled,
+    is_database_stats_schema,
+    maybe_append_database_stats_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -155,10 +160,25 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                     detected_primary_keys=detected_pks,
                 )
             )
-        return schemas
+        return maybe_append_database_stats_schemas(config, schemas, names)
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        # Both gates matter: the name alone must never hijack a user's own table that
+        # happens to be called database_stats_* on a source that hasn't opted in.
+        if database_stats_enabled(config) and is_database_stats_schema(inputs.schema_name):
+            return self.database_stats_source(config, inputs)
         return self.get_implementation.build_pipeline(config, inputs)
+
+    def database_stats_source(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        """Build the SourceResponse for one injected database-statistics schema.
+
+        Only reachable on sources that expose the ``database_stats`` toggle in their
+        config; such sources must override this with their engine's collectors (see
+        the Postgres source).
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} offers the database_stats toggle but implements no stats collectors"
+        )
 
     def reconcile_schema_metadata(
         self,

@@ -3624,7 +3624,7 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
         return PostgresSource()
 
     def _config(self):
-        return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
+        return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None, database_stats=None)
 
     @pytest.mark.parametrize(
         "exc",

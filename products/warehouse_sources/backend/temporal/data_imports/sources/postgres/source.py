@@ -18,6 +18,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -29,6 +30,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    database_stats_enabled,
+    is_database_stats_schema,
+    maybe_append_database_stats_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
@@ -61,6 +67,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     pg_connection,
     postgres_source,
     source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.stats import (
+    postgres_database_stats_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -297,6 +306,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         required=False,
                         placeholder="public",
                         secret=False,
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="database_stats",
+                        label="Sync database statistics",
+                        caption=(
+                            "Adds database_stats_* schemas that snapshot Postgres' own statistics catalogs "
+                            "(query, table, index, and server stats) on every sync, so you can query your "
+                            "database's health from the warehouse. Needs only read access — stats families "
+                            "your user can't read are skipped."
+                        ),
+                        default=False,
+                        fields=cast(list[FieldType], []),
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
@@ -962,7 +983,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 )
             )
 
-        return schemas
+        return maybe_append_database_stats_schemas(config, schemas, names)
 
     def validate_credentials(
         self,
@@ -1080,6 +1101,25 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             finally:
                 conn.close()
 
+    def database_stats_source(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        # The row is only needed for the SSL policy and the storage folder name; the
+        # collectors read Postgres' statistics catalogs, never a user table.
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        response = postgres_database_stats_source(
+            tunnel=self.make_ssh_tunnel_func(config, inputs.team_id),
+            user=config.user,
+            password=config.password,
+            database=config.database,
+            schema_name=inputs.schema_name,
+            require_ssl=source_requires_ssl(schema.source, config),
+            logger=inputs.logger,
+        )
+        storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name
+        response.name = NamingConvention.normalize_identifier(storage_schema_name)
+        return response
+
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
@@ -1087,6 +1127,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ForeignServerUnreachableError,
             PostHogDatabaseConnectionError,
         )
+
+        # Same gates as the SQLSource base (which this override replaces wholesale):
+        # toggle + name, so a user's own table named database_stats_* can't be hijacked
+        # on sources that haven't opted in.
+        if database_stats_enabled(config) and is_database_stats_schema(inputs.schema_name):
+            return self.database_stats_source(config, inputs)
 
         ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
