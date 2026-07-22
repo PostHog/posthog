@@ -626,6 +626,19 @@ describe('onboardingLogic — flow composition', () => {
             expect(router.values.searchParams.step).toBeUndefined()
         })
 
+        it('resolves ?step=install via a secondary product when conversations is picked with others', async () => {
+            // The most common real-world selection shape: conversations alongside another
+            // product. The flow then contains the secondary's install step and the bare key
+            // loose-matches it — reconciliation must not fire, and loose matching must not
+            // be scoped to the primary product's own steps.
+            router.actions.push('/onboarding/conversations?step=install&with=logs')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('install')
+            expect(logic.values.currentFlowStep?.id).toBe('install:logs')
+            expect(router.values.searchParams.step).toBe('install')
+        })
+
         it('keeps waiting on ?step=plans while billing has not loaded (async-appended step)', async () => {
             // `plans` joins the flow only after billing loads; reconciling it away would
             // permanently lose the requested step (e.g. the post-upgrade round-trip
