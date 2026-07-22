@@ -736,8 +736,16 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (primary === ProductKey.ERROR_TRACKING) {
                 teamLogic.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
             }
-            // Support has no onboarding screen; enable the product on completion so it's live on arrival.
-            if (primary === ProductKey.CONVERSATIONS) {
+            // Support has no onboarding screen; enable the product on completion so it's live
+            // on arrival. Selecting it in either slot is the consent signal: its provider emits
+            // zero steps, so the visited-step crediting below can never cover it and a secondary
+            // selection would otherwise be dropped entirely. The field is project-admin-gated
+            // server-side, so for non-admins this PATCH is rejected (onboarding is effectively
+            // always driven by an owner or an admin-level delegation invite).
+            if (
+                primary === ProductKey.CONVERSATIONS ||
+                values.secondaryProductKeys.includes(ProductKey.CONVERSATIONS)
+            ) {
                 teamLogic.actions.updateCurrentTeam({ conversations_enabled: true })
             }
             // Only mark a product as fully onboarded when the user actually visited at

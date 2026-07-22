@@ -490,6 +490,54 @@ describe('onboardingLogic — flow composition', () => {
         })
     })
 
+    describe('completeOnboarding — conversations enablement', () => {
+        // Conversations has no onboarding steps, so enablement rides on completion. It must
+        // fire for BOTH slots: as primary, and as a secondary (where the visited-step credit
+        // can never cover it because it contributes no steps to visit).
+        it.each([
+            ['primary', (): void => logic.actions.setProductKey(ProductKey.CONVERSATIONS)],
+            [
+                'secondary',
+                (): void => {
+                    logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+                    logic.actions.setSecondaryProductKeys([ProductKey.CONVERSATIONS])
+                },
+            ],
+        ])('enables conversations on completion when selected as %s', async (_slot, setup) => {
+            setup()
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.updateCurrentTeam &&
+                    (action.payload as Record<string, unknown>)?.conversations_enabled === true,
+            ])
+        })
+
+        it('does not touch conversations_enabled when conversations was not selected', async () => {
+            // Guards against the enable becoming unconditional — that would silently turn
+            // Support on for every team completing any product's onboarding.
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            const patches: Record<string, unknown>[] = []
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type === logic.actionTypes.updateCurrentTeam) {
+                        patches.push(action.payload as Record<string, unknown>)
+                    }
+                    // The completion PATCH (has_completed_onboarding_for) is the tail of the
+                    // synchronous completion path — stop matching there.
+                    return (
+                        action.type === logic.actionTypes.updateCurrentTeam &&
+                        !!(action.payload as Record<string, unknown>)?.has_completed_onboarding_for
+                    )
+                },
+            ])
+            expect(patches.some((patch) => 'conversations_enabled' in (patch ?? {}))).toBe(false)
+        })
+    })
+
     describe('completeContextOnboarding', () => {
         it('persists both onboarding completion signals', async () => {
             await expectLogic(logic, () => {
