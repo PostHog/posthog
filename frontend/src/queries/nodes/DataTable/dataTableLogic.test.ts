@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import { dataTableLogic, dedupeRowKeys } from '~/queries/nodes/DataTable/dataTableLogic'
 import { performQuery } from '~/queries/query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -599,6 +599,18 @@ describe('dataTableLogic', () => {
             expect(logic.values.getExpandedRowKey({ result: ['pageview', ts] }, 1)).toBe('ix:1')
             logic.actions.toggleRowExpanded('ix:1')
             expect(logic.values.expandedRowKeys).toEqual(['ix:1'])
+        })
+
+        it('disambiguates duplicate event ids so React row keys never collide', () => {
+            // Regression: ClickHouse can return the same uuid twice (at-least-once delivery /
+            // pre-merge ReplacingMergeTree), and identical React keys drop or mis-render rows.
+            expect(dedupeRowKeys(['id:a', 'id:b', 'id:a', 'id:a', 'id:b'])).toEqual([
+                'id:a',
+                'id:b',
+                'id:a#1',
+                'id:a#2',
+                'id:b#1',
+            ])
         })
     })
 })
