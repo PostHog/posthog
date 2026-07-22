@@ -2,7 +2,9 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import QualysVmdrSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualysvmdr import (
+    QualysVmdrSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
     QualysVmdrResumeConfig,
 )

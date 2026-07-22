@@ -20,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
+    LinkedinAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-from .client import LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
+from .client import API_VERSION, LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 module_logger = structlog.get_logger(__name__)
@@ -152,7 +154,9 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
-def linkedin_ads_client_for_integration(integration_id: int, team_id: int) -> LinkedinAdsClient:
+def linkedin_ads_client_for_integration(
+    integration_id: int, team_id: int, api_version: str = API_VERSION
+) -> LinkedinAdsClient:
     """Initialize a LinkedIn Ads client from an OAuth integration id."""
     integration = _get_integration(integration_id, team_id)
 
@@ -169,12 +173,14 @@ def linkedin_ads_client_for_integration(integration_id: int, team_id: int) -> Li
 
     if not integration.access_token:
         raise LinkedinAdsMissingTokenError("LinkedIn Ads integration does not have an access token")
-    return LinkedinAdsClient(integration.access_token)
+    return LinkedinAdsClient(integration.access_token, api_version=api_version)
 
 
-def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
+def linkedin_ads_client(
+    config: LinkedinAdsSourceConfig, team_id: int, api_version: str = API_VERSION
+) -> LinkedinAdsClient:
     """Initialize a LinkedIn Ads client with provided config."""
-    return linkedin_ads_client_for_integration(config.linkedin_ads_integration_id, team_id)
+    return linkedin_ads_client_for_integration(config.linkedin_ads_integration_id, team_id, api_version=api_version)
 
 
 def linkedin_ads_source(
@@ -187,6 +193,7 @@ def linkedin_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    api_version: str = API_VERSION,
 ) -> SourceResponse:
     """A data warehouse LinkedIn Ads source.
 
@@ -197,7 +204,7 @@ def linkedin_ads_source(
     schema = get_schemas()[resource_name]
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        client = linkedin_ads_client(config, team_id)
+        client = linkedin_ads_client(config, team_id, api_version=api_version)
         resource = LinkedinAdsResource(resource_name)
 
         # Determine date range for analytics resources

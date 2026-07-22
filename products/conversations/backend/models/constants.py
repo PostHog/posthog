@@ -36,6 +36,12 @@ class Priority(models.TextChoices):
     LOW = "low", "Low"
     MEDIUM = "medium", "Medium"
     HIGH = "high", "High"
+    CRITICAL = "critical", "Critical"
+
+
+class OrganizationIdSource(models.TextChoices):
+    PERSON = "person", "Requester identity"
+    SLACK_CHANNEL_ACCOUNT = "slack_channel_account", "Slack channel account"
 
 
 class RuleType(models.TextChoices):

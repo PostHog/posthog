@@ -78,6 +78,7 @@ function isContextItem(item: InspectorListItem): boolean {
         'inactivity',
         'session-change',
         'experiment-variant',
+        'metric-event',
     ].includes(item.type)
 }
 

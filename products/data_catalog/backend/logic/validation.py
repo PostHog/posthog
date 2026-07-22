@@ -57,13 +57,16 @@ class _TableReferenceCollector(TraversingVisitor):
 
 
 def _fail(error: str, hint: str) -> NoReturn:
-    raise ValidationError({"field": "definition", "error": error, "hint": hint})
+    # Keyed by the offending field with a single string message: the exceptions_hog handler
+    # renders that as attr="definition" + the full text; any richer dict shape strips the
+    # message (or 500s) on its way through the HTTP envelope.
+    raise ValidationError({"definition": f"{error} {hint}"})
 
 
 def validate_metric_definition(definition: dict, team: Team, user: Optional[User] = None) -> tuple[dict, list[str]]:
     """Validate a metric definition and return ``(canonical_definition, referenced_table_names)``.
 
-    Raises :class:`ValidationError` with a structured ``{field, error, hint}`` body on any problem.
+    Raises :class:`ValidationError` keyed by the ``definition`` field on any problem.
     """
     if not isinstance(definition, dict) or not definition.get("kind"):
         _fail("A definition must be a query object with a 'kind'.", "Provide a HogQLQuery, TrendsQuery, or event node.")

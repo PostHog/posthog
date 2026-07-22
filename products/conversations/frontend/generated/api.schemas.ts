@@ -152,7 +152,7 @@ export interface TaskUserBasicInfoApi {
 /**
  * @nullable
  */
-export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
+export type ConversationTaskApiJsonSchema = { [key: string]: unknown } | null
 
 /**
  * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
@@ -162,7 +162,7 @@ export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
  * Read access here follows the conversation (the share-by-link unit), not per-creator task
  * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
  */
-export interface TaskDetailDTOApi {
+export interface ConversationTaskApi {
     id: string
     /** @nullable */
     task_number: number | null
@@ -185,7 +185,7 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     signal_report: string | null
     /** @nullable */
-    json_schema: TaskDetailDTOApiJsonSchema
+    json_schema: ConversationTaskApiJsonSchema
     internal: boolean
     archived: boolean
     /** @nullable */
@@ -245,7 +245,7 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly slack_workspace_domain: string | null
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 export interface PaginatedConversationMinimalListApi {
@@ -383,7 +383,7 @@ export interface ConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 /**
@@ -454,7 +454,7 @@ export interface PatchedConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
-    readonly task?: TaskDetailDTOApi | null
+    readonly task?: ConversationTaskApi | null
 }
 
 /**
@@ -483,6 +483,10 @@ export const SandboxAttachedContextItemTypeEnumApi = {
 
 /**
  * One typed attachment carried by a sandbox message.
+ *
+ * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+ * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+ * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
  */
 export interface SandboxAttachedContextItemApi {
     /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
@@ -629,6 +633,7 @@ export const TicketStatusEnumApi = {
  * * `low` - Low
  * * `medium` - Medium
  * * `high` - High
+ * * `critical` - Critical
  */
 export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
@@ -636,6 +641,7 @@ export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
+    Critical: 'critical',
 } as const
 
 /**
@@ -692,11 +698,12 @@ export interface TicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -754,6 +761,11 @@ export interface TicketApi {
      * @nullable
      */
     readonly organization_id: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -784,11 +796,12 @@ export interface PatchedTicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -846,6 +859,11 @@ export interface PatchedTicketApi {
      * @nullable
      */
     readonly organization_id?: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -1042,6 +1060,8 @@ export interface TicketViewApi {
     filters?: TicketViewApiFilters
     readonly created_at: string
     readonly created_by: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
 }
 
 export interface PaginatedTicketViewListApi {
@@ -1067,6 +1087,8 @@ export interface PatchedTicketViewApi {
     filters?: PatchedTicketViewApiFilters
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
 }
 
 export interface ZendeskImportStartApi {
@@ -1171,7 +1193,7 @@ export type ConversationsListParams = {
 
 export type ConversationsTicketsListParams = {
     /**
-     * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
+     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string
     /**
@@ -1207,7 +1229,7 @@ export type ConversationsTicketsListParams = {
      */
     order_by?: string
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string
     /**

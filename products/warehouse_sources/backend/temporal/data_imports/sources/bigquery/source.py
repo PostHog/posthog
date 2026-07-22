@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_API_VERSION_V2,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
@@ -22,10 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     build_destination_table_prefix,
     validate_bigquery_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQuerySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 __all__ = ["BigQuerySource", "build_destination_table_prefix"]
@@ -35,6 +41,11 @@ _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
+    # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;
+    # new sources start on v2. Both resolve to the same /bigquery/v2/ REST endpoint, so the default
+    # bump leaves existing syncs byte-for-byte unchanged.
+    supported_versions = (UNVERSIONED_API_VERSION, BIGQUERY_API_VERSION_V2)
+    default_version = BIGQUERY_API_VERSION_V2
     api_docs_url = "https://cloud.google.com/bigquery/docs/release-notes"
 
     @property
@@ -252,7 +263,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         }
 
     def validate_credentials(
-        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
@@ -282,6 +297,10 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             iconPath="/static/services/bigquery.png",
+            caption=(
+                "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+            ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],

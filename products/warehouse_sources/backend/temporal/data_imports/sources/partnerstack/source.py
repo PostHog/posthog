@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PartnerStackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerstack import (
+    PartnerStackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.partnerstack import (
     PartnerStackResumeConfig,
     partnerstack_source,
@@ -101,6 +103,7 @@ You can find your **public key** and **private key** under **Settings → Integr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — we don't ship incremental sync for PartnerStack, so
         # there is no cursor to advance across syncs.
@@ -119,7 +122,11 @@ You can find your **public key** and **private key** under **Settings → Integr
         return schemas
 
     def validate_credentials(
-        self, config: PartnerStackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PartnerStackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The key pair is account-wide, so a single probe validates access to every schema.
         return _validate_credentials(config.public_key, config.private_key)
@@ -140,6 +147,8 @@ You can find your **public key** and **private key** under **Settings → Integr
             public_key=config.public_key,
             private_key=config.private_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every PartnerStack endpoint is full refresh
         )

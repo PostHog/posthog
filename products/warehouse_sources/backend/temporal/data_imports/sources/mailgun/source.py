@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailgunSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
+    MailgunSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
     MailgunResumeConfig,
     mailgun_source,
@@ -108,6 +110,7 @@ Note: Mailgun only retains events for a limited period (1 day on free plans, up 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -126,7 +129,11 @@ Note: Mailgun only retains events for a limited period (1 day on free plans, up 
         return schemas
 
     def validate_credentials(
-        self, config: MailgunSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailgunSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_mailgun_credentials(config.api_key, config.region):
             return True, None

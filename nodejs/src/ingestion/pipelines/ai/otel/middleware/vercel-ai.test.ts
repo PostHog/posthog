@@ -306,6 +306,67 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_prompt_version']).toBeUndefined()
             expect(event.properties!['ai.telemetry.metadata.$ai_prompt_version']).toBeUndefined()
         })
+
+        it('promotes ai.telemetry.metadata.$groups so the mapper can parse it', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$groups': '{"organization":"org-1"}',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$groups']).toBe('{"organization":"org-1"}')
+            expect(event.properties!['ai.telemetry.metadata.$groups']).toBeUndefined()
+        })
+
+        it.each(['', 42, true, ['org-1']])('does not promote invalid groups metadata %p', (metadataGroups) => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$groups': metadataGroups,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$groups']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.metadata.$groups']).toBeUndefined()
+        })
+
+        it('preserves a directly-set $groups attribute over telemetry metadata', () => {
+            const directGroups = '{"organization":"direct-org"}'
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                $groups: directGroups,
+                'ai.telemetry.metadata.$groups': '{"organization":"metadata-org"}',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$groups']).toBe(directGroups)
+            expect(event.properties!['ai.telemetry.metadata.$groups']).toBeUndefined()
+        })
+
+        it.each([
+            ['custom-span', 'custom-span'],
+            ['', 'my-func'],
+        ])('span-name metadata %p overrides the functionId-derived name to %p', (metadataName, expectedSpanName) => {
+            const event = createEvent('$ai_trace', {
+                'ai.telemetry.functionId': 'my-func',
+                'ai.telemetry.metadata.$ai_span_name': metadataName,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe(expectedSpanName)
+            expect(event.properties!['ai.telemetry.metadata.$ai_span_name']).toBeUndefined()
+        })
+
+        it('does not apply span-name metadata to a provider generation span', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                $ai_span_name: 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$ai_span_name': 'custom-span',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe('ai.generateText.doGenerate')
+            expect(event.properties!['ai.telemetry.metadata.$ai_span_name']).toBeUndefined()
+        })
     })
 
     describe('$ai_trace (top-level span)', () => {

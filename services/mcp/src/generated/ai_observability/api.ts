@@ -1614,6 +1614,7 @@ export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
+export const llmPromptsNameRetrieveQueryLabelMax = 128
 
 export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
     content: zod
@@ -1621,6 +1622,14 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .default(llmPromptsNameRetrieveQueryContentDefault)
         .describe(
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsNameRetrieveQueryLabelMax)
+        .optional()
+        .describe(
+            "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
         ),
     version: zod
         .number()
