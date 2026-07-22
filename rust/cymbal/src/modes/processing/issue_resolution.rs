@@ -5,6 +5,7 @@ use common_kafka::kafka_producer::{
     send_iter_to_kafka, send_keyed_iter_to_kafka, KafkaProduceError,
 };
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::core::types::notification::{
@@ -13,7 +14,17 @@ use crate::core::types::notification::{
 };
 use crate::modes::processing::rules::assignment::{Assignee, Assignment};
 use crate::types::ProcessedExceptionProperties;
-use crate::{app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED};
+use crate::{
+    app_context::AppContext,
+    error::UnhandledError,
+    metric_consts::{
+        ISSUE_CREATED_EVENT_PROPERTIES_BYTES, ISSUE_CREATED_EVENT_PROPERTIES_STORED,
+        ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED,
+        ISSUE_REOPENED,
+    },
+};
+
+const ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX: &str = "error_tracking:event_properties:v1";
 
 #[derive(Debug, Clone)]
 pub struct IssueFingerprintOverride {
@@ -371,6 +382,15 @@ pub async fn send_issue_created_notification(
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     let fingerprint = processed_properties.fingerprint().to_string();
+    store_error_tracking_event_properties(
+        &*context.issue_buckets_redis_client,
+        context.config.event_properties_ttl_seconds,
+        context.config.event_properties_max_bytes,
+        issue.team_id,
+        event_uuid,
+        &processed_properties,
+    )
+    .await;
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueCreated(IssueCreated {
@@ -383,6 +403,48 @@ pub async fn send_issue_created_notification(
         }),
     )
     .await
+}
+
+fn error_tracking_event_properties_key(team_id: i32, event_uuid: Uuid) -> String {
+    format!("{ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX}:{team_id}:{event_uuid}")
+}
+
+async fn store_error_tracking_event_properties(
+    redis: &(dyn common_redis::Client + Send + Sync),
+    ttl_seconds: u64,
+    max_bytes: usize,
+    team_id: i32,
+    event_uuid: Uuid,
+    processed_properties: &ProcessedExceptionProperties,
+) {
+    let key = error_tracking_event_properties_key(team_id, event_uuid);
+    let payload = match serde_json::to_vec(processed_properties) {
+        Ok(payload) => payload,
+        Err(error) => {
+            metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "serialization").increment(1);
+            warn!(team_id, event_uuid = %event_uuid, error = %error, "failed to serialize issue-created event properties");
+            return;
+        }
+    };
+
+    metrics::histogram!(ISSUE_CREATED_EVENT_PROPERTIES_BYTES).record(payload.len() as f64);
+    if payload.len() > max_bytes {
+        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED, "reason" => "payload_too_large")
+            .increment(1);
+        return;
+    }
+
+    if let Err(error) = redis
+        .set_bytes(key.clone(), payload, Some(ttl_seconds))
+        .await
+    {
+        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "redis")
+            .increment(1);
+        warn!(team_id, event_uuid = %event_uuid, error = %error, "failed to store issue-created event properties");
+        return;
+    }
+
+    metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORED).increment(1);
 }
 
 pub async fn send_issue_reopened_notification(
@@ -510,7 +572,13 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::{modes::processing::rules::assignment::Assignee, sanitize_string};
+    use common_redis::{MockRedisClient, MockRedisValue};
+    use uuid::Uuid;
+
+    use crate::{
+        modes::processing::rules::assignment::Assignee, sanitize_string,
+        types::ProcessedExceptionProperties,
+    };
 
     #[test]
     fn it_replaces_null_characters() {
@@ -523,5 +591,89 @@ mod test {
         let assignee = Assignee::User(1234);
         let stringified_assignee = serde_json::to_string(&assignee).unwrap();
         assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
+    }
+
+    #[test]
+    fn error_tracking_event_properties_keys_are_tenant_scoped_and_deterministic() {
+        let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
+
+        assert_eq!(
+            super::error_tracking_event_properties_key(42, event_uuid),
+            "error_tracking:event_properties:v1:42:01982721-5e00-7000-8000-000000000001"
+        );
+    }
+
+    #[tokio::test]
+    async fn stores_full_event_properties_as_raw_json_with_a_ttl() {
+        let redis = MockRedisClient::new();
+        let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
+        let properties_json = serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom 💥"}],
+            "$exception_fingerprint": "abc",
+            "$exception_fingerprint_record": [{"type": "manual"}],
+            "$exception_issue_id": Uuid::nil(),
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom 💥"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+            "custom": {"nested": [1, null, true]},
+        });
+        let properties: ProcessedExceptionProperties =
+            serde_json::from_value(properties_json.clone()).unwrap();
+
+        super::store_error_tracking_event_properties(
+            &redis,
+            172_800,
+            1_048_576,
+            42,
+            event_uuid,
+            &properties,
+        )
+        .await;
+
+        let calls = redis.get_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].op, "set_bytes");
+        match &calls[0].value {
+            MockRedisValue::Bytes(payload, Some(172_800)) => {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
+                    properties_json
+                );
+            }
+            value => panic!("unexpected Redis value: {value:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn skips_event_properties_that_exceed_the_size_limit() {
+        let redis = MockRedisClient::new();
+        let properties_json = serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom"}],
+            "$exception_fingerprint": "abc",
+            "$exception_fingerprint_record": [{"type": "manual"}],
+            "$exception_issue_id": Uuid::nil(),
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+            "custom": "x".repeat(1024),
+        });
+        let properties: ProcessedExceptionProperties =
+            serde_json::from_value(properties_json).unwrap();
+
+        super::store_error_tracking_event_properties(
+            &redis,
+            172_800,
+            128,
+            42,
+            Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap(),
+            &properties,
+        )
+        .await;
+
+        assert!(redis.get_calls().is_empty());
     }
 }

@@ -71,6 +71,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 
@@ -104,7 +105,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         )
 
     def validate_credentials(
-        self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GoogleSheetsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         client = google_sheets_client()
         try:

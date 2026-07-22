@@ -14,7 +14,7 @@ import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 
 import { AlertAdvancedOptions } from './AlertAdvancedOptions'
 import { AlertDefinitionRow, AlertNextEvaluationStatus, AlertTimezoneNotice } from './AlertDefinition'
-import { AlertEditor, AlertEditorFormDetails, AlertEditorSection } from './AlertEditor'
+import { AlertEditor, AlertEditorFormDetails, AlertEditorLoading, AlertEditorSection } from './AlertEditor'
 import {
     AlertEvaluationHistoryChart,
     AlertEvaluationHistoryPoint,
@@ -79,6 +79,14 @@ function EditorStory(): JSX.Element {
                     </div>
                 </AlertEditor>
             </Form>
+        </div>
+    )
+}
+
+function EditorLoadingStory(): JSX.Element {
+    return (
+        <div className="max-w-3xl overflow-hidden rounded border bg-surface-primary">
+            <AlertEditorLoading title="Edit alert" onBack={() => {}} />
         </div>
     )
 }
@@ -281,6 +289,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Editor: Story = { render: () => <EditorStory /> }
+export const EditorLoading: Story = {
+    render: () => <EditorLoadingStory />,
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }

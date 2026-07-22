@@ -15,9 +15,14 @@ export function usePagination<T>(
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
+    const syncPageToUrl = !(pagination?.controlled && pagination.useUrl === false)
     const setCurrentPage = useCallback(
-        (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
-        [location, searchParams, hashParams, push] // oxlint-disable-line react-hooks/exhaustive-deps
+        (newPage: number) => {
+            if (syncPageToUrl) {
+                push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams)
+            }
+        },
+        [location, searchParams, hashParams, push, syncPageToUrl] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
