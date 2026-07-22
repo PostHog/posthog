@@ -320,8 +320,15 @@ def _handle_project_set(
             f"(id `{target.team_id}`) in this workspace."
         )
         if command_prefix == "@PostHog":
+            # The mention (and its project id) is already public, so a visible reply
+            # exposes nothing new — and it's the only reply the user reliably sees.
             text += " What would you like to work on? Mention me with a task and I'll get started."
-        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+        else:
+            # A slash invocation is private to the invoker; don't let its no-op
+            # confirmation leak project metadata into the channel. The empty
+            # thread anchor puts the ephemeral at channel root, where it's visible.
+            slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
         return
 
     SlackSettings.objects.update_or_create(

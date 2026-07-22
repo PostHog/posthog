@@ -84,12 +84,15 @@ class TestHandleProjectSet:
         assert "already connected" in text
         assert not SlackSettings.objects.filter(slack_workspace_id="T_WS", slack_user_id="U1").exists()
 
-    def test_slash_surface_confirmation_omits_mention_invite(self):
+    def test_slash_surface_confirmation_is_ephemeral_without_mention_invite(self):
         self._run(self.team.id, [self.integration], command_prefix="/posthog")
 
-        text = self.slack.client.chat_postMessage.call_args.kwargs["text"]
+        text = self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
         assert "already connected" in text
         assert "Mention me" not in text
+        # A slash invocation is invisible to the channel, so the confirmation
+        # must not post project metadata publicly.
+        self.slack.client.chat_postMessage.assert_not_called()
 
     def test_switching_to_different_project_still_sets_default(self):
         second = self._second_integration()
