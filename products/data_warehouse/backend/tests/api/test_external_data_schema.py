@@ -2245,23 +2245,22 @@ class TestUpdateExternalDataSchema:
             },
         )
 
-        with mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.Database.create_for"):
-            response = client.patch(
-                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
-                data={
-                    "id": str(schema.id),
-                    "name": schema.name,
-                    "should_sync": False,
-                    "incremental": False,
-                    "status": "Completed",
-                    "sync_type": None,
-                    "incremental_field": None,
-                    "incremental_field_type": None,
-                    "sync_frequency": "6hour",
-                    "sync_time_of_day": "00:00:00",
-                },
-                content_type="application/json",
-            )
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "id": str(schema.id),
+                "name": schema.name,
+                "should_sync": False,
+                "incremental": False,
+                "status": "Completed",
+                "sync_type": None,
+                "incremental_field": None,
+                "incremental_field_type": None,
+                "sync_frequency": "6hour",
+                "sync_time_of_day": "00:00:00",
+            },
+            content_type="application/json",
+        )
 
         assert response.status_code == 200
         schema.refresh_from_db()
@@ -2370,23 +2369,22 @@ class TestUpdateExternalDataSchema:
             },
         )
 
-        with mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.Database.create_for"):
-            response = client.patch(
-                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
-                data={
-                    "id": str(schema.id),
-                    "name": schema.name,
-                    "should_sync": False,
-                    "incremental": False,
-                    "status": "Completed",
-                    "sync_type": None,
-                    "incremental_field": None,
-                    "incremental_field_type": None,
-                    "sync_frequency": "6hour",
-                    "sync_time_of_day": "00:00:00",
-                },
-                content_type="application/json",
-            )
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "id": str(schema.id),
+                "name": schema.name,
+                "should_sync": False,
+                "incremental": False,
+                "status": "Completed",
+                "sync_type": None,
+                "incremental_field": None,
+                "incremental_field_type": None,
+                "sync_frequency": "6hour",
+                "sync_time_of_day": "00:00:00",
+            },
+            content_type="application/json",
+        )
 
         assert response.status_code == 200
         schema.refresh_from_db()
