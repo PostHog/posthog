@@ -122,6 +122,10 @@ class _DuckgresSessionCache:
     IDLE_TTL_SECONDS = 90.0
     MAX_AGE_SECONDS = 600.0
     SWEEP_INTERVAL_SECONDS = 30.0
+    # Retained sessions pin duckgres workers, so cap them per org: even a burst
+    # of sequentially drained groups can never hold more than this many of an
+    # org's connections beyond its active leases (per consumer pod).
+    MAX_SESSIONS_PER_ORG = 4
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -151,11 +155,19 @@ class _DuckgresSessionCache:
     ) -> None:
         self._ensure_sweeper()
         key = (org_id, team_id, schema_id)
+        overflow = []
         with self._lock:
             previous = self._entries.get(key)
             self._entries[key] = (conn, created_at, time.monotonic())
+            org_keys = [k for k in self._entries if k[0] == org_id]
+            if len(org_keys) > self.MAX_SESSIONS_PER_ORG:
+                org_keys.sort(key=lambda k: self._entries[k][2])  # oldest last-use first
+                for stale_key in org_keys[: len(org_keys) - self.MAX_SESSIONS_PER_ORG]:
+                    overflow.append(self._entries.pop(stale_key))
         if previous is not None and previous[0] is not conn:
             self._close_quietly(previous[0])
+        for other_conn, _, _ in overflow:
+            self._close_quietly(other_conn)
 
     def _ensure_sweeper(self) -> None:
         # Lazy start: this module is imported by processes that never run the
@@ -229,6 +241,9 @@ def process_batch(batch: PendingBatch) -> None:
         schema = job.schema
 
     kind = "backfill" if _is_backfill_batch(batch) else "live"
+    # One ORM lookup serves both the cache key and the connection config; it is
+    # per-batch on purpose so the key always reflects the team's CURRENT org.
+    org_id = str(Team.objects.only("organization_id").get(id=batch.team_id).organization_id)
     timings: dict[str, float] = {}
     # Connect + session + secret is a fixed cost; measured as one phase so the
     # connection-reuse win is visible against the apply itself (a cache hit
@@ -239,7 +254,7 @@ def process_batch(batch: PendingBatch) -> None:
         # Backfills are rare, long, and chunk-coalesced already — keep the
         # simple fresh-connection lifecycle.
         try:
-            with _connect_to_duckgres(batch.team_id) as conn:
+            with _connect_to_duckgres(org_id) as conn:
                 # The sink only reads parquet over S3; httpfs is bundled in the duckgres
                 # worker image so INSTALL is a local no-op. Do NOT add extensions that are
                 # not bundled (e.g. delta): egress-restricted workers silently drop the
@@ -256,14 +271,10 @@ def process_batch(batch: PendingBatch) -> None:
                 _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
         return
 
-    # Resolve the CURRENT org on every batch: it is part of the cache key, so
-    # a team moved between organizations gets a fresh connection to the new
-    # org's warehouse and the old entry ages out via the sweeper.
-    org_id = str(Team.objects.only("organization_id").get(id=batch.team_id).organization_id)
     conn, session_created_at = _session_cache.acquire(org_id, batch.team_id, batch.schema_id)
     try:
         if conn is None:
-            conn = _connect_to_duckgres(batch.team_id)
+            conn = _connect_to_duckgres(org_id)
             setup_duckgres_session(conn, extensions=("httpfs",))
             _create_extract_read_secret(conn)
         _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
@@ -297,9 +308,8 @@ def _log_applied_by_concurrent_processor(batch: PendingBatch) -> None:
     )
 
 
-def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
-    team = Team.objects.only("organization_id").get(id=team_id)
-    config = get_duckgres_config_for_org(str(team.organization_id))
+def _connect_to_duckgres(org_id: str) -> psycopg.Connection[Any]:
+    config = get_duckgres_config_for_org(org_id)
     return psycopg.connect(
         host=config["DUCKGRES_HOST"],
         port=config["DUCKGRES_PORT"],

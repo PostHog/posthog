@@ -706,3 +706,27 @@ class TestLiveSessionReuse:
             process_batch(_make_batch(batch_index=2))
 
         assert mock_connect.call_count == 2
+
+    def test_per_org_session_cap_evicts_the_oldest_entry(self):
+        # hex-security follow-up: retained sessions must never accumulate past
+        # a small per-org bound, even across many sequentially drained groups —
+        # each cached session pins a duckgres worker.
+        conns = [MagicMock() for _ in range(5)]
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = conns
+            for i in range(5):
+                process_batch(_make_batch(schema_id=f"schema-{i}"))
+
+        assert len(_session_cache._entries) == 4
+        conns[0].close.assert_called_once()
+        for c in conns[1:]:
+            c.close.assert_not_called()
+
+    def test_cache_miss_resolves_the_team_once(self):
+        # greptile follow-up: org resolution feeds both the cache key and the
+        # connection config — one ORM lookup per batch, not two.
+        with self._connect_patch() as mock_connect:
+            mock_connect.return_value = MagicMock()
+            process_batch(_make_batch(batch_index=1))
+
+        assert self.mock_team.objects.only.return_value.get.call_count == 1
