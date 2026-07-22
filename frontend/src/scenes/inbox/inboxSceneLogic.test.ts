@@ -10,6 +10,7 @@ function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRu
         skill_name: 'signals-scout-error-tracking',
         skill_version: 1,
         status: 'completed',
+        metadata: {},
         created_at: '2026-06-11T10:00:00Z',
         started_at: '2026-06-11T10:00:00Z',
         completed_at: null,
