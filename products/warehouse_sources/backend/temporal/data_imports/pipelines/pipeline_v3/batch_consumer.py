@@ -646,12 +646,12 @@ class BatchConsumer:
         (OwnershipLostError) even though this pod is healthily draining it;
         the abandoned backlog then churns between pods at ~50% duty cycle.
         Renewing on entry keeps the lease alive for as long as we keep
-        processing. ``renew_lease`` extends the lease only while this pod still
-        owns the row, so a group another pod has reclaimed still raises; reviving
-        an expired-but-unclaimed lease is race-free because the claim upsert can
-        only take it over on owner-token match or after expiry. Must run before
-        the executing-status write; the post-process and pre-commit checks stay
-        pure fail-closed verifies (``_verify_ownership``).
+        processing. ``renew_lease`` extends a lease that is still live *and*
+        still ours, so it never resurrects one that lapsed (the recovery sweep
+        may already have re-queued the group) and never steals one another pod
+        reclaimed — both raise. Must run before the executing-status write; the
+        post-process and pre-commit checks stay pure fail-closed verifies
+        (``_verify_ownership``).
         """
         if lock_conn is None:
             return

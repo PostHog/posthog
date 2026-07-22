@@ -371,15 +371,15 @@ class TestProcessGroup:
         # per-batch work advances; a pure-verify entry check drops the tail.
         consumer = _make_consumer(recovery_grace_seconds=300, lease_ttl_seconds=300)
         clock = {"now": 0.0}
-        lease: dict[str, Any] = {"owner": None, "expires_at": 0.0}
+        # The claim that produced these batches already leased the group to this pod.
+        lease: dict[str, Any] = {"owner": consumer._owner_token, "expires_at": 300.0}
         order: list[int] = []
 
         async def fake_renew(conn, *, team_id, schema_id, owner_token, lease_ttl_seconds):
-            # Mirrors "UPDATE ... WHERE owner_token = ours": succeeds while this pod
-            # still holds the row (reviving an expired-but-unclaimed lease), pushing
-            # expiry to now + ttl; fails once another pod has reclaimed it.
-            if lease["owner"] in (None, owner_token):
-                lease["owner"] = owner_token
+            # Mirrors "UPDATE ... WHERE owner_token = ours AND expires_at > now()":
+            # extends a live lease we still hold, fails once it lapses or another
+            # pod reclaims it (an expired lease is never resurrected here).
+            if lease["owner"] == owner_token and lease["expires_at"] > clock["now"]:
                 lease["expires_at"] = clock["now"] + lease_ttl_seconds
                 return True
             return False

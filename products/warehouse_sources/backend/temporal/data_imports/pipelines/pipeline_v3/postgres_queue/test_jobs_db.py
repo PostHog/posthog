@@ -537,6 +537,20 @@ class TestBatchQueueLeaseRenewal:
         assert renewed is False, "a non-owner cannot renew the lease"
 
     @pytest.mark.asyncio
+    async def test_renew_returns_false_for_expired_lease(self, conn):
+        await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=-1)
+
+        renewed = await BatchQueue.renew_lease(
+            conn, team_id=1, schema_id="s1", owner_token=OWNER_A, lease_ttl_seconds=300
+        )
+
+        # An expired lease is dead even for its original owner: the recovery sweep
+        # may already have re-queued the group, so reviving it here would let the
+        # old owner keep processing batches another pod can now claim. The only way
+        # back in is the claim CTE.
+        assert renewed is False
+
+    @pytest.mark.asyncio
     async def test_renew_returns_false_when_absent(self, conn):
         renewed = await BatchQueue.renew_lease(
             conn, team_id=1, schema_id="s1", owner_token=OWNER_A, lease_ttl_seconds=300
