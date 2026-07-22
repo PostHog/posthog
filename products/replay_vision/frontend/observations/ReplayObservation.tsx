@@ -486,7 +486,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         </LabeledRow>
                         <LabeledRow label="Session">
                             <Link
-                                to={urls.sessionProfile(observation.session_id)}
+                                to={urls.currentProject(urls.sessionProfile(observation.session_id))}
                                 data-attr="vision-observation-session-link"
                             >
                                 {observation.session_id}

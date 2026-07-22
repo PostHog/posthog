@@ -27,7 +27,7 @@ const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
 
 function formatSessionSummary(summary: SessionSummaryContent, sessionId: string): string {
-    const recordingUrl = window.location.origin + urls.replaySingle(sessionId)
+    const recordingUrl = urls.absolute(urls.currentProject(urls.replaySingle(sessionId)))
     const lines: string[] = [`Session ID: ${sessionId}`, `Recording: ${recordingUrl}`, '']
 
     if (summary.session_outcome?.description) {

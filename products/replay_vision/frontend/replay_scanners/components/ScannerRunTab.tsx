@@ -104,7 +104,10 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             key: 'session',
             width: 300,
             render: (_, recording) => (
-                <Link to={urls.replaySingle(recording.id)} className="font-mono text-xs text-primary truncate block">
+                <Link
+                    to={urls.currentProject(urls.replaySingle(recording.id))}
+                    className="font-mono text-xs text-primary truncate block"
+                >
                     {recording.id}
                 </Link>
             ),

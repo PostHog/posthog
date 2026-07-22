@@ -664,7 +664,7 @@ function SessionSummarySubtitle({ sessionId }: { sessionId: string }): JSX.Eleme
         <div className="flex align-center text-md gap-1">
             <p className="text-md ">Session ID: </p>
             <Tooltip title="View recording">
-                <Link to={urls.replaySingle(sessionId)} target="_new">
+                <Link to={urls.currentProject(urls.replaySingle(sessionId))} target="_new">
                     {sessionId}
                 </Link>
             </Tooltip>

@@ -243,7 +243,10 @@ function SuggestionEvaluationPanel({
                                 title: 'Session',
                                 key: 'session',
                                 render: (_, result) => (
-                                    <Link to={urls.replaySingle(result.session_id)} className="font-mono">
+                                    <Link
+                                        to={urls.currentProject(urls.replaySingle(result.session_id))}
+                                        className="font-mono"
+                                    >
                                         {result.session_id.slice(0, 8)}…
                                     </Link>
                                 ),
@@ -913,7 +916,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     size="small"
                     type="secondary"
                     icon={<IconRewindPlay />}
-                    to={urls.replaySingle(obs.session_id)}
+                    to={urls.currentProject(urls.replaySingle(obs.session_id))}
                     className="whitespace-nowrap"
                     data-attr="vision-quality-view-recording"
                 >
