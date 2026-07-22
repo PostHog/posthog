@@ -11,7 +11,7 @@ from posthog.api.mixins import TypedRequest, validated_request
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import FLAKY_TEST_SIGNAL_CAVEAT, QuarantineRequest
-from products.engineering_analytics.backend.presentation.serializers import (
+from products.engineering_analytics.backend.presentation.serializers.suite_health import (
     BrokenTestsResultSerializer,
     FlakyTestListSerializer,
     QuarantineFileSerializer,
@@ -28,7 +28,10 @@ from products.engineering_analytics.backend.presentation.views._base import (
 )
 
 
-class TestHealthActionsMixin(EngineeringAnalyticsViewSetBase):
+class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
+    READ_ACTIONS = ["flaky_tests", "broken_tests", "quarantine"]
+    WRITE_ACTIONS = ["quarantine_request"]
+
     @extend_schema(
         operation_id="engineering_analytics_flaky_tests",
         parameters=[

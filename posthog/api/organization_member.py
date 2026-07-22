@@ -38,6 +38,7 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
+from posthog.rbac.user_access_control import get_project_scoped_visible_membership_ids
 from posthog.utils import posthoganalytics
 
 tracer = trace.get_tracer(__name__)
@@ -222,6 +223,19 @@ class OrganizationMemberViewSet(
         )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        organization = self.organization
+        if not organization.members_can_see_org_members:
+            requesting_membership = OrganizationMembership.objects.filter(
+                organization=organization, user_id=cast(User, self.request.user).id
+            ).first()
+            if requesting_membership is None:
+                queryset = queryset.filter(user_id=cast(User, self.request.user).id)
+            elif requesting_membership.level < OrganizationMembership.Level.ADMIN:
+                # Restricted members only see themselves and members of their projects
+                visible_membership_ids = get_project_scoped_visible_membership_ids(organization, requesting_membership)
+                if visible_membership_ids is not None:
+                    queryset = queryset.filter(id__in=visible_membership_ids)
+
         if self.action == "list":
             params = self.request.GET.dict()
 

@@ -54,6 +54,24 @@ DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
 
+def _delta_merge_spill_kwargs() -> dict[str, int]:
+    """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
+
+    A merge decompresses the target partition into an Arrow working set that can exceed the pod's
+    memory limit and take down every co-tenant activity. When the byte budgets are configured (and the
+    worker mounts a scratch disk at its TMPDIR), delta-rs bounds DataFusion's memory pool: bytes past
+    `max_spill_size` spill to disk, capped at `max_temp_directory_size`. Unset → omit the kwargs so
+    DataFusion keeps its unbounded default (today's behavior), which also keeps this compatible with
+    deltalake versions predating the parameters.
+    """
+    kwargs: dict[str, int] = {}
+    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES is not None:
+        kwargs["max_spill_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES
+    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES is not None:
+        kwargs["max_temp_directory_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES
+    return kwargs
+
+
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
     """Delete every object under `uri`, resilient to S3 recursive-delete gaps.
 
@@ -425,6 +443,7 @@ class DeltaTableHelper:
                                 predicate=predicate,
                                 streamed_exec=True,
                                 commit_properties=merge_commit_properties,
+                                **_delta_merge_spill_kwargs(),
                             )
                             .when_matched_update_all()
                             .when_not_matched_insert_all()
@@ -448,6 +467,7 @@ class DeltaTableHelper:
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
                             commit_properties=commit_properties,
+                            **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
@@ -594,6 +614,7 @@ class DeltaTableHelper:
                             target_alias="target",
                             predicate=predicate,
                             streamed_exec=False,
+                            **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update(updates={"valid_to": "source.valid_from"})
                         .execute()
