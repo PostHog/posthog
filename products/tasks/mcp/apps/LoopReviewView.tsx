@@ -40,7 +40,7 @@ export interface LoopReviewNotificationChannel {
 
 export interface LoopReviewConnectors {
     mcp_installation_ids?: string[]
-    posthog_mcp_scopes?: 'read_only' | 'full' | string
+    posthog_mcp_scopes?: 'read_only' | 'full'
 }
 
 /** The loop config the agent assembled — identical in shape to the `loops-create` tool
@@ -56,14 +56,13 @@ export interface LoopReviewData {
     repositories?: LoopReviewRepository[]
     triggers?: LoopReviewTrigger[]
     enabled?: boolean
-    overlap_policy?: 'skip' | 'allow' | 'cancel_previous' | string
+    overlap_policy?: 'skip' | 'allow' | 'cancel_previous'
     behaviors?: LoopReviewBehaviors
     connectors?: LoopReviewConnectors
     sandbox_environment?: string | null
     notifications?: Record<string, LoopReviewNotificationChannel>
     context_target?: LoopReviewContextTarget | null
     _posthogUrl?: string
-    [key: string]: unknown
 }
 
 export interface LoopReviewState {
@@ -107,24 +106,23 @@ const OVERLAP_LABELS: Record<string, string> = {
     cancel_previous: 'cancels the previous run',
 }
 
-function describeTriggers(data: LoopReviewData): string {
-    const triggers = data.triggers
+export function describeRunBehavior(data: Pick<LoopReviewData, 'triggers' | 'enabled' | 'overlap_policy'>): string {
     const parts: string[] = []
-    if (!triggers || triggers.length === 0) {
+    if (!data.triggers || data.triggers.length === 0) {
         parts.push('Manual only')
     } else {
-        parts.push(triggers.map(describeTrigger).join(', '))
+        parts.push(data.triggers.map(describeTrigger).join(', '))
     }
     if (data.enabled === false) {
         parts.push('paused')
     }
-    if (data.overlap_policy) {
-        parts.push(OVERLAP_LABELS[data.overlap_policy] ?? data.overlap_policy)
-    }
+    // the server defaults overlap_policy to 'skip', so always show the effective policy
+    const overlapPolicy = data.overlap_policy ?? 'skip'
+    parts.push(OVERLAP_LABELS[overlapPolicy] ?? overlapPolicy)
     return parts.join(' · ')
 }
 
-function describePosthogAccess(connectors: LoopReviewConnectors | undefined): string {
+export function describePosthogAccess(connectors: LoopReviewConnectors | undefined): string {
     return connectors?.posthog_mcp_scopes === 'full' ? 'Full (read-write)' : 'Read-only'
 }
 
@@ -177,7 +175,7 @@ export function describeFixReviewComments(behaviors: LoopReviewBehaviors | undef
         return 'No'
     }
     const cap = behaviors.max_fix_iterations
-    return cap ? `Yes (up to ${cap} iterations)` : 'Yes'
+    return cap != null ? `Yes (up to ${cap} iterations)` : 'Yes'
 }
 
 export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): ReactElement {
@@ -210,7 +208,7 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
             label: 'What it does',
             value: <span className="whitespace-pre-wrap">{data.instructions?.trim() || 'No prompt'}</span>,
         },
-        { label: 'Runs', value: describeTriggers(data) },
+        { label: 'Runs', value: describeRunBehavior(data) },
         { label: 'Context', value: describeContext(data.context_target) },
         { label: 'Repository', value: describeRepository(data.repositories) },
         { label: 'Model', value: describeModel(data) },
