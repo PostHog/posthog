@@ -75,6 +75,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "notebook",
     "revenue_analytics",
     "session_recording",
+    "sharing_configuration",
     "survey",
     "web_analytics",
     "activity_log",
@@ -314,6 +315,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "plugin"
     if name == "sessionrecording":
         return "session_recording"
+    if name == "sharingconfiguration":
+        return "sharing_configuration"
     if name == "exportedasset":
         return "export"
     if name == "sessionrecordingplaylist":
