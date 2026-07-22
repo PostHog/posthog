@@ -1199,25 +1199,34 @@ class ProjectBackwardCompatSerializer(
             validated_data, team.conversations_enabled, team.conversations_settings
         )
 
-        should_team_be_saved_too = False
+        # Persist only the fields this request changes. A full-row save() writes back every
+        # column from this request's snapshot of the team, so two concurrent PATCHes clobber
+        # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
+        # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
+        # bouncing freshly onboarded users back into onboarding.
+        updated_team_fields = []
+        updated_project_fields = []
         for attr, value in validated_data.items():
             if attr not in self.Meta.team_passthrough_fields:
                 # This attr is a Project field
                 setattr(instance, attr, value)
+                updated_project_fields.append(attr)
             else:
                 # This attr is actually on the Project's passthrough Team
-                should_team_be_saved_too = True
                 setattr(team, attr, value)
+                updated_team_fields.append(attr)
 
         if "name" in validated_data:
             # Keep Team.name mirroring Project.name: surfaces like the organization's teams
             # list and the app context still read the name off the Team row
-            should_team_be_saved_too = True
             team.name = validated_data["name"]
+            updated_team_fields.append("name")
 
-        instance.save()
-        if should_team_be_saved_too:
-            team.save()
+        if updated_project_fields:
+            instance.save(update_fields=updated_project_fields)
+        if updated_team_fields:
+            # auto_now fields only refresh when included in update_fields
+            team.save(update_fields=[*updated_team_fields, "updated_at"])
 
         if "proactive_tasks_enabled" in validated_data:
             if validated_data["proactive_tasks_enabled"]:

@@ -1624,7 +1624,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["modifiers"],
             }
 
-        updated_team = super().update(instance, validated_data)
+        # Persist only the fields this request changes. A full-row save() writes back every
+        # column from this request's snapshot of the team, so two concurrent PATCHes clobber
+        # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
+        # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
+        # bouncing freshly onboarded users back into onboarding.
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if validated_data:
+            # auto_now fields only refresh when included in update_fields
+            instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        updated_team = instance
 
         if "proactive_tasks_enabled" in validated_data:
             # Backward compat for old proactive tasks enabled field, remove after February 2026
