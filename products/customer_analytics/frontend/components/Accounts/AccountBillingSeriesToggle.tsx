@@ -6,11 +6,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { AccountBillingKind } from './accountBillingLogic'
 
-/**
- * Compact per-series show/hide chips for a billing chart — one chip per series, colored to match
- * its line or bar. Purely presentational: {@link AccountBillingChart} derives the items from the
- * same series the chart draws and owns the hidden-keys state (in `accountBillingLogic`).
- */
 export function AccountBillingSeriesToggle({
     series,
     hiddenKeys,

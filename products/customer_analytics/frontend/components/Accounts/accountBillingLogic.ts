@@ -172,8 +172,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                 setDateRange: (_, { dateFrom, dateTo }) => ({ date_from: dateFrom, date_to: dateTo }),
             },
         ],
-        // Per-view only: never written to the saved insight; resets on date change (the chart redraws
-        // against new data) and on row collapse (this logic unmounts).
+        // Per-view only: never written to the saved insight, gone on row collapse (this logic unmounts).
         hiddenSeriesKeysByShortId: [
             {} as Record<string, string[]>,
             {

@@ -32,7 +32,6 @@ import { ChartDisplayType } from '~/types'
 import { AccountBillingLogicProps, accountBillingLogic } from './accountBillingLogic'
 import { AccountBillingSeriesToggle } from './AccountBillingSeriesToggle'
 
-// Chart types this component can render itself via quill; anything else falls back to <Query>.
 const RENDERABLE_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsAreaGraph,
@@ -40,8 +39,8 @@ const RENDERABLE_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsStackedBar,
 ])
 
-/** Whether {@link AccountBillingChart} can render this saved-insight query. Series breakdowns need
- *  the full DataVisualization pipeline (seriesBreakdownLogic), so they fall back too. */
+/** Series breakdowns are excluded because they need the full DataVisualization pipeline
+ *  (seriesBreakdownLogic); those queries fall back to the embedded <Query>. */
 export function canRenderBillingChart(query: Record<string, any> | null): query is DataVisualizationNode {
     return (
         query?.kind === NodeKind.DataVisualizationNode &&
@@ -71,8 +70,7 @@ function BillingChartByKind({
     return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
 }
 
-// One subcomponent per chart kind: useSqlChartModel's config type follows the builder, and the
-// legend override (chips replace the legend UI; hiddenKeys stays controlled) applies uniformly.
+// One subcomponent per chart kind because useSqlChartModel's config type follows the builder it's given.
 function BillingLineChart({
     chartProps,
     hiddenKeys,
@@ -142,11 +140,11 @@ function BillingComboChart({
 /**
  * Renders a saved billing insight's SQL chart directly via @posthog/quill-charts instead of the
  * embedded DataVisualization, so Customer analytics owns the per-series show/hide chips without
- * touching shared data-viz code. Reuses the shared pipeline read-only: `dataVisualizationLogic`
- * (fetch + SQL-results→series parse, attached to `accountBillingLogic` so results survive tab
- * switches) and the exported `useSqlChartModel`/config builders (so the chart matches what the
- * insight renders elsewhere). Hidden series route to quill's controlled `legend.hiddenKeys` —
- * excluded from drawing and scales, the rest rescale into the freed space.
+ * touching shared data-viz code. The shared pipeline is reused read-only — `dataVisualizationLogic`
+ * for fetch + SQL-results→series parsing, the exported `useSqlChartModel`/config builders for the
+ * render — so the chart matches what the insight renders elsewhere. Hidden series go into quill's
+ * controlled `legend.hiddenKeys`: excluded from drawing and scales, the rest rescale into the
+ * freed space.
  */
 export function AccountBillingChart({
     logicProps,
@@ -171,8 +169,7 @@ export function AccountBillingChart({
         dataNodeCollectionId: queryKey,
         variablesOverride,
     })
-    // Keep the query's data logics alive across tab switches (they detach on row collapse),
-    // mirroring what the embedded <Query attachTo> did.
+    // Keeps the query's data logics alive across tab switches — they detach only on row collapse.
     useAttachedLogic(vizLogic, billingLogic)
     const { response, responseLoading, responseError, xData, yData, chartSettings, effectiveVisualizationType } =
         useValues(vizLogic)
@@ -186,8 +183,7 @@ export function AccountBillingChart({
         chartSettings,
         goalLines: chartSettings.goalLines,
     }
-    // The same series the chart draws, with the same palette resolution — so chip keys and colors
-    // can't drift from the chart.
+    // Derived from the same buildSeries output the chart draws, so chip keys and colors can't drift.
     const ySeriesData = capYSeriesData(yData)
     const chipItems = ySeriesData?.length
         ? legendItemsFromSeries(buildSeries(ySeriesData, effectiveVisualizationType), theme)

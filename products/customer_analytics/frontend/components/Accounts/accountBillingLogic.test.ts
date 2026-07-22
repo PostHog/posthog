@@ -99,9 +99,8 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).toContain('2024-01-31')
         })
 
-        // Guards the per-view invariant: hidden series are keyed per insight (the spend tab renders
-        // two insights off one logic — hiding a series on one must not hide it on the other) and
-        // reset when the date range changes (stale keys would otherwise hide series on the redrawn chart).
+        // The spend tab renders two insights off one logic — hiding a series on one must not hide it
+        // on the other, and stale keys must not survive into a redrawn date range.
         it('toggles hidden series keys per insight and resets them on date change', () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
             mountForKind()
