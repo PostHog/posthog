@@ -1136,6 +1136,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
                     warehouse_view: 'warehouse_saved_queries',
                     early_access_feature: 'early_access_feature',
+                    replay_scanner: 'vision/scanners',
                 }
                 const route = resourceToRoute[resource] ?? `${resource}s`
                 return `api/projects/${currentProjectId}/${route}/${resource_id}/access_controls`
