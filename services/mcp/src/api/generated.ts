@@ -52716,26 +52716,6 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-       *
-       * * `onboarding` - Onboarding
-       * * `error_tracking` - Error Tracking
-       * * `eval_clusters` - Eval Clusters
-       * * `user_created` - User Created
-       * * `automation` - Automation
-       * * `slack` - Slack
-       * * `support_queue` - Support Queue
-       * * `session_summaries` - Session Summaries
-       * * `posthog_ai` - PostHog AI
-       * * `experiments` - Experiments
-       * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk
-       * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder
-       * * `loop` - Loop */
-      origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
@@ -66883,26 +66863,6 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-       *
-       * * `onboarding` - Onboarding
-       * * `error_tracking` - Error Tracking
-       * * `eval_clusters` - Eval Clusters
-       * * `user_created` - User Created
-       * * `automation` - Automation
-       * * `slack` - Slack
-       * * `support_queue` - Support Queue
-       * * `session_summaries` - Session Summaries
-       * * `posthog_ai` - PostHog AI
-       * * `experiments` - Experiments
-       * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk
-       * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder
-       * * `loop` - Loop */
-      origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
@@ -66984,6 +66944,26 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+      /** PostHog product or surface that created this task (e.g. error_tracking, hogdesk, user_created). Defaults to user_created. Origins reserved for server-side flows are rejected, and the value cannot be changed after creation.
+       *
+       * * `onboarding` - Onboarding
+       * * `error_tracking` - Error Tracking
+       * * `eval_clusters` - Eval Clusters
+       * * `user_created` - User Created
+       * * `automation` - Automation
+       * * `slack` - Slack
+       * * `support_queue` - Support Queue
+       * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
+       * * `experiments` - Experiments
+       * * `signal_report` - Signal Report
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk
+       * * `review_hog` - ReviewHog
+       * * `image_builder` - Image Builder
+       * * `loop` - Loop */
+      origin_product?: OriginProductEnum;
       /**
          * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
          * @nullable
@@ -67864,26 +67844,6 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-       *
-       * * `onboarding` - Onboarding
-       * * `error_tracking` - Error Tracking
-       * * `eval_clusters` - Eval Clusters
-       * * `user_created` - User Created
-       * * `automation` - Automation
-       * * `slack` - Slack
-       * * `support_queue` - Support Queue
-       * * `session_summaries` - Session Summaries
-       * * `posthog_ai` - PostHog AI
-       * * `experiments` - Experiments
-       * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk
-       * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder
-       * * `loop` - Loop */
-      origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255

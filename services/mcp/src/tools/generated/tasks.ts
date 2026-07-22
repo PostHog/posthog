@@ -329,7 +329,6 @@ const loopsRunsRetrieve = (): ToolBase<typeof LoopsRunsRetrieveSchema, WithPostH
 
 const TasksCreateSchema = TasksCreateBody.omit({
     title_manually_set: true,
-    origin_product: true,
     github_integration: true,
     github_user_integration: true,
     signal_report: true,
@@ -346,6 +345,7 @@ const TasksCreateSchema = TasksCreateBody.omit({
     pending_user_artifact_ids: true,
     auto_publish: true,
     channel: true,
+    origin_product: true,
     sandbox_environment_id: true,
     custom_image_id: true,
     runtime: true,

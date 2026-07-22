@@ -835,33 +835,6 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-        origin_product: zod
-            .enum([
-                'onboarding',
-                'error_tracking',
-                'eval_clusters',
-                'user_created',
-                'automation',
-                'slack',
-                'support_queue',
-                'session_summaries',
-                'posthog_ai',
-                'experiments',
-                'signal_report',
-                'signals_scout',
-                'support_reply',
-                'hogdesk',
-                'review_hog',
-                'image_builder',
-                'loop',
-            ])
-            .describe(
-                '* `onboarding` - Onboarding\n* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `posthog_ai` - PostHog AI\n* `experiments` - Experiments\n* `signal_report` - Signal Report\n* `signals_scout` - Signals Scout\n* `support_reply` - Support Reply\n* `hogdesk` - HogDesk\n* `review_hog` - ReviewHog\n* `image_builder` - Image Builder\n* `loop` - Loop'
-            )
-            .optional()
-            .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n* `onboarding` - Onboarding\n* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `posthog_ai` - PostHog AI\n* `experiments` - Experiments\n* `signal_report` - Signal Report\n* `signals_scout` - Signals Scout\n* `support_reply` - Support Reply\n* `hogdesk` - HogDesk\n* `review_hog` - ReviewHog\n* `image_builder` - Image Builder\n* `loop` - Loop'
-            ),
         repository: zod
             .string()
             .max(tasksCreateBodyRepositoryMax)
@@ -942,6 +915,33 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
             ),
         channel: zod.string().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+        origin_product: zod
+            .enum([
+                'onboarding',
+                'error_tracking',
+                'eval_clusters',
+                'user_created',
+                'automation',
+                'slack',
+                'support_queue',
+                'session_summaries',
+                'posthog_ai',
+                'experiments',
+                'signal_report',
+                'signals_scout',
+                'support_reply',
+                'hogdesk',
+                'review_hog',
+                'image_builder',
+                'loop',
+            ])
+            .describe(
+                '* `onboarding` - Onboarding\n* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `posthog_ai` - PostHog AI\n* `experiments` - Experiments\n* `signal_report` - Signal Report\n* `signals_scout` - Signals Scout\n* `support_reply` - Support Reply\n* `hogdesk` - HogDesk\n* `review_hog` - ReviewHog\n* `image_builder` - Image Builder\n* `loop` - Loop'
+            )
+            .optional()
+            .describe(
+                'PostHog product or surface that created this task (e.g. error_tracking, hogdesk, user_created). Defaults to user_created. Origins reserved for server-side flows are rejected, and the value cannot be changed after creation.\n\n* `onboarding` - Onboarding\n* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `automation` - Automation\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `posthog_ai` - PostHog AI\n* `experiments` - Experiments\n* `signal_report` - Signal Report\n* `signals_scout` - Signals Scout\n* `support_reply` - Support Reply\n* `hogdesk` - HogDesk\n* `review_hog` - ReviewHog\n* `image_builder` - Image Builder\n* `loop` - Loop'
+            ),
         sandbox_environment_id: zod
             .string()
             .nullish()
