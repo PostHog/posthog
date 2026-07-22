@@ -1015,7 +1015,7 @@ class InsightSerializer(InsightBasicSerializer):
         # Dashboard membership is mutated through separate querysets above, so the instance's
         # prefetched relation no longer reflects what was persisted. The response serializer must
         # reload it because session callers now derive membership exclusively from dashboard_tiles.
-        instance._prefetched_objects_cache.pop("dashboard_tiles", None)
+        getattr(instance, "_prefetched_objects_cache", {}).pop("dashboard_tiles", None)
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
     @extend_schema_field(OpenApiTypes.ANY)

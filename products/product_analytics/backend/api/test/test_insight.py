@@ -774,7 +774,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "favorited",
                 "filters",
                 "query",
-                "dashboards",
                 "dashboard_tiles",
                 "description",
                 "last_refresh",
