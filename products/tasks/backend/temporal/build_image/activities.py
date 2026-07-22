@@ -108,7 +108,7 @@ def _judge_spec_safety(spec_yaml: str, team_id: int, repository: str = "") -> Sc
         if repository
         else ""
     )
-    client = get_llm_client(product="posthog_code", team_id=team_id)
+    client = get_llm_client(product="django", team_id=team_id)
     response = client.chat.completions.create(
         model=SCAN_JUDGE_MODEL,
         messages=[

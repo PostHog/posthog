@@ -535,13 +535,11 @@ def duckgres_data_imports_schema(team_id: int) -> str:
     that have already written a team's tables must trigger a re-prime (handled
     by the backfill state machine), not silently switch.
     """
-    from posthog.ducklake.models import DuckgresServerTeam
+    # Deferred: team_state imports this module at the top level, so a module-level
+    # import back would be circular.
+    from posthog.ducklake import team_state  # noqa: PLC0415
 
-    suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
-    if not suffix:
-        return f"posthog_data_imports_team_{team_id}"
-    validate_duckgres_identifier(suffix)
-    return f"posthog_data_imports_{suffix}"
+    return team_state.data_imports_schema(team_id)
 
 
 def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
@@ -708,12 +706,11 @@ def get_team_backfill_state(team_id: int) -> dict[str, object]:
     safe to show) from one already backfilling (a row exists → show read-only, since the table is
     immutable). ``table_suffix`` is None for legacy teams still on the shared tables.
     """
-    from posthog.ducklake.models import DuckgresServerTeam
+    # Deferred: team_state imports this module at the top level, so a module-level
+    # import back would be circular.
+    from posthog.ducklake import team_state  # noqa: PLC0415
 
-    backfill = DuckgresServerTeam.objects.filter(team_id=team_id).values("table_suffix").first()
-    if backfill is None:
-        return {"has_backfill": False, "table_suffix": None}
-    return {"has_backfill": True, "table_suffix": backfill["table_suffix"]}
+    return team_state.team_backfill_state(team_id)
 
 
 # Ignore events before this date — pre-2015 data is typically junk timestamps.
