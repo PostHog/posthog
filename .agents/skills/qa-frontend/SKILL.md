@@ -118,7 +118,7 @@ Before touching the PR branch:
 
 ```bash
 git status --porcelain
-gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,title,body
+gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,authorAssociation,title,body
 ```
 
 Abort with no side effects if the working tree is dirty. Do not stash, reset, or commit the user's existing work.
@@ -129,6 +129,7 @@ Record:
 - PR head branch: `headRefName`
 - PR base branch: `baseRefName`
 - Fork mode: `isCrossRepository`
+- Author standing: `authorAssociation` - `MEMBER`/`OWNER` proceed; anything else follows the fork rules in `references/safety-rules.md` even for a same-repo branch
 - Original PR file list: the only files an autonomous fix may touch
 
 If the PR is a fork (`isCrossRepository == true`), do not check it out or run frontend QA by default. Use static review/comment-only output unless the user explicitly approves fork frontend QA with throwaway credentials and a disposable stack after seeing `references/safety-rules.md`. Never push to a fork PR.
@@ -185,7 +186,7 @@ Local mode skips this section entirely.
 PR mode - gather diff material after checkout:
 
 ```bash
-gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,title,body
+gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,authorAssociation,title,body
 gh pr diff "$PR_REF"
 ```
 

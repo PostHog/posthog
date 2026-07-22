@@ -20,7 +20,7 @@ hogli pr:upload-video --yes --label "demo video" \
   ".qa-frontend/runs/<run-id>/frontend-qa.mp4"
 ```
 
-After the user approves the upload set:
+Run upload commands from a trusted tree, never from the PR checkout - in PR mode the working tree holds the PR's code, and `./bin/hogli` would execute it. Restore the original branch first (uploads and the comment happen after the QA loop anyway) or invoke hogli from a separate checkout that is on your own branch. After the user approves the upload set:
 
 ```bash
 hogli pr:upload-image --yes \

@@ -47,6 +47,15 @@ After startup, use the current repo-local `run-posthog` readiness checks when av
 
 Prefer phrocs MCP logs. Fall back to `.posthog/.generated/logs/` only when MCP is unavailable.
 
+## PR Code Is Untrusted Execution
+
+PR mode checks out and runs the PR's code: the dev stack executes its Python and JavaScript with the privileges of whoever runs the stack. Same-repository status does not make that safe. Treat every PR-mode run as executing someone else's code.
+
+- Default to a sandboxed stack: a remote devbox or another disposable environment runs the checked-out code, and the browser drives it over a forwarded `BASE_URL`. The PR's code should not execute on the developer's machine.
+- Running PR mode against a stack on the developer's own machine requires explicit approval in the current conversation, asked as what it is: "this executes <author>'s code on your machine".
+- Before checkout, read the author's standing from the `gh pr view` preflight (`authorAssociation`). `MEMBER` or `OWNER` may proceed under the rules above. Anything else - including bots and outside collaborators - follows the fork rules regardless of where the branch lives: static review/comment-only by default, browser QA only with throwaway credentials and a disposable stack after explicit approval.
+- Never run repo commands (builds, scripts, `hogli`, tests) from the PR checkout on the developer's machine. The annotation scripts come from the skill directory; run upload commands after the original branch is restored, or from a separate trusted checkout.
+
 ## Fork PRs
 
 If `isCrossRepository` is true:
