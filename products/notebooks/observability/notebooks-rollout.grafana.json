@@ -135,8 +135,8 @@
         },
         {
             "type": "timeseries",
-            "title": "Materialize attempts by mode",
-            "description": "mode=streaming is the phase-1 worker relay; mode=ch_writes is phase 2 (NOTEBOOKS_FRAME_STORE_CH_WRITES). Counts activity ATTEMPTS, not jobs \u2014 a retried job increments this up to 10 times.",
+            "title": "Materialize attempts",
+            "description": "Materialize activity attempts started. The started counter carries no labels today \u2014 a mode label (streaming vs CH writes) requires a code change before this can split by delivery path.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -155,37 +155,24 @@
             "targets": [
                 {
                     "refId": "A",
-                    "expr": "sum by (mode) (rate(posthog_notebooks_frame_materializations_started_total[$__rate_interval]))",
-                    "legendFormat": "{{mode}}"
+                    "expr": "sum(rate(posthog_notebooks_frame_materializations_started_total[$__rate_interval]))",
+                    "legendFormat": "started"
                 }
             ]
         },
         {
-            "type": "timeseries",
+            "type": "text",
             "title": "Prerequisite check \u2014 CH user and pool routing",
-            "description": "Both prerequisites fail OPEN and silently. ch_user=default means CLICKHOUSE_NOTEBOOKS_USER is not provisioned on this worker fleet (no server-side profile/quota backstop). pool=online means CLICKHOUSE_OFFLINE_CLUSTER_HOST is unset, so whale materializations are contending with interactive queries. Both should read notebooks/offline in prod.",
-            "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-            },
             "gridPos": {
                 "h": 8,
                 "w": 8,
                 "x": 8,
                 "y": 10
             },
-            "fieldConfig": {
-                "defaults": {
-                    "unit": "reqps"
-                }
-            },
-            "targets": [
-                {
-                    "refId": "A",
-                    "expr": "sum by (ch_user, pool) (rate(posthog_notebooks_frame_materializations_started_total[$__rate_interval]))",
-                    "legendFormat": "user={{ch_user}} pool={{pool}}"
-                }
-            ]
+            "options": {
+                "mode": "markdown",
+                "content": "No Prometheus metric carries the ClickHouse identity \u2014 the dedicated `notebooks` CH user and offline-pool prerequisites fail open and silently.\n\nVerify them ClickHouse-side with **query 2** of `observability/notebooks-query-log.sql` (Metabase): `user` should be `notebooks` and `lc_workload` should be `offline` once provisioned."
+            }
         },
         {
             "type": "timeseries",
@@ -243,7 +230,7 @@
         },
         {
             "type": "timeseries",
-            "title": "Terminal outcomes by mode",
+            "title": "Terminal outcomes",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -262,10 +249,11 @@
             "targets": [
                 {
                     "refId": "A",
-                    "expr": "sum by (outcome, mode) (rate(posthog_notebooks_frame_materializations_finished_total[$__rate_interval]))",
-                    "legendFormat": "{{outcome}} / {{mode}}"
+                    "expr": "sum by (outcome) (rate(posthog_notebooks_frame_materializations_finished_total[$__rate_interval]))",
+                    "legendFormat": "{{outcome}}"
                 }
-            ]
+            ],
+            "description": "Materialize jobs reaching a terminal state, by outcome. The finished counter has no mode label \u2014 path-specific failure rates need a code change first."
         },
         {
             "type": "stat",
@@ -433,8 +421,8 @@
         },
         {
             "type": "timeseries",
-            "title": "ClickHouse time p95, by mode",
-            "description": "mode=streaming: response headers plus blocking body reads. mode=ch_writes: the whole INSERT INTO s3 wall clock, including the CH-side S3 upload. The two are not comparable \u2014 that is why the label exists.",
+            "title": "ClickHouse time p95",
+            "description": "Time a successful materialize spent blocked on ClickHouse: response headers plus blocking body reads of the streaming relay. Success-only (see dashboard description).",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -453,8 +441,8 @@
             "targets": [
                 {
                     "refId": "A",
-                    "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(posthog_notebooks_frame_clickhouse_seconds_bucket[$__rate_interval])))",
-                    "legendFormat": "p95 {{mode}}"
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(posthog_notebooks_frame_clickhouse_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p95"
                 }
             ]
         },
@@ -480,7 +468,7 @@
             "targets": [
                 {
                     "refId": "A",
-                    "expr": "sum(rate(posthog_notebooks_frame_clickhouse_seconds_sum{mode=\"streaming\"}[$__rate_interval])) / clamp_min(sum(rate(posthog_notebooks_frame_clickhouse_seconds_count{mode=\"streaming\"}[$__rate_interval])), 0.0000001)",
+                    "expr": "sum(rate(posthog_notebooks_frame_clickhouse_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(posthog_notebooks_frame_clickhouse_seconds_count[$__rate_interval])), 0.0000001)",
                     "legendFormat": "clickhouse (mean)"
                 },
                 {
