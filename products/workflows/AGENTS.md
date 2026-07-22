@@ -98,7 +98,12 @@ what you'd guess — the SES-event mapping lives in
 `nodejs/src/cdp/services/messaging/helpers/ses.ts`:
 
 - `email_sent` / `email_failed` — send outcome (`email.service.ts`)
-- `email_bounced` — SES `Bounce`
+- `email_bounced` — every SES `Bounce` type: the catch-all rollup. Each bounce also
+  emits exactly one sub-metric by `bounceType` — `email_bounced_hard` (Permanent),
+  `email_bounced_transient` (Transient), `email_bounced_undetermined` — so
+  hard + transient + undetermined = email_bounced. **Anything calibrated against
+  AWS's account bounce rate must read `email_bounced_hard`**: AWS counts hard
+  bounces only, so the rollup overcounts by the transient share.
 - `email_blocked` — SES `Complaint`. **This is the spam-complaint metric**, despite
   the name; `email_spam` exists in the type union but SES complaints do NOT flow
   into it.
