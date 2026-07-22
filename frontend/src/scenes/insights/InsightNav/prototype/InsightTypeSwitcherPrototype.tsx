@@ -35,6 +35,12 @@ import { CORE_TYPES, EXTRA_TYPES, ExtraTypeEntry } from './SidebarTypeCardProtot
  *   palette  : no persistent strip: a type chip that opens a searchable picker dialog
  *   sidebar  : nothing in the header at all: a type + view card above the filters in the left
  *              sidebar (see SidebarTypeCardPrototype.tsx, rendered from EditorFilters)
+ *   sidebar-questions : sidebar families grouped by the question asked (stickiness and
+ *              lifecycle under retention)
+ *   sidebar-families  : sidebar families grouped by shared setup (stickiness and lifecycle
+ *              under trends, retention splits recurring vs first time)
+ *   sidebar-modes     : sidebar, no regrouping: the six types in a select plus a uniform
+ *              mode row surfacing each type's buried subtype picker
  *
  * The real six types switch for real (same setActiveView as the tab strip, carry-over intact).
  * Extra entries (calendar heatmap, SQL, examples) are display-only, there to show how each
@@ -281,6 +287,9 @@ const VARIANTS = [
     { key: 'hybrid', name: 'Hot-path tabs + More' },
     { key: 'palette', name: 'Chip + searchable picker' },
     { key: 'sidebar', name: 'Sidebar type + view card' },
+    { key: 'sidebar-questions', name: 'Sidebar: question families' },
+    { key: 'sidebar-families', name: 'Sidebar: shared-editor families' },
+    { key: 'sidebar-modes', name: 'Sidebar: flat + mode row' },
 ] as const
 
 export function InsightTypeSwitcherPrototype({ insightLogicProps }: VariantProps): JSX.Element {

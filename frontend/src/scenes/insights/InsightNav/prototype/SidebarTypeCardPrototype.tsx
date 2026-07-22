@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 
 import { IconCorrelationAnalysis, IconGraph } from '@posthog/icons'
 
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS, RETENTION_RECURRING } from 'lib/constants'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
@@ -12,19 +14,25 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { INSIGHT_TYPES_METADATA, QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType, FunnelVizType, InsightType } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightType, PathType } from '~/types'
 
 /**
- * THROWAWAY PROTOTYPE: variant E of the insight type switcher, see InsightTypeSwitcherPrototype.tsx.
+ * THROWAWAY PROTOTYPE: variants E to H of the insight type switcher, see InsightTypeSwitcherPrototype.tsx.
  *
- * A type + view card that sits above the filters in the left editor sidebar, styled to stand
- * out from the filter sections below it: tinted accent card, an icon tile row for the type,
- * the selected type's name and description, and a "View as" subtype control where the type
- * has one (trends and stickiness: display, funnels: viz type).
+ * All four render a card above the filters in the left editor sidebar (tinted accent card so it
+ * stands out from the filter sections) and differ in how they structure the type choice:
+ *   sidebar           (E): flat icon tile row for the six types + a "View as" display row
+ *   sidebar-questions (F): four families grouped by the question you ask; stickiness and
+ *                          lifecycle live under retention; the sub row picks the method
+ *   sidebar-families  (G): four families grouped by shared setup; stickiness and lifecycle
+ *                          live under trends (same series editor, lossless switch); retention
+ *                          splits into recurring vs first time; paths picks its event scope
+ *   sidebar-modes     (H): no regrouping; the six types in a select plus a uniform "Mode" row
+ *                          surfacing each type's buried subtype picker
  *
- * Lives in its own file so EditorFilters can import it without pulling in InsightsNav and the
- * saved-insights scene. Rendered from EditorFilters, but inert (null) unless the URL has
- * `?variant=sidebar`.
+ * Type switches go through setActiveView (config carry-over intact); mode switches go through
+ * updateInsightFilter on the live query. Rendered from EditorFilters, inert (null) unless the
+ * URL has a matching ?variant=.
  */
 
 export interface ExtraTypeEntry {
@@ -104,6 +112,134 @@ const FUNNEL_VIEWS: SubtypeOption[] = [
     { value: FunnelVizType.Trends, label: 'Trends' },
 ]
 
+const PATH_SCOPES: { key: string; label: string; value: PathType[] }[] = [
+    { key: 'pages', label: 'Pages', value: [PathType.PageView] },
+    { key: 'screens', label: 'Screens', value: [PathType.Screen] },
+    { key: 'custom-events', label: 'Custom events', value: [PathType.CustomEvent] },
+    { key: 'all', label: 'All events', value: [PathType.PageView, PathType.Screen, PathType.CustomEvent] },
+]
+
+// --- Shared building blocks ---
+
+function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div
+            className="border-accent bg-accent-highlight-secondary mb-3 rounded-lg border p-3"
+            data-attr="prototype-insight-type-sidebar-card"
+        >
+            {children}
+        </div>
+    )
+}
+
+function CardLabel({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="text-accent text-[0.625rem] font-semibold tracking-wide uppercase">{children}</div>
+}
+
+interface SubOption {
+    key: string
+    label: string
+    active?: boolean
+    onSelect?: () => void
+    disabledReason?: string
+}
+
+function SubChips({ options, dataAttrPrefix }: { options: SubOption[]; dataAttrPrefix: string }): JSX.Element {
+    return (
+        <div className="mt-1 flex flex-wrap gap-1">
+            {options.map((option) => {
+                const chip = (
+                    <button
+                        key={option.key}
+                        type="button"
+                        aria-pressed={option.active}
+                        onClick={option.disabledReason ? undefined : option.onSelect}
+                        className={clsx(
+                            'rounded-md border px-2 py-1 text-xs font-medium transition-colors',
+                            option.active
+                                ? 'border-accent bg-surface-primary text-accent shadow-sm'
+                                : 'text-secondary border-transparent',
+                            option.disabledReason ? 'cursor-not-allowed opacity-40' : 'cursor-pointer',
+                            !option.disabledReason && !option.active && 'hover:bg-surface-primary hover:text-primary'
+                        )}
+                        data-attr={`${dataAttrPrefix}-${option.key.toLowerCase()}`}
+                    >
+                        {option.label}
+                    </button>
+                )
+                return option.disabledReason ? (
+                    <Tooltip key={option.key} title={option.disabledReason} placement="top">
+                        {chip}
+                    </Tooltip>
+                ) : (
+                    chip
+                )
+            })}
+        </div>
+    )
+}
+
+type ApplyInsightFilter = (insightFilter: Record<string, unknown>) => void
+
+function funnelVizSubs(current: FunnelVizType | undefined, apply: ApplyInsightFilter): SubOption[] {
+    const active = current ?? FunnelVizType.Steps
+    return FUNNEL_VIEWS.map((view) => ({
+        key: view.value,
+        label: view.label,
+        active: active === view.value,
+        onSelect: () => apply({ funnelVizType: view.value }),
+    }))
+}
+
+function retentionTypeSubs(current: string | undefined, apply: ApplyInsightFilter): SubOption[] {
+    const active = current ?? RETENTION_RECURRING
+    return [
+        {
+            key: 'recurring',
+            label: 'Recurring',
+            active: active === RETENTION_RECURRING,
+            onSelect: () => apply({ retentionType: RETENTION_RECURRING }),
+        },
+        {
+            key: 'first-time',
+            label: 'First time',
+            active: active === RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+            onSelect: () => apply({ retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS }),
+        },
+    ]
+}
+
+function pathScopeSubs(current: PathType[] | undefined, apply: ApplyInsightFilter): SubOption[] {
+    const activeKey = [...(current ?? [PathType.PageView])].sort().join(',')
+    return PATH_SCOPES.map((scope) => ({
+        key: scope.key,
+        label: scope.label,
+        active: activeKey === [...scope.value].sort().join(','),
+        onSelect: () => apply({ includeEventTypes: scope.value }),
+    }))
+}
+
+function displaySubs(views: SubtypeOption[], current: string | undefined, apply: ApplyInsightFilter): SubOption[] {
+    const active = current ?? ChartDisplayType.ActionsLineGraph
+    return views.map((view) => ({
+        key: view.value,
+        label: view.label,
+        active: active === view.value,
+        onSelect: () => apply({ display: view.value }),
+    }))
+}
+
+function exampleSub(extraKey: string): SubOption {
+    const entry = EXTRA_TYPES.find((candidate) => candidate.key === extraKey)
+    return {
+        key: extraKey,
+        label: entry?.name ?? extraKey,
+        disabledReason: entry?.disabledReason ?? 'Display-only in this prototype',
+    }
+}
+
+// --- Variant E: flat tile row + "View as" display row ---
+
 function TypeTile({
     name,
     icon: Icon,
@@ -140,18 +276,12 @@ function TypeTile({
     )
 }
 
-/** Variant E: the type + view card above the filters in the left editor sidebar. */
-export function SidebarTypeCardPrototype(): JSX.Element | null {
-    const { searchParams } = useValues(router)
+function TypeAndViewCard(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { activeView } = useValues(insightNavLogic(insightProps))
     const { setActiveView } = useActions(insightNavLogic(insightProps))
     const { display, funnelsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
-
-    if (searchParams.variant !== 'sidebar') {
-        return null
-    }
 
     const meta = INSIGHT_TYPES_METADATA[activeView] ?? INSIGHT_TYPES_METADATA[InsightType.TRENDS]
 
@@ -169,11 +299,8 @@ export function SidebarTypeCardPrototype(): JSX.Element | null {
     }
 
     return (
-        <div
-            className="border-accent bg-accent-highlight-secondary mb-3 rounded-lg border p-3"
-            data-attr="prototype-insight-type-sidebar-card"
-        >
-            <div className="text-accent text-[0.625rem] font-semibold tracking-wide uppercase">Insight type</div>
+        <CardShell>
+            <CardLabel>Insight type</CardLabel>
             <div className="mt-2 flex flex-wrap gap-1">
                 {CORE_TYPES.map((type) => (
                     <TypeTile
@@ -201,7 +328,7 @@ export function SidebarTypeCardPrototype(): JSX.Element | null {
             </div>
             {viewOptions && onViewChange && (
                 <div className="mt-3">
-                    <div className="text-accent text-[0.625rem] font-semibold tracking-wide uppercase">View as</div>
+                    <CardLabel>View as</CardLabel>
                     <LemonSegmentedButton
                         size="xsmall"
                         fullWidth
@@ -212,6 +339,253 @@ export function SidebarTypeCardPrototype(): JSX.Element | null {
                     />
                 </div>
             )}
-        </div>
+        </CardShell>
     )
+}
+
+// --- Variants F and G: family tiles + method row, two competing groupings ---
+
+interface FamilyDef {
+    key: string
+    name: string
+    hint: string
+    types: InsightType[]
+}
+
+const QUESTION_FAMILIES: FamilyDef[] = [
+    { key: 'trends', name: 'Trends', hint: 'How much and how often?', types: [InsightType.TRENDS] },
+    { key: 'funnel', name: 'Funnel', hint: 'Do users convert?', types: [InsightType.FUNNELS] },
+    {
+        key: 'retention',
+        name: 'Retention',
+        hint: 'Do users come back?',
+        types: [InsightType.RETENTION, InsightType.STICKINESS, InsightType.LIFECYCLE],
+    },
+    { key: 'paths', name: 'Paths', hint: 'Where do users go?', types: [InsightType.PATHS] },
+]
+
+const CONFIG_FAMILIES: FamilyDef[] = [
+    {
+        key: 'trends',
+        name: 'Trends',
+        hint: 'Series over time',
+        types: [InsightType.TRENDS, InsightType.STICKINESS, InsightType.LIFECYCLE],
+    },
+    { key: 'funnel', name: 'Funnel', hint: 'A sequence of steps', types: [InsightType.FUNNELS] },
+    { key: 'retention', name: 'Retention', hint: 'Cohorts coming back', types: [InsightType.RETENTION] },
+    { key: 'paths', name: 'Paths', hint: 'Flows between events', types: [InsightType.PATHS] },
+]
+
+function FamilyTile({
+    name,
+    hint,
+    icon: Icon,
+    selected,
+    onClick,
+}: {
+    name: string
+    hint: string
+    icon: React.ComponentType<any>
+    selected: boolean
+    onClick: () => void
+}): JSX.Element {
+    return (
+        <button
+            type="button"
+            aria-pressed={selected}
+            onClick={onClick}
+            className={clsx(
+                'flex cursor-pointer flex-col items-start gap-0.5 rounded-md border p-2 text-left transition-colors',
+                selected ? 'border-accent bg-surface-primary shadow-sm' : 'hover:bg-surface-primary border-transparent'
+            )}
+            data-attr={`prototype-insight-family-${name.toLowerCase()}`}
+        >
+            <span className={clsx('flex items-center gap-1.5 text-sm font-semibold', selected && 'text-accent')}>
+                <Icon />
+                {name}
+            </span>
+            <span className="text-secondary text-xs">{hint}</span>
+        </button>
+    )
+}
+
+function FamilyCard({ grouping }: { grouping: 'questions' | 'config' }): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { activeView } = useValues(insightNavLogic(insightProps))
+    const { setActiveView } = useActions(insightNavLogic(insightProps))
+    const { funnelsFilter, retentionFilter, pathsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const apply = updateInsightFilter as unknown as ApplyInsightFilter
+
+    const families = grouping === 'questions' ? QUESTION_FAMILIES : CONFIG_FAMILIES
+    const family = families.find((candidate) => candidate.types.includes(activeView)) ?? families[0]
+
+    const typeSub = (type: InsightType, label: string): SubOption => ({
+        key: type,
+        label,
+        active: activeView === type,
+        onSelect: () => setActiveView(type),
+    })
+
+    let subs: SubOption[]
+    if (family.key === 'funnel') {
+        subs = funnelVizSubs(funnelsFilter?.funnelVizType, apply)
+    } else if (family.key === 'retention') {
+        subs =
+            grouping === 'questions'
+                ? [
+                      typeSub(InsightType.RETENTION, 'Retention curve'),
+                      typeSub(InsightType.STICKINESS, 'Stickiness'),
+                      typeSub(InsightType.LIFECYCLE, 'Lifecycle'),
+                  ]
+                : retentionTypeSubs(retentionFilter?.retentionType, apply)
+    } else if (family.key === 'paths') {
+        subs =
+            grouping === 'config'
+                ? [...pathScopeSubs(pathsFilter?.includeEventTypes, apply), exampleSub('EXAMPLE_SANKEY')]
+                : [{ key: 'paths', label: 'User paths', active: true }, exampleSub('EXAMPLE_SANKEY')]
+    } else {
+        subs =
+            grouping === 'questions'
+                ? [
+                      {
+                          key: 'volume',
+                          label: 'Volume',
+                          active: activeView === InsightType.TRENDS,
+                          onSelect: () => setActiveView(InsightType.TRENDS),
+                      },
+                      exampleSub('CALENDAR_HEATMAP'),
+                      exampleSub('EXAMPLE_ANOMALY'),
+                  ]
+                : [
+                      typeSub(InsightType.TRENDS, 'Volume'),
+                      typeSub(InsightType.STICKINESS, 'Stickiness'),
+                      typeSub(InsightType.LIFECYCLE, 'Lifecycle'),
+                      exampleSub('CALENDAR_HEATMAP'),
+                  ]
+    }
+
+    const activeMeta = INSIGHT_TYPES_METADATA[activeView] ?? INSIGHT_TYPES_METADATA[InsightType.TRENDS]
+
+    return (
+        <CardShell>
+            <CardLabel>Insight type</CardLabel>
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {families.map((candidate) => {
+                    const Icon = INSIGHT_TYPES_METADATA[candidate.types[0]].icon
+                    return (
+                        <FamilyTile
+                            key={candidate.key}
+                            name={candidate.name}
+                            hint={candidate.hint}
+                            icon={Icon}
+                            selected={candidate.key === family.key}
+                            onClick={() => {
+                                if (!candidate.types.includes(activeView)) {
+                                    setActiveView(candidate.types[0])
+                                }
+                            }}
+                        />
+                    )
+                })}
+            </div>
+            <div className="mt-3">
+                <CardLabel>Method</CardLabel>
+                <SubChips options={subs} dataAttrPrefix="prototype-insight-method" />
+            </div>
+            <div className="text-secondary mt-2 text-xs">{activeMeta.description}</div>
+            <div className="border-primary text-secondary mt-3 border-t pt-2 text-[0.625rem]">
+                {grouping === 'questions'
+                    ? 'Grouped by question. Stickiness and lifecycle live under retention. SQL and custom queries move to the New insight menu.'
+                    : 'Grouped by shared setup. Stickiness and lifecycle live under trends and keep your series when you switch. SQL and custom queries move to the New insight menu.'}
+            </div>
+        </CardShell>
+    )
+}
+
+// --- Variant H: flat six types in a select + a uniform mode row, no regrouping ---
+
+function FlatModesCard(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { activeView } = useValues(insightNavLogic(insightProps))
+    const { setActiveView } = useActions(insightNavLogic(insightProps))
+    const { display, funnelsFilter, retentionFilter, pathsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const apply = updateInsightFilter as unknown as ApplyInsightFilter
+
+    const typeOptions: LemonSelectOptions<string> = [
+        {
+            title: 'Insight type',
+            options: CORE_TYPES.map((type) => {
+                const meta = INSIGHT_TYPES_METADATA[type]
+                const Icon = meta.icon
+                return { value: type as string, label: meta.name, icon: <Icon /> }
+            }),
+        },
+        {
+            title: 'More types',
+            options: EXTRA_TYPES.map((entry) => {
+                const Icon = entry.icon
+                return { value: entry.key, label: entry.name, icon: <Icon />, disabledReason: entry.disabledReason }
+            }),
+        },
+    ]
+
+    let modeSubs: SubOption[] | null = null
+    if (activeView === InsightType.TRENDS) {
+        modeSubs = displaySubs(TRENDS_VIEWS, display ?? undefined, apply)
+    } else if (activeView === InsightType.STICKINESS) {
+        modeSubs = displaySubs(STICKINESS_VIEWS, display ?? undefined, apply)
+    } else if (activeView === InsightType.FUNNELS) {
+        modeSubs = funnelVizSubs(funnelsFilter?.funnelVizType, apply)
+    } else if (activeView === InsightType.RETENTION) {
+        modeSubs = retentionTypeSubs(retentionFilter?.retentionType, apply)
+    } else if (activeView === InsightType.PATHS) {
+        modeSubs = pathScopeSubs(pathsFilter?.includeEventTypes, apply)
+    }
+
+    const activeMeta = INSIGHT_TYPES_METADATA[activeView] ?? INSIGHT_TYPES_METADATA[InsightType.TRENDS]
+
+    return (
+        <CardShell>
+            <CardLabel>Insight type</CardLabel>
+            <div className="mt-1">
+                <LemonSelect
+                    size="small"
+                    fullWidth
+                    value={activeView as string}
+                    onChange={(value) => value && setActiveView(value as InsightType)}
+                    options={typeOptions}
+                    data-attr="prototype-insight-type-flat-select"
+                />
+            </div>
+            {modeSubs && (
+                <div className="mt-3">
+                    <CardLabel>Mode</CardLabel>
+                    <SubChips options={modeSubs} dataAttrPrefix="prototype-insight-mode" />
+                </div>
+            )}
+            <div className="text-secondary mt-2 text-xs">{activeMeta.description}</div>
+        </CardShell>
+    )
+}
+
+/** Routes the sidebar card variants; inert unless the URL requests one. */
+export function SidebarTypeCardPrototype(): JSX.Element | null {
+    const { searchParams } = useValues(router)
+    const variant = typeof searchParams.variant === 'string' ? searchParams.variant : ''
+
+    if (variant === 'sidebar') {
+        return <TypeAndViewCard />
+    }
+    if (variant === 'sidebar-questions') {
+        return <FamilyCard grouping="questions" />
+    }
+    if (variant === 'sidebar-families') {
+        return <FamilyCard grouping="config" />
+    }
+    if (variant === 'sidebar-modes') {
+        return <FlatModesCard />
+    }
+    return null
 }
