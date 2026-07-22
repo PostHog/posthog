@@ -29,6 +29,7 @@ else:
 
 try:
     from ee.models.rbac.access_control import AccessControl
+    from ee.models.rbac.role import RoleMembership
 except ImportError:
     pass
 
@@ -293,6 +294,103 @@ def get_effective_access_level_for_member(
         inherited_access_level=inherited,
         inherited_access_level_reason=inherited_reason,
     )
+
+
+def get_project_scoped_visible_membership_ids(
+    organization: Organization, requesting_membership: OrganizationMembership
+) -> Optional[set[str]]:
+    """Membership ids a restricted (non-org-admin) member may see: their own, plus members with
+    project-scoped access (explicit grant, role, or project default — no org-admin bypass) to any
+    project the requester has access to. Returns None when every member is visible, so callers can
+    skip filtering without materializing the roster."""
+    # Without the entitlement, stale AccessControl rules in the DB must be ignored, not enforced —
+    # every project falls back to its default access, so every member is visible.
+    if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return None
+
+    team_ids = list(organization.teams.values_list("id", flat=True))
+    role_based_access = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+
+    default_by_team: dict[int, AccessControlLevel] = {}
+    member_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    role_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    for ac in AccessControl.objects.filter(team_id__in=team_ids, resource="project"):
+        if ac.organization_member_id is None and ac.role_id is None:
+            default_by_team[ac.team_id] = ac.access_level
+        elif ac.organization_member_id:
+            member_overrides[(ac.team_id, str(ac.organization_member_id))] = ac.access_level
+        elif ac.role_id and role_based_access:
+            role_overrides[(ac.team_id, str(ac.role_id))] = ac.access_level
+
+    # A member's effective access can differ from the team default only if a rule mentions them —
+    # directly, or via a role they hold. Everyone else has exactly the default outcome, so only
+    # rule-mentioned candidates need individual evaluation.
+    candidate_role_ids: dict[str, list[str]] = defaultdict(list)
+    referenced_role_ids = {role_id for (_, role_id) in role_overrides}
+    if referenced_role_ids:
+        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids):
+            if rm.organization_member_id:
+                candidate_role_ids[str(rm.organization_member_id)].append(str(rm.role_id))
+    candidate_ids = {membership_id for (_, membership_id) in member_overrides} | set(candidate_role_ids)
+
+    def has_scoped_access(team_id: int, membership_id: str) -> bool:
+        result = get_effective_access_level_for_member(
+            resource="project",
+            default_level=default_by_team.get(team_id, default_access_level("project")),
+            role_levels=[
+                role_overrides[(team_id, rid)]
+                for rid in candidate_role_ids.get(membership_id, [])
+                if (team_id, rid) in role_overrides
+            ],
+            member_level=member_overrides.get((team_id, membership_id)),
+            is_org_admin=False,
+        )
+        return result.effective_access_level not in (None, NO_ACCESS_LEVEL)
+
+    requester_id = str(requesting_membership.id)
+    accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
+
+    open_team_accessible = any(
+        default_by_team.get(team_id, default_access_level("project")) != NO_ACCESS_LEVEL
+        for team_id in accessible_team_ids
+    )
+    if open_team_accessible:
+        # An open team makes every non-candidate visible; a candidate is hidden only if every
+        # accessible team denies them (dead branch under max-wins, real under more-specific-wins).
+        hidden = {
+            membership_id
+            for membership_id in candidate_ids
+            if all(not has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids)
+        }
+        if not hidden:
+            return None
+        all_ids = {
+            str(membership_id)
+            for membership_id in OrganizationMembership.objects.filter(organization=organization).values_list(
+                "id", flat=True
+            )
+        }
+        return (all_ids - hidden) | {requester_id}
+
+    # Only private teams are accessible: non-candidates have the "none" default everywhere.
+    visible = {requester_id}
+    for membership_id in candidate_ids:
+        if any(has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids):
+            visible.add(membership_id)
+    return visible
+
+
+def restricted_visible_membership_ids(organization: Organization, user: User) -> Optional[set[str]]:
+    """Membership ids `user` may see when the org restricts member list visibility, or None when
+    unrestricted (the setting is enabled, or the user is an org admin)."""
+    if organization.members_can_see_org_members:
+        return None
+    membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
+    if membership is None:
+        return set()
+    if membership.level >= OrganizationMembership.Level.ADMIN:
+        return None
+    return get_project_scoped_visible_membership_ids(organization, membership)
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
