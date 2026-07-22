@@ -15,5 +15,10 @@ class TeamWorkflowsConfig(models.Model):
     # as standard PostHog events alongside the existing workflow metrics.
     capture_workflows_engagement_events = models.BooleanField(default=False)
 
+    # Staff-controlled kill switch: while set, the CDP email worker blocks all workflow email
+    # for this team at send time. Set/cleared via Django admin; audit trail lives in the activity log.
+    email_sending_suspended_at = models.DateTimeField(null=True, blank=True)
+    email_sending_suspension_reason = models.TextField(blank=True, default="")
+
 
 register_team_extension_signal(TeamWorkflowsConfig, logger=logger)
