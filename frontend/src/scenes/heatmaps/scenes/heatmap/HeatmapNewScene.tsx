@@ -423,25 +423,33 @@ function RecordingBackgroundPreview({
 }): JSX.Element {
     const { ref, width: containerWidth = 0 } = useResizeObserver<HTMLDivElement>()
     const hasDims = width > 0 && height > 0
+    const measured = containerWidth > 0
     // Scale the natural-size snapshot down to fit the container so the whole recorded viewport is
     // visible; never scale up past its natural size (a narrow/mobile capture stays crisp).
-    const scale = hasDims && containerWidth > 0 ? Math.min(1, containerWidth / width) : 1
+    const scale = hasDims && measured ? Math.min(1, containerWidth / width) : 1
 
     return (
         <div ref={ref} className="overflow-hidden rounded border bg-surface-secondary w-full">
             {hasDims ? (
-                // eslint-disable-next-line react/forbid-dom-props
-                <div className="relative" style={{ height: height * scale }}>
-                    <iframe
-                        srcDoc={html}
-                        title="Selected session recording background"
-                        sandbox="allow-same-origin"
-                        tabIndex={-1}
-                        className="absolute top-0 left-0 origin-top-left border-0 bg-white pointer-events-none ph-no-capture"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width, height, transform: `scale(${scale})` }}
-                    />
-                </div>
+                measured ? (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div className="relative" style={{ height: height * scale }}>
+                        <iframe
+                            srcDoc={html}
+                            title="Selected session recording background"
+                            sandbox="allow-same-origin"
+                            tabIndex={-1}
+                            className="absolute top-0 left-0 origin-top-left border-0 bg-white pointer-events-none ph-no-capture"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width, height, transform: `scale(${scale})` }}
+                        />
+                    </div>
+                ) : (
+                    // Reserve the recording's aspect ratio until the observer reports a width, so a wide
+                    // capture never renders at full size and gets clipped before we can scale it down.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div className="w-full" style={{ aspectRatio: `${width} / ${height}` }} />
+                )
             ) : (
                 <iframe
                     srcDoc={html}
