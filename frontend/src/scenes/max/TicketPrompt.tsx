@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
+import { appendTicketMetadata, composeTicketBody } from './ticketUtils'
 
 function formatConfirmationMessage(ticketId: string): string {
     return `I've created a support ticket for you.\nYour ticket ID is #${ticketId}.\nOur support team will get back to you soon!`
@@ -26,7 +27,8 @@ interface TicketPromptProps {
 
 /**
  * In-chat support ticket form for the /ticket command.
- * - If `summary` is provided: shows "Create support ticket" button with pre-filled summary
+ * - If `summary` is provided: shows a "Create support ticket" button; the modal attaches the AI
+ *   summary as context and offers an optional "anything to add" note
  * - If no `summary`: shows input field for user to describe their issue
  */
 export function TicketPrompt({
@@ -38,6 +40,7 @@ export function TicketPrompt({
 }: TicketPromptProps): JSX.Element {
     const [issueText, setIssueText] = useState(initialText ?? '')
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [hasSubmitted, setHasSubmitted] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
     const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
@@ -46,8 +49,7 @@ export function TicketPrompt({
 
     const [pendingTicketSubmission, setPendingTicketSubmission] = useState(false)
     const [ticketIdBeforeSubmission, setTicketIdBeforeSubmission] = useState<string | null>(null)
-
-    const messageContent = summary || issueText
+    const submitInFlightRef = useRef(false)
 
     const handleTicketCreated = useCallback(
         (ticketId: string): void => {
@@ -62,6 +64,8 @@ export function TicketPrompt({
             const confirmationMessage = formatConfirmationMessage(ticketId)
             appendMessageToConversation(confirmationMessage)
 
+            submitInFlightRef.current = false
+            setHasSubmitted(true)
             setIsSupportModalOpen(false)
             setIsSubmitting(false)
             closeSupportForm()
@@ -76,13 +80,6 @@ export function TicketPrompt({
         }
     }, [lastSubmittedTicketId, pendingTicketSubmission, ticketIdBeforeSubmission, handleTicketCreated])
 
-    function appendMetadataToMessage(message: string): string {
-        const metadataLines = [`Conversation ID: ${conversationId}`, traceId ? `Trace ID: ${traceId}` : null].filter(
-            Boolean
-        )
-        return message ? `${message}\n\n----\n${metadataLines.join('\n')}` : metadataLines.join('\n')
-    }
-
     function openSupportModal(): void {
         resetSendSupportRequest({
             name: '',
@@ -90,16 +87,26 @@ export function TicketPrompt({
             kind: 'bug',
             target_area: targetArea ?? 'analytics',
             severity_level: 'low',
-            message: messageContent,
+            message: summary ? '' : issueText,
             tags: ['raised_from_posthog_ai_chat'],
         })
         setIsSupportModalOpen(true)
     }
 
     async function handleSupportFormSubmit(): Promise<void> {
-        setIsSubmitting(true)
+        if (submitInFlightRef.current || hasSubmitted) {
+            return
+        }
 
-        const finalMessage = appendMetadataToMessage(sendSupportRequest.message)
+        const body = composeTicketBody({ note: sendSupportRequest.message, summary })
+        const finalMessage = appendTicketMetadata(body, { conversationId, traceId })
+        if (!finalMessage) {
+            lemonToast.error('Please add a description before creating a ticket.')
+            return
+        }
+
+        submitInFlightRef.current = true
+        setIsSubmitting(true)
         setSendSupportRequestValue('message', finalMessage)
         const ticketIdBefore = supportLogic.values.lastSubmittedTicketId
         setTicketIdBeforeSubmission(ticketIdBefore)
@@ -112,6 +119,7 @@ export function TicketPrompt({
         // Success is handled by the effect watching lastSubmittedTicketId. If no ticket was created,
         // the submit failed — stop the spinner so the user can retry (the error toast already showed).
         if (supportLogic.values.lastSubmittedTicketId === ticketIdBefore) {
+            submitInFlightRef.current = false
             setIsSubmitting(false)
             setPendingTicketSubmission(false)
         }
@@ -139,13 +147,28 @@ export function TicketPrompt({
                         data-attr="submit"
                         onClick={() => void handleSupportFormSubmit()}
                         loading={isSubmitting}
+                        disabledReason={hasSubmitted ? 'Ticket already created' : undefined}
                     >
                         Submit
                     </LemonButton>
                 </div>
             }
         >
-            <SupportForm />
+            {summary && (
+                <div className="flex flex-col gap-1 mb-3">
+                    <p className="m-0 font-medium">PostHog AI's analysis</p>
+                    <p className="m-0 text-xs text-secondary">This is attached to your ticket for our support team.</p>
+                    <div className="max-h-40 overflow-y-auto p-2 border border-border rounded bg-bg-light text-sm whitespace-pre-wrap">
+                        {summary}
+                    </div>
+                </div>
+            )}
+            <SupportForm
+                messageLabel={summary ? 'Anything to add? (optional)' : undefined}
+                messagePlaceholder={
+                    summary ? 'Add anything that would help our support team understand your issue' : undefined
+                }
+            />
         </LemonModal>
     )
 
@@ -154,7 +177,12 @@ export function TicketPrompt({
         return (
             <>
                 <div className="flex gap-2 ml-1 mt-1">
-                    <LemonButton type="primary" size="small" onClick={openSupportModal}>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={openSupportModal}
+                        disabledReason={hasSubmitted ? 'Ticket already created' : undefined}
+                    >
                         Create support ticket
                     </LemonButton>
                 </div>
@@ -172,12 +200,27 @@ export function TicketPrompt({
                     placeholder="What do you need help with?"
                     value={issueText}
                     onChange={setIssueText}
-                    onPressEnter={openSupportModal}
+                    onPressEnter={() => {
+                        if (issueText.trim()) {
+                            openSupportModal()
+                        }
+                    }}
                     fullWidth
                     autoFocus
                 />
                 <div className="flex gap-2">
-                    <LemonButton type="primary" size="small" onClick={openSupportModal} disabled={!issueText.trim()}>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={openSupportModal}
+                        disabledReason={
+                            hasSubmitted
+                                ? 'Ticket already created'
+                                : !issueText.trim()
+                                  ? 'Describe your issue first'
+                                  : undefined
+                        }
+                    >
                         Create support ticket
                     </LemonButton>
                 </div>

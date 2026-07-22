@@ -166,6 +166,37 @@ export function getTicketSummaryData(
 }
 
 /**
+ * Builds the ticket body from the user's own note and, when present, PostHog AI's summary.
+ * The user's note leads so a human framing is always on top; the AI summary is attached as
+ * supporting context. Returns an empty string when there is nothing to send.
+ */
+export function composeTicketBody({ note, summary }: { note: string; summary?: string }): string {
+    const trimmedNote = note.trim()
+    if (summary) {
+        return trimmedNote ? `${trimmedNote}\n\n----\nPostHog AI's analysis:\n${summary}` : summary
+    }
+    return trimmedNote
+}
+
+/**
+ * Appends the conversation and trace identifiers to a ticket body. Returns an empty string when
+ * the body is empty, so metadata alone can never be submitted as a ticket.
+ */
+export function appendTicketMetadata(
+    body: string,
+    { conversationId, traceId }: { conversationId: string; traceId: string | null }
+): string {
+    const trimmedBody = body.trim()
+    if (!trimmedBody) {
+        return ''
+    }
+    const metadataLines = [`Conversation ID: ${conversationId}`, traceId ? `Trace ID: ${traceId}` : null].filter(
+        Boolean
+    )
+    return `${trimmedBody}\n\n----\n${metadataLines.join('\n')}`
+}
+
+/**
  * Checks if a message is a ticket confirmation message.
  */
 export function isTicketConfirmationMessage(message: ThreadMessage): boolean {
