@@ -121,11 +121,18 @@ export interface inboxReportDetailLogicValues {
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
     expandedTaskIds: string[]
+    hasImplementationPr: boolean
     isReResearch: boolean
     isReportActive: boolean
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
     optimisticReviewers: EnrichedReviewer[] | null
+    prChecks: readonly PullRequestCheckApi[] | null
+    prChecksError: string | null
+    prChecksLoading: boolean
+    prComments: readonly PullRequestCommentApi[] | null
+    prCommentsError: string | null
+    prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
     report: SignalReport | null
@@ -173,6 +180,36 @@ export interface inboxReportDetailLogicActions {
         payload?: {
             query?: string
         }
+    }
+    loadPrChecks: () => any
+    loadPrChecksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPrChecksSuccess: (
+        prChecks: readonly PullRequestCheckApi[] | null,
+        payload?: any
+    ) => {
+        prChecks: readonly PullRequestCheckApi[] | null
+        payload?: any
+    }
+    loadPrComments: () => any
+    loadPrCommentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPrCommentsSuccess: (
+        prComments: readonly PullRequestCommentApi[] | null,
+        payload?: any
+    ) => {
+        prComments: readonly PullRequestCommentApi[] | null
+        payload?: any
     }
     loadReportArtefacts: () => any
     loadReportArtefactsFailure: (
@@ -271,6 +308,7 @@ export interface inboxReportDetailLogicMeta {
         isUpdatingReviewers: (optimisticReviewers: EnrichedReviewer[] | null) => boolean
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
+        hasImplementationPr: (report: SignalReport | null) => boolean
         latestCommitArtefact: (reportArtefacts: SignalReportArtefact[] | null) => SignalReportArtefact | null
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
@@ -568,63 +606,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         hasImplementationPr: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
-        ],
-        // Whether the current user has a personal GitHub connection — required to post review comments
-        // (they're attributed to the user's own GitHub identity, not the app's).
-        hasPersonalGithub: [
-            (s) => [s.personalIntegrations],
-            (personalIntegrations): boolean => (personalIntegrations ?? []).length > 0,
-        ],
-        // The current user's GitHub login (from their personal connection) — used to attribute optimistic
-        // comments and to tell which comments/reactions are the user's own (editable/removable). Note this
-        // is `github_login`, NOT `account.name` (which is the installation's org/user, e.g. "PostHog").
-        currentUserGithubLogin: [
-            (s) => [s.personalIntegrations],
-            (personalIntegrations): string | null => personalIntegrations?.[0]?.github_login ?? null,
-        ],
-        // Inline review threads grouped by file path: thread roots (review comments with a line anchor
-        // and no in_reply_to) plus their replies, in chronological order. Outdated comments (null line)
-        // are excluded here — they still show in the Comments section.
-        inlineThreadsByFile: [
-            (s) => [s.prComments],
-            (prComments: readonly PullRequestCommentApi[] | null): Record<string, ReviewThread[]> => {
-                if (!prComments) {
-                    return {}
-                }
-                const threads = new Map<string, ReviewThread>()
-                for (const comment of prComments) {
-                    if (comment.comment_type !== 'review' || !comment.path || comment.in_reply_to_id) {
-                        continue
-                    }
-                    if (comment.line == null) {
-                        continue
-                    }
-                    threads.set(comment.id, {
-                        rootId: comment.id,
-                        path: comment.path,
-                        line: comment.line,
-                        side: comment.side === 'LEFT' ? 'LEFT' : 'RIGHT',
-                        comments: [comment],
-                    })
-                }
-                for (const comment of prComments) {
-                    if (comment.comment_type !== 'review' || !comment.in_reply_to_id) {
-                        continue
-                    }
-                    threads.get(comment.in_reply_to_id)?.comments.push(comment)
-                }
-                const byFile: Record<string, ReviewThread[]> = {}
-                for (const thread of threads.values()) {
-                    ;(byFile[thread.path] ??= []).push(thread)
-                }
-                return byFile
-            },
-        ],
-        // Total inline threads, for the Files changed toolbar summary.
-        inlineThreadCount: [
-            (s) => [s.inlineThreadsByFile],
-            (inlineThreadsByFile: Record<string, ReviewThread[]>): number =>
-                Object.values(inlineThreadsByFile).reduce((sum, threads) => sum + threads.length, 0),
         ],
         // The most recent `commit` artefact — its branch is treated as the report's branch to diff
         // against the repository default branch. A report's code work may span several pushes; the
