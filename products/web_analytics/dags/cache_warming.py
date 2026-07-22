@@ -1,5 +1,7 @@
+import re
 import json
 import statistics
+from typing import TYPE_CHECKING, Optional
 
 from django.utils.dateparse import parse_datetime
 
@@ -21,8 +23,29 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
+    can_use_lazy_precompute as can_use_goals_lazy_precompute,
+)
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+    can_use_lazy_precompute as can_use_overview_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    can_use_lazy_precompute as can_use_frustration_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_paths_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_vitals_paths_lazy_precompute,
+)
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
+
+if TYPE_CHECKING:
+    from posthog.hogql_queries.query_runner import QueryRunner
 
 WARMING_SHAPES_SELECTED_GAUGE = Gauge(
     "posthog_web_analytics_warming_shapes_selected",
@@ -87,6 +110,99 @@ def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
     if query_json.get("useWebAnalyticsPrecompute") is not None:
         return query_json
     return {**query_json, "useWebAnalyticsPrecompute": True}
+
+
+# Warmed bucket depth. ~88% of web analytics requests fit inside 7 days but 93%
+# fit inside 30 (-14d/-28d/-30d/month-start make up the difference); since
+# per-day buckets are immutable and shared across date ranges, building 30 days
+# once covers every narrower request at no recurring cost.
+WARMING_EXPANDED_DATE_FROM = "-30d"
+
+# Relative date_from presets that are always narrower than 30 days. -Nh/-Nd/-Nw
+# forms are matched by pattern and compared in days; absolute dates and wider
+# presets (mStart, all, yStart, -90d, …) are left untouched. Months/years are
+# deliberately unmatched: -1m can span 31 days, so expanding it would narrow it.
+_SUB_30D_DATE_FROM_PRESETS = frozenset({"dStart", "-1dStart", "wStart", "-1wStart"})
+_SUB_30D_DATE_FROM_RE = re.compile(r"^-(\d+)([hdw])$")
+_HOURS_PER_DAY = 24
+_DAYS_PER_WEEK = 7
+
+
+def _is_within_30_days(date_from: str | None) -> bool:
+    if not date_from:
+        return True  # unset falls back to the -7d default
+    if date_from in _SUB_30D_DATE_FROM_PRESETS:
+        return True
+    match = _SUB_30D_DATE_FROM_RE.match(date_from)
+    if not match:
+        return False
+    value, unit = int(match.group(1)), match.group(2)
+    if unit == "h":
+        return value < 30 * _HOURS_PER_DAY
+    if unit == "w":
+        return value * _DAYS_PER_WEEK < 30
+    return value < 30
+
+
+def maybe_expand_warming_date_range(query_json: dict) -> dict:
+    """Deepen a bucket-building replay's date range to WARMING_EXPANDED_DATE_FROM.
+
+    Only date_from moves (earlier), so the built buckets are a strict superset of
+    the requested range. Applies only to shapes on the precompute path: for an
+    opted-out shape the replay's exact result-cache row is the whole value of
+    warming it, so its range must stay faithful.
+    """
+    if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
+        return query_json
+    if query_json.get("useWebAnalyticsPrecompute") is not True:
+        return query_json
+    date_range = query_json.get("dateRange") or {}
+    if not _is_within_30_days(date_range.get("date_from")):
+        return query_json
+    return {**query_json, "dateRange": {**date_range, "date_from": WARMING_EXPANDED_DATE_FROM}}
+
+
+# Family-level eligibility dispatch, mirroring each runner's own lazy-path
+# entry points (stats_table tries three families; a shape is lazy-served iff
+# any accepts). Keyed by query kind — only LAZY_PRECOMPUTE_QUERY_KINDS appear.
+_LAZY_FAMILY_CHECKS: dict[str, tuple] = {
+    "WebOverviewQuery": (can_use_overview_lazy_precompute,),
+    "WebStatsTableQuery": (
+        can_use_paths_lazy_precompute,
+        can_use_frustration_lazy_precompute,
+        can_use_stats_lazy_precompute,
+    ),
+    "WebGoalsQuery": (can_use_goals_lazy_precompute,),
+    "WebVitalsPathBreakdownQuery": (can_use_vitals_paths_lazy_precompute,),
+}
+
+
+def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRunner"], dict]:
+    """Build the runner for a warming replay, widening the date range only for
+    shapes the lazy path will actually serve.
+
+    The per-query opt-in does not guarantee the lazy path: shapes the gates
+    reject (conversion goals, sampling, unsupported breakdowns/metrics like
+    bounce rate, …) execute on the raw path, where a widened replay would be a
+    30-day scan the tenant never ran — background load outside their request
+    throttles, mintable up to MAX_SHAPES_PER_TEAM per hour. Those shapes replay
+    with their faithful original range instead. Eligibility is decided by the
+    same per-family `can_use_lazy_precompute` dispatch the runner uses, so this
+    check and execution can't disagree. Under the warming tag the enrollment
+    gate is bypassed by design — building buckets for not-yet-enrolled teams is
+    the warmer's purpose — so the decision rests on the shape itself.
+    """
+    expanded_json = maybe_expand_warming_date_range(query_json)
+    if expanded_json is query_json:
+        return get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC), query_json
+
+    runner = get_query_runner_or_none(query=expanded_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+    if runner is None:
+        return None, expanded_json
+    family_checks = _LAZY_FAMILY_CHECKS.get(expanded_json.get("kind", ""), ())
+    if any(check(runner) for check in family_checks):
+        return runner, expanded_json
+    return get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC), query_json
 
 
 def queries_to_keep_fresh(
@@ -242,11 +358,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # None only for kinds without a get_query_runner branch — the backstop
             # for runnerless kinds the selection doesn't know to exclude yet.
             # Validation errors on supported kinds still raise into the failure path.
-            runner = get_query_runner_or_none(
-                query=query_json,
-                team=team,
-                limit_context=LimitContext.QUERY_ASYNC,
-            )
+            runner, query_json = build_replay_runner(team, query_json)
             if runner is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
                 queries_unsupported += 1

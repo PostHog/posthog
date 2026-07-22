@@ -120,7 +120,13 @@ class DucklingBackfillConfig:
 
 2. Enable the team's backfill by creating its `DuckgresServerTeam` row with
    `backfill_enabled=True` (the provision / enable-backfill admin actions do this). The
-   discovery sensor will then pick up the team on its next run.
+   discovery sensor will then pick up the team on its next run. The enablement flow also creates a
+   managed Postgres live-query connection with a distinct Duckgres reader for the team. Once the
+   warehouse is ready, background schema discovery exposes every table in the team's event/person,
+   data-import, team, and modeled-data namespaces in the SQL editor. Duckgres enforces read-only
+   access to those namespaces for both HogQL and raw SQL. Legacy teams that still use the shared
+   unsuffixed `events` and `persons` tables are not exposed because those tables contain rows for
+   multiple teams.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 

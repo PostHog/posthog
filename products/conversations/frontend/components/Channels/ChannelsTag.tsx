@@ -3,7 +3,15 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 
-import type { TicketChannel, TicketChannelDetail } from '../../types'
+import type { Ticket, TicketChannel, TicketChannelDetail } from '../../types'
+
+// Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
+export function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
+    if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
+        return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
+    }
+    return undefined
+}
 
 const channelIcon: Record<TicketChannel, JSX.Element> = {
     widget: <IconComment />,
@@ -52,7 +60,8 @@ export function ChannelsTag({ channel, detail, to }: ChannelsTagProps): JSX.Elem
         const tooltip = channelOpenLabel[channel] ?? `${channel}${detailText ? ` · ${detailText}` : ''}`
         return (
             <Tooltip title={tooltip}>
-                <Link to={to} target="_blank">
+                {/* Stop propagation so clicking the tag opens Slack without triggering a row/parent click. */}
+                <Link to={to} target="_blank" onClick={(e) => e.stopPropagation()}>
                     {tag}
                 </Link>
             </Tooltip>

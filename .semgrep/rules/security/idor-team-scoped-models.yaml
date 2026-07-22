@@ -73,6 +73,8 @@ rules:
                               |Alert
                               |AlertConfiguration
                               |Annotation
+                              |Announcement
+                              |AnnouncementDelivery
                               |ApprovalPolicy
                               |BatchExport
                               |BatchExportBackfill
@@ -84,9 +86,6 @@ rules:
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
-                              |CodePrSnapshot
-                              |CodeWorkflowConfig
-                              |CodeWorkstream
                               |Cohort
                               |CohortBackfillChunk
                               |CohortBackfillRun
@@ -123,6 +122,7 @@ rules:
                               |DeploymentProject
                               |EarlyAccessFeature
                               |EmailMessageMapping
+                              |EmailReputationSnapshot
                               |EvaluationContext
                               |Edge
                               |Endpoint
@@ -169,6 +169,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowRevision
                               |HogFlowSchedule
                               |HogFlowTemplate
                               |HogFunction
@@ -385,6 +386,8 @@ rules:
                         |Alert
                         |AlertConfiguration
                         |Annotation
+                        |Announcement
+                        |AnnouncementDelivery
                         |ApprovalPolicy
                         |BatchExport
                         |BatchExportBackfill
@@ -396,9 +399,6 @@ rules:
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
-                        |CodePrSnapshot
-                        |CodeWorkflowConfig
-                        |CodeWorkstream
                         |Cohort
                         |CohortBackfillChunk
                         |CohortBackfillRun
@@ -435,6 +435,7 @@ rules:
                         |DeploymentProject
                         |EarlyAccessFeature
                         |EmailMessageMapping
+                        |EmailReputationSnapshot
                         |EvaluationContext
                         |Edge
                         |Endpoint
@@ -481,6 +482,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowRevision
                         |HogFlowSchedule
                         |HogFlowTemplate
                         |HogFunction
