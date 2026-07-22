@@ -94,12 +94,12 @@ test('the shipped config still maps the flags scope to labels', () => {
     assert.ok(labelsForTitle('feat(flags): x', loadRules()).length > 0, 'flags scope maps to no labels')
 })
 
-// Contributors write the flags scope several ways; the underscore form was
-// silently unlabeled until it was added to the config. Bind it so a future edit
-// that drops the variants regresses loudly here.
-test('the shipped config maps the underscore feature_flags scope to labels', () => {
-    assert.ok(
-        labelsForTitle('feat(feature_flags): x', loadRules()).length > 0,
-        'feature_flags scope maps to no labels'
-    )
-})
+// Contributors write the flags scope several ways; these aliases were silently
+// unlabeled until they were added to the config. Bind each to the shipped
+// config (not just the RULES mirror) so a future edit that drops one regresses
+// loudly here.
+for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
+    test(`the shipped config maps the ${scope} scope to labels`, () => {
+        assert.ok(labelsForTitle(`feat(${scope}): x`, loadRules()).length > 0, `${scope} scope maps to no labels`)
+    })
+}
