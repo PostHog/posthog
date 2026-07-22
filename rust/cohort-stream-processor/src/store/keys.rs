@@ -11,6 +11,12 @@ use super::rocks::StoreError;
 
 /// `[partition_id u16][team_id u64][cohort_id u64][person_id 16]`.
 pub const STAGE2_KEY_LEN: usize = 2 + 8 + 8 + 16;
+/// `[partition_id u16][0xFF; 32][transferred-register discriminant][team_id u64][person_id 16]`.
+pub const STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN: usize = STAGE2_KEY_LEN + 1 + 8 + 16;
+/// `[transferred-register person prefix][cohort_id u64]`.
+pub const STAGE2_TRANSFERRED_REGISTER_KEY_LEN: usize =
+    STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN + 8;
+const STAGE2_TRANSFERRED_REGISTER_DISCRIMINANT: u8 = 2;
 /// `[partition_id u16][team_id u64][old_person 16][merge_msg_partition u32][merge_msg_offset u64]`.
 pub const MERGE_DRAIN_KEY_LEN: usize = 2 + 8 + 16 + 4 + 8;
 /// `[partition_id u16][team_id u64][old_person 16]`.
@@ -26,6 +32,23 @@ pub struct Stage2Key {
     pub partition_id: u16,
     pub team_id: u64,
     pub cohort_id: u64,
+    pub person_id: Uuid,
+}
+
+/// Catalog-independent inventory for a register received through the merge protocol.
+///
+/// The primary Stage 2 layout is cohort-first, so a merge drain cannot enumerate one person's rows
+/// when its local catalog has not learned the cohort yet. This person-first metadata key closes that
+/// gap. Its value carries the source transfer kind and bit plus the exact primary bytes they
+/// describe; the primary row remains the receiver's current materialized membership state.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Stage2TransferredRegisterKey(Stage2Key);
+
+/// Prefix selecting one person's transferred-register inventory entries.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Stage2TransferredRegisterPersonPrefix {
+    pub partition_id: u16,
+    pub team_id: u64,
     pub person_id: Uuid,
 }
 
@@ -88,6 +111,105 @@ impl Stage2Key {
             cohort_id: u64::from_be_bytes(array8(&bytes[10..18])),
             person_id: Uuid::from_bytes(array16(&bytes[18..34])),
         })
+    }
+}
+
+impl Stage2TransferredRegisterKey {
+    pub const fn new(key: Stage2Key) -> Self {
+        Self(key)
+    }
+
+    pub const fn stage2_key(self) -> Stage2Key {
+        self.0
+    }
+
+    pub fn encode(self) -> [u8; STAGE2_TRANSFERRED_REGISTER_KEY_LEN] {
+        let mut out = [0u8; STAGE2_TRANSFERRED_REGISTER_KEY_LEN];
+        out[0..2].copy_from_slice(&self.0.partition_id.to_be_bytes());
+        out[2..STAGE2_KEY_LEN].fill(0xFF);
+        out[STAGE2_KEY_LEN] = STAGE2_TRANSFERRED_REGISTER_DISCRIMINANT;
+        out[(STAGE2_KEY_LEN + 1)..(STAGE2_KEY_LEN + 9)]
+            .copy_from_slice(&self.0.team_id.to_be_bytes());
+        out[(STAGE2_KEY_LEN + 9)..STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN]
+            .copy_from_slice(self.0.person_id.as_bytes());
+        out[STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN..]
+            .copy_from_slice(&self.0.cohort_id.to_be_bytes());
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(
+            bytes,
+            STAGE2_TRANSFERRED_REGISTER_KEY_LEN,
+            "stage2 transferred register",
+        )?;
+        if bytes[2..STAGE2_KEY_LEN].iter().any(|byte| *byte != 0xFF)
+            || bytes[STAGE2_KEY_LEN] != STAGE2_TRANSFERRED_REGISTER_DISCRIMINANT
+        {
+            return Err(StoreError::UnknownKey {
+                kind: "stage2 transferred register",
+            });
+        }
+        Ok(Self(Stage2Key {
+            partition_id: u16::from_be_bytes(array2(&bytes[0..2])),
+            team_id: u64::from_be_bytes(array8(&bytes[(STAGE2_KEY_LEN + 1)..(STAGE2_KEY_LEN + 9)])),
+            cohort_id: u64::from_be_bytes(array8(
+                &bytes[STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN..],
+            )),
+            person_id: Uuid::from_bytes(array16(
+                &bytes[(STAGE2_KEY_LEN + 9)..STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN],
+            )),
+        }))
+    }
+
+    pub const fn person_prefix(self) -> Stage2TransferredRegisterPersonPrefix {
+        Stage2TransferredRegisterPersonPrefix {
+            partition_id: self.0.partition_id,
+            team_id: self.0.team_id,
+            person_id: self.0.person_id,
+        }
+    }
+}
+
+impl Stage2TransferredRegisterPersonPrefix {
+    pub const fn new(partition_id: u16, team_id: u64, person_id: Uuid) -> Self {
+        Self {
+            partition_id,
+            team_id,
+            person_id,
+        }
+    }
+
+    pub fn encode(self) -> [u8; STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN] {
+        let key = Stage2Key {
+            partition_id: self.partition_id,
+            team_id: self.team_id,
+            cohort_id: 0,
+            person_id: self.person_id,
+        };
+        let encoded = Stage2TransferredRegisterKey::new(key).encode();
+        let mut out = [0u8; STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN];
+        out.copy_from_slice(&encoded[..STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN]);
+        out
+    }
+
+    pub fn range(self) -> (Vec<u8>, Vec<u8>) {
+        let start = self.encode().to_vec();
+        let mut end = start.clone();
+        for byte in end.iter_mut().rev() {
+            if let Some(next) = byte.checked_add(1) {
+                *byte = next;
+                return (start, end);
+            }
+            *byte = 0;
+        }
+        unreachable!("the transferred-register discriminant has a lexicographic successor")
+    }
+}
+
+impl From<Stage2Key> for Stage2TransferredRegisterKey {
+    fn from(value: Stage2Key) -> Self {
+        Self::new(value)
     }
 }
 
@@ -250,6 +372,19 @@ mod tests {
             34,
         );
         assert_eq!(STAGE2_KEY_LEN, 34);
+        assert_eq!(STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN, 59);
+        assert_eq!(
+            Stage2TransferredRegisterKey::new(Stage2Key {
+                partition_id: 1,
+                team_id: 2,
+                cohort_id: 3,
+                person_id: person(4),
+            })
+            .encode()
+            .len(),
+            STAGE2_TRANSFERRED_REGISTER_KEY_LEN,
+        );
+        assert_eq!(STAGE2_TRANSFERRED_REGISTER_KEY_LEN, 67);
     }
 
     #[test]
@@ -277,6 +412,84 @@ mod tests {
             ),
             "unexpected error: {err:?}",
         );
+    }
+
+    #[test]
+    fn transferred_register_key_round_trips_and_groups_by_person() {
+        let row = Stage2Key {
+            partition_id: 7,
+            team_id: 42,
+            cohort_id: 99,
+            person_id: person(123),
+        };
+        let inventory = Stage2TransferredRegisterKey::new(row);
+        assert_eq!(
+            Stage2TransferredRegisterKey::decode(&inventory.encode()).unwrap(),
+            inventory,
+        );
+        assert_eq!(inventory.stage2_key(), row);
+        assert_eq!(
+            inventory.person_prefix(),
+            Stage2TransferredRegisterPersonPrefix::new(7, 42, person(123)),
+        );
+        assert!(Stage2Key::decode(&inventory.encode()).is_err());
+    }
+
+    #[test]
+    fn transferred_register_namespace_sorts_after_rows_and_inside_partition() {
+        for partition_id in [0, 7, u16::MAX] {
+            let row = Stage2Key {
+                partition_id,
+                team_id: u64::MAX,
+                cohort_id: u64::MAX,
+                person_id: person(u128::MAX),
+            };
+            let inventory = Stage2TransferredRegisterKey::new(row).encode();
+            assert!(row.encode().as_slice() < inventory.as_slice());
+            let (partition_start, partition_end) = partition_range(partition_id);
+            assert!(partition_start.as_slice() <= inventory.as_slice());
+            assert!(inventory.as_slice() < partition_end.as_slice());
+        }
+    }
+
+    #[test]
+    fn transferred_register_person_prefix_selects_all_and_only_that_person() {
+        let prefix = Stage2TransferredRegisterPersonPrefix::new(7, 42, person(9));
+        let (start, end) = prefix.range();
+        for cohort_id in [0, 1, u64::MAX] {
+            let encoded = Stage2TransferredRegisterKey::new(Stage2Key {
+                partition_id: 7,
+                team_id: 42,
+                cohort_id,
+                person_id: person(9),
+            })
+            .encode();
+            assert!(start.as_slice() <= encoded.as_slice());
+            assert!(encoded.as_slice() < end.as_slice());
+        }
+        for foreign in [
+            Stage2Key {
+                partition_id: 8,
+                team_id: 42,
+                cohort_id: 1,
+                person_id: person(9),
+            },
+            Stage2Key {
+                partition_id: 7,
+                team_id: 43,
+                cohort_id: 1,
+                person_id: person(9),
+            },
+            Stage2Key {
+                partition_id: 7,
+                team_id: 42,
+                cohort_id: 1,
+                person_id: person(10),
+            },
+        ] {
+            let encoded = Stage2TransferredRegisterKey::new(foreign).encode();
+            assert!(encoded.as_slice() < start.as_slice() || encoded.as_slice() >= end.as_slice());
+        }
     }
 
     #[test]

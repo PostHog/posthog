@@ -232,6 +232,7 @@ async fn async_main(config: Config) -> Result<()> {
         seed_tracker: Arc::new(OffsetTracker::new()),
         // Unconditional (cheap): the event path observes regardless of the seed gate.
         live_watermarks: Arc::new(LiveWatermarks::new()),
+        register_transfer_enabled: config.cohort_register_transfer_enabled,
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper

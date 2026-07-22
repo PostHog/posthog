@@ -243,6 +243,13 @@ pub struct Config {
     )]
     pub cohort_seed_watermark_idle_probe_interval_ms: u64,
 
+    /// Permit cross-partition membership-register transfer. Local register writers and transfer
+    /// receivers are always active; only drain-side emission is gated. Enable only after every
+    /// processor pod can apply the additive transfer payload. While off, a cross-partition merge ships
+    /// leaves only and never holds, so it cannot wedge live merge consumption.
+    #[envconfig(from = "COHORT_REGISTER_TRANSFER_ENABLED", default = "false")]
+    pub cohort_register_transfer_enabled: bool,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -967,6 +974,7 @@ mod tests {
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
             cohort_seed_fence_margin_ms: 600_000,
             cohort_seed_watermark_idle_probe_interval_ms: 30_000,
+            cohort_register_transfer_enabled: false,
         }
     }
 
@@ -1116,6 +1124,22 @@ mod tests {
         assert!(config.store_config().wipe_on_start);
         config.wipe_store_on_start = false;
         assert!(!config.store_config().wipe_on_start);
+    }
+
+    #[test]
+    fn register_transfer_gate_defaults_dark_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.cohort_register_transfer_enabled,
+            "register transfer must stay off until the whole fleet can apply the payload",
+        );
+
+        let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
+            "COHORT_REGISTER_TRANSFER_ENABLED".to_owned(),
+            "true".to_owned(),
+        )]))
+        .unwrap();
+        assert!(enabled.cohort_register_transfer_enabled);
     }
 
     #[test]
