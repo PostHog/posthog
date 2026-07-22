@@ -4722,7 +4722,6 @@ class TestSurveyWithActions(APIBaseTest):
         assert len(survey.actions.all()) == 0
 
 
-@freeze_time("2024-12-12 00:00:00")
 class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
     def test_public_action_serializer_strips_non_public_fields_from_stale_blob(self) -> None:
         # /decide PII leak guard (no DB): when the actions M2M is empty and
@@ -4761,6 +4760,7 @@ class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
         assert value["name"] == "person subscribed"
 
 
+@freeze_time("2024-12-12 00:00:00")
 class TestSurveyResponseSampling(APIBaseTest):
     def _create_survey_with_sampling_limits(
         self,
