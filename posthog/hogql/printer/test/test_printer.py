@@ -2291,27 +2291,63 @@ class TestPrinter(BaseTest):
         self, _name: str, value: str, precision: int, expected_naive: str
     ):
         # toDateTime64('<zoned string>', ...) fed a 'Z'/offset string reaches ClickHouse's strict parser
-        # verbatim and fails; it must be re-expressed as a naive string in the call's timezone.
-        printed = self._select(f"SELECT toDateTime64('{value}', {precision}, 'UTC') FROM events")
-        assert f"toDateTime64('{expected_naive}', {precision}, 'UTC')" in printed, printed
-        assert value not in printed, printed
+        # verbatim and fails; it must be re-expressed as an inlined naive string in the call's timezone.
+        # The timezone argument stays parameterized and the column alias echoes the original HogQL text,
+        # so the rewrite is asserted via the printed call plus the parameter values.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(f"SELECT toDateTime64('{value}', {precision}, 'UTC') FROM events", context)
+        assert f"toDateTime64('{expected_naive}', {precision}, %(hogql_val_0)s)" in printed, printed
+        assert context.values["hogql_val_0"] == "UTC"
+        assert value not in context.values.values(), context.values
 
     def test_zoned_datetime_string_in_toDateTime64_converted_to_arg_timezone(self):
         # The explicit third argument is the timezone ClickHouse interprets the naive string in, so the
         # instant must be converted into it (09:59:12 UTC is 02:59:12 US/Pacific).
-        printed = self._select("SELECT toDateTime64('2026-06-30T09:59:12.988000Z', 6, 'US/Pacific') FROM events")
-        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, 'US/Pacific')" in printed, printed
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(
+            "SELECT toDateTime64('2026-06-30T09:59:12.988000Z', 6, 'US/Pacific') FROM events", context
+        )
+        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, %(hogql_val_0)s)" in printed, printed
+        assert context.values["hogql_val_0"] == "US/Pacific"
+
+    def test_zoned_datetime_string_in_toDateTime64_converted_to_project_timezone(self):
+        # Without an explicit timezone argument the printer appends the project timezone, so that is the
+        # timezone the instant must be converted into for the naive string to keep meaning the same instant.
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select("SELECT toDateTime64('2026-06-30T09:59:12.988000Z') FROM events", context)
+        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, %(hogql_val_0)s)" in printed, printed
+        assert context.values["hogql_val_0"] == "US/Pacific"
 
     @parameterized.expand(
         [
-            ("already_naive_micros", "toDateTime64('2026-06-30 09:59:12.988000', 6, 'UTC')"),
-            ("invalid_zoned_string", "toDateTime64('2026-30-06T00:00:00Z', 6, 'UTC')"),  # looks zoned but invalid
+            ("already_naive_micros", "2026-06-30 09:59:12.988000", 6),
+            ("invalid_zoned_string", "2026-30-06T00:00:00Z", 6),  # looks zoned but invalid
+            ("beyond_microsecond_precision", "2026-06-30T09:59:12.988654321Z", 9),  # rewriting would drop digits
         ]
     )
-    def test_toDateTime64_left_unchanged(self, _name: str, call: str):
-        # Naive strings already parse, and strings that only look zoned must still error loudly downstream.
-        printed = self._select(f"SELECT {call} FROM events")
-        assert call in printed, printed
+    def test_toDateTime64_left_unchanged(self, _name: str, value: str, precision: int):
+        # Naive strings already parse fine as-is; strings the rewrite can't re-express exactly must reach
+        # ClickHouse verbatim (as an unmodified parameter) so they keep erroring loudly.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(f"SELECT toDateTime64('{value}', {precision}, 'UTC') FROM events", context)
+        assert f"toDateTime64(%(hogql_val_0)s, {precision}, %(hogql_val_1)s)" in printed, printed
+        assert context.values["hogql_val_0"] == value
+
+    def test_toDateTime64_with_non_constant_timezone_left_unchanged(self):
+        # ClickHouse const-folds timezone expressions the printer can't evaluate; converting the instant
+        # into a guessed timezone would silently shift it, so such calls are left to error loudly.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self._select("SELECT toDateTime64('2026-06-30T09:59:12.988000Z', 6, concat('UT', 'C')) FROM events", context)
+        assert "2026-06-30T09:59:12.988000Z" in context.values.values(), context.values
+
+    def test_toDateTime64_dst_ambiguous_instant_left_unchanged(self):
+        # 09:30Z falls in the repeated 01:30 fall-back hour in US/Pacific; the naive string maps to two
+        # instants, so the call is left untouched to error loudly instead of silently picking one.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self._select("SELECT toDateTime64('2026-11-01T09:30:00Z', 6, 'US/Pacific') FROM events", context)
+        assert "2026-11-01T09:30:00Z" in context.values.values(), context.values
 
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
