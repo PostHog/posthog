@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionType } from '~/types'
+import { HogFunctionType, IntegrationType } from '~/types'
 
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
@@ -32,6 +32,15 @@ describe('alertNotificationLogic', () => {
         listSpy.mockRestore()
     })
 
+    const makeSlackIntegration = (id: number): IntegrationType => ({
+        id,
+        kind: 'slack',
+        display_name: `Workspace ${id}`,
+        icon_url: '',
+        config: {},
+        created_at: '2026-01-01T00:00:00Z',
+    })
+
     it('clears staged inputs when the destination type changes', async () => {
         logic = alertNotificationLogic({ alertId: 'alert-123' })
         logic.mount()
@@ -51,6 +60,26 @@ describe('alertNotificationLogic', () => {
         logic.actions.setSlackChannelValue('C456|#alerts')
         logic.actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
         await expectLogic(logic).toMatchValues({ slackChannelValue: null })
+    })
+
+    it('clears the channel when an integrations refresh removes the selected workspace', async () => {
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        const firstWorkspace = makeSlackIntegration(1)
+        const secondWorkspace = makeSlackIntegration(2)
+        logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
+        await expectLogic(logic).toMatchValues({ selectedSlackIntegrationId: 1 })
+
+        logic.actions.setSelectedSlackIntegrationId(2)
+        logic.actions.setSlackChannelValue('C123|#general')
+        logic.actions.loadIntegrationsSuccess([firstWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegrationId: 1,
+            selectedSlackIntegration: firstWorkspace,
+            slackChannelValue: null,
+        })
     })
 
     it('creates a Discord destination HogFunction end-to-end', async () => {

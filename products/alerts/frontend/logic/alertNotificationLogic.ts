@@ -41,7 +41,6 @@ export interface alertNotificationLogicValues {
     currentProjectId: number | null // projectLogic
     existingHogFunctions: HogFunctionType[]
     existingHogFunctionsLoading: boolean
-    firstSlackIntegration: IntegrationType | undefined
     pendingNotifications: PendingAlertNotification[]
     selectedSlackIntegration: IntegrationType | undefined
     selectedSlackIntegrationId: number | null
@@ -208,7 +207,6 @@ export interface alertNotificationLogicActions {
 export interface alertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
         selectedSlackIntegration: (
             slackIntegrations: IntegrationType[] | undefined,
             selectedSlackIntegrationId: number | null
@@ -296,19 +294,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     }),
 
     selectors({
-        // Use first available Slack integration to determine if Slack should be the default notification type
-        firstSlackIntegration: [
-            (s) => [s.slackIntegrations],
-            (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
-        ],
         selectedSlackIntegration: [
             (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
             (
                 slackIntegrations: IntegrationType[] | undefined,
                 selectedSlackIntegrationId: number | null
             ): IntegrationType | undefined =>
-                slackIntegrations?.find((integration) => integration.id === selectedSlackIntegrationId) ??
-                slackIntegrations?.[0],
+                slackIntegrations?.find((integration) => integration.id === selectedSlackIntegrationId),
         ],
     }),
 
@@ -332,8 +324,16 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
-        loadIntegrationsSuccess: () => {
-            if (!values.firstSlackIntegration) {
+        loadIntegrationsSuccess: ({ integrations }) => {
+            const availableSlackIntegrations = integrations.filter((integration) => integration.kind === 'slack')
+            const selectedIntegrationIsAvailable = availableSlackIntegrations.some(
+                (integration) => integration.id === values.selectedSlackIntegrationId
+            )
+
+            if (!selectedIntegrationIsAvailable) {
+                actions.setSelectedSlackIntegrationId(availableSlackIntegrations[0]?.id ?? null)
+            }
+            if (availableSlackIntegrations.length === 0) {
                 actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
             }
         },

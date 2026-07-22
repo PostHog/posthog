@@ -216,23 +216,28 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             slackDestinationInput = (
                 <div className="space-y-3">
                     {(slack.integrations?.length ?? 0) > 1 ? (
-                        <div className="space-y-1">
-                            <div className="text-sm font-medium">Slack workspace</div>
+                        <fieldset className="space-y-1">
+                            <legend className="text-sm font-medium">Slack workspace</legend>
                             <IntegrationChoice
                                 integration="slack"
                                 value={slack.integration.id}
-                                onChange={slack.onIntegrationChange}
+                                onChange={(integrationId) => {
+                                    if (integrationId !== slack.integration?.id) {
+                                        slack.onIntegrationChange?.(integrationId)
+                                    }
+                                }}
+                                allowClear={false}
                             />
-                        </div>
+                        </fieldset>
                     ) : null}
-                    <div className="space-y-1">
-                        <div className="text-sm font-medium">Channel</div>
+                    <fieldset className="space-y-1">
+                        <legend className="text-sm font-medium">Channel</legend>
                         <SlackChannelPicker
                             value={slack.channelValue ?? undefined}
                             onChange={slack.onChannelValueChange}
                             integration={slack.integration}
                         />
-                    </div>
+                    </fieldset>
                 </div>
             )
         } else {

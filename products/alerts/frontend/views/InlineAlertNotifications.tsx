@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
@@ -144,13 +143,6 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
 
     const slackLogic = slackIntegrationLogic({ id: selectedSlackIntegration?.id ?? 0 })
     const { slackChannels } = useValues(slackLogic)
-    const { loadAllSlackChannels } = useActions(slackLogic)
-
-    useEffect(() => {
-        if (selectedSlackIntegration) {
-            loadAllSlackChannels()
-        }
-    }, [selectedSlackIntegration?.id, loadAllSlackChannels, selectedSlackIntegration])
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
