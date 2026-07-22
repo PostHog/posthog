@@ -27,6 +27,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import IMPERSONATION_TICKET_ID_SESSION_KEY, per_request_logging_context_middleware
+from posthog.models.comment import Comment
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -2503,3 +2504,47 @@ class TestLoginAsFromTicket(APIBaseTest):
     def test_invalid_ticket_id_returns_400(self, _name, body):
         res = self._post(body)
         assert res.status_code == 400
+
+    def test_impersonation_ticket_returns_session_ticket_with_messages(self):
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Hello, I need help",
+            item_context={"author_type": "customer"},
+        )
+        with self._as_internal_team():
+            self._post({"ticket_id": str(ticket.id)})
+            res = self.client.get(reverse("impersonation-ticket"))
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ticket_number"] == ticket.ticket_number
+        assert [m["content"] for m in data["messages"]] == ["Hello, I need help"]
+
+    def test_impersonation_ticket_404s_when_not_impersonating(self):
+        # Staff browsing normally must not be able to read ticket data via this endpoint.
+        res = self.client.get(reverse("impersonation-ticket"))
+        assert res.status_code == 404
+
+    def test_impersonation_ticket_404s_when_session_has_no_ticket(self):
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        with self._as_internal_team():
+            self._post({"ticket_id": str(ticket.id)})
+        # Simulate an impersonation started by a non-ticket path (plain admin login-as).
+        session = self.client.session
+        del session["impersonation_ticket_id"]
+        session.save()
+        res = self.client.get(reverse("impersonation-ticket"))
+        assert res.status_code == 404
+
+    def test_impersonation_ticket_404s_after_staff_deactivated(self):
+        # The impersonation session authenticates as the customer, so deactivating the
+        # staff user doesn't revoke it — the endpoint must re-check is_active itself.
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        with self._as_internal_team():
+            self._post({"ticket_id": str(ticket.id)})
+            self.user.is_active = False
+            self.user.save()
+            res = self.client.get(reverse("impersonation-ticket"))
+        assert res.status_code == 404

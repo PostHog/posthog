@@ -71,6 +71,15 @@
         }
     }
 
+    &--ticket-expanded {
+        width: 28rem;
+    }
+
+    // When snapped to the right edge, grow leftwards so the wider panel stays on screen.
+    &--ticket-expanded#{&}--expands-left {
+        transform: translateX(-2rem);
+    }
+
     &__sidebar {
         display: flex;
         flex-shrink: 0;
