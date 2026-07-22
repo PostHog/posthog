@@ -200,7 +200,8 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                     </span>
                 ) : null}
 
-                <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                {/* has-[…active] holds the trigger visible while its picker is open - focus sits in the portal, so focus-within can't */}
+                <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 has-[.LemonButton--active]:opacity-100">
                     <EmojiPickerPopover
                         size="xsmall"
                         onSelect={(emoji: string): void => {
@@ -398,25 +399,32 @@ export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: C
                 {replies.length > 0 ? (
                     <>
                         <LemonDivider className="my-0" />
-                        {/* Keyboard path to the toggle - Enter/Space expands or collapses without composing */}
-                        <div
-                            className="flex items-center gap-1 px-2 py-1 text-xs text-secondary"
-                            role="button"
-                            tabIndex={0}
-                            aria-expanded={isExpanded}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    setThreadExpanded(commentWithReplies.id, !isExpanded)
-                                }
-                            }}
-                        >
-                            <IconChevronRight
-                                className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
-                            />
-                            <span>{pluralize(replies.length, 'reply', 'replies')}</span>
-                            {/* Once expanded, the reply affordance moves to the thread's bottom */}
-                            {!isExpanded ? <div className="ml-auto">{replyButton}</div> : null}
+                        <div className="flex items-center px-2 py-1 text-xs text-secondary">
+                            {/* Keyboard path to the toggle - Enter/Space expands or collapses without composing */}
+                            <div
+                                className="flex flex-1 items-center gap-1"
+                                role="button"
+                                tabIndex={0}
+                                aria-expanded={isExpanded}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault()
+                                        if (isExpanded && isReplyTarget) {
+                                            // The reply pin keeps the thread open - end the reply so collapse takes effect
+                                            setReplyingComment(null)
+                                        }
+                                        setThreadExpanded(commentWithReplies.id, !isExpanded)
+                                    }
+                                }}
+                            >
+                                <IconChevronRight
+                                    className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
+                                />
+                                <span>{pluralize(replies.length, 'reply', 'replies')}</span>
+                            </div>
+                            {/* A sibling of the keyboard toggle, never a descendant - interactive content must not
+                                nest. Once expanded, the reply affordance moves to the thread's bottom */}
+                            {!isExpanded ? replyButton : null}
                         </div>
                     </>
                 ) : null}

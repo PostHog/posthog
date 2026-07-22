@@ -618,6 +618,17 @@ export const commentsLogic = kea<commentsLogicType>([
 
     listeners(({ values, actions, selectors, cache }) => ({
         startNewComment: () => {
+            if (!values.replyingCommentId) {
+                // No reply to exit, so the footer composer won't remount - deregistering its
+                // editor here would orphan it for good. Focus the mounted editor, or arm the
+                // flag if the surface hasn't mounted yet (e.g. "Start discussion" opening the panel).
+                if (values.richContentEditor) {
+                    values.richContentEditor.focus('end')
+                } else {
+                    cache.focusEditorOnRegister = true
+                }
+                return
+            }
             // Bring the footer composer back focused - it registers on its next mount
             cache.focusEditorOnRegister = true
             actions.setReplyingComment(null)
@@ -662,8 +673,14 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
         sendComposedContentSuccess: () => {
-            const { editor = null, wasReply = false, draftTarget = FOOTER_COMPOSER_TARGET } = cache.sendContext ?? {}
+            const sendContext = cache.sendContext
             cache.sendContext = null
+            // The loader also "succeeds" when it bails before creating anything (no item_id,
+            // empty content) - only a real send earns the post-send side effects
+            if (!sendContext) {
+                return
+            }
+            const { editor, wasReply, draftTarget } = sendContext
             // Replies land inline mid-list - only new root comments append at the bottom
             if (!wasReply) {
                 actions.scrollToLastComment()

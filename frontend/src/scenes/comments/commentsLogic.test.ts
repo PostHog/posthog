@@ -332,4 +332,30 @@ describe('commentsLogic', () => {
         expect(footerEditor.clear).not.toHaveBeenCalled()
         expect(logic.values.composerDrafts['thread-1']).toBeNull()
     })
+
+    it('startNewComment without an active reply keeps the mounted footer editor registered', () => {
+        const footerEditor = createEditor(null)
+        logic.actions.setRichContentEditor(footerEditor)
+
+        logic.actions.startNewComment()
+
+        // No reply to exit means no remount is coming - deregistering here would orphan the composer
+        expect(logic.values.richContentEditor).toBe(footerEditor)
+        expect(footerEditor.focus).toHaveBeenCalledWith('end')
+    })
+
+    it('a send that bails on empty content leaves stashed drafts untouched', async () => {
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        logic.actions.setReplyingComment('thread-1') // stashes the footer draft
+        logic.actions.setRichContentEditor(createEditor(null))
+
+        // The loader early-returns on empty content but still resolves as a success
+        await expectLogic(logic, () => {
+            logic.actions.sendComposedContent(false)
+        })
+            .toDispatchActions(['sendComposedContentSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+
+        expect(logic.values.composerDrafts['footer']).toEqual(DRAFT_CONTENT)
+    })
 })

@@ -62,7 +62,12 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                 initialContent={currentComposerDraft}
                 onCreate={setRichContentEditor}
                 onUpdate={onRichContentEditorUpdate}
-                onPressCmdEnter={() => sendComposedContent(false)}
+                onPressCmdEnter={() => {
+                    // The send buttons are disabled when empty - the shortcut must not bypass that
+                    if (!isEmpty) {
+                        sendComposedContent(false)
+                    }
+                }}
                 disabled={isSendingComment}
             />
             <div className="flex justify-between items-center gap-2">
