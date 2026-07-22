@@ -145,8 +145,10 @@ pub async fn insert_participation(
     sqlx::query(
         r#"
         INSERT INTO cohort_backfill_run_cohorts
-            (id, run_id, team_id, cohort_id, filters_shape_hash, pinned_filters, superseded_at)
-        VALUES ($1, $2, $3, $4, 'shape', $5, CASE WHEN $6 THEN now() ELSE NULL END)
+            (id, run_id, team_id, cohort_id, filters_shape_hash,
+             behavioral_filters_shape_hash, pinned_filters, superseded_at)
+        VALUES ($1, $2, $3, $4, 'full-shape', 'behavioral-shape', $5,
+                CASE WHEN $6 THEN now() ELSE NULL END)
         "#,
     )
     .bind(Uuid::now_v7())

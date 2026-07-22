@@ -67,6 +67,7 @@ class TyntecSMSSource(SimpleSource[TyntecSMSSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
             ENDPOINTS,
@@ -77,7 +78,11 @@ class TyntecSMSSource(SimpleSource[TyntecSMSSourceConfig]):
         )
 
     def validate_credentials(
-        self, config: TyntecSMSSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TyntecSMSSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.api_key:
             return False, "tyntec API key is required"

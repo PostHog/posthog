@@ -53,11 +53,8 @@ GitHub caps _workflow-run dispatch_ at 500 runs per 10s per repo; overflow fails
       paths:
         - '.github/workflows/ci-x.yml'
         - 'path/to/product/**'
-    merge_group:
     workflow_dispatch:
   ```
-
-  `merge_group:` currently no-ops — no merge queue is enabled right now — but it's harmless and forward-compatible, so keep it on merge-gate workflows for when a queue returns.
 
 - **Judgment call — trigger `paths:` vs a runtime `dorny/paths-filter` job.**
   Use trigger `paths:` for a workflow that is _skippable as a whole_.

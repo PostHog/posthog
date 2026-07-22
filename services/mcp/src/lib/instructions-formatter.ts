@@ -59,9 +59,9 @@ export class InstructionsFormatter {
             [
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
-                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -99,7 +99,7 @@ export class InstructionsFormatter {
                     ? 'Query or analyze PostHog data, events, and governed metrics (including "what metrics do we have?").'
                     : 'Query or analyze PostHog data, metrics, and events.',
                 content: this.compose(
-                    [RETRIEVING_DATA, SCHEMA_WORKFLOW, ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []), EXAMPLES],
+                    [...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []), RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES],
                     ctx,
                     { compact: false }
                 ),
@@ -188,6 +188,7 @@ export class InstructionsFormatter {
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -197,7 +198,6 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
-            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,

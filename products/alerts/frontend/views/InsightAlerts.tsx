@@ -16,13 +16,13 @@ import { urls } from 'scenes/urls'
 
 import { AlertState, ProductKey } from '~/queries/schema/schema-general'
 
+import { AlertStateIndicator } from '../components/AlertDefinition'
 import { AlertsFiltersBar } from '../components/AlertsFiltersBar'
 import { alertIntervalDisplayLabel } from '../logic/alertIntervalHelpers'
 import { alertLogic } from '../logic/alertLogic'
 import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
-import { AlertStateIndicator } from './ManageAlertsModal'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -198,7 +198,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
     ]
 
     const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
-    // TODO: add info here to sign up for alerts early access
+    const alertForEditModal = alert ?? alertsSortedByState.find((candidate) => candidate.id === alertId)
     return (
         <>
             {isEmpty && (
@@ -219,14 +219,12 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                 />
             )}
 
-            {alert && (
+            {alertForEditModal && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
                     isOpen
-                    alertId={alert.id}
-                    insightShortId={alert.insight.short_id}
-                    insightId={alert.insight.id}
-                    insightLogicProps={{ dashboardItemId: alert.insight.short_id }}
+                    alert={alertForEditModal}
+                    useAlertCheckPreview
                     onEditSuccess={() => {
                         loadAlerts()
                         push(urls.alerts())

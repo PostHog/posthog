@@ -53,6 +53,7 @@ export type SettingSectionId =
     | 'project-access-control'
     | 'project-ai-observability'
     | 'project-autocapture'
+    | 'project-customization'
     | 'project-integrations'
     | 'project-product-analytics'
     | 'project-replay'
