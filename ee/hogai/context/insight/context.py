@@ -8,7 +8,7 @@ from posthog.sync import database_sync_to_async
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -94,6 +94,13 @@ class InsightContext:
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
             )
+        except MaxToolError as e:
+            # execute_and_format_query already classified this (e.g. transient capacity vs. adjustable
+            # input); preserve that classification instead of flattening it to a retryable error.
+            if return_exceptions:
+                results = f"Error executing query: {str(e)}"
+            else:
+                raise
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"
             if return_exceptions:

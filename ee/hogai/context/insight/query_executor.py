@@ -74,6 +74,7 @@ from ee.hogai.context.insight.format import (
     get_boxplot_results,
     is_boxplot_query,
 )
+from ee.hogai.context.query_retry import aretry_transient_query, to_max_tool_error
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -349,9 +350,13 @@ class AssistantQueryExecutor:
 
             # If the query has a blocking execution, execute on a separate thread. Otherwise, use the main thread
             # as it only does lightweight ORM retrievals and Redis calls. If we run in tests, do not spawn another thread.
-            results_response = await database_sync_to_async(
-                process_query_dict_with_tags, thread_sensitive=execution_mode not in BLOCKING_EXECUTION_MODES
-            )()
+            # Retry transient ClickHouse capacity errors (the shared max_ai user has a small concurrency cap that a
+            # fan-out of queries routinely trips) with backoff, so a spike self-heals instead of failing the query.
+            results_response = await aretry_transient_query(
+                lambda: database_sync_to_async(
+                    process_query_dict_with_tags, thread_sensitive=execution_mode not in BLOCKING_EXECUTION_MODES
+                )()
+            )
 
             process_elapsed = time.time() - process_start
             if debug_timing:
@@ -446,7 +451,7 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+            raise to_max_tool_error(err, err_message)
         except Exception as err:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
