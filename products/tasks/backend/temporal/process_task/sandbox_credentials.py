@@ -154,6 +154,16 @@ def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
     return not eligible
 
 
+def _actor_rebound_away_from_owner(run_id: str, state: dict | None, owner_id: int) -> int | None:
+    """The actor a per-message transition rebound (or logged out) this sandbox to, when that differs
+    from the run owner (else ``None``). Owner-scoped refresh paths (scheduled refresh, sibling
+    propagation) carry the owner's token, so re-applying it would resurrect the owner's identity
+    over the current actor's session — callers skip when this returns a value. Distinct from
+    `_loop_owner_credentials_revoked`, which gates on owner *eligibility* rather than session rebind."""
+    bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(run_id, state))
+    return bound_actor if bound_actor is not None and bound_actor != owner_id else None
+
+
 USER_TOKEN_REFRESH_INTERVAL_SECONDS: float = _GITHUB_REFRESH_INTERVAL_BY_PREFIX["ghu_"]
 # TTL covers a slow mint + propagation; wait stays under the refresh activity's 2 min timeout.
 _ROTATION_LOCK_TTL_SECONDS = 120
@@ -183,12 +193,9 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple
             continue
         if _loop_owner_credentials_revoked(run.task, run.state):
             continue
-        # A per-message actor transition may have rebound (or logged out) this sandbox's GitHub
-        # identity to someone other than the run owner. This loop carries the owner's token, so
-        # re-applying it would undo that transition and resurrect the owner's identity for the
-        # current actor. Skip when the sandbox is bound to a different actor.
-        bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(str(run.id), run.state))
-        if bound_actor is not None and bound_actor != run.task.created_by_id:
+        # This loop carries the owner's token; skip a sandbox a per-message transition rebound to
+        # a different actor, or re-applying it would resurrect the owner's identity for that actor.
+        if _actor_rebound_away_from_owner(str(run.id), run.state, run.task.created_by_id) is not None:
             continue
         rows.append((str(run.id), sandbox_id, run.task.repository))
     return rows
@@ -305,16 +312,14 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        # A per-message actor transition may have rebound (or logged out) this sandbox's GitHub
-        # identity to someone other than the run owner. This scheduled refresh resolves the actor
-        # from the startup context (ctx.state), so it carries the owner's token; re-applying it
-        # would resurrect the owner's identity over the current actor's session. Skip and leave the
-        # transition's binding intact — the per-message gate keeps the current actor's token fresh.
-        bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(ctx.run_id, ctx.state))
-        if bound_actor is not None and bound_actor != task.created_by_id:
+        # This scheduled refresh resolves the actor from startup context (ctx.state), so it carries
+        # the owner's token; skip when a per-message transition rebound the sandbox and leave that
+        # binding intact — the per-message gate keeps the current actor's token fresh.
+        rebound_actor = _actor_rebound_away_from_owner(ctx.run_id, ctx.state, task.created_by_id)
+        if rebound_actor is not None:
             logger.info(
                 "github_refresh_skipped_actor_transition",
-                extra={"run_id": ctx.run_id, "bound_actor": bound_actor, "owner": task.created_by_id},
+                extra={"run_id": ctx.run_id, "bound_actor": rebound_actor, "owner": task.created_by_id},
             )
             return CredentialRefreshOutcome(
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
