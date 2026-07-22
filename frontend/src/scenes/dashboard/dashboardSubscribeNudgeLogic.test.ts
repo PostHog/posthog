@@ -208,6 +208,20 @@ describe('dashboardSubscribeNudgeLogic', () => {
             expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(nudges ? 1 : 0)
         })
 
+        it('treats a null team-wide count response as zero and nudges', async () => {
+            // A null body on the team-wide count fetch must read as 0, not throw, so the nudge fires.
+            mockSubscriptionsList.mockResolvedValue(null)
+
+            await expectLogic(logic, () => {
+                recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
+            }).toFinishAllListeners()
+
+            expect(logic.values.freeTierSubscriptionCount).toBe(0)
+            expect(logic.values.isWithinSubscriptionLimit).toBe(true)
+            expect(capturesOf('dashboard subscribe nudge check failed')).toHaveLength(0)
+            expect(nudgePostCount).toBe(1)
+        })
+
         it('fails closed and reports the failure when the count fetch errors', async () => {
             silenceKeaLoadersErrors()
             mockSubscriptionsList.mockImplementation((_teamId: string, params?: Record<string, unknown>) =>
@@ -390,6 +404,19 @@ describe('dashboardSubscribeNudgeLogic', () => {
                 step: 'check',
                 error_message: 'network down',
             })
+        })
+
+        it('treats a null subscriptions response as no existing subscription and still nudges', async () => {
+            // api.get resolves null on an empty/204 body; the eligibility check must not throw on it.
+            mockSubscriptionsList.mockResolvedValue(null)
+
+            await expectLogic(logic, () => {
+                recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasExistingSubscription).toBe(false)
+            expect(capturesOf('dashboard subscribe nudge check failed')).toHaveLength(0)
+            expect(nudgePostCount).toBe(1)
         })
 
         it('does not notify already-notified dashboards, and skips their eligibility fetch entirely', async () => {
