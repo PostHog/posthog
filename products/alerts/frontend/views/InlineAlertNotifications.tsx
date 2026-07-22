@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
@@ -28,8 +28,7 @@ function resolveSlackChannelName(channelValue: string, slackChannels: SlackChann
     return slackChannels.find((channel) => channel.id === channelId)?.name ?? null
 }
 
-// Existing destinations can belong to any connected workspace, not just the one currently
-// selected in the picker, so each row resolves its own channel name from its own workspace.
+// Each destination can belong to a different workspace than the one selected in the picker.
 function SlackDestinationChannel({
     workspaceId,
     channelValue,
@@ -37,14 +36,21 @@ function SlackDestinationChannel({
     workspaceId: number
     channelValue: string
 }): JSX.Element {
-    const { slackChannels } = useValues(slackIntegrationLogic({ id: workspaceId }))
+    const logic = slackIntegrationLogic({ id: workspaceId })
+    const { slackChannels } = useValues(logic)
+    const { loadSlackChannelById } = useActions(logic)
+    const channelId = channelValue.split('|')[0]
+
+    // Load just this one channel rather than the full (paginated) list — the picker's own
+    // bulk load may not include it, and we already know exactly which channel we need.
+    useEffect(() => {
+        loadSlackChannelById(channelId)
+    }, [loadSlackChannelById, channelId])
+
     const channelName = resolveSlackChannelName(channelValue, slackChannels)
     return <>{channelName ? `#${channelName}` : 'channel'}</>
 }
 
-// Written by every producer of this destination (inline alerts, error tracking alerts, logs
-// alerting, MCP) as `{value: int}` / `{value: str}`. Destinations from before `slack_workspace`
-// existed simply lack the key — that's the only real-world gap, not a type mismatch.
 interface SlackDestinationInputs {
     slack_workspace?: { value: number }
     channel?: { value: string }
@@ -57,11 +63,18 @@ function getHogFunctionDestination(
     const inputs = hogFunction.inputs as SlackDestinationInputs | null | undefined
     const channelValue = inputs?.channel?.value
     if (channelValue) {
-        const workspaceId = inputs?.slack_workspace?.value
-        const workspaceName = slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
-        if (workspaceId === undefined) {
-            return { type: 'Slack', detail: workspaceName ?? null }
+        // `channel.value` comes from loosely-typed backend JSON written by several producers
+        // (inline alerts, error tracking alerts, logs alerting, MCP) — guard before splitting it.
+        if (typeof channelValue !== 'string') {
+            return { type: 'Slack', detail: null }
         }
+        // Destinations from before `slack_workspace` existed belonged to the single workspace
+        // that was the only option at the time, so fall back to it for those legacy rows.
+        const workspaceId = inputs?.slack_workspace?.value ?? slackIntegrations?.[0]?.id
+        if (workspaceId === undefined) {
+            return { type: 'Slack', detail: null }
+        }
+        const workspaceName = slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
         return {
             type: 'Slack',
             detail: (

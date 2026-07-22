@@ -314,8 +314,7 @@ function MultipleSlackWorkspacesStory(): JSX.Element {
         },
     })
 
-    // Preselect a workspace + channel so the "add notification" picker opens with real data
-    // instead of an empty "Select a channel..." state.
+    // Preselect a workspace + channel so the picker doesn't open empty.
     const { setSelectedSlackIntegrationId, setSlackChannelValue } = useActions(
         alertNotificationLogic({ alertId: 'alert-1' })
     )

@@ -352,11 +352,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                         actions.loadExistingHogFunctions()
                         return
                     }
-                    // Capture only a delete that actually landed: the callback runs after the API
-                    // call resolves and not at all on failure, and we skip it on undo. Mirrors the
-                    // create event, which always carries a known type — so skip an unrecognized
-                    // template rather than emit a null type that can't be classified. A
-                    // delete-then-undo still counts once — acceptable for optimistic-undo analytics.
+                    // Skip on undo and on unrecognized templates so this only counts confirmed deletes with a known type.
                     if (type) {
                         posthog.capture('insight alert destination deleted', {
                             alert_id: props.alertId,
@@ -380,10 +376,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 })
             )
 
-            // Capture one event per destination that was actually created, tagged with its type,
-            // so adoption of each destination (Slack/Discord/Teams/webhook) is measurable. The
-            // destination is a separate HogFunction, so no `alert created`/`alert updated` event
-            // records it — this is the only signal that ties a destination type to an alert.
+            // No `alert created`/`alert updated` event captures destination type, so this is emitted per created destination instead.
             results.forEach((result, i) => {
                 if (result.status === 'fulfilled') {
                     posthog.capture('insight alert destination created', {
@@ -403,7 +396,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             if (failures.length > 0) {
                 const labelForType = (type: AlertNotificationType): string =>
                     ALERT_NOTIFICATION_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
-                // Log each failure with its destination type + API error so the cause is diagnosable later.
                 failures.forEach(({ result, notification }) => {
                     console.error(
                         `Failed to create ${labelForType(notification.type)} alert notification`,
