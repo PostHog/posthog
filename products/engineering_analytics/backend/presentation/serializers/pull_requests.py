@@ -58,7 +58,9 @@ class PRLifecycleEventSerializer(DataclassSerializer):
     class Meta:
         dataclass = PRLifecycleEvent
         extra_kwargs = {
-            "kind": {"help_text": "Event kind: opened, ci_started, ci_finished, merged, or closed."},
+            "kind": {
+                "help_text": "Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed."
+            },
             "at": {"help_text": "When the event occurred."},
             "detail": {
                 "help_text": "Optional detail, e.g. workflow name and conclusion for CI events.",
@@ -79,7 +81,7 @@ class PRLifecycleSerializer(DataclassSerializer):
         dataclass = PRLifecycle
         extra_kwargs = {
             "metric_quality": {
-                "help_text": "Always 'partial' — CI events only; reviews and comments are not yet available.",
+                "help_text": "Always 'partial': review and comment events are not yet available, and draft/ready transitions appear only when the forward-only transitions source is synced.",
             },
         }
 
@@ -245,6 +247,14 @@ class PullRequestListItemSerializer(DataclassSerializer):
             "open_to_merge_seconds": {
                 "help_text": "Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and "
                 "ready-for-review time). Null until merged.",
+                "allow_null": True,
+            },
+            "ready_to_merge_seconds": {
+                "help_text": "True ready-for-review-to-merge time in seconds (merged_at minus the last "
+                "observed ready_for_review transition). Null when unmerged or when no transition was "
+                "observed: the PR was opened ready (open_to_merge_seconds is then already ready-to-merge) "
+                "or its transitions predate the forward-only transitions sync; never read null as "
+                "'never drafted'.",
                 "allow_null": True,
             },
             "labels": {"help_text": "GitHub label names on the pull request."},

@@ -98,6 +98,12 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+# Endpoints whose API accepts no state/sort/direction/time params and always returns
+# newest-first by created_at. Their requests stay plain paged reads and their emission
+# order is desc on every sync; incremental sync stops at the cursor instead (see get_rows).
+_DESC_ONLY_ENDPOINTS = frozenset({"workflow_runs", "issue_events"})
+
+
 def _build_initial_params(
     config: GithubEndpointConfig,
     endpoint: str,
@@ -105,14 +111,15 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    # workflow_runs has a different param surface: it accepts neither
-    # state/sort/direction nor `since`, and always returns newest-first by
-    # created_at. We intentionally send no time filter either — its `created`
-    # filter would cap the result set to GitHub's 1,000-result search limit and
-    # silently drop rows on busy repos. Incremental sync is handled instead by
-    # paginating newest-first and stopping at the cursor (see get_rows), so the
-    # request stays a plain paged read regardless of incremental state.
-    if endpoint == "workflow_runs":
+    # Desc-only endpoints have a different param surface: they accept neither
+    # state/sort/direction nor `since`, and always return newest-first by
+    # created_at. We intentionally send no time filter either — workflow_runs'
+    # `created` filter would cap the result set to GitHub's 1,000-result search
+    # limit and silently drop rows on busy repos. Incremental sync is handled
+    # instead by paginating newest-first and stopping at the cursor (see
+    # get_rows), so the request stays a plain paged read regardless of
+    # incremental state.
+    if endpoint in _DESC_ONLY_ENDPOINTS:
         return {"per_page": config.page_size}
 
     params: dict[str, Any] = {
@@ -169,15 +176,16 @@ def _resolve_sort_mode(
 
     Most endpoints emit asc on the first sync / full refresh (stable offset
     pagination via sort=created&direction=asc) and only flip to their
-    configured sort once a cutoff exists. workflow_runs is different: it ignores
-    sort/direction and always returns newest-first, so it emits desc on every
-    sync, including the first. Fan-out children inherit the parent walk's order
-    on every sync too, first incremental sync included: the initial_lookback_days
-    floor gives that sync a cutoff, which makes the parent walk descend. Reporting
-    asc for it would let the pipeline persist the cursor per batch and, on an
-    interrupted backfill, strand every row older than the batches that flushed.
+    configured sort once a cutoff exists. Desc-only endpoints are different:
+    the API ignores sort/direction and always returns newest-first, so they
+    emit desc on every sync, including the first. Fan-out children inherit the
+    parent walk's order on every sync too, first incremental sync included: the
+    initial_lookback_days floor gives that sync a cutoff, which makes the parent
+    walk descend. Reporting asc for either would let the pipeline persist the
+    cursor per batch and, on an interrupted backfill, strand every row older
+    than the batches that flushed.
     """
-    if endpoint == "workflow_runs" or config.fan_out_parent is not None:
+    if endpoint in _DESC_ONLY_ENDPOINTS or config.fan_out_parent is not None:
         return config.sort_mode
     if should_use_incremental_field and db_incremental_field_last_value:
         return config.sort_mode
@@ -406,6 +414,25 @@ def _is_submitted_review(item: dict[str, Any]) -> bool:
     return item.get("submitted_at") is not None
 
 
+def _flatten_issue_event(item: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a repo-wide issue event to a fixed envelope. The per-type payloads (label,
+    assignee, rename, …) and the bulky nested issue snapshot are dropped, keeping rows small
+    and the batch schema stable across heterogeneous event types (a ghost-user event must
+    land actor_login=NULL, not omit the key). Every event type lands — not just the ones a
+    consumer reads today — because the incremental watermark is computed from landed rows;
+    see the endpoint config in settings.py."""
+    issue = item.get("issue")
+    actor = item.get("actor")
+    return {
+        "id": item.get("id"),
+        "node_id": item.get("node_id"),
+        "event": item.get("event"),
+        "created_at": item.get("created_at"),
+        "issue_number": issue.get("number") if isinstance(issue, dict) else None,
+        "actor_login": actor.get("login") if isinstance(actor, dict) else None,
+    }
+
+
 def _make_parent_field_injector(
     parent: dict[str, Any], field_map: dict[str, str]
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -426,6 +453,8 @@ def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]
         return _flatten_commit
     if endpoint == "stargazers":
         return _flatten_stargazer
+    if endpoint == "issue_events":
+        return _flatten_issue_event
     return None
 
 
@@ -780,9 +809,20 @@ def get_rows(
 
     stop_field: str | None = None
     stop_cutoff: Any = None
-    if actual_sort_mode == "desc" and should_use_incremental_field:
-        stop_field = incremental_field or config.default_incremental_field
-        stop_cutoff = db_incremental_field_last_value
+    if actual_sort_mode == "desc":
+        if should_use_incremental_field:
+            stop_field = incremental_field or config.default_incremental_field
+            stop_cutoff = db_incremental_field_last_value
+        # Forward-only endpoints (initial_lookback_days > 0): floor any un-cursored desc walk
+        # — first incremental sync and explicit full refresh alike — at a recent window instead
+        # of crawling the endpoint's entire history; the top-level counterpart of the fan-out
+        # floor in _fan_out_get_rows. Later incremental syncs advance from their watermark.
+        # Truthiness matters: 0 is the webhook-only marker, and a legacy poll-mode schema for
+        # such an endpoint must keep its pre-floor crawl behavior rather than freeze at now.
+        if stop_cutoff is None and config.initial_lookback_days:
+            stop_field = stop_field or config.default_incremental_field
+            stop_cutoff = _now_utc() - timedelta(days=config.initial_lookback_days)
+            logger.debug(f"Github: flooring {endpoint} un-cursored walk at {stop_cutoff.isoformat()}")
 
     item_filter = _get_item_filter(endpoint)
     item_mapper = _get_item_mapper(endpoint)

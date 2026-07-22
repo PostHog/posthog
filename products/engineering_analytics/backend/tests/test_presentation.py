@@ -72,6 +72,7 @@ def _pr_list_item() -> contracts.PullRequestListItem:
         created_at=datetime(2026, 1, 10, tzinfo=UTC),
         merged_at=None,
         open_to_merge_seconds=None,
+        ready_to_merge_seconds=None,
         labels=["bug"],
         ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0),
         pushes=4,

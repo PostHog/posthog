@@ -79,6 +79,18 @@ WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
     "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
+# Contract for the ``github_issue_events`` warehouse source (immutable issue/PR events of
+# every type, reduced to a fixed envelope by the source: per-event-type payloads and the
+# nested issue snapshot are dropped there). Same Nullable discipline as above.
+ISSUE_EVENTS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "node_id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "event": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "issue_number": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "actor_login": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
 # Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
 # are GitHub user objects with the parent team's identity injected by the source fan-out
 # (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the

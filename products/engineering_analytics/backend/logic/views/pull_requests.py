@@ -1,9 +1,10 @@
 """Curated pull-requests query builder.
 
 Maps the raw GitHub pull-requests warehouse snapshot (GitHub's PR JSON, landed
-verbatim) into honest, query-able columns. This is the ONLY place PR domain rules
-live — bot detection, repo identity from ``base.repo.full_name``, label extraction,
-the canonical PR state, and the coarse open-to-merge duration. The source table name
+verbatim) into honest, query-able columns. This is the ONLY place PR-snapshot domain
+rules live — bot detection, repo identity from ``base.repo.full_name``, label
+extraction, the canonical PR state, and the coarse open-to-merge duration; the
+draft/ready-transition rules live once in ``pr_state_events`` + ``_curated``. The source table name
 is resolved per-team and passed in (see ``logic.sources``); it is never hardcoded,
 because a warehouse table's name is ``prefix + "github_pull_requests"`` and the prefix
 is user-chosen. Every query module embeds this ``SELECT`` as a subquery (see

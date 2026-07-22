@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._pr_header import pr_header_placeholders, pr_header_query
+from products.engineering_analytics.backend.logic.views import pr_state_events
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
 # constants), leaving the HogQL {value} placeholders untouched for parse_select.
@@ -41,6 +42,22 @@ _RUNS = """
     WHERE head_sha = {head_sha}
     ORDER BY run_started_at ASC
 """
+
+# Draft/ready transitions for this PR, when the (forward-only) transitions source is synced.
+# pr_number alone is the key: the underlying table carries no repo column, and a resolved
+# table set is a single repo's, the same repo the PR header was resolved from.
+_STATE_EVENTS = """
+    SELECT event, created_at, actor_login
+    FROM __STATE_EVENTS_SOURCE__ AS se
+    WHERE pr_number = {pr_number}
+    ORDER BY created_at ASC
+"""
+
+# Curated event vocabulary (defined once, in the builder) to contract kinds.
+_STATE_EVENT_KINDS = {
+    pr_state_events.READY_FOR_REVIEW_EVENT: PRLifecycleEventKind.READY_FOR_REVIEW,
+    pr_state_events.CONVERT_TO_DRAFT_EVENT: PRLifecycleEventKind.CONVERTED_TO_DRAFT,
+}
 
 
 def query_pr_lifecycle(
@@ -109,6 +126,19 @@ def query_pr_lifecycle(
             events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id))
 
     add(PRLifecycleEventKind.OPENED, created_at)
+
+    state_events_source = curated.state_events_source()
+    if state_events_source is not None:
+        transitions = curated.run(
+            _STATE_EVENTS.replace("__STATE_EVENTS_SOURCE__", state_events_source),
+            query_type="engineering_analytics.pr_lifecycle.state_events",
+            placeholders={"pr_number": ast.Constant(value=pr_number)},
+        )
+        for event, at, actor_login in transitions.results:
+            kind = _STATE_EVENT_KINDS.get(event)
+            if kind is not None:
+                add(kind, at, detail=actor_login or None)
+
     runs = (
         curated.run(
             _RUNS.replace("__RUNS_SOURCE__", curated.run_source()),
