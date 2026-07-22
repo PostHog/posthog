@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -115,14 +115,14 @@ jest.mock('./items/DashboardTextItem', () => ({
     ),
 }))
 
+// Mutable so individual tests can simulate the container reporting a different (or transient zero) width.
+const mockContainerWidth = { width: 1200, containerRef: { current: null }, mounted: true }
+
 jest.mock('react-grid-layout', () => {
     return {
-        useContainerWidth: () => ({
-            width: 1200,
-            containerRef: { current: null },
-            mounted: true,
-        }),
+        useContainerWidth: () => mockContainerWidth,
         Responsive: ({
+            width,
             className,
             rowHeight,
             margin,
@@ -130,6 +130,7 @@ jest.mock('react-grid-layout', () => {
             dragConfig,
             children,
         }: {
+            width: number
             className: string
             rowHeight: number
             margin: [number, number]
@@ -139,6 +140,7 @@ jest.mock('react-grid-layout', () => {
         }) => (
             <div
                 data-attr="react-grid-layout"
+                data-width={String(width)}
                 data-class-name={className}
                 data-row-height={String(rowHeight)}
                 data-margin={margin.join(',')}
@@ -169,6 +171,8 @@ const mockRemoveTile = jest.fn()
 describe('DashboardItems', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        mockContainerWidth.width = 1200
+        mockContainerWidth.mounted = true
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -403,5 +407,29 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-error-status', '500')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'dashboard_tile_error')
         expect(insightCard).toHaveAttribute('data-api-error-detail', 'There is a problem loading this dashboard tile.')
+    })
+
+    it('keeps the last good width when the container reports a transient zero measurement', () => {
+        jest.useFakeTimers()
+        try {
+            const { container, rerender } = render(<DashboardItems />)
+            expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-width', '1200')
+
+            // A container measured before it has laid out reports width 0, which maps to the xs (1-column)
+            // breakpoint. The grid must ignore it and keep its last good width rather than squash every tile.
+            mockContainerWidth.width = 0
+            // Two acts: the first flushes the effect (which reschedules the debounce timer for the new width),
+            // the second fires it. Doing both in one act would advance timers before the effect re-runs.
+            act(() => {
+                rerender(<DashboardItems />)
+            })
+            act(() => {
+                jest.advanceTimersByTime(200)
+            })
+
+            expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-width', '1200')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

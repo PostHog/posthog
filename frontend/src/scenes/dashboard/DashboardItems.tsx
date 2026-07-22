@@ -188,9 +188,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { width, containerRef, mounted } = useContainerWidth()
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
-    // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
+    // width. Debouncing avoids this and reduces unnecessary re-layouts during resize. Non-positive measurements
+    // are skipped outright: a container measured before it has laid out reports width 0, which maps to the xs
+    // breakpoint (1 column) and would squash the whole dashboard into a single narrow column until the next
+    // navigation. Keeping the last good width lets the real measurement take over instead.
     const [gridWidth, setGridWidth] = useState(width)
     useEffect(() => {
+        if (width <= 0) {
+            return
+        }
         const timer = setTimeout(() => setGridWidth(width), 100)
         return () => clearTimeout(timer)
     }, [width])
@@ -471,7 +477,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     resize tiles.
                 </LemonBanner>
             )}
-            {mounted && (
+            {mounted && gridWidth > 0 && (
                 <div className="relative">
                     {layoutEditMode && !isMobileView && (
                         <GridBackground

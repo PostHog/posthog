@@ -19,6 +19,7 @@ exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1
       data-margin="14.4,14.4"
       data-resize-enabled="false"
       data-row-height="60"
+      data-width="1200"
     >
       <div
         data-attr="insight-card"
