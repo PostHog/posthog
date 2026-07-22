@@ -14,6 +14,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { MetricsIngestionConsumerConfig } from './config'
+import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT, MetricsDlqOutput, MetricsOutput } from './outputs/outputs'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsIngestionMessage } from './types'
@@ -357,6 +358,7 @@ export class MetricsIngestionConsumer {
             this.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
+            recordMetricsIngested(teamId, stats.bytesAllowed, stats.recordsAllowed)
         }
 
         // Best-effort: don't let metric failures block ingestion
