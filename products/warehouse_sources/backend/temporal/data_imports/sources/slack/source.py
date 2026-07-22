@@ -11,7 +11,6 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-    SourceFieldOauthConfig,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -37,7 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
+    auth_test_user_id,
     get_channels,
+    manual_cache_id,
     slack_source,
     validate_credentials as validate_slack_credentials,
 )
@@ -73,6 +74,33 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     def _get_authed_user_id(integration: "Integration") -> str | None:
         return (integration.config or {}).get("authed_user", {}).get("id")
 
+    def _resolve_access_token(self, config: SlackSourceConfig, team_id: int) -> tuple[str, str | None, str]:
+        """Resolve credentials, preferring the bring-your-own bot token.
+
+        Returns ``(access_token, authed_user_id, cache_id)``. ``authed_user_id`` scopes private-channel
+        discovery to a single user; ``cache_id`` keys the per-workspace channel-list cache.
+
+        - A ``slack_access_token`` means the customer's own Slack app. The token is stored on the
+          source itself, so it stays within Slack's API terms for internal apps. ``auth.test`` gives
+          the token's own user id and a hash of the token keys the cache. This is the only path new
+          sources can configure.
+        - Otherwise the source predates bring-your-own and still points at PostHog's shared app
+          (legacy OAuth): credentials live on the linked Integration row. Pasting a token converts
+          such a source in place — the token takes precedence and the stale integration id is ignored.
+        """
+        if config.slack_access_token:
+            access_token = config.slack_access_token
+            return access_token, auth_test_user_id(access_token), manual_cache_id(access_token)
+
+        if not config.slack_integration_id:
+            raise ValueError("Slack access token not found")
+
+        integration = self.get_oauth_integration(config.slack_integration_id, team_id)
+        access_token = integration.access_token
+        if not access_token:
+            raise ValueError("Slack access token not found")
+        return access_token, self._get_authed_user_id(integration), str(integration.id)
+
     def create_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         return WebhookCreationResult(
             success=False,
@@ -90,48 +118,100 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         return SourceConfig(
             name=SchemaExternalDataSourceType.SLACK,
             category=DataWarehouseSourceCategory.COMMUNICATION,
-            caption="Connect your Slack workspace to sync channels, users, and messages.",
-            iconPath="/static/services/slack.png",
-            releaseStatus=ReleaseStatus.GA,
-            fields=cast(
-                list[FieldType],
-                [
-                    SourceFieldOauthConfig(
-                        name="slack_integration_id",
-                        label="Slack workspace",
-                        required=True,
-                        kind="slack",
-                        requiredScopes="channels:read groups:read channels:history groups:history users:read users:read.email reactions:read",
-                    )
-                ],
-            ),
-            webhookManualOnly=True,
-            webhookSetupCaption="""Use the manifest below to create a Slack app with the webhook URL and event subscriptions already configured.
+            caption="""Sync Slack channels, users, and messages into PostHog by connecting your own Slack app.
 
-1. Open [Slack apps](https://api.slack.com/apps?new_app=1) and click **From a manifest**
-2. Pick your workspace and click **Next**
-3. Paste the manifest below into the editor, click **Next**, then **Create**
-4. In the left sidebar, click **Install App**, then **Install to Workspace**, and authorize
-5. Open **Basic information > App credentials**, copy the **Signing secret**, and paste it in the form below
+You create a Slack app in your workspace and paste its bot token here. Using your own app keeps message syncing within Slack's API terms — [read the docs](https://posthog.com/docs/cdp/sources/slack) for the full walkthrough.
+
+**1. Create the app**
+
+Open [Slack apps](https://api.slack.com/apps?new_app=1), click **From a manifest**, pick your workspace, and paste this manifest:
 
 ```json
 {
     "display_information": {
         "name": "PostHog data warehouse",
-        "description": "Sync Slack messages and channels to PostHog data warehouse"
+        "description": "Sync Slack channels, users, and messages to PostHog data warehouse"
     },
     "oauth_config": {
         "scopes": {
-            "user": [
+            "bot": [
+                "channels:read",
+                "groups:read",
                 "channels:history",
-                "groups:history"
+                "groups:history",
+                "users:read",
+                "users:read.email",
+                "reactions:read"
+            ]
+        }
+    },
+    "settings": {
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "token_rotation_enabled": false
+    }
+}
+```
+
+**2. Install and copy the token**
+
+Click **Install App > Install to Workspace** and authorize. Copy the **Bot User OAuth Token** (starts with `xoxb-`) and paste it below.
+
+**3. Invite the bot**
+
+Invite the bot to any channel whose messages you want to sync (`/invite @PostHog data warehouse`). After the source is created, follow the webhook steps to start receiving messages.""",
+            iconPath="/static/services/slack.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/slack",
+            releaseStatus=ReleaseStatus.GA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="slack_access_token",
+                        label="Bot User OAuth Token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="xoxb-...",
+                        caption="Found under **Settings > Install App** in the Slack app you created from the manifest above.",
+                        secret=True,
+                    ),
+                ],
+            ),
+            webhookManualOnly=True,
+            webhookSetupCaption="""Slack delivers new messages to PostHog through your Slack app's Event Subscriptions.
+
+If you connected with your own Slack app (recommended), open that same app and add the Event Subscriptions below. Otherwise create a new app from the manifest.
+
+1. Open your app (or [create one from a manifest](https://api.slack.com/apps?new_app=1))
+2. Go to **Event Subscriptions**, toggle it on, and set the **Request URL** to the webhook URL shown below
+3. Under **Subscribe to bot events**, add `message.channels` and `message.groups`, then **Save Changes** and reinstall if prompted
+4. Open **Basic Information > App Credentials**, copy the **Signing Secret**, and paste it in the form below
+
+Prefer a manifest? Paste this when creating the app — it wires the request URL and events for you:
+
+```json
+{
+    "display_information": {
+        "name": "PostHog data warehouse",
+        "description": "Sync Slack channels, users, and messages to PostHog data warehouse"
+    },
+    "oauth_config": {
+        "scopes": {
+            "bot": [
+                "channels:read",
+                "groups:read",
+                "channels:history",
+                "groups:history",
+                "users:read",
+                "users:read.email",
+                "reactions:read"
             ]
         }
     },
     "settings": {
         "event_subscriptions": {
             "request_url": "{webhook_url}",
-            "user_events": [
+            "bot_events": [
                 "message.channels",
                 "message.groups"
             ]
@@ -194,13 +274,8 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             for name, endpoint_config in ENDPOINTS.items()
         ]
 
-        integration = self.get_oauth_integration(config.slack_integration_id, team_id)
-        access_token = integration.access_token
-        if not access_token:
-            raise ValueError("Slack access token not found")
-
-        authed_user = self._get_authed_user_id(integration)
-        channels = get_channels(integration.id, access_token, authed_user, force_refresh=force_refresh)
+        access_token, authed_user, cache_id = self._resolve_access_token(config, team_id)
+        channels = get_channels(cache_id, access_token, authed_user, force_refresh=force_refresh)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
@@ -226,11 +301,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         self, config: SlackSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         try:
-            integration = self.get_oauth_integration(config.slack_integration_id, team_id)
-            access_token = integration.access_token
-
-            if not access_token:
-                return False, "Slack access token not found"
+            access_token, _authed_user, _cache_id = self._resolve_access_token(config, team_id)
 
             if validate_slack_credentials(access_token):
                 return True, None
@@ -248,11 +319,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         resumable_source_manager: ResumableSourceManager[SlackResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        integration = self.get_oauth_integration(config.slack_integration_id, inputs.team_id)
-        access_token = integration.access_token
-
-        if not access_token:
-            raise ValueError(f"Slack access token not found for job {inputs.job_id}")
+        access_token, authed_user, cache_id = self._resolve_access_token(config, inputs.team_id)
 
         # For channel schemas, the schema name is the channel ID itself
         channel_id = inputs.schema_name if inputs.schema_name not in ENDPOINTS else None
@@ -261,7 +328,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 
         return slack_source(
             access_token=access_token,
-            integration_id=integration.id,
+            cache_id=cache_id,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
@@ -273,5 +340,5 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             incremental_field=inputs.incremental_field,
             channel_id=channel_id,
             webhook_source_manager=webhook_source_manager,
-            authed_user=self._get_authed_user_id(integration),
+            authed_user=authed_user,
         )

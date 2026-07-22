@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
     _fetch_all_channels,
     _fetch_all_channels_cached,
     _fetch_channels_by_type,
+    auth_test_user_id,
+    manual_cache_id,
     slack_source,
 )
 
@@ -278,8 +280,8 @@ class TestFetchAllChannelsCached:
             "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             return_value=[{"id": "C1", "name": "general"}],
         ) as mock_fetch:
-            first = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
-            second = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            first = _fetch_all_channels_cached(cache_id="42", access_token="token", authed_user="U_INSTALLER")
+            second = _fetch_all_channels_cached(cache_id="42", access_token="token", authed_user="U_INSTALLER")
 
         assert first == second == [{"id": "C1", "name": "general"}]
         assert mock_fetch.call_count == 1
@@ -289,8 +291,8 @@ class TestFetchAllChannelsCached:
             "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             side_effect=[[{"id": "A1", "name": "a"}], [{"id": "B1", "name": "b"}]],
         ) as mock_fetch:
-            a = _fetch_all_channels_cached(integration_id=1, access_token="token", authed_user="U1")
-            b = _fetch_all_channels_cached(integration_id=2, access_token="token", authed_user="U1")
+            a = _fetch_all_channels_cached(cache_id="1", access_token="token", authed_user="U1")
+            b = _fetch_all_channels_cached(cache_id="2", access_token="token", authed_user="U1")
 
         assert a == [{"id": "A1", "name": "a"}]
         assert b == [{"id": "B1", "name": "b"}]
@@ -301,11 +303,11 @@ class TestFetchAllChannelsCached:
             "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
         ) as mock_fetch:
-            first = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            first = _fetch_all_channels_cached(cache_id="42", access_token="token", authed_user="U_INSTALLER")
             second = _fetch_all_channels_cached(
-                integration_id=42, access_token="token", authed_user="U_INSTALLER", force_refresh=True
+                cache_id="42", access_token="token", authed_user="U_INSTALLER", force_refresh=True
             )
-            third = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            third = _fetch_all_channels_cached(cache_id="42", access_token="token", authed_user="U_INSTALLER")
 
         assert first == [{"id": "C1", "name": "general"}]
         assert second == [{"id": "C2", "name": "renamed"}]
@@ -320,7 +322,7 @@ class TestFetchAllChannelsCached:
             "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             return_value=[{"id": "C1", "name": "general"}],
         ):
-            _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            _fetch_all_channels_cached(cache_id="42", access_token="token", authed_user="U_INSTALLER")
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._fetch_all_channels",
@@ -328,7 +330,7 @@ class TestFetchAllChannelsCached:
         ):
             try:
                 _fetch_all_channels_cached(
-                    integration_id=42, access_token="token", authed_user="U_INSTALLER", force_refresh=True
+                    cache_id="42", access_token="token", authed_user="U_INSTALLER", force_refresh=True
                 )
             except RuntimeError:
                 pass
@@ -337,7 +339,7 @@ class TestFetchAllChannelsCached:
             "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             return_value=[{"id": "WRONG", "name": "should_not_be_called"}],
         ) as mock_fetch:
-            after = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            after = _fetch_all_channels_cached(cache_id="42", access_token="token", authed_user="U_INSTALLER")
 
         assert after == [{"id": "C1", "name": "general"}]
         assert mock_fetch.call_count == 0
@@ -352,6 +354,7 @@ class TestSlackSourceGetSchemasForceRefresh:
 
     def _build_mocks(self) -> tuple[Any, Any]:
         config = MagicMock()
+        config.slack_access_token = None
         config.slack_integration_id = 42
 
         integration = MagicMock()
@@ -424,7 +427,7 @@ class TestSlackSourceChannelsEndpoint:
     def _build_source(self, authed_user: str | None) -> Any:
         return slack_source(
             access_token="token",
-            integration_id=42,
+            cache_id="42",
             endpoint="$channels",
             team_id=1,
             job_id="job-1",
@@ -468,7 +471,7 @@ class TestSlackSourceChannelMessagesWebhookOnly:
     def _build_channel_source(self, webhook_manager: Any) -> Any:
         return slack_source(
             access_token="token",
-            integration_id=42,
+            cache_id="42",
             endpoint="C123",
             team_id=1,
             job_id="job-1",
@@ -506,3 +509,110 @@ class TestSlackSourceChannelMessagesWebhookOnly:
         assert items == expected_items
         assert manager.get_items.called == expect_get_items_called
         mock_backfill.assert_not_called()
+
+
+class TestResolveAccessToken:
+    _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.slack.source"
+
+    def test_token_uses_pasted_token_without_an_integration(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
+            SlackSourceConfig,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = SlackSourceConfig.from_dict({"slack_access_token": "xoxb-abc"})
+        source = SlackSource()
+
+        with (
+            patch(f"{self._SOURCE_MODULE}.auth_test_user_id", return_value="UBOT") as mock_auth_test,
+            patch.object(source, "get_oauth_integration") as mock_get_integration,
+        ):
+            access_token, authed_user, cache_id = source._resolve_access_token(config, team_id=1)
+
+        assert access_token == "xoxb-abc"
+        assert authed_user == "UBOT"
+        assert cache_id == manual_cache_id("xoxb-abc")
+        # The bring-your-own path must never touch an Integration row — that's what keeps it
+        # off the shared PostHog app.
+        mock_get_integration.assert_not_called()
+        mock_auth_test.assert_called_once_with("xoxb-abc")
+
+    def test_legacy_source_resolves_via_linked_integration(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
+            SlackSourceConfig,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = SlackSourceConfig.from_dict({"slack_integration_id": 42})
+        source = SlackSource()
+
+        integration = MagicMock()
+        integration.id = 42
+        integration.access_token = "token"
+        integration.config = {"authed_user": {"id": "U_INSTALLER"}}
+
+        with patch.object(source, "get_oauth_integration", return_value=integration) as mock_get_integration:
+            access_token, authed_user, cache_id = source._resolve_access_token(config, team_id=1)
+
+        assert (access_token, authed_user, cache_id) == ("token", "U_INSTALLER", "42")
+        mock_get_integration.assert_called_once_with(42, 1)
+
+    def test_token_takes_precedence_over_a_legacy_integration(self) -> None:
+        # Converting a legacy source in place: once a bot token is pasted, the stale integration id
+        # is ignored and no Integration lookup happens.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
+            SlackSourceConfig,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = SlackSourceConfig.from_dict({"slack_access_token": "xoxb-new", "slack_integration_id": 42})
+        source = SlackSource()
+
+        with (
+            patch(f"{self._SOURCE_MODULE}.auth_test_user_id", return_value="UBOT"),
+            patch.object(source, "get_oauth_integration") as mock_get_integration,
+        ):
+            access_token, _authed_user, _cache_id = source._resolve_access_token(config, team_id=1)
+
+        assert access_token == "xoxb-new"
+        mock_get_integration.assert_not_called()
+
+    def test_no_credentials_raises(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
+            SlackSourceConfig,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = SlackSourceConfig.from_dict({})
+        source = SlackSource()
+
+        try:
+            source._resolve_access_token(config, team_id=1)
+            raise AssertionError("expected ValueError for missing credentials")
+        except ValueError as e:
+            assert "access token not found" in str(e)
+
+
+class TestAuthTestUserId:
+    @parameterized.expand(
+        [
+            ("ok_returns_user_id", {"ok": True, "user_id": "U1"}, "U1"),
+            ("not_ok_returns_none", {"ok": False, "error": "invalid_auth"}, None),
+            ("ok_without_user_id_returns_none", {"ok": True}, None),
+        ]
+    )
+    def test_parses_response(self, _name: str, payload: dict[str, Any], expected: str | None) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._slack_get",
+            return_value=_make_response(payload),
+        ):
+            assert auth_test_user_id("token") == expected
+
+    def test_network_error_returns_none(self) -> None:
+        # A failed auth.test must not blow up discovery — it falls back to unscoped private-channel
+        # listing rather than crashing the sync.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert auth_test_user_id("token") is None
