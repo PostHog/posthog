@@ -114,7 +114,7 @@ class TestClickHouseRowCap(SimpleTestCase):
 
     def test_returns_rows_and_types_under_cap(self):
         client = self._stream_client([[(1,), (2,)], [(3,)]])
-        rows, column_names, column_types = _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None)
+        rows, column_names, column_types = _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None, 600)
         self.assertEqual(rows, [(1,), (2,), (3,)])
         self.assertEqual(column_names, ["n"])
         self.assertEqual(column_types, ["Int64"])
@@ -125,12 +125,20 @@ class TestClickHouseRowCap(SimpleTestCase):
         client = self._stream_client([[(0,), (1,)], [(2,), (3,)]])
         with patch("posthog.hogql.direct_sql.clickhouse_adapter.DIRECT_CLICKHOUSE_MAX_ROWS", 3):
             with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
-                _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None)
+                _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None, 600)
+
+    def test_raises_when_deadline_exceeded(self):
+        # A raw query can set SETTINGS max_execution_time=0 and dribble out tiny blocks so the
+        # socket timeout never fires; the wall-clock deadline is what stops it pinning the worker.
+        client = self._stream_client([[(1,)], [(2,)]])
+        with patch("posthog.hogql.direct_sql.clickhouse_adapter.perf_counter", side_effect=[0.0, 700.0]):
+            with self.assertRaisesRegex(ExposedHogQLError, "execution time limit"):
+                _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None, 600)
 
     def test_passes_parameters_through(self):
         client = self._stream_client([[(1,)]])
         params: dict[str, Any] = {"team_id": 1}
-        _fetch_capped_clickhouse_rows(client, "SELECT n FROM t WHERE team = %(team_id)s", params)
+        _fetch_capped_clickhouse_rows(client, "SELECT n FROM t WHERE team = %(team_id)s", params, 600)
         client.query_row_block_stream.assert_called_once_with(
             "SELECT n FROM t WHERE team = %(team_id)s", parameters=params
         )

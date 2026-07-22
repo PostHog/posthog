@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlparse
@@ -32,6 +33,7 @@ DIRECT_CLICKHOUSE_MAX_ROWS = 1_000_000
 DIRECT_CLICKHOUSE_ROW_CAP_ERROR = (
     f"ClickHouse query returned more than {DIRECT_CLICKHOUSE_MAX_ROWS:,} rows. Add a LIMIT clause."
 )
+DIRECT_CLICKHOUSE_TIMEOUT_ERROR = "ClickHouse query exceeded the execution time limit."
 RAW_CLICKHOUSE_READ_ONLY_ERROR = "Raw ClickHouse queries must be read-only SELECT statements."
 RAW_CLICKHOUSE_BLOCKED_FUNCTION_ERROR = "This ClickHouse table function is not allowed in direct queries."
 
@@ -128,20 +130,30 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
 
 
 def _fetch_capped_clickhouse_rows(
-    client: "ClickHouseClient", sql: str, parameters: dict[str, Any] | None
+    client: "ClickHouseClient", sql: str, parameters: dict[str, Any] | None, deadline_seconds: float
 ) -> tuple[list, list[str], list[str]]:
-    """Stream rows up to the row cap, raising if the result would exceed it.
+    """Stream rows up to the row cap, raising if the result would exceed it or the deadline passes.
 
     The shared client is configured with ``query_limit=0``, so ``client.query`` would buffer the
     full response in the worker process. Streaming row blocks and stopping one row past the cap
     bounds memory to the cap plus a single block, matching the fetchmany(cap+1) guard the
     Snowflake/Redshift adapters use.
+
+    The per-block wall-clock deadline is the real timeout backstop: a raw query can override the
+    server-side ``max_execution_time`` with its own ``SETTINGS`` clause, and dribbling rows out in
+    tiny blocks keeps the socket read-timeout from ever firing — so a slow query would otherwise
+    pin the worker and SSH tunnel indefinitely. Bailing once ``deadline_seconds`` elapses (and
+    closing the client, which drops the connection so ClickHouse cancels the query) enforces the
+    cap regardless of any in-query setting.
     """
     rows: list = []
+    started = perf_counter()
     with client.query_row_block_stream(sql, parameters=parameters) as stream:
         column_names = list(stream.source.column_names)
         column_types = [str(column_type) for column_type in stream.source.column_types]
         for block in stream:
+            if perf_counter() - started > deadline_seconds:
+                raise ExposedHogQLError(DIRECT_CLICKHOUSE_TIMEOUT_ERROR)
             rows.extend(block)
             if len(rows) > DIRECT_CLICKHOUSE_MAX_ROWS:
                 DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="clickhouse").inc()
@@ -214,7 +226,7 @@ class ClickHouseAdapter:
                     settings={"max_execution_time": statement_timeout_seconds},
                 ) as client:
                     rows, column_names, column_types = _fetch_capped_clickhouse_rows(
-                        client, request.sql, request.values or None
+                        client, request.sql, request.values or None, statement_timeout_seconds
                     )
         except (ClickHouseError, OSError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
