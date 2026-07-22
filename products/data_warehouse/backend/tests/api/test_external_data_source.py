@@ -11214,6 +11214,18 @@ class TestExternalDataSourceSetup(APIBaseTest):
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
+    def test_create_rejects_source_without_schema_discovery_without_persisting(self):
+        # AmazonS3 is an unreleased scaffold with no get_schemas. Creating it must 400 and leave no
+        # row behind — otherwise get_schemas raises NotImplementedError as an uncaught 500 after the
+        # source row is already persisted, orphaning it.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={"source_type": "AmazonS3", "prefix": "s3_create_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "does not support schema discovery" in response.json()["message"]
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
