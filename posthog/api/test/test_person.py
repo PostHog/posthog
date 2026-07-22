@@ -217,6 +217,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert args[0] == ExecutionMode[expected_mode_name]
             assert "analytics_props" in kwargs
 
+    def test_person_property_values_concurrency_limit_returns_429(self):
+        # An org hitting its query concurrency limit must surface as a 429 with a user-facing
+        # message — not an unhandled 500 that leaks the limiter's internal Redis key + task id.
+        from posthog.api.utils import CONCURRENCY_LIMIT_USER_MESSAGE
+        from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+
+        raw = "Exceeded maximum concurrency limit: 30 for app_per_org"
+        detail = "key: app:query:per-org:abc and task: def"
+        with mock.patch(
+            "posthog.hogql_queries.property_values_query_runner.PropertyValuesQueryRunner.run",
+            side_effect=ConcurrencyLimitExceeded(raw, detail=detail),
+        ):
+            response = self.client.get("/api/person/values/?key=random_prop")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        body = response.json()["detail"]
+        self.assertEqual(body, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertNotIn("app:query:per-org", body)
+
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_filter_person_email(self):
