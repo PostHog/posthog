@@ -801,6 +801,10 @@ def dispatch_reviewer_added_notifications(
 
     login_to_user = resolve_org_github_login_to_users(team_id, added_logins)
     user_ids = {user.id for user in login_to_user.values() if user.id != exclude_user_id}
+    # Org membership alone isn't enough: on a private project an org member without project
+    # access must not receive the report's contents, so intersect with the project's access set.
+    if user_ids:
+        user_ids &= set(report.team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
     if not user_ids:
         return 0
 
@@ -816,7 +820,11 @@ def dispatch_reviewer_added_notifications(
         config = own_configs.get(user_id)
         if user is None or config is None:
             continue
-        if not _meets_min_priority(priority, config.slack_notification_min_priority):
+        # An unprioritized report still pings a reviewer with no min-priority threshold: the
+        # initial path would have delivered it via the team channel, but this path has no
+        # fallback, so `_meets_min_priority`'s no-priority-never-notifies rule would lose it.
+        min_priority = config.slack_notification_min_priority
+        if (priority is not None or min_priority is not None) and not _meets_min_priority(priority, min_priority):
             continue
         integration = config.slack_notification_integration
         channel = config.slack_notification_channel

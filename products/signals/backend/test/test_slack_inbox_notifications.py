@@ -7,6 +7,7 @@ from django.conf import settings
 
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
@@ -30,6 +31,8 @@ from products.signals.backend.slack_inbox_notifications import (
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
 )
+
+from ee.models.rbac.access_control import AccessControl
 
 
 @pytest.mark.parametrize(
@@ -1042,6 +1045,68 @@ def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team):
 
     assert sent == 1
     assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "C123"
+
+
+@pytest.mark.django_db
+def test_reviewer_added_skips_org_member_without_project_access(org_and_team):
+    # Org membership alone must not leak a private project's report into Slack: a member
+    # locked out of the project (project marked private, no explicit access) gets no ping.
+    org, team = org_and_team
+    org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+    org.save()
+    AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
+
+    user = _make_reviewer_user(org, "no-access@example.com", "no-access-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["no-access-bot"])
+
+    assert sent == 0
+    assert slack_cls.call_count == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("min_priority", "expected_sent"),
+    [
+        # No threshold: an unprioritized report still pings — the initial path would have
+        # delivered it via the team channel, and this personal path has no fallback.
+        (None, 1),
+        # An explicit threshold keeps filtering unprioritized reports out.
+        (AutonomyPriority.P1, 0),
+    ],
+)
+def test_reviewer_added_unprioritized_report(org_and_team, min_priority, expected_sent):
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "added-noprio@example.com", "added-noprio-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C555|#inbox",
+        slack_notification_min_priority=min_priority,
+    )
+    report = _make_ready_report(team, priority=None)
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value="U_ADDED",
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["added-noprio-bot"])
+
+    assert sent == expected_sent
 
 
 @pytest.mark.django_db
