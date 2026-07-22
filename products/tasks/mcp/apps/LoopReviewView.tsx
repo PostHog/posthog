@@ -37,6 +37,11 @@ export interface LoopReviewNotificationChannel {
     enabled?: boolean
 }
 
+export interface LoopReviewConnectors {
+    mcp_installation_ids?: string[]
+    posthog_mcp_scopes?: 'read_only' | 'full' | string
+}
+
 /** The loop config the agent assembled — identical in shape to the `loops-create` tool
  * arguments, so the "Create loop" button can forward it unchanged. */
 export interface LoopReviewData {
@@ -49,7 +54,11 @@ export interface LoopReviewData {
     visibility?: string
     repositories?: LoopReviewRepository[]
     triggers?: LoopReviewTrigger[]
+    enabled?: boolean
+    overlap_policy?: 'skip' | 'allow' | 'cancel_previous' | string
     behaviors?: LoopReviewBehaviors
+    connectors?: LoopReviewConnectors
+    sandbox_environment?: string | null
     notifications?: Record<string, LoopReviewNotificationChannel>
     context_target?: LoopReviewContextTarget | null
     _posthogUrl?: string
@@ -91,11 +100,36 @@ function describeTrigger(trigger: LoopReviewTrigger): string {
     return 'API'
 }
 
-function describeTriggers(triggers: LoopReviewTrigger[] | undefined): string {
+const OVERLAP_LABELS: Record<string, string> = {
+    skip: 'skips overlapping runs',
+    allow: 'allows overlapping runs',
+    cancel_previous: 'cancels the previous run',
+}
+
+function describeTriggers(data: LoopReviewData): string {
+    const triggers = data.triggers
+    const parts: string[] = []
     if (!triggers || triggers.length === 0) {
-        return 'Manual only'
+        parts.push('Manual only')
+    } else {
+        parts.push(triggers.map(describeTrigger).join(', '))
     }
-    return triggers.map(describeTrigger).join(', ')
+    if (data.enabled === false) {
+        parts.push('paused')
+    }
+    if (data.overlap_policy) {
+        parts.push(OVERLAP_LABELS[data.overlap_policy] ?? data.overlap_policy)
+    }
+    return parts.join(' · ')
+}
+
+function describePosthogAccess(connectors: LoopReviewConnectors | undefined): string {
+    return connectors?.posthog_mcp_scopes === 'full' ? 'Full (read-write)' : 'Read-only'
+}
+
+function describeConnectors(connectors: LoopReviewConnectors | undefined): string {
+    const ids = connectors?.mcp_installation_ids ?? []
+    return ids.length > 0 ? ids.join(', ') : 'None'
 }
 
 function describeRepository(repositories: LoopReviewRepository[] | undefined): string {
@@ -165,17 +199,21 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
 
     const items: { label: string; value: ReactNode }[] = [
         { label: 'Name', value: data.name?.trim() || 'Not set' },
+        ...(data.description?.trim() ? [{ label: 'Description', value: data.description }] : []),
         { label: 'Visibility', value: data.visibility === 'team' ? 'Team' : 'Personal' },
         {
             label: 'What it does',
             value: <span className="whitespace-pre-wrap">{data.instructions?.trim() || 'No prompt'}</span>,
         },
-        { label: 'Runs', value: describeTriggers(data.triggers) },
+        { label: 'Runs', value: describeTriggers(data) },
         { label: 'Context', value: describeContext(data.context_target) },
         { label: 'Repository', value: describeRepository(data.repositories) },
         { label: 'Model', value: describeModel(data) },
         { label: 'Opens PRs', value: data.behaviors?.create_prs ? 'Yes' : 'No' },
         { label: 'Auto-fix PRs', value: describeAutoFix(data.behaviors) },
+        { label: 'PostHog access', value: describePosthogAccess(data.connectors) },
+        { label: 'Connectors', value: describeConnectors(data.connectors) },
+        { label: 'Sandbox', value: data.sandbox_environment || 'None' },
         { label: 'Notifications', value: describeNotifications(data.notifications) },
     ]
 

@@ -282,9 +282,6 @@ describe('buildToolResultPayload — confirmed-action prepare results', () => {
     }
 
     it('carries the prepare payload on _meta so UI apps can read the hash', () => {
-        // `-prepare` tools have no UI resource, so structuredContent is never
-        // attached — without the _meta copy, a card driving the confirmed flow
-        // (loops-review Create button) has no machine-readable hash.
         const payload = buildToolResultPayload({
             handlerResult: prepareResult,
             toolMeta: undefined,

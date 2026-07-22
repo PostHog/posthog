@@ -181,11 +181,8 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
             payload._meta[APP_DATA_META_KEY] = structuredContent as Record<string, unknown>
         }
     }
-    // `structuredContent` is only attached to UI-resource tools, so a UI app
-    // driving a confirmed action (e.g. the loops-review card's Create button)
-    // can't read the confirmation hash from the `-prepare` result — it only
-    // rides in the TOON text toward the model. Carry it on `_meta` too, the
-    // host/app-only channel apps already hydrate from.
+    // `-prepare` tools have no UI resource, so UI apps driving a confirmed action
+    // read the hash from the app-only `_meta` channel instead of structuredContent.
     if (isPrepareConfirmedActionResult(handlerResult)) {
         payload._meta = {
             ...payload._meta,

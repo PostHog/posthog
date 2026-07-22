@@ -31,13 +31,30 @@ function LoopReviewContent({ data, app }: { data: LoopReviewData; app: App | nul
         }
         setState({ loading: true, error: null, createdName: null })
         try {
-            // `loops-create` is a confirmed action (prepare/execute), so an agent can't plant a
-            // persistent loop without an explicit human step. This button IS that step: prepare with
-            // the reviewed config unchanged (`loops-review`'s schema is the `loops-create` body),
-            // then execute with the returned hash — the click supplies the confirmation.
+            // `loops-create` is a confirmed action (prepare/execute) and this click is the human
+            // confirmation step, so only fields the card renders may travel: anything else in
+            // `data` would be created without ever being reviewed.
+            const reviewedConfig: Record<string, unknown> = {
+                name: data.name,
+                description: data.description,
+                visibility: data.visibility,
+                instructions: data.instructions,
+                runtime_adapter: data.runtime_adapter,
+                model: data.model,
+                reasoning_effort: data.reasoning_effort,
+                repositories: data.repositories,
+                triggers: data.triggers,
+                enabled: data.enabled,
+                overlap_policy: data.overlap_policy,
+                behaviors: data.behaviors,
+                connectors: data.connectors,
+                sandbox_environment: data.sandbox_environment,
+                notifications: data.notifications,
+                context_target: data.context_target,
+            }
             const prepared = await app.callServerTool({
                 name: 'loops-create-prepare',
-                arguments: data as Record<string, unknown>,
+                arguments: reviewedConfig,
             })
             if (prepared.isError) {
                 const message =
@@ -46,8 +63,6 @@ function LoopReviewContent({ data, app }: { data: LoopReviewData; app: App | nul
                 setState({ loading: false, error: message, createdName: null })
                 return
             }
-            // The hash rides on `_meta` (app-only channel) — `structuredContent` is
-            // only attached to UI-resource tools, which `-prepare` tools are not.
             const preparedData = ((prepared._meta as Record<string, unknown> | undefined)?.[APP_DATA_META_KEY] ??
                 prepared.structuredContent) as { confirmation_hash?: string } | undefined
             const confirmationHash = preparedData?.confirmation_hash
