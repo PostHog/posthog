@@ -113,6 +113,25 @@ def seed_approved_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     }
 
 
+def seed_approved_metric_with_decoy_insights(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    metric = upsert_metric(
+        team=team,
+        user=user,
+        name=APPROVED_METRIC_NAME,
+        description=APPROVED_METRIC_DESCRIPTION,
+        unit="usd",
+        definition=APPROVED_METRIC_DEFINITION,
+    )
+    approve_metric(metric, user)
+    for insight_name in DECOY_INSIGHT_NAMES:
+        Insight.objects.create(team=team, created_by=user, name=insight_name, query=DRIFTED_INSIGHT_ORIGINAL_QUERY)
+    return {
+        "metric": {"name": APPROVED_METRIC_NAME, "status": "approved"},
+        "decoy_insights": list(DECOY_INSIGHT_NAMES),
+    }
+
+
 def _require_incident_warehouse_paths(team: Team, user: User) -> None:
     tables = {
         table.name: table

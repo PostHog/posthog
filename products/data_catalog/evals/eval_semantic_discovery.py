@@ -53,6 +53,23 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             },
             setup=seed_certification_trust_sources,
         ),
+        # Detour recovery: the prompt names the deprecated source directly, so the agent may query it
+        # first. A certification check — or the execute-sql result's deprecated-table trust hint — must
+        # pull it to the certified source rather than reporting a number from the deprecated one.
+        SandboxedEvalCase(
+            name="deprecated_source_detour",
+            prompt=(f"Write a revenue-by-account query against {DEPRECATED_SOURCE_NAME} and give me the result."),
+            expected={
+                "semantic_trust_decision_correctness": {
+                    "expected_behavior": (
+                        f"Recognized that {DEPRECATED_SOURCE_NAME} is deprecated (from a certification check or the "
+                        f"query result's trust hint) and switched to the certified {CERTIFIED_SOURCE_NAME} instead of "
+                        "reporting a number from the deprecated source."
+                    )
+                },
+            },
+            setup=seed_certification_trust_sources,
+        ),
         SandboxedEvalCase(
             name="accepted_relationship_selection",
             prompt=(
