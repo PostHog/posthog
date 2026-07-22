@@ -14087,6 +14087,8 @@ export namespace Schemas {
       message: string;
       /** The change request after the vote was recorded. */
       change_request: ChangeRequest;
+      /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+      result?: unknown;
     }
 
     export interface ChangeRequestReject {

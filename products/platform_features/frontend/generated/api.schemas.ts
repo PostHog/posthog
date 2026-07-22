@@ -735,6 +735,8 @@ export interface ChangeRequestDecisionResponseApi {
     message: string
     /** The change request after the vote was recorded. */
     change_request: ChangeRequestApi
+    /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+    result?: unknown
 }
 
 export interface ChangeRequestRejectApi {

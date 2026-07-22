@@ -265,6 +265,7 @@ const changeRequestsApproveExecute = (): ToolBase<
             'change_request.id',
             'change_request.state',
             'change_request.intent_display',
+            'result',
         ]) as typeof result
         return filtered
     },
@@ -272,11 +273,14 @@ const changeRequestsApproveExecute = (): ToolBase<
 
 const ChangeRequestsListSchema = ChangeRequestsListQueryParams.extend({
     state: ChangeRequestsListQueryParams.shape['state'].describe(
-        'Optional filter by state (comma-separated to combine). Use `pending` to see only requests still open for a decision. Values: pending, approved, applied, rejected, expired.'
+        'Optional comma-separated filter by state. Use `pending` to see only requests still open for a decision. Values: pending, approved, applied, rejected, expired.'
     ),
 })
 
-const changeRequestsList = (): ToolBase<typeof ChangeRequestsListSchema, Schemas.PaginatedChangeRequestList> => ({
+const changeRequestsList = (): ToolBase<
+    typeof ChangeRequestsListSchema,
+    WithPostHogUrl<Schemas.PaginatedChangeRequestList>
+> => ({
     name: 'change-requests-list',
     schema: ChangeRequestsListSchema,
     handler: async (context: Context, params: z.infer<typeof ChangeRequestsListSchema>) => {
@@ -294,21 +298,26 @@ const changeRequestsList = (): ToolBase<typeof ChangeRequestsListSchema, Schemas
                 state: Array.isArray(params.state) ? params.state.join(',') || undefined : params.state,
             },
         })
-        const filtered = pickResponseFields(result, [
-            'id',
-            'state',
-            'action_key',
-            'resource_type',
-            'resource_id',
-            'intent_display',
-            'created_by.email',
-            'created_at',
-            'expires_at',
-            'can_approve',
-            'user_decision',
-            'is_requester',
-        ]) as typeof result
-        return filtered
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'state',
+                    'action_key',
+                    'resource_type',
+                    'resource_id',
+                    'intent_display',
+                    'created_by.email',
+                    'created_at',
+                    'expires_at',
+                    'can_approve',
+                    'user_decision',
+                    'is_requester',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
     },
 })
 

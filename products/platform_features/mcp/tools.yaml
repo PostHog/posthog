@@ -151,6 +151,7 @@ tools:
                 - change_request.id
                 - change_request.state
                 - change_request.intent_display
+                - result
         confirmed_action:
             message: >
                 About to APPROVE change request {id}. If this reaches the required quorum, the underlying change is
@@ -168,6 +169,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List change requests and see what needs your approval.
         description: >
             List change requests (approval requests) for the current project. Use this to see what governance actions
@@ -179,8 +181,8 @@ tools:
         param_overrides:
             state:
                 description: >
-                    Optional filter by state (comma-separated to combine). Use `pending` to see only requests still open
-                    for a decision. Values: pending, approved, applied, rejected, expired.
+                    Optional comma-separated filter by state. Use `pending` to see only requests still open for a
+                    decision. Values: pending, approved, applied, rejected, expired.
         feature_entitlement: approvals
         response:
             include:

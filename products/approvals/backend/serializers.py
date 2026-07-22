@@ -162,6 +162,10 @@ class ChangeRequestDecisionResponseSerializer(serializers.Serializer):
     )
     message = serializers.CharField(help_text="Human-readable summary of what happened.")
     change_request = ChangeRequestSerializer(help_text="The change request after the vote was recorded.")
+    result = serializers.JSONField(
+        required=False,
+        help_text="Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version).",
+    )
 
 
 class ApprovalSerializer(serializers.ModelSerializer):

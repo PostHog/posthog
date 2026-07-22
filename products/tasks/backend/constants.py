@@ -80,6 +80,8 @@ POSTHOG_EXEC_DESTRUCTIVE_VERB_REGEX = r"(^|-)(partial-update|update|patch|delete
 # destructive verb segment (publish, ship, merge, archive, …). Kept complete against those
 # annotations by `test_exec_permission_regex_covers_destructive_annotated_tools`.
 POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
+    "change-requests-approve",
+    "change-requests-reject",
     "error-tracking-bypass-rules-create",
     "error-tracking-issues-merge-create",
     "error-tracking-issues-split-create",

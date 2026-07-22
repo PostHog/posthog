@@ -33,6 +33,8 @@ const POSTHOG_DESTRUCTIVE_SUBTOOL_RE = /(^|-)(partial-update|update|patch|delete
  * `annotations.destructive: true` tools in `products/*\/mcp/*.yaml` — update both together.
  */
 const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
+    'change-requests-approve',
+    'change-requests-reject',
     'error-tracking-bypass-rules-create',
     'error-tracking-issues-merge-create',
     'error-tracking-issues-split-create',
