@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
@@ -5,7 +6,8 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models.fields import BLANK_CHOICE_DASH
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
@@ -13,10 +15,22 @@ from django.utils.safestring import SafeString
 import structlog
 
 from posthog.admin.inline_registry import register_admin_inline
+from posthog.llm.gateway_client import get_llm_client
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, ProductPushCampaign
+from products.growth.backend.enrichment.labels import (
+    UNKNOWN,
+    classify_payload,
+    latest_fetches_qs,
+    signup_email_for_organization,
+)
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    OrganizationEnrichmentFetch,
+    ProductPushCampaign,
+)
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
 
@@ -356,6 +370,11 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
             self.fields["is_active"].help_text = "The version the batch runner computes. One active version per label."
 
 
+# Bounded so the synchronous admin dry-run stays a short page load, not a batch job.
+_DRY_RUN_SAMPLE = 10
+_DRY_RUN_WORKERS = 5
+
+
 @admin.register(EnrichmentPromptConfig)
 class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     form = EnrichmentPromptConfigForm
@@ -365,6 +384,55 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     show_full_result_count = False
     list_select_related = ("created_by",)
+    actions = ("dry_run_selected",)
+
+    @admin.action(description=f"Dry run on the {_DRY_RUN_SAMPLE} most recent archived orgs (persists nothing)")
+    def dry_run_selected(self, request: HttpRequest, queryset: Any) -> HttpResponse | None:
+        config = queryset.first()
+        if config is None or queryset.count() != 1:
+            self.message_user(request, "Select exactly one config to dry-run.", level=messages.WARNING)
+            return None
+
+        recent = sorted(latest_fetches_qs().values_list("id", "fetched_at"), key=lambda p: p[1], reverse=True)
+        fetch_ids = [fetch_id for fetch_id, _ in recent[:_DRY_RUN_SAMPLE]]
+        fetches = list(OrganizationEnrichmentFetch.objects.filter(id__in=fetch_ids).select_related("organization"))
+
+        # All ORM work happens here on the request thread; workers only make LLM calls.
+        inputs = [(fetch, signup_email_for_organization(fetch.organization)) for fetch in fetches]
+        client = get_llm_client(product="growth")
+
+        def _classify(pair: tuple[OrganizationEnrichmentFetch, str | None]) -> dict[str, Any]:
+            fetch, email = pair
+            company = fetch.payload.get("name") or fetch.organization.name
+            try:
+                verdict = classify_payload(config, fetch.payload, email, client)
+            except Exception as e:
+                return {
+                    "company": company,
+                    "email": email,
+                    "verdict": "ERROR",
+                    "confidence": "-",
+                    "reasoning": str(e)[:200],
+                }
+            return {
+                "company": company,
+                "email": email,
+                "verdict": str(verdict.get("ai_pilled")).lower(),
+                "confidence": f"{verdict.get('confidence', 0.0):.2f}",
+                "reasoning": verdict.get("reasoning", ""),
+            }
+
+        with ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS) as pool:
+            rows = list(pool.map(_classify, inputs))
+
+        unknown = sum(1 for r in rows if r["verdict"] == UNKNOWN)
+        errors = sum(1 for r in rows if r["verdict"] == "ERROR")
+        summary = f"classified {len(rows) - unknown - errors}, unknown {unknown}, errors {errors}"
+        return render(
+            request,
+            "admin/growth/enrichment_dry_run.html",
+            {"config": config, "rows": rows, "summary": summary},
+        )
 
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
         # A new version is almost always a tweak of the newest one: prefill everything

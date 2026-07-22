@@ -244,3 +244,30 @@ class TestEnrichmentLabelDryRun(BaseTest):
             call_command("enrichment_label_dry_run", label="test_label")
 
         assert EnrichmentLabelResult.objects.count() == 0
+
+    def test_admin_dry_run_action_renders_verdicts_and_persists_nothing(self):
+        config = EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="test-v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            temperature=1.0,
+            input_fields=["name"],
+        )
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+        with patch("products.growth.backend.admin.get_llm_client", return_value=_mock_llm_client()):
+            response = self.client.post(
+                "/admin/growth/enrichmentpromptconfig/",
+                {"action": "dry_run_selected", "_selected_action": [str(config.pk)]},
+            )
+
+        assert response.status_code == 200
+        assert b"Acme" in response.content
+        assert b"true" in response.content
+        assert EnrichmentLabelResult.objects.count() == 0

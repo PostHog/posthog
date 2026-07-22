@@ -1,0 +1,30 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} (inactive){% endif %}</h1>
+<p>Model {{ config.model }}, temperature {{ config.temperature }}, {{ rows|length }} most recent archived orgs. Nothing was persisted.</p>
+<table>
+    <thead>
+        <tr>
+            <th>Company</th>
+            <th>Email</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+            <th>Reasoning</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in rows %}
+        <tr>
+            <td>{{ row.company }}</td>
+            <td>{{ row.email|default:"-" }}</td>
+            <td><strong>{{ row.verdict }}</strong></td>
+            <td>{{ row.confidence }}</td>
+            <td>{{ row.reasoning }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p>{{ summary }}</p>
+<p><a href="{% url 'admin:growth_enrichmentpromptconfig_changelist' %}">&larr; Back to prompt configs</a></p>
+{% endblock %}
