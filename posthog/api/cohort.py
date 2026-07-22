@@ -1067,17 +1067,26 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         is team-owned), so access is enforced here instead: the member saving the definition must
         be able to read every warehouse table it resolves through. Covers every way a definition
         can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
+        if not any(field in attrs for field in ("filters", "groups", "query")):
+            return
         team = self._team_for_warehouse_access_check()
         request = self.context.get("request")
         user = getattr(request, "user", None)
         if team is None or user is None or not getattr(user, "is_authenticated", False):
             return
 
+        # Validate the effective post-save definition, mirroring Cohort.properties precedence
+        # (filters win over groups): clearing filters re-activates preserved legacy groups, so
+        # what survives the save is what must be checked - not just the fields in the payload.
+        instance = cast(Optional[Cohort], self.instance)
+        filters = attrs["filters"] if "filters" in attrs else (instance.filters if instance else None)
         properties: Optional[dict] = None
-        if attrs.get("filters"):
-            properties = attrs["filters"].get("properties")
-        elif attrs.get("groups"):
-            properties = Cohort(team=team, filters=None, groups=deepcopy(attrs["groups"])).properties.to_dict()
+        if filters:
+            properties = filters.get("properties")
+        else:
+            groups = attrs["groups"] if "groups" in attrs else (instance.groups if instance else None)
+            if groups:
+                properties = Cohort(team=team, filters=None, groups=deepcopy(groups)).properties.to_dict()
 
         try:
             if properties:
