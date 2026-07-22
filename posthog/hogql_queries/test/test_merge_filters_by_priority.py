@@ -258,6 +258,39 @@ class TestIgnoreDashboardFilters(SimpleTestCase):
         assert merged == {"date_from": "-30d", "interval": "week"}
         DashboardFilter(**merged)
 
+    @parameterized.expand(
+        [
+            ("no tile override", None, {"date_from": "-30d"}),
+            (
+                "tile override present",
+                {"interval": "week"},
+                {"date_from": "-30d", "interval": "week"},
+            ),
+        ]
+    )
+    def test_flag_in_base_layer_is_stripped_without_dropping_the_layer(self, _name, tile, expected):
+        base = {"ignoreDashboardFilters": True, "date_from": "-30d"}
+
+        merged = merge_filters_by_priority(base, tile)
+
+        assert merged == expected
+        DashboardFilter(**merged)
+
+    def test_flag_in_base_layer_does_not_reach_effective_filters(self):
+        query = {"kind": "TrendsQuery", "series": []}
+
+        _, effective = resolve_effective_dashboard_filters(
+            query, {"ignoreDashboardFilters": True, "date_from": "-30d"}, None
+        )
+
+        assert effective == {"date_from": "-30d"}
+        DashboardFilter(**effective)
+
+    def test_dashboard_filter_from_dict_strips_flag(self):
+        assert dashboard_filter_from_dict({"ignoreDashboardFilters": True, "date_from": "-30d"}) == DashboardFilter(
+            date_from="-30d"
+        )
+
     def test_resolve_layers_reports_dashboard_as_fully_overridden(self):
         tile_prop = {"key": "$country", "value": "US", "type": "event"}
 
