@@ -1900,14 +1900,15 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
 }
 
 // ============================================================
-// Admission-time property size enforcement: the merged state is
-// measured as pg_column_size measures it, trimmed to fit, or
-// rejected when protected properties alone cannot fit — so every
-// acked record is applyable by the writer verbatim.
+// Admission-time property size enforcement, mirroring the Node
+// pipeline's policy: an update that would newly push a within-limit
+// row over the ceiling is rejected; a row already over it is
+// remediated (existing properties trimmed, the update discarded) —
+// so every acked record is applyable by the writer verbatim.
 // ============================================================
 
 #[tokio::test]
-async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
+async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     const PERSON_ID: i64 = 9;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
     let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
@@ -1965,11 +1966,12 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
     tokio::time::sleep(Duration::from_millis(10)).await;
     let mut client = create_leader_client(addr).await;
 
-    // Trimmable: small protected property plus two large custom ones.
-    // Trimming removes custom properties alphabetically, so custom_a goes
-    // and custom_b (which alone fits the target) survives.
+    // New violation: the seeded person is within limits and this update
+    // would push the merged state over the ceiling — rejected outright,
+    // nothing stored, matching the Node pipeline's
+    // attempt_to_violate_limit path.
     let big = "x".repeat(400_000);
-    let response = client
+    let err = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
                 team_id: 1,
@@ -1985,21 +1987,16 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
             routing_partition,
         ))
         .await
-        .unwrap()
-        .into_inner();
-    assert!(response.updated);
-    let stored: serde_json::Value =
-        serde_json::from_slice(&response.person.unwrap().properties).unwrap();
-    let stored = stored.as_object().unwrap();
-    assert_eq!(stored["email"], "a@b.c");
+        .expect_err("a newly violating update must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("size limit"));
     assert!(
-        !stored.contains_key("custom_a"),
-        "custom_a must be trimmed (alphabetically first)"
+        !err.message().contains("xxx"),
+        "the error must carry sizes, never property values"
     );
-    assert!(stored.contains_key("custom_b"));
 
-    // The stored state IS the trimmed state: a strong read agrees with
-    // the update response.
+    // Rejection leaves no residue: the rejected update's keys are absent
+    // from a strong read, and a normal update still works.
     let read = client
         .get_person(with_partition(
             GetPersonRequest {
@@ -2015,33 +2012,6 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
     let read_props: serde_json::Value =
         serde_json::from_slice(&read.person.unwrap().properties).unwrap();
     assert!(!read_props.as_object().unwrap().contains_key("custom_a"));
-
-    // Untrimmable: the protected property alone exceeds the trim target,
-    // so after trimming every custom property the merge still cannot fit.
-    let huge_email = "e".repeat(700_000);
-    let err = client
-        .update_person_properties(with_partition(
-            UpdatePersonPropertiesRequest {
-                team_id: 1,
-                person_id: PERSON_ID,
-                event_name: "$set".to_string(),
-                set_properties: serde_json::to_vec(&serde_json::json!({"email": huge_email}))
-                    .unwrap(),
-                set_once_properties: vec![],
-                unset_properties: vec![],
-            },
-            routing_partition,
-        ))
-        .await
-        .expect_err("untrimmable update must be rejected");
-    assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert!(err.message().contains("size limit"));
-    assert!(
-        !err.message().contains("eee"),
-        "the error must carry sizes, never property values"
-    );
-
-    // Rejection leaves no residue: a normal update still works.
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
@@ -2059,8 +2029,121 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
         .into_inner();
     assert!(response.updated);
 
-    // Both enforcement actions emitted in-product warnings from the
-    // leader: one trim, one rejection.
+    // Remediation: a row already over the ceiling (legacy rows, and rows
+    // from the Node writer during dual-write) is healed on its next
+    // update — existing properties trimmed alphabetically to the target
+    // and the triggering update's changes discarded, matching the Node
+    // pipeline's existing_record_violates_limit path. custom_a goes
+    // (alphabetically first) and custom_b, which alone fits the target,
+    // survives.
+    const OVERSIZED_PERSON_ID: i64 = 10;
+    let oversized_partition = partition_for_person(1, OVERSIZED_PERSON_ID, NUM_PARTITIONS);
+    if oversized_partition != routing_partition {
+        cache.create_partition(oversized_partition);
+    }
+    seed_person(
+        &cache,
+        oversized_partition,
+        CachedPerson {
+            id: OVERSIZED_PERSON_ID,
+            properties: serde_json::json!({
+                "email": "a@b.c", "custom_a": big, "custom_b": big,
+            }),
+            ..test_cached_person()
+        },
+    );
+    let response = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: OVERSIZED_PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "discarded"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            oversized_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.updated);
+    let stored: serde_json::Value =
+        serde_json::from_slice(&response.person.unwrap().properties).unwrap();
+    let stored = stored.as_object().unwrap();
+    assert_eq!(stored["email"], "a@b.c", "protected properties survive");
+    assert!(
+        !stored.contains_key("custom_a"),
+        "custom_a must be trimmed (alphabetically first)"
+    );
+    assert!(stored.contains_key("custom_b"));
+    assert!(
+        !stored.contains_key("name"),
+        "the triggering update's changes are discarded, as in Node"
+    );
+
+    // The stored state IS the remediated state: a strong read agrees
+    // with the update response.
+    let read = client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id: 1,
+                person_id: OVERSIZED_PERSON_ID,
+                read_options: None,
+            },
+            oversized_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let read_props: serde_json::Value =
+        serde_json::from_slice(&read.person.unwrap().properties).unwrap();
+    assert!(!read_props.as_object().unwrap().contains_key("custom_a"));
+
+    // Unremediable: the stored row is over the ceiling and its protected
+    // property alone exceeds the trim target — nothing can be trimmed,
+    // so the update is rejected. (Its warning lands after the throttle
+    // burst of 2 and is suppressed; the error is asserted directly.)
+    const UNREMEDIABLE_PERSON_ID: i64 = 12;
+    let unremediable_partition = partition_for_person(1, UNREMEDIABLE_PERSON_ID, NUM_PARTITIONS);
+    if unremediable_partition != routing_partition && unremediable_partition != oversized_partition
+    {
+        cache.create_partition(unremediable_partition);
+    }
+    let huge_email = "e".repeat(700_000);
+    seed_person(
+        &cache,
+        unremediable_partition,
+        CachedPerson {
+            id: UNREMEDIABLE_PERSON_ID,
+            properties: serde_json::json!({ "email": huge_email }),
+            ..test_cached_person()
+        },
+    );
+    let err = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: UNREMEDIABLE_PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "x"})).unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            unremediable_partition,
+        ))
+        .await
+        .expect_err("an unremediable row's update must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("trim target"));
+    assert!(
+        !err.message().contains("eee"),
+        "the error must carry sizes, never property values"
+    );
+
+    // The first two enforcement actions emitted in-product warnings from
+    // the leader: one rejection, one remediation trim.
     let consumer: BaseConsumer = ClientConfig::new()
         .set("bootstrap.servers", mock_cluster.bootstrap_servers())
         .set("group.id", "warnings-check")
@@ -2110,11 +2193,11 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
     assert!(warnings.iter().any(|w| w.contains("trimmed")));
     assert!(warnings.iter().any(|w| w.contains("rejected")));
 
-    // Team 1's (team, type) budget is now exhausted: a third enforcement
-    // action still trims, but its warning is suppressed. A fresh team's
-    // warning still emits, and — the warnings topic being a single
-    // partition — arriving as the very next message proves the suppressed
-    // one was never produced.
+    // Team 1's (team, type) budget is exhausted: another enforcement
+    // action still rejects, but its warning is suppressed. A fresh
+    // team's warning still emits, and — the warnings topic being a
+    // single partition — arriving as the very next message proves the
+    // suppressed one was never produced.
     const TEAM_2_PERSON_ID: i64 = 11;
     let team2_partition = partition_for_person(2, TEAM_2_PERSON_ID, NUM_PARTITIONS);
     if team2_partition != routing_partition {
@@ -2130,46 +2213,39 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
         },
     );
 
-    let oversized_trimmable = serde_json::to_vec(&serde_json::json!({
+    let oversized_update = serde_json::to_vec(&serde_json::json!({
         "email": "a@b.c", "custom_y": big, "custom_z": big,
     }))
     .unwrap();
-    let response = client
+    client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
-                set_properties: oversized_trimmable.clone(),
+                set_properties: oversized_update.clone(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
             },
             routing_partition,
         ))
         .await
-        .unwrap()
-        .into_inner();
-    assert!(
-        response.updated,
-        "throttling gates the warning, not the update"
-    );
+        .expect_err("throttling gates the warning, not the enforcement");
 
-    let response = client
+    client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
                 team_id: 2,
                 person_id: TEAM_2_PERSON_ID,
                 event_name: "$set".to_string(),
-                set_properties: oversized_trimmable,
+                set_properties: oversized_update,
                 set_once_properties: vec![],
                 unset_properties: vec![],
             },
             team2_partition,
         ))
         .await
-        .unwrap()
-        .into_inner();
-    assert!(response.updated);
+        .expect_err("team 2's newly violating update is rejected too");
 
     let deadline = Instant::now() + Duration::from_secs(10);
     let next = loop {

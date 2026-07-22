@@ -564,11 +564,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // cache and changelog would carry state Postgres never gets (the
         // stale-serve hole the dirty index exists to close). The measure
         // is the constraint's own — pg_column_size of the JSONB encoding
-        // — so admitted rows cannot violate it at apply time. Oversized
-        // merges are trimmed to the target (matching the pipeline's
-        // established trim semantics; the response carries the state
-        // actually stored); merges whose protected properties alone
-        // cannot fit are rejected with the sizes, never the values.
+        // — so admitted rows cannot violate it at apply time.
         let mut new_properties = new_properties;
 
         // Rewrite the merged state into jsonb-safe form before measuring:
@@ -588,39 +584,76 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let jsonb_size = jsonb_column_size(&new_properties);
         if jsonb_size > self.size_limits.threshold {
-            match trim_properties_to_fit_size(&new_properties, self.size_limits.trim_target) {
-                TrimResult::Trimmed(trimmed) => {
-                    counter!("personhog_leader_properties_trimmed_total").increment(1);
-                    self.warnings.emit(&SizeViolationWarning {
-                        team_id: cache_key.team_id,
-                        person_uuid: person.uuid.clone(),
-                        message: "Person properties exceeded size limit and were trimmed"
-                            .to_string(),
-                    });
-                    new_properties = trimmed;
-                }
-                // Unreachable: this path only runs when the size exceeds
-                // the threshold, and `PropertySizeLimits::new` guarantees
-                // trim_target <= threshold at startup — so the input can
-                // never already fit the target. The arm exists only for
-                // match exhaustiveness.
-                TrimResult::Fits => {}
-                TrimResult::CannotFit => {
-                    counter!("personhog_leader_updates_total", "outcome" => "rejected_oversized")
+            // Policy mirror of the Node pipeline's
+            // `handleOversizedPersonProperties`: trimming is remediation
+            // for rows already oversized in storage (they predate the
+            // constraint, or another writer produced them) — the stored
+            // properties are trimmed to the target and the triggering
+            // update's property changes are discarded, exactly as Node
+            // retries with trimmed existing state. An update that would
+            // newly push a within-limit row over the ceiling is rejected
+            // outright: a rejection with a warning is a deliberate,
+            // visible outcome where a silent trim would be arbitrary
+            // deferred data loss. Warnings and errors carry sizes, never
+            // property values.
+            let existing_size = jsonb_column_size(&person.properties);
+            if existing_size >= self.size_limits.threshold {
+                match trim_properties_to_fit_size(&person.properties, self.size_limits.trim_target)
+                {
+                    TrimResult::Trimmed(trimmed) => {
+                        counter!("personhog_leader_properties_trimmed_total").increment(1);
+                        self.warnings.emit(&SizeViolationWarning {
+                            team_id: cache_key.team_id,
+                            person_uuid: person.uuid.clone(),
+                            message: "Oversized person properties were trimmed to fit the size \
+                                      limit; the update that surfaced them was discarded"
+                                .to_string(),
+                        });
+                        new_properties = trimmed;
+                    }
+                    // Reachable only when trim_target == threshold and the
+                    // stored size sits exactly on it: nothing to trim, but
+                    // the update still cannot apply — keep the stored
+                    // state, discarding the update like the arm above.
+                    TrimResult::Fits => {
+                        new_properties = person.properties.clone();
+                    }
+                    TrimResult::CannotFit => {
+                        counter!(
+                            "personhog_leader_updates_total",
+                            "outcome" => "rejected_unremediable"
+                        )
                         .increment(1);
-                    self.warnings.emit(&SizeViolationWarning {
-                        team_id: cache_key.team_id,
-                        person_uuid: person.uuid.clone(),
-                        message: "Person properties exceed size limit and were rejected"
-                            .to_string(),
-                    });
-                    return Err(Status::invalid_argument(format!(
-                        "person properties exceed the size limit: {jsonb_size} bytes (jsonb) \
-                         over the {} ceiling, and protected properties alone exceed the {} \
-                         trim target",
-                        self.size_limits.threshold, self.size_limits.trim_target,
-                    )));
+                        self.warnings.emit(&SizeViolationWarning {
+                            team_id: cache_key.team_id,
+                            person_uuid: person.uuid.clone(),
+                            message: "Person properties exceed the size limit and could not be \
+                                      trimmed; the update was rejected"
+                                .to_string(),
+                        });
+                        return Err(Status::invalid_argument(format!(
+                            "person properties exceed the size limit: stored state is \
+                             {existing_size} bytes (jsonb) and protected properties alone exceed \
+                             the {} trim target",
+                            self.size_limits.trim_target,
+                        )));
+                    }
                 }
+            } else {
+                counter!("personhog_leader_updates_total", "outcome" => "rejected_oversized")
+                    .increment(1);
+                self.warnings.emit(&SizeViolationWarning {
+                    team_id: cache_key.team_id,
+                    person_uuid: person.uuid.clone(),
+                    message: "Person properties update would exceed the size limit and was \
+                              rejected"
+                        .to_string(),
+                });
+                return Err(Status::invalid_argument(format!(
+                    "person properties update would exceed the size limit: {jsonb_size} bytes \
+                     (jsonb) over the {} ceiling",
+                    self.size_limits.threshold,
+                )));
             }
         }
 
