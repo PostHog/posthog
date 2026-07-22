@@ -93,20 +93,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
-    const renderViz = (): JSX.Element | undefined => {
+    const renderViz = (): JSX.Element => {
         if (isLifecycle) {
             return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
-        }
-        if (
-            !display ||
-            display === ChartDisplayType.ActionsLineGraph ||
-            display === ChartDisplayType.ActionsLineGraphCumulative ||
-            display === ChartDisplayType.ActionsAreaGraph
-        ) {
-            if (isStickiness) {
-                return <StickinessLineChart context={context} />
-            }
-            return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
             if (isStickiness) {
@@ -160,6 +149,12 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         if (display === ChartDisplayType.SlopeGraph) {
             return <TrendsSlopeChart context={context} />
         }
+        // Line/area/cumulative displays land here, and so does any display value without a trends
+        // renderer (e.g. Auto, reachable via the API) — the default chart beats a blank tile.
+        if (isStickiness) {
+            return <StickinessLineChart context={context} />
+        }
+        return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
     }
 
     return (

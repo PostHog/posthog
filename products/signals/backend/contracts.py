@@ -843,6 +843,35 @@ class JudgemeReviewsReviewSignalInput(SignalInputBase):
     extra: JudgemeReviewsReviewSignalExtra
 
 
+# ── OAuth-connected support sources ───────────────────────────────────────────────
+
+
+class IntercomTicketSignalExtra(SignalExtraBase):
+    state: str | None
+    priority: str | None
+    admin_assignee_id: str | None
+    created_at: str | None
+
+
+class IntercomTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM]
+    extra: IntercomTicketSignalExtra
+
+
+class HubspotTicketSignalExtra(SignalExtraBase):
+    hs_ticket_priority: str | None
+    hs_pipeline_stage: str | None
+    hs_ticket_category: str | None
+    createdate: str | None
+
+
+class HubspotTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.HUBSPOT]
+    extra: HubspotTicketSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -896,7 +925,9 @@ SignalInput = Annotated[
     | RetentlyFeedbackSignalInput
     | AppfiguresReviewSignalInput
     | AppfollowReviewSignalInput
-    | JudgemeReviewsReviewSignalInput,
+    | JudgemeReviewsReviewSignalInput
+    | IntercomTicketSignalInput
+    | HubspotTicketSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -948,6 +979,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AppfiguresReviewSignalInput,
     AppfollowReviewSignalInput,
     JudgemeReviewsReviewSignalInput,
+    IntercomTicketSignalInput,
+    HubspotTicketSignalInput,
 )
 
 
