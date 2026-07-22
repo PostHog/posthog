@@ -25,6 +25,7 @@ export class ImageBatcher {
     private bufferBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private lastFlushMs: number
+    private readonly chunkSize: number
     private readonly scrubConcurrency: ConcurrencyController
 
     constructor(
@@ -34,8 +35,14 @@ export class ImageBatcher {
         private readonly options: ImageBatcherOptions,
         nowMs: number
     ) {
+        // The concurrency doubles as the chunk stride below; 0 would spin the loop forever and NaN
+        // would skip it entirely (committing offsets for unprocessed messages), so fail at boot.
+        this.chunkSize = Math.floor(options.scrubConcurrency)
+        if (!Number.isInteger(this.chunkSize) || this.chunkSize < 1) {
+            throw new Error(`scrubConcurrency must be a positive number, got ${options.scrubConcurrency}`)
+        }
         this.lastFlushMs = nowMs
-        this.scrubConcurrency = new ConcurrencyController(options.scrubConcurrency)
+        this.scrubConcurrency = new ConcurrencyController(this.chunkSize)
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
@@ -43,28 +50,34 @@ export class ImageBatcher {
         // outputs can dwarf their inputs (a sub-MB input can come back as a multi-MB full-resolution
         // PNG), so retaining a whole poll batch of them before the first bound check can hold
         // gigabytes. Peak memory is now ~maxBytes plus one chunk's outputs.
+        //
+        // The deadline covers scrub time only: the timer is armed per chunk with the remaining
+        // budget and disarmed before any mid-batch flush, so slow-but-succeeding S3 writes (each
+        // bounded by their own timeout) can't burn the scrub budget and turn into an abort/replay
+        // loop misattributed to the sidecar.
         const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), this.options.maxBatchScrubMs)
-        try {
-            for (let i = 0; i < messages.length; i += this.options.scrubConcurrency) {
-                const chunk = messages.slice(i, i + this.options.scrubConcurrency)
-                let scrubbed: ScrubbedImage[]
-                try {
-                    scrubbed = await this.scrubChunk(chunk, controller)
-                } catch (e) {
-                    ImageScrubConsumerMetrics.incBatchFailed('scrub')
-                    throw e
-                }
-                for (const image of scrubbed) {
-                    this.buffer.push(image)
-                    this.bufferBytes += image.bytes.length
-                }
-                if (this.overCapacity()) {
-                    await this.flushOrThrow(nowMs)
-                }
+        let scrubBudgetMs = this.options.maxBatchScrubMs
+        for (let i = 0; i < messages.length; i += this.chunkSize) {
+            const chunk = messages.slice(i, i + this.chunkSize)
+            const chunkStartMs = performance.now()
+            const timer = setTimeout(() => controller.abort(), scrubBudgetMs)
+            let scrubbed: ScrubbedImage[]
+            try {
+                scrubbed = await this.scrubChunk(chunk, controller)
+            } catch (e) {
+                ImageScrubConsumerMetrics.incBatchFailed('scrub')
+                throw e
+            } finally {
+                clearTimeout(timer)
             }
-        } finally {
-            clearTimeout(timer)
+            scrubBudgetMs -= performance.now() - chunkStartMs
+            for (const image of scrubbed) {
+                this.buffer.push(image)
+                this.bufferBytes += image.bytes.length
+            }
+            if (this.overCapacity()) {
+                await this.flushOrThrow(nowMs)
+            }
         }
         // Advance offsets even for all-skipped batches, or skipped messages replay forever.
         for (const offset of findOffsetsToCommit(messages)) {

@@ -41,8 +41,10 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    // Scrub-phase budget. Sized so scrub + 2x the S3 write timeout stays under Kafka's max.poll.interval.ms
-    // (300s), or a hung sidecar/S3 evicts us mid-batch and livelocks.
+    // Scrub-phase budget, covering scrub time only — mid-batch flush time is excluded (each flush is
+    // separately bounded at 2x the S3 write timeout). Sized so scrub plus the worst-case flushes for
+    // one poll batch stays under Kafka's max.poll.interval.ms (300s), or a hung sidecar/S3 evicts us
+    // mid-batch and livelocks.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
 
     /**

@@ -64,7 +64,7 @@ export function getDefaultKafkaSessionreplayProducerEnvConfig(): KafkaSessionrep
 
 /**
  * ML_IMAGE_SCRUB producer — same replay cluster, but a dedicated client instance so the
- * image-scrub lane's heavy, best-effort payloads (original image bytes, up to 8 MB per source
+ * image-scrub lane's heavy, best-effort payloads (original image bytes, up to 32 MB per source
  * message) buffer in their own librdkafka queue. A scrub-topic slowdown then fails fast inside
  * this producer (failed produces are swallowed by design — a dangling ref reads as a placeholder)
  * instead of filling the shared SESSIONREPLAY queue and starving DLQ/overflow/metadata produces.
@@ -84,6 +84,7 @@ export const INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_CONFIG_MAP = {
         'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES',
     'queue.buffering.max.kbytes': 'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES',
     'message.max.bytes': 'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES',
+    'message.timeout.ms': 'KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_TIMEOUT_MS',
 } as const satisfies Partial<Record<AllowedConfigKey, string>>
 
 /** Env var keys owned by `INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_CONFIG_MAP` (broker/security keys are shared). */
@@ -93,6 +94,7 @@ export type KafkaMlImageScrubProducerEnvConfig = {
     KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: string
     KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: string
     KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES: string
+    KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_TIMEOUT_MS: string
 }
 
 export function getDefaultKafkaMlImageScrubProducerEnvConfig(): KafkaMlImageScrubProducerEnvConfig {
@@ -106,5 +108,10 @@ export function getDefaultKafkaMlImageScrubProducerEnvConfig(): KafkaMlImageScru
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '10000',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '131072',
         KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_MAX_BYTES: '',
+        // Short local delivery timeout (librdkafka defaults to 300s): the lane is best-effort and
+        // its ack promises join the mirror's pre-commit side-effect drain, so a scrub-topic
+        // slowdown must fail deliveries fast (dangling ref = placeholder) rather than stall the
+        // mirror's offset commits toward max.poll.interval.ms.
+        KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_MESSAGE_TIMEOUT_MS: '20000',
     }
 }

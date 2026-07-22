@@ -115,6 +115,46 @@ describe('ImageBatcher', () => {
         expect(offsets.stored).toBe(1)
     })
 
+    it('does not count mid-batch flush time against the scrub deadline', async () => {
+        // Slow-but-succeeding S3 writes must not exhaust the scrub budget: a reverted deadline that
+        // spans flushes turns degraded storage into an abort/replay loop blamed on the sidecar.
+        const slowStore = new FakeStore()
+        const writeShard = slowStore.writeShard.bind(slowStore)
+        slowStore.writeShard = async (images) => {
+            await new Promise((resolve) => setTimeout(resolve, 80))
+            return writeShard(images)
+        }
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(
+            slowStore as unknown as ImageShardStore,
+            offsets,
+            { scrub: () => Promise.resolve(Buffer.alloc(16)) } as unknown as ScrubClient,
+            { ...options, maxBytes: 32, scrubConcurrency: 2, maxBatchScrubMs: 60 },
+            0
+        )
+
+        const messages = Array.from({ length: 6 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        await batcher.handleBatch(messages, 1)
+
+        expect(slowStore.writes.flat()).toHaveLength(6)
+        expect(offsets.stored).toBe(1)
+    })
+
+    test.each([[0], [NaN], [-1]])('rejects scrubConcurrency %p at construction', (scrubConcurrency) => {
+        // 0 spins the chunk loop forever; NaN skips it entirely yet still commits offsets,
+        // silently dropping the whole batch — both must fail loudly at boot instead.
+        expect(
+            () =>
+                new ImageBatcher(
+                    new FakeStore() as unknown as ImageShardStore,
+                    new FakeOffsets(),
+                    scrubClient,
+                    { ...options, scrubConcurrency },
+                    0
+                )
+        ).toThrow('scrubConcurrency')
+    })
+
     it('aborts the batch and replays when scrubbing exceeds the deadline', async () => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()

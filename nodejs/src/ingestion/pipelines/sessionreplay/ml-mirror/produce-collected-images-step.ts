@@ -47,6 +47,11 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
         }
         SessionRecordingIngesterMetrics.incrementMlImagesCollected('queued', fresh.length)
 
+        // The ack handlers must capture only the refs: `image.bytes` are subarray views into the
+        // whole packed FFI buffer (up to 32 MB per source message), and queueMessages copies the
+        // slices synchronously — a closure holding `fresh` would pin the full packed buffer per
+        // in-flight produce, unbounded by the producer queue's byte accounting.
+        const refs = fresh.map((image) => image.ref)
         const produce = outputs
             .queueMessages(
                 ML_IMAGE_SCRUB_OUTPUT,
@@ -54,7 +59,7 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
             )
             .then(() => {
                 // queueMessages resolves on delivery acks, so `produced` counts what actually landed.
-                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produced', fresh.length)
+                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produced', refs.length)
                 SessionRecordingIngesterMetrics.incrementMlImageBytesProduced(bytes)
             })
             .catch((error) => {
@@ -62,11 +67,11 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
                 // never re-thrown into the pipeline. Un-mark the refs: the same image recurring in
                 // a later snapshot then re-produces naturally (one attempt per recurrence, no retry
                 // loop), and duplicates are idempotent downstream (S3 keyed by hash).
-                for (const image of fresh) {
-                    producedRefs.delete(image.ref)
+                for (const ref of refs) {
+                    producedRefs.delete(ref)
                 }
-                logger.warn('🖼️', 'ml_image_scrub_produce_failed', { count: fresh.length, error: String(error) })
-                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produce_failed', fresh.length)
+                logger.warn('🖼️', 'ml_image_scrub_produce_failed', { count: refs.length, error: String(error) })
+                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produce_failed', refs.length)
             })
         return Promise.resolve(ok({ ...input, collectedImages: undefined }, [produce]))
     }
