@@ -1472,15 +1472,19 @@ class FeatureFlagSerializer(
                             # filters are display-only and never evaluated, so skip them.
                             if cohort.is_static:
                                 continue
-                            # Walk the raw filter JSON rather than trusting cohort.properties.flat: that
-                            # property parses each leaf into a Property() object, so a leaf shape the
-                            # parser doesn't recognize would silently vanish from it and defeat this guard.
-                            if cohort._has_filter_type("behavioral"):
-                                behavioral_props = [
-                                    cohort_prop
-                                    for cohort_prop in cohort.properties.flat
-                                    if cohort_prop.type == "behavioral"
-                                ]
+                            behavioral_props = [
+                                cohort_prop
+                                for cohort_prop in cohort.properties.flat
+                                if cohort_prop.type == "behavioral"
+                            ]
+                            # Gate on both signals: cohort.properties.flat parses each leaf into a
+                            # Property() object, so a leaf shape the parser doesn't recognize would
+                            # silently vanish from it and defeat this guard; _has_filter_type walks
+                            # the raw filters JSON instead, so it can't miss an unparsable leaf. But
+                            # _has_filter_type only reads `filters` — legacy cohorts that store their
+                            # condition in the deprecated `groups` field instead (see Cohort.properties)
+                            # would defeat *that* check, so behavioral_props still needs to cover them.
+                            if cohort._has_filter_type("behavioral") or behavioral_props:
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )

@@ -5548,6 +5548,80 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json().items(),
         )
 
+    def test_creating_feature_flag_with_unrecognized_behavioral_value_cohort_is_still_rejected(self) -> None:
+        # Regression: the guard used to decide whether to run at all by checking
+        # `cohort.properties.flat` for a behavioral property. A leaf with a value that
+        # Property.__init__ doesn't recognize fails to parse and is dropped from `.flat`
+        # (see test_property.py's unknown_behavioral_value case), so `.flat` alone would
+        # find nothing behavioral and skip the guard entirely -- reproducing the exact
+        # silent-bypass bug this PR fixes, just for a value it doesn't special-case.
+        # cohort._has_filter_type("behavioral") reads the raw filter JSON instead, so it
+        # still detects the leaf and the guard still fires, with a generic message since
+        # no behavioral property survived to describe.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "not_a_real_behavior",
+                            "event_type": "events",
+                        }
+                    ],
+                }
+            },
+            name="unrecognized-behavioral-cohort",
+        )
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'unrecognized-behavioral-cohort' has an event-based condition and cannot be used in feature flags.",
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
+    def test_creating_feature_flag_with_legacy_groups_behavioral_cohort_is_rejected(self) -> None:
+        # Regression: cohort._has_filter_type("behavioral") only walks the `filters` JSON
+        # tree. Cohorts still using the deprecated `groups` field (no `filters` set) build
+        # their behavioral Property objects through a different path (Cohort.properties'
+        # groups-to-properties fallback), which _has_filter_type never sees. Gating solely
+        # on _has_filter_type would silently skip this guard for such a cohort -- reopening
+        # the exact bypass this PR fixes, just for the legacy storage format instead of an
+        # unparsable leaf shape.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"event_id": "$pageview", "days": 30}],
+            name="legacy-groups-behavioral-cohort",
+        )
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'legacy-groups-behavioral-cohort' has an event-based condition on '$pageview' (performed_event) and cannot be used in feature flags.",
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
     def test_creating_feature_flag_with_static_snapshot_cohort_that_preserves_behavioral_filters(self) -> None:
         cohort = Cohort.objects.create(
             team=self.team,
