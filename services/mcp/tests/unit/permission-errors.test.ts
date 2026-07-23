@@ -6,6 +6,7 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
     handleToolError,
+    isTokenBindingError,
     PostHogApiError,
     PostHogPermissionError,
     PostHogValidationError,
@@ -83,6 +84,62 @@ describe('formatPermissionErrorMessage', () => {
 
         expect(text).toContain('PostHog API permission denied')
         expect(text).toContain('HTTP 403')
+    })
+
+    // A token bound to a different org/project at consent gets denied with a
+    // 403 that has no missing scope. The remediation must point at the token's
+    // binding and the chosen `access_level`, not nudge the integrator to add
+    // scopes they already hold.
+    it.each([
+        {
+            name: 'project binding',
+            detail: 'API key does not have access to the requested project: ID 47074.',
+        },
+        {
+            name: 'organization binding',
+            detail: 'API key does not have access to the requested organization: ID 018e-abc.',
+        },
+    ])('explains a token-binding mismatch ($name) without nudging for more scopes', ({ detail }) => {
+        const error = new PostHogPermissionError({
+            detail,
+            url: 'https://us.posthog.com/api/projects/47074/property_definitions/',
+            method: 'GET',
+        })
+
+        const text = formatPermissionErrorMessage(error)
+
+        expect(text).toContain('not a missing-scope problem')
+        expect(text).toContain('access_level')
+        expect(text).not.toContain('MCP Server')
+    })
+})
+
+describe('isTokenBindingError', () => {
+    it.each([
+        'API key does not have access to the requested project: ID 47074.',
+        'API key does not have access to the requested organization: ID 018e-abc.',
+    ])('is true for a binding-mismatch detail: %s', (detail: string) => {
+        const error = new PostHogPermissionError({ detail, url: 'https://us.posthog.com/api/x/', method: 'GET' })
+        expect(isTokenBindingError(error)).toBe(true)
+    })
+
+    it('is false when a scope is missing (scope gap, not a binding mismatch)', () => {
+        const error = new PostHogPermissionError({
+            detail: "API key missing required scope 'insight:read'",
+            missingScope: 'insight:read',
+            url: 'https://us.posthog.com/api/x/',
+            method: 'GET',
+        })
+        expect(isTokenBindingError(error)).toBe(false)
+    })
+
+    it('is false for an unrelated permission denial', () => {
+        const error = new PostHogPermissionError({
+            detail: 'You do not have access to this team.',
+            url: 'https://us.posthog.com/api/x/',
+            method: 'GET',
+        })
+        expect(isTokenBindingError(error)).toBe(false)
     })
 })
 

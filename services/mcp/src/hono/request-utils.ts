@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
+import { findPostHogPermissionError, isTokenBindingError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -114,7 +115,13 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
     console.error('[handleCatchError]', error)
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
-        const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'
+        const permissionError = findPostHogPermissionError(error)
+        const reason =
+            permissionError && isTokenBindingError(permissionError)
+                ? 'token_binding'
+                : authResponse.status === 403
+                  ? 'insufficient_scope'
+                  : 'invalid_token'
         authFailuresTotal.inc({ reason })
         return authResponse
     }
