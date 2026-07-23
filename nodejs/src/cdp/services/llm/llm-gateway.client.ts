@@ -57,8 +57,9 @@ export class FetchLlmGatewayClient implements LlmGatewayClient {
         if (request.topP !== undefined) {
             body.top_p = request.topP
         }
-        // Provider-specific; forwarded only when set so default calls stay unchanged. The gateway
-        // (litellm) maps/ignores these per provider.
+        // Provider-specific; forwarded only when set so default calls stay unchanged. The gateway is
+        // a true-proxy and forwards these to the provider unchanged; each provider maps or ignores
+        // them per its own API.
         if (request.reasoningEffort !== undefined) {
             body.reasoning_effort = request.reasoningEffort
         }
@@ -85,6 +86,12 @@ export class FetchLlmGatewayClient implements LlmGatewayClient {
                     'Idempotency-Key': opts.idempotencyKey,
                     // Links the generation back to the workflow run in $ai_generation / LLM analytics.
                     'X-PostHog-Trace-Id': request.jobId,
+                    // Merged onto $ai_generation so workflow LLM usage is attributable to the flow
+                    // and step (the gateway strips reserved $-prefixed keys).
+                    'X-PostHog-Properties': JSON.stringify({
+                        hog_flow_id: request.hogFlowId,
+                        action_id: request.actionId,
+                    }),
                 },
                 body: JSON.stringify(body),
                 signal: controller.signal,
@@ -126,7 +133,10 @@ export class FetchLlmGatewayClient implements LlmGatewayClient {
 function safeParse(text: string): unknown {
     // Models often wrap JSON in a ```json fence even in json mode; strip it before parsing so the
     // parsed object still lands in `result.parsed` for downstream mapping.
-    const unfenced = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+    const unfenced = text
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/, '')
     try {
         return parseJSON(unfenced)
     } catch {
