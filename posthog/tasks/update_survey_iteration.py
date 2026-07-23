@@ -82,6 +82,9 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
             team=survey.team,
             user=None,
         )
+    # user=None: this is beat-task maintenance, so it must take the system-write
+    # path — a user-bearing write would engage the approval gate, and this task
+    # cannot surface an ApprovalRequired change request.
     return create_flag(
         {
             "key": str(survey.id),
@@ -91,7 +94,7 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
             "_should_create_usage_dashboard": False,
         },
         team=survey.team,
-        user=survey.created_by,
+        user=None,
     )
 
 

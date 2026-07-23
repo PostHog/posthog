@@ -214,8 +214,18 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertTrue(log.is_system)
         self.assertIsNone(log.user)
 
-    def test_flag_create_is_system_write_when_survey_creator_is_none(self) -> None:
-        self.recurring_survey.created_by = None
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_flag_create_is_system_write_and_skips_approval_gate(self, _mock_enabled: MagicMock) -> None:
+        self.org.available_product_features = [{"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}]
+        self.org.save()
+        ApprovalPolicy.objects.create(
+            organization=self.org,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
         self.recurring_survey.internal_targeting_flag = None
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()
@@ -227,6 +237,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertIsNone(internal_flag.created_by)
         self.assertTrue(internal_flag.active)
         self.assertEqual(internal_flag.filters, self._expected_iteration_filters(3))
+        self.assertFalse(ChangeRequest.objects.filter(team=self.team).exists())
         log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(internal_flag.id), activity="created")
         self.assertTrue(log.is_system)
         self.assertIsNone(log.user)
