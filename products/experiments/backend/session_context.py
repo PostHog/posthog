@@ -20,10 +20,15 @@ what the session *saw*, not what the experiment analysis counts.
 """
 
 import logging
+import contextvars
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Optional
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Q, QuerySet
 
 import pydantic
@@ -38,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.utils import get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -64,6 +70,11 @@ MAX_CANDIDATE_EXPERIMENTS = 50
 # is a backstop far above any real configuration — without it HogQL applies an implicit
 # LIMIT 100, which would silently and nondeterministically truncate legitimate rows.
 MAX_EXPOSURE_ROWS = 10_000
+# Short-lived because the context is not immutable — late-arriving events, experiment edits,
+# and access-control changes must all surface within minutes. The key includes the viewer:
+# the experiment set is filtered by per-user access control, so entries must never be shared
+# across users.
+SESSION_CONTEXT_CACHE_TTL = 5 * 60
 
 
 @dataclass(frozen=True)
@@ -105,7 +116,25 @@ def get_session_experiment_context(
     `user` is the viewer: exposure criteria can filter on arbitrary event/person properties,
     and the queries must enforce that user's property-level access control (as the experiment
     query runners do) — userless execution would apply only the default property rules.
+
+    Results are cached per (team, viewer, session) for SESSION_CONTEXT_CACHE_TTL so reopening
+    a recording doesn't re-run the ClickHouse scans. "Recording not found" is not cached: the
+    recording may simply still be ingesting.
     """
+    cache_key = f"experiment_session_context_{team.pk}_{user.pk}_{session_id}"
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    items = _compute_session_experiment_context(team, session_id, experiments, user)
+    if items is not None:
+        cache.set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
+    return items
+
+
+def _compute_session_experiment_context(
+    team: Team, session_id: str, experiments: QuerySet[Experiment], user: User
+) -> Optional[list[ExperimentSessionContextItem]]:
     metadata = SessionReplayEvents().get_metadata(session_id, team)
     if metadata is None:
         return None
@@ -169,37 +198,71 @@ def get_session_experiment_context(
     # Flag evaluations are variant evidence for every experiment — the replay shows exactly
     # what the session was served, whatever the exposure criteria say — and double as the
     # exposure moment for experiments with the default criteria shape.
-    flag_evaluations = _query_flag_evaluations(
-        team, user, session_id, window_start, window_end, set(flag_key_by_id.values()), all_variant_keys
+    query_flag_evaluations = partial(
+        _query_flag_evaluations,
+        team,
+        user,
+        session_id,
+        window_start,
+        window_end,
+        set(flag_key_by_id.values()),
+        all_variant_keys,
     )
+    # Same width backstop as the candidate cap — each branch experiment adds a union branch, so
+    # (unlike the constant-width flag-evaluations query) non-batchable experiments beyond the
+    # cap are deliberately not queried: they get no criteria-driven exposure moment, though
+    # flag evaluations still evidence (and rescue) them like any other experiment.
+    query_exposure_branches = partial(
+        _query_exposure_event_branches,
+        team,
+        user,
+        session_id,
+        window_start,
+        window_end,
+        branch_meta[:MAX_CANDIDATE_EXPERIMENTS],
+    )
+    candidate_keys = {experiment.feature_flag.key for experiment in candidates}
+    query_stamped = partial(
+        _query_stamped_flag_properties, team, user, session_id, candidate_keys, window_start, window_end
+    )
+
+    # The three scans are independent given the pre-rescue candidate set (only the rescue
+    # follow-up below consumes another scan's output), so they run concurrently — total wait
+    # is the slowest scan, not the sum. Sequential under TEST: worker threads open their own
+    # DB connections, which can't see the test transaction's uncommitted data.
+    if settings.TEST:
+        flag_evaluations = query_flag_evaluations()
+        branch_exposures = query_exposure_branches()
+        stamped = query_stamped()
+    else:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            # ThreadPoolExecutor does not inherit contextvars (query tags) by default; copy the
+            # current context into each worker so tagged ClickHouse queries don't fail untagged.
+            flag_evaluations_future = executor.submit(contextvars.copy_context().run, query_flag_evaluations)
+            branch_exposures_future = executor.submit(contextvars.copy_context().run, query_exposure_branches)
+            stamped_future = executor.submit(contextvars.copy_context().run, query_stamped)
+            flag_evaluations = flag_evaluations_future.result()
+            branch_exposures = branch_exposures_future.result()
+            stamped = stamped_future.result()
+
     exposures: dict[int, list[tuple[str, datetime]]] = {
         experiment_id: flag_evaluations[flag_key]
         for experiment_id, flag_key in flag_key_by_id.items()
         if experiment_id in batchable_ids and flag_key in flag_evaluations
     }
-    # Same width backstop as the candidate cap — each branch experiment adds a union branch, so
-    # (unlike the constant-width flag-evaluations query) non-batchable experiments beyond the
-    # cap are deliberately not queried: they get no criteria-driven exposure moment, though
-    # flag evaluations still evidence (and rescue) them like any other experiment.
-    exposures.update(
-        _query_exposure_event_branches(
-            team, user, session_id, window_start, window_end, branch_meta[:MAX_CANDIDATE_EXPERIMENTS]
-        )
-    )
+    exposures.update(branch_exposures)
 
     # The exposure queries cover every overlapping experiment's flag (not just the capped
     # candidates), so a flag with verifiable in-session evidence rescues its experiment even
-    # when it fell outside the cap above. Rescued keys join the stamped-property query too —
-    # it stays bounded, since rescues are limited to real overlapping experiments the session
-    # demonstrably called.
+    # when it fell outside the cap above. Rescued keys join the stamped-property evidence too,
+    # through a follow-up query for just those keys (the main stamped scan already ran on the
+    # pre-rescue candidates) — it stays bounded, since rescues are limited to real overlapping
+    # experiments the session demonstrably called.
     evidenced_keys = set(flag_evaluations) | {flag_key_by_id[experiment_id] for experiment_id in exposures}
-    candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     rescued_keys = evidenced_keys - candidate_keys
     if rescued_keys:
         candidates += list(overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
-        candidate_keys = {experiment.feature_flag.key for experiment in candidates}
-
-    stamped = _query_stamped_flag_properties(team, user, session_id, candidate_keys, window_start, window_end)
+        stamped.update(_query_stamped_flag_properties(team, user, session_id, rescued_keys, window_start, window_end))
 
     surfaced: list[tuple[Experiment, str, list[str], Optional[datetime]]] = []
     for experiment in candidates:
