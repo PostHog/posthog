@@ -211,6 +211,7 @@ export function ChartFilter(): JSX.Element {
                     value: ChartDisplayType.CalendarHeatmap,
                     icon: <IconRetentionHeatmap />,
                     label: 'Calendar heatmap',
+                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
                     labelInMenu: (
                         <ChartFilterOptionLabel label="Calendar heatmap" description="Values per day and hour." />
                     ),
