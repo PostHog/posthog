@@ -1,4 +1,4 @@
-"""HogQL aggregation of per-test CI run evidence into the active test-health queue.
+"""HogQL aggregation of per-test CI run evidence into recent test-health signals.
 
 Groups ``_test_spans.run_evidence()`` (the one definition of the grain and of what a run proves)
 by nodeid, and ranks by blast radius: how many PRs a test broke and how often it broke master.
@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestClassification,
     FlakyTestItem,
     FlakyTestList,
+    TestSurface,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
@@ -36,6 +37,7 @@ from products.engineering_analytics.backend.logic.queries._test_spans import (
 _SELECT = """
     SELECT
         nodeid,
+        surface,
         anyIf(selector, selector != '') AS selector,
         countIf(recovered_in_run) AS same_commit_recovery_run_count,
         countIf(failed_in_run) AS failed_run_count,
@@ -44,7 +46,7 @@ _SELECT = """
         countIf(quarantined_in_run) AS quarantined_failed_run_count,
         max(run_signal_at) AS last_signal_at
     FROM (__RUN_EVIDENCE__)
-    GROUP BY nodeid
+    GROUP BY nodeid, surface
     HAVING same_commit_recovery_run_count > 0
         OR quarantined_failed_run_count > 0
         OR master_failed_run_count > 0
@@ -66,15 +68,16 @@ def query_flaky_tests(
     date_to: datetime | None,
     min_failed_prs: int,
     limit: int,
+    surface: TestSurface,
 ) -> FlakyTestList:
     repository = curated.repository
     # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
     # cannot tell one connected repo's spans from another, so return nothing rather than leak every
     # repository's flaky signals into the selected source's queue.
     if not repository:
-        return FlakyTestList(items=[], truncated=False, limit=limit)
+        return FlakyTestList(items=[], truncated=False, limit=limit, surface=surface)
 
-    placeholders = scan_placeholders(repository=repository, date_from=date_from, date_to=date_to)
+    placeholders = scan_placeholders(repository=repository, date_from=date_from, date_to=date_to, surface=surface)
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
     # +1 so a full page tells us more tests qualified than returned.
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
@@ -93,6 +96,7 @@ def query_flaky_tests(
                 nodeid=nodeid,
                 # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
                 selector=selector or selector_from_nodeid(nodeid),
+                surface=TestSurface(surface_value),
                 classification=FlakyTestClassification.from_run_evidence(
                     quarantined_failed_run_count=quarantined_failed_run_count,
                     same_commit_recovery_run_count=same_commit_recovery_run_count,
@@ -106,6 +110,7 @@ def query_flaky_tests(
             )
             for (
                 nodeid,
+                surface_value,
                 selector,
                 same_commit_recovery_run_count,
                 failed_run_count,
@@ -117,4 +122,5 @@ def query_flaky_tests(
         ],
         truncated=len(rows) > limit,
         limit=limit,
+        surface=surface,
     )

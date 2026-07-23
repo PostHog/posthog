@@ -524,6 +524,12 @@ FLAKY_TEST_SIGNAL_CAVEAT = (
 )
 
 
+class TestSurface(StrEnum):
+    ALL = "all"
+    BACKEND = "backend"
+    FRONTEND = "frontend"
+
+
 class FlakyTestClassification(StrEnum):
     # One commit both failed and passed the test: a re-run attempt going green, or an in-job retry.
     CONFIRMED_FLAKE = "confirmed_flake"
@@ -546,13 +552,12 @@ class FlakyTestClassification(StrEnum):
 
 @dataclass(frozen=True)
 class FlakyTestItem:
-    """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
+    """One test with recent test-health signals, aggregated from per-test CI spans in the Traces store.
 
-    Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only
-    sees Backend CI. Evidence is counted per CI run, never per span or run attempt: one run fans a
-    test across matrix legs and re-run attempts re-test the same commit, so only the run grain
-    counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute
-    count.
+    Ranked by blast radius: what a failing test costs, not how often it flakes. Evidence is counted
+    per CI run, never per span or run attempt: one run fans a test across matrix legs and re-run
+    attempts re-test the same commit, so only the run grain counts one failure once. See
+    ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute count.
     """
 
     # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
@@ -560,6 +565,7 @@ class FlakyTestItem:
     # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
     # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
     selector: str
+    surface: TestSurface
     classification: FlakyTestClassification
     # Runs where one commit both failed and passed the test: a later run attempt going green, or an
     # in-job retry. A pass in a different run is a different commit and proves nothing, hence the name.
@@ -575,15 +581,16 @@ class FlakyTestItem:
 
 @dataclass(frozen=True)
 class FlakyTestList:
-    """The active test-health queue for a window: tests with a live failure signal, ranked by blast
-    radius (trunk first, then PRs, then runs), capped at ``limit`` with an explicit truncation flag
-    (same shape as ``PullRequestList``). A test qualifies on any same-commit recovery, any
+    """Tests with recent signals in a window, ranked by blast radius (trunk first, then PRs, then
+    runs), capped at ``limit`` with an explicit truncation flag (same shape as ``PullRequestList``).
+    A test qualifies on any same-commit recovery, any
     default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or an xfail.
     """
 
     items: list[FlakyTestItem]
     truncated: bool
     limit: int
+    surface: TestSurface = TestSurface.ALL
 
 
 @dataclass(frozen=True)
@@ -597,8 +604,9 @@ class TeamCIHealthItem:
     every figure is an absolute count, never a rate.
     """
 
-    # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
+    # Active primary team slug from OwnersResolver, or 'unowned' for unstamped spans.
     owner_team: str
+    has_test_activity: bool
     # Owned tests one commit was seen both failing and passing: the same proof, and the same word,
     # the test-health queue's `confirmed_flake` uses.
     flaky_test_count: int
@@ -614,8 +622,9 @@ class TeamCIHealthItem:
     # Runs where an owned test failed while quarantined (xfail): already masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
-    # Most recent failure, recovery, or xfail run across the team's owned tests, either window.
-    last_seen_at: datetime
+    # Most recent failure, in-job recovery, or xfail signal across the team's owned tests.
+    # A cross-attempt pass proves recovery but does not advance signal recency.
+    last_seen_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -628,6 +637,9 @@ class TeamCIHealthList:
     items: list[TeamCIHealthItem]
     truncated: bool
     limit: int
+    surface: TestSurface = TestSurface.ALL
+    has_ownership_catalog: bool = False
+    ownership_catalog_captured_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -639,6 +651,7 @@ class TeamTestSignal:
 
     nodeid: str
     selector: str
+    surface: TestSurface
     signal_count: int
     signal_count_prior: int
     last_seen_at: datetime
@@ -653,6 +666,7 @@ class TeamCIActivity:
     owner_team: str
     tests: list[TeamTestSignal]
     truncated_tests: bool
+    surface: TestSurface = TestSurface.ALL
 
 
 @dataclass(frozen=True)

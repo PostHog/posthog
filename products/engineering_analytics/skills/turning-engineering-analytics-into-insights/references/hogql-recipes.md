@@ -240,7 +240,7 @@ ORDER BY week
 ```
 
 Only team-level aggregates leave the query — no per-member figures, no cross-team rankings.
-Note the namespace: these are GitHub org team slugs, while the `engineering-analytics-team-ci-health` tool groups by the repo's ownership map (`products/*/product.yaml` + CODEOWNERS); a team whose slugs differ across the two won't line up between such insights and that tool.
+Note the namespace: these are GitHub org team slugs, while the `engineering-analytics-team-ci-health` tool groups by the primary team stamped from `OwnersResolver` at CI capture time; a team whose slugs differ across the two won't line up between such insights and that tool.
 
 ## Recipe: distinct CI failures per day (ci_failures view)
 

@@ -5,7 +5,8 @@ import { ApiConfig } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { engineeringAnalyticsTeamCiActivity, engineeringAnalyticsTeamMergeTrend } from '../generated/api'
-import { DEFAULT_TEAMS_WINDOW, TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
+import type { SurfaceEnumApi } from '../generated/api.schemas'
+import { DEFAULT_TEAMS_WINDOW, DEFAULT_TEST_SURFACE, TeamsWindow, TestSurface, UNOWNED_TEAM } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -13,6 +14,7 @@ export interface TeamDetailLogicProps {
     ownerTeam: string
     sourceId: string | null
     window: TeamsWindow | null
+    surface: TestSurface | null
 }
 
 export interface TeamTestSignalRow {
@@ -21,6 +23,7 @@ export interface TeamTestSignalRow {
     signalCount: number
     signalCountPrior: number
     lastSeenAt: string
+    surface: TestSurface
 }
 
 export interface TeamActivityData {
@@ -51,6 +54,7 @@ export interface teamDetailLogicValues {
         median: number[]
     } | null
     ownerTeam: string
+    testSurface: TestSurface
     window: TeamsWindow
 }
 
@@ -86,6 +90,9 @@ export interface teamDetailLogicActions {
         mergeTrend: TeamMergeTrendData | null
         payload?: any
     }
+    setTestSurface: (surface: TestSurface) => {
+        surface: SurfaceEnumApi
+    }
     setWindow: (window: TeamsWindow) => {
         window: TeamsWindow
     }
@@ -117,9 +124,14 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
     key((props) => `${props.ownerTeam}@${props.sourceId ?? ''}`),
     actions({
         setWindow: (window: TeamsWindow) => ({ window }),
+        setTestSurface: (surface: TestSurface) => ({ surface }),
     }),
     reducers(({ props }) => ({
         window: [(props.window ?? DEFAULT_TEAMS_WINDOW) as TeamsWindow, { setWindow: (_, { window }) => window }],
+        testSurface: [
+            (props.surface ?? DEFAULT_TEST_SURFACE) as TestSurface,
+            { setTestSurface: (_, { surface }) => surface },
+        ],
     })),
     loaders(({ props, values }) => ({
         activity: [
@@ -130,6 +142,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                         owner_team: props.ownerTeam,
                         date_from: values.window,
                         source_id: props.sourceId ?? undefined,
+                        surface: values.testSurface,
                     })
                     return {
                         tests: data.tests.map((t) => ({
@@ -138,6 +151,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                             signalCount: t.signal_count,
                             signalCountPrior: t.signal_count_prior,
                             lastSeenAt: t.last_seen_at,
+                            surface: t.surface,
                         })),
                         truncatedTests: data.truncated_tests,
                     }
@@ -218,6 +232,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             actions.loadActivity()
             actions.loadMergeTrend()
         },
+        setTestSurface: () => actions.loadActivity(),
     })),
     afterMount(({ actions }) => {
         actions.loadActivity()

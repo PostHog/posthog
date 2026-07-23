@@ -268,6 +268,23 @@ class OwnersResolver:
         self._tracked_cache[prefix] = paths
         return paths
 
+    def active_primary_teams(self) -> list[str]:
+        """Active team slugs that primarily own at least one tracked file.
+
+        This deliberately resolves tracked files through the same nearest-file-wins
+        path as every other consumer. Individual GitHub owners are not teams, and
+        non-active or explicitly unowned paths do not contribute to the roster.
+        """
+        teams: set[str] = set()
+        for path in self.tracked_files():
+            resolution = self.resolve(path)
+            if resolution.status != "active" or not resolution.owners:
+                continue
+            primary = resolution.owners[0]
+            if not primary.startswith("@"):
+                teams.add(primary)
+        return sorted(teams)
+
     def ownership_files(self) -> list[Path]:
         """Absolute paths of every tracked ownership file (owners.yaml + product.yaml)."""
         return [entry.path for entry in self.parsed_ownership_files()]

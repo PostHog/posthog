@@ -363,8 +363,9 @@ const FLAKY_CLASSIFICATION: Record<FlakyTestClassification, { label: string; typ
 }
 
 function ActiveTestHealthQueue(): JSX.Element {
-    const { flakyTests, flakyTestsLoading, flakyTestsStatus, flakyTestWindow } = useValues(engineeringAnalyticsLogic)
-    const { setFlakyTestWindow, openQuarantineModal } = useActions(engineeringAnalyticsLogic)
+    const { flakyTests, flakyTestsLoading, flakyTestsStatus, flakyTestWindow, flakyTestSurface } =
+        useValues(engineeringAnalyticsLogic)
+    const { setFlakyTestWindow, setFlakyTestSurface, openQuarantineModal } = useActions(engineeringAnalyticsLogic)
 
     const columns: LemonTableColumns<FlakyTestRow> = [
         {
@@ -384,6 +385,9 @@ function ActiveTestHealthQueue(): JSX.Element {
                                     {label}
                                 </LemonTag>
                             </Tooltip>
+                            <LemonTag size="small" className="ml-1">
+                                {row.surface}
+                            </LemonTag>
                         </div>
                     </div>
                 )
@@ -465,22 +469,34 @@ function ActiveTestHealthQueue(): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
-                    <h3 className="m-0 text-base font-semibold">Active test health queue</h3>
+                    <h3 className="m-0 text-base font-semibold">Recent test health signals</h3>
                     <p className="m-0 text-xs text-tertiary">
-                        Backend tests worth acting on now, ranked by blast radius: how many PRs they broke and how often
-                        they broke master.
+                        Backend and frontend test signals ranked by blast radius. Counts are absolute because fast
+                        passing tests are not emitted.
                     </p>
                 </div>
-                <LemonSegmentedButton
-                    size="small"
-                    value={flakyTestWindow}
-                    onChange={(value) => setFlakyTestWindow(value as FlakyTestWindow)}
-                    options={[
-                        { value: '-7d', label: '7d' },
-                        { value: '-14d', label: '14d' },
-                        { value: '-30d', label: '30d' },
-                    ]}
-                />
+                <div className="flex items-center gap-2">
+                    <LemonSegmentedButton
+                        size="small"
+                        value={flakyTestSurface}
+                        onChange={setFlakyTestSurface}
+                        options={[
+                            { value: 'all', label: 'All' },
+                            { value: 'backend', label: 'Backend' },
+                            { value: 'frontend', label: 'Frontend' },
+                        ]}
+                    />
+                    <LemonSegmentedButton
+                        size="small"
+                        value={flakyTestWindow}
+                        onChange={(value) => setFlakyTestWindow(value as FlakyTestWindow)}
+                        options={[
+                            { value: '-7d', label: '7d' },
+                            { value: '-14d', label: '14d' },
+                            { value: '-30d', label: '30d' },
+                        ]}
+                    />
+                </div>
             </div>
             {flakyTestsStatus === 'error' ? (
                 <LemonBanner type="warning">Couldn't load flaky test data. Try refreshing.</LemonBanner>
@@ -495,7 +511,7 @@ function ActiveTestHealthQueue(): JSX.Element {
                         loading={flakyTestsLoading}
                         pagination={{ pageSize: 10 }}
                         useURLForSorting={false}
-                        emptyState="No tests need attention in this window."
+                        emptyState="No recent test-health signals in this window."
                         nouns={['test', 'tests']}
                     />
                     {flakyTests?.truncated && (
