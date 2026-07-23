@@ -396,6 +396,37 @@ class TestApplyOwnerTokenLocked:
             apply.assert_not_called()
             lock.release.assert_not_called()
 
+    def test_lock_is_leased_long_enough_to_outlive_a_writer_past_the_old_30s_lease(self):
+        # A credential write does a git-remote rewrite + env-file write + chmod, each an in-sandbox
+        # exec bounded by a 30s timeout, so it can run well past the old 30s lease. The redis lock
+        # must be leased for that whole worst case, or the lease expires mid-write and a concurrent
+        # refresh could acquire and interleave.
+        import contextlib
+
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+            _CREDENTIAL_LOCK_TTL_SECONDS,
+            _apply_owner_token_locked,
+        )
+
+        assert _CREDENTIAL_LOCK_TTL_SECONDS == 5 * 60
+        assert _CREDENTIAL_LOCK_TTL_SECONDS > 2 * 30  # clears a 30s git-remote + 30s chmod worst case
+
+        with contextlib.ExitStack() as stack:
+            get_client = stack.enter_context(patch(f"{MODULE}.get_client"))
+            lock = MagicMock()
+            lock.acquire.return_value = True
+            get_client.return_value.lock.return_value = lock
+            stack.enter_context(patch(f"{MODULE}.get_sandbox_github_identity_user", return_value=None))
+            stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
+            sandbox = MagicMock()
+            sandbox.id = "sb-1"
+
+            _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7)
+
+            # The lock is leased for the full worst-case write, not the old 30s.
+            get_client.return_value.lock.assert_called_once()
+            assert get_client.return_value.lock.call_args.kwargs["timeout"] == _CREDENTIAL_LOCK_TTL_SECONDS
+
 
 class TestLoopOwnerRefreshGate:
     def _as_user_integration_run(self, stack):
