@@ -670,8 +670,19 @@ def append_partition_key_to_table(
 
                 if key_value is None:
                     partition_array.append(NULL_NUMERICAL_PARTITION)
-                else:
+                elif isinstance(key_value, int):
                     partition_array.append(str(key_value // partition_size))
+                else:
+                    # A persisted "numerical" mode can outlive the integer key column that
+                    # justified it (e.g. the source's key column changed type mid-sync). Coerce
+                    # numeric values back to int so rows keep their original bucket; anything that
+                    # isn't integer-like lands in the null bucket instead of crashing the sync.
+                    try:
+                        coerced_key_value = int(key_value)
+                    except (TypeError, ValueError):
+                        partition_array.append(NULL_NUMERICAL_PARTITION)
+                    else:
+                        partition_array.append(str(coerced_key_value // partition_size))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]
