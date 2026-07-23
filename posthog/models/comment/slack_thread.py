@@ -37,6 +37,10 @@ class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
         help_text="Slack integration whose bot token posts to and reads from the mirrored thread",
     )
     slack_channel_id = models.CharField(max_length=255)
+    # Display-only channel name ("team-support", no leading #) captured at send time so the UI
+    # can say where the discussion lives without a Slack lookup. The id stays authoritative —
+    # a rename in Slack leaves this stale until the discussion is re-sent.
+    slack_channel_name = models.CharField(max_length=255, blank=True, default="")
     # Empty until the root message is posted — the row is reserved first to win the race for this
     # (team, source_comment, channel) before any Slack call, then the ts is filled in.
     slack_thread_ts = models.CharField(max_length=255, blank=True, default="")

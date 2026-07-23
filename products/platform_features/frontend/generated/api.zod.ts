@@ -400,7 +400,9 @@ export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
     channel_id: zod
         .string()
         .max(commentsSendToSlackCreateBodyChannelIdMax)
-        .describe('Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.'),
+        .describe(
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
+        ),
 })
 
 /**

@@ -37,6 +37,8 @@ export type LemonRichContentEditorProps = {
     onPressCmdEnter?: () => void
     disabled?: boolean
     minRows?: number
+    /** Extra controls rendered in the footer toolbar, left of the write/preview toggle. */
+    footerActions?: React.ReactNode
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -103,6 +105,7 @@ export function LemonRichContentEditor({
     onPressCmdEnter,
     disabled = false,
     minRows,
+    footerActions,
 }: LemonRichContentEditorProps): JSX.Element {
     const [isPreviewShown, setIsPreviewShown] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -204,6 +207,7 @@ export function LemonRichContentEditor({
                     )}
                 </div>
                 <div className="flex items-center gap-0.5">
+                    {footerActions}
                     <LemonButton size="small" active={!isPreviewShown} onClick={() => setIsPreviewShown(false)}>
                         <IconPencil />
                     </LemonButton>

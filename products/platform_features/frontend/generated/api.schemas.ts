@@ -751,6 +751,8 @@ export interface ChangeRequestRejectApi {
 export interface CommentSlackThreadRefApi {
     /** Slack channel ID this discussion is mirrored to. */
     channel_id: string
+    /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+    channel_name: string
     /** Deep link that opens the mirrored Slack thread. */
     url: string
 }
@@ -837,7 +839,7 @@ export interface SendCommentToSlackApi {
     /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
     integration_id: number
     /**
-     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
      * @maxLength 255
      */
     channel_id: string
@@ -858,6 +860,8 @@ export interface CommentSlackThreadApi {
     readonly integration: number
     /** Slack channel the mirrored thread lives in. */
     readonly slack_channel_id: string
+    /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+    readonly slack_channel_name: string
     /** Slack thread timestamp anchoring the mirrored thread. */
     readonly slack_thread_ts: string
     /**

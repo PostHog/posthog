@@ -2,8 +2,11 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api, { ApiError } from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -13,8 +16,11 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
+import { commentsSendToSlackCreate } from 'products/platform_features/frontend/generated/api'
+
 import type { UserType } from '../../types'
 import type { OrganizationMemberType } from '../../types'
+import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 import { discussionsSlug, getTextContent } from './utils'
 
 export type CommentsLogicProps = {
@@ -48,6 +54,9 @@ export interface commentsLogicValues {
     commentsLoading: boolean
     commentsWithReplies: CommentWithRepliesType[]
     composerDrafts: Record<string, JSONContent | null>
+    composerSendToSlack: boolean
+    composerSlackChannel: string | null
+    composerSlackIntegrationId: number | null
     currentComposerDraft: JSONContent | null
     disabledReasonFor: (comment: CommentType) => string | null
     editingComment: CommentType | null
@@ -258,6 +267,15 @@ export interface commentsLogicActions {
         content: JSONContent | null
         target: string
     }
+    setComposerSendToSlack: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setComposerSlackChannel: (channel: string | null) => {
+        channel: string | null
+    }
+    setComposerSlackIntegrationId: (integrationId: number | null) => {
+        integrationId: number | null
+    }
     setEditingComment: (comment: CommentType | null) => {
         comment: CommentType | null
     }
@@ -363,8 +381,38 @@ export const commentsLogic = kea<commentsLogicType>([
         setRichContentEditor: (editor: RichContentEditorType) => ({ editor }),
         setEditingCommentRichContentEditor: (editor: RichContentEditorType | null) => ({ editor }),
         setComposerDraft: (target: string, content: JSONContent | null) => ({ target, content }),
+        setComposerSendToSlack: (enabled: boolean) => ({ enabled }),
+        setComposerSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
+        setComposerSlackChannel: (channel: string | null) => ({ channel }),
     }),
     reducers({
+        composerSendToSlack: [
+            false,
+            {
+                setComposerSendToSlack: (_, { enabled }) => enabled,
+                // Reset the toggle after a send so it doesn't stick across comments.
+                sendComposedContentSuccess: () => false,
+                // Replies never mirror from the composer and the toggle is hidden while replying —
+                // leaving it on would demand a Slack channel for a plain reply and mislabel the button.
+                setReplyingComment: (state, { commentId }) => (commentId ? false : state),
+            },
+        ],
+        composerSlackIntegrationId: [
+            null as number | null,
+            {
+                setComposerSlackIntegrationId: (_, { integrationId }) => integrationId,
+                sendComposedContentSuccess: () => null,
+            },
+        ],
+        composerSlackChannel: [
+            null as string | null,
+            {
+                setComposerSlackChannel: (_, { channel }) => channel,
+                // Picking a different workspace clears the channel.
+                setComposerSlackIntegrationId: () => null,
+                sendComposedContentSuccess: () => null,
+            },
+        ],
         replyingCommentId: [
             null as string | null,
             {
@@ -533,6 +581,58 @@ export const commentsLogic = kea<commentsLogicType>([
                     })
 
                     values.itemContext?.callback?.({ sent: true })
+
+                    // "Send to Slack" composer mode: mirror the new top-level comment to the chosen
+                    // channel right away. Replies/tasks never mirror from here. The comment is created
+                    // regardless; the Slack post is best-effort with its own toast.
+                    const composerChannelId = values.composerSlackChannel
+                        ? slackChannelId(values.composerSlackChannel)
+                        : null
+                    if (
+                        values.composerSendToSlack &&
+                        !isReply &&
+                        !asTask &&
+                        values.composerSlackIntegrationId &&
+                        composerChannelId &&
+                        values.currentProjectId
+                    ) {
+                        let sentToSlack = false
+                        try {
+                            // The comments API is project-scoped — currentTeamId diverges from the
+                            // project id for non-default environments and 404s.
+                            await commentsSendToSlackCreate(String(values.currentProjectId), newComment.id, {
+                                integration_id: values.composerSlackIntegrationId,
+                                channel_id: composerChannelId,
+                            })
+                            sentToSlack = true
+                            lemonToast.success('Discussion sent to Slack')
+                        } catch (e) {
+                            // Surface the backend's actionable detail (bot not in channel, integration
+                            // missing…) rather than a blanket failure.
+                            const detail = e instanceof ApiError ? e.detail : null
+                            lemonToast.error(
+                                detail
+                                    ? `Comment added, but sending to Slack failed: ${detail}`
+                                    : 'Comment added, but sending to Slack failed'
+                            )
+                        }
+                        if (sentToSlack) {
+                            // Refetch and return the fresh list so the new comment shows its tracked-in-Slack
+                            // state. We can't dispatch loadComments() here — it writes the same `comments`
+                            // loader value this handler returns, and our return would supersede its result.
+                            // A refetch failure isn't a Slack failure: fall through to the optimistic append.
+                            try {
+                                const response = await api.comments.list({
+                                    scope: props.scope,
+                                    item_id: props.item_id,
+                                })
+                                return response.results
+                            } catch {
+                                // fall through
+                            }
+                        }
+                    }
+
                     return [...existingComments, newComment]
                 },
 
@@ -616,7 +716,7 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     })),
 
-    listeners(({ values, actions, selectors, cache }) => ({
+    listeners(({ props, values, actions, selectors, cache }) => ({
         startNewComment: () => {
             if (!values.replyingCommentId) {
                 // No reply to exit, so the footer composer won't remount - deregistering its
@@ -669,6 +769,15 @@ export const commentsLogic = kea<commentsLogicType>([
         },
         maybeLoadComments: () => {
             if (!values.comments && !values.commentsLoading) {
+                actions.loadComments()
+            }
+        },
+        // After the ⋯-menu "Send to Slack" modal mirrors a comment, refresh so its tracked state
+        // (the Slack icon) shows immediately instead of after a reload. The composer flow reloads
+        // itself in the send loader. The modal logic is a singleton while this logic is keyed per
+        // discussion, so only the instance the comment belongs to should reload.
+        [sendCommentToSlackLogic.actionTypes.submitSuccess]: ({ comment }) => {
+            if (comment.scope === props.scope && (comment.item_id ?? '') === (props.item_id ?? '')) {
                 actions.loadComments()
             }
         },
