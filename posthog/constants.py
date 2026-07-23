@@ -10,7 +10,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 # server-side exception autocapture there (see posthog/apps.py) so that PostHog's internal product
 # analytics project only receives lifecycle/usage telemetry. While empty, that routing is disabled
 # and self-hosted exceptions keep flowing to the internal project as before.
-HOBBY_EXPERIENCE_API_KEY = ""
+HOBBY_EXPERIENCE_API_KEY = "phc_uzq5jigtMp8gJvVKREiz8XzmZrPGf2VWrL5YVMt2BmGr"
 
 
 # N.B. Keep this in sync with frontend enum (types.ts)
