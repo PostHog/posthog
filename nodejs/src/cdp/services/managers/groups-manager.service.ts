@@ -1,7 +1,6 @@
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { sanitizeString } from '~/common/utils/db/utils'
 import { LazyLoader } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { GroupTypeIndex, Team } from '../../../types'
@@ -68,7 +67,7 @@ export class GroupsManagerService {
 
         const typeMapping = await this.groupTypesLoader.get(String(teamId))
         if (!typeMapping) {
-            logger.warn('No group types found for team', { teamId })
+            // Common for teams that never configured group types; nothing to resolve.
             return {}
         }
 

@@ -1,3 +1,4 @@
+import { createIntegrationGatewayService } from '~/cdp/services/managers/integration-gateway.service'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
@@ -14,6 +15,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
@@ -53,7 +55,6 @@ import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-co
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
-import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { HealthCheckResultOk, PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
@@ -562,7 +563,12 @@ export class PluginServer implements NodeServer {
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub!,
+            this.postgres!,
+            encryptedFields,
+            createIntegrationGatewayService(this.config)
+        )
         const internalCaptureService = new InternalCaptureService(this.config)
 
         return {

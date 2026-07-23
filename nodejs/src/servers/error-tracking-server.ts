@@ -13,6 +13,7 @@ import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-pers
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -40,7 +41,6 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from '../cdp/hog-transformations/hog-transformer.service'
-import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import {
     DatabaseConnectionConfig,

@@ -21,6 +21,7 @@ import { PostgresPersonRepository } from '~/common/persons/repositories/postgres
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -44,7 +45,6 @@ import {
     HogTransformerServiceDeps,
     createHogTransformerService,
 } from '../cdp/hog-transformations/hog-transformer.service'
-import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig, PluginServerMode } from '../common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { extend, newScope } from '../ingestion/common/scopes'

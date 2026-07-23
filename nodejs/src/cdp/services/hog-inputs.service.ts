@@ -2,10 +2,10 @@ import { convertHogToJS } from '@posthog/hogvm'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
-import { EncryptedFields } from '../utils/encryption-utils'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -189,7 +189,7 @@ export class HogInputsService {
             return {}
         }
 
-        const integrations = await this.integrationManager.getMany(allIds)
+        const integrations = await this.integrationManager.getMany(allIds, hogFunction.team_id)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
         // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.

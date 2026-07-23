@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from celery import shared_task
 
 from posthog.models.integration import (
@@ -18,9 +20,22 @@ from products.workflows.backend.providers import SESProvider
 def refresh_integrations() -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
-    oauth_integrations = defer_repository_cache_fields(
-        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).exclude(kind="meta-ads").all()
-    )
+    # Rows owned by the integration gateway's refresher are excluded here so exactly one system
+    # refreshes each row. Ownership is per (kind, team): the gateway enables the same kinds via
+    # INTEGRATION_GATEWAY_REFRESH_KINDS AND the same teams via INTEGRATION_GATEWAY_REFRESH_TEAMS
+    # ("*" = all teams). Gating on team as well as kind means an out-of-rollout team keeps its beat
+    # refresher — a kind is never yanked from the beat for teams the gateway isn't serving yet.
+    oauth_qs = Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).exclude(kind="meta-ads")
+    gateway_kinds = settings.INTEGRATION_GATEWAY_REFRESH_KINDS
+    gateway_teams = settings.INTEGRATION_GATEWAY_REFRESH_TEAMS
+    if gateway_kinds and gateway_teams:
+        if "*" in gateway_teams:
+            oauth_qs = oauth_qs.exclude(kind__in=gateway_kinds)
+        else:
+            gateway_team_ids = [int(t) for t in gateway_teams if t.strip().isdigit()]
+            if gateway_team_ids:
+                oauth_qs = oauth_qs.exclude(kind__in=gateway_kinds, team_id__in=gateway_team_ids)
+    oauth_integrations = defer_repository_cache_fields(oauth_qs.all())
 
     for integration in oauth_integrations:
         oauth_integration = OauthIntegration(integration)

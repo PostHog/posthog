@@ -1,4 +1,7 @@
-import { EncryptedFields } from './encryption-utils'
+import crypto from 'crypto'
+import { Fernet } from 'fernet-nodejs'
+
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)
@@ -131,6 +134,33 @@ describe('Encrypted fields', () => {
                     exampleObject
                 )
             })
+        })
+    })
+
+    describe('legacy PBKDF2 keys', () => {
+        const secret = 'django-secret-key'
+        const salt = 'some-salt'
+
+        const legacyToken = (value: string): string => {
+            const key = crypto
+                .pbkdf2Sync(secret, salt, 100000, 32, 'sha256')
+                .toString('base64')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+            return new Fernet(key).encrypt(value)
+        }
+
+        it('decrypts values written under a legacy SECRET_KEY/SALT_KEY-derived key', () => {
+            const token = legacyToken('legacy-value')
+            expect(new EncryptedFields(encryptionSaltKeys, secret, salt).decrypt(token)).toEqual('legacy-value')
+            // Without the legacy keys configured, the value is undecryptable.
+            expect(() => new EncryptedFields(encryptionSaltKeys).decrypt(token)).toThrow()
+        })
+
+        it('encrypts under the primary salt key even when legacy keys are configured', () => {
+            const token = new EncryptedFields(encryptionSaltKeys, secret, salt).encrypt('value')
+            // A primary-only reader can read it => it was not encrypted with a legacy key.
+            expect(new EncryptedFields(encryptionSaltKeys).decrypt(token)).toEqual('value')
         })
     })
 })

@@ -1,10 +1,11 @@
+import { createIntegrationGatewayService } from '~/cdp/services/managers/integration-gateway.service'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { Hub, PluginsServerConfig } from '~/types'
 
 import { defaultConfig } from '../../config/config'
@@ -95,7 +96,12 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
-    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const integrationManager = new IntegrationManagerService(
+        pubSub,
+        postgres,
+        encryptedFields,
+        createIntegrationGatewayService(serverConfig)
+    )
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
 
     const hub: Hub = {

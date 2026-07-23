@@ -8,6 +8,7 @@ import { GroupRepository } from '~/common/groups/repositories/group-repository.i
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { GeoIPService } from '~/common/utils/geoip'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -23,7 +24,6 @@ import type {
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
 
 export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
