@@ -1006,6 +1006,29 @@ def test_append_partition_key_numerical_handles_null_key():
     assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
 
 
+def test_append_partition_key_numerical_handles_non_int_key():
+    # Numerical mode is persisted per source and passed back in on later batches, skipping the
+    # detection guard that requires an integer key column. If the source's key column has since
+    # changed type, the values arrive as strings and used to crash the batch on `str // int`.
+    # Numeric strings must keep their original bucket; non-numeric ones fall into the null bucket.
+    table = pa.table({"id": pa.array(["250", "10", "not-a-number"], type=pa.string())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=100,
+        partition_keys=["id"],
+        partition_mode="numerical",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
+
+
 def _mock_schema(**overrides: Any) -> MagicMock:
     schema = MagicMock()
     schema.partition_count = overrides.get("partition_count")
