@@ -37,13 +37,15 @@ from products.feature_flags.backend.api.feature_flag import FeatureFlagSerialize
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
+def _serializer_context(team: Team, user: Any, request: Any | None, *, method: str = "POST") -> dict:
     """Build the DRF serializer context for a gated flag write.
 
     Callers without a real request (internal service paths) fall back to a minimal
     request shim carrying the acting user — FeatureFlagSerializer needs request.user.
     ``user=None`` makes this a system write (see module docstring); the shim declares
     it explicitly via ``is_system``, the only signal the approval gate skips on.
+    ``method`` is the HTTP method the shim reports — the serializer branches on it
+    (create-only validation runs on "POST"), so updates must pass "PATCH".
 
     Pass BOTH get_team and get_organization so the approval gate resolves the policy
     from context rather than falling back to instance derivation.
@@ -53,7 +55,7 @@ def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
     # goes to request.user) — reject the contradiction instead.
     if user is None and request_has_user:
         raise ValueError("user=None is a system write; do not pass a user-bearing request with it")
-    flag_request = request if request_has_user else ServiceRequest(user, is_system=user is None)
+    flag_request = request if request_has_user else ServiceRequest(user, is_system=user is None, method=method)
     return {
         "request": flag_request,
         "team_id": team.id,
@@ -81,7 +83,9 @@ def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request
     Raises ApprovalRequired when a policy requires approval; the flag is left untouched.
     ``user=None`` is a system write (see module docstring): ``last_modified_by`` is
     cleared, activity is logged as system, the approval gate is skipped."""
-    serializer = FeatureFlagSerializer(flag, data=data, partial=True, context=_serializer_context(team, user, request))
+    serializer = FeatureFlagSerializer(
+        flag, data=data, partial=True, context=_serializer_context(team, user, request, method="PATCH")
+    )
     serializer.is_valid(raise_exception=True)
     return serializer.save()
 
