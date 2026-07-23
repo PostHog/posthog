@@ -11,7 +11,18 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { INSIGHT_TYPES_METADATA, QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import {
+    FunnelSketch,
+    GenericInsightSketch,
+    PathsSketch,
+    RetentionSketch,
+    TrendsSketch,
+} from 'scenes/saved-insights/InsightTypeSketch'
+import {
+    INSIGHT_TYPES_METADATA,
+    InsightTypeMetadata,
+    QUERY_TYPES_METADATA,
+} from 'scenes/saved-insights/insightTypesMetadata'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, FunnelVizType, InsightType, PathType } from '~/types'
@@ -29,6 +40,12 @@ import { ChartDisplayType, FunnelVizType, InsightType, PathType } from '~/types'
  *                          splits into recurring vs first time; paths picks its event scope
  *   sidebar-modes     (H): no regrouping; the six types in a select plus a uniform "Mode" row
  *                          surfacing each type's buried subtype picker
+ *   sidebar-sketches  (I): visual alternative; plain surface card where the hand-drawn chart
+ *                          sketches carry the weight (same grouping as G)
+ *   sidebar-list      (J): visual alternative; no card chrome, families as quiet rows with
+ *                          methods indented under the active one (same grouping as G)
+ *   sidebar-compact   (K): visual alternative; family and method as two bare selects on one
+ *                          row, no decoration at all (same grouping as G)
  *
  * Type switches go through setActiveView (config carry-over intact); mode switches go through
  * updateInsightFilter on the live query. Rendered from EditorFilters, inert (null) unless the
@@ -409,7 +426,16 @@ function FamilyTile({
     )
 }
 
-function FamilyCard({ grouping }: { grouping: 'questions' | 'config' }): JSX.Element {
+interface FamilySelection {
+    families: FamilyDef[]
+    family: FamilyDef
+    subs: SubOption[]
+    activeMeta: InsightTypeMetadata
+    selectFamily: (candidate: FamilyDef) => void
+}
+
+/** Shared state for the family-based variants: the active family, its method row, and the switch action. */
+function useFamilySelection(grouping: 'questions' | 'config'): FamilySelection {
     const { insightProps } = useValues(insightLogic)
     const { activeView } = useValues(insightNavLogic(insightProps))
     const { setActiveView } = useActions(insightNavLogic(insightProps))
@@ -467,6 +493,18 @@ function FamilyCard({ grouping }: { grouping: 'questions' | 'config' }): JSX.Ele
 
     const activeMeta = INSIGHT_TYPES_METADATA[activeView] ?? INSIGHT_TYPES_METADATA[InsightType.TRENDS]
 
+    const selectFamily = (candidate: FamilyDef): void => {
+        if (!candidate.types.includes(activeView)) {
+            setActiveView(candidate.types[0])
+        }
+    }
+
+    return { families, family, subs, activeMeta, selectFamily }
+}
+
+function FamilyCard({ grouping }: { grouping: 'questions' | 'config' }): JSX.Element {
+    const { families, family, subs, activeMeta, selectFamily } = useFamilySelection(grouping)
+
     return (
         <CardShell>
             <CardLabel>Insight type</CardLabel>
@@ -480,11 +518,7 @@ function FamilyCard({ grouping }: { grouping: 'questions' | 'config' }): JSX.Ele
                             hint={candidate.hint}
                             icon={Icon}
                             selected={candidate.key === family.key}
-                            onClick={() => {
-                                if (!candidate.types.includes(activeView)) {
-                                    setActiveView(candidate.types[0])
-                                }
-                            }}
+                            onClick={() => selectFamily(candidate)}
                         />
                     )
                 })}
@@ -570,6 +604,184 @@ function FlatModesCard(): JSX.Element {
     )
 }
 
+// --- Variants I, J, K: visual alternatives. Same shared-setup grouping as G; only the looks change. ---
+
+const FAMILY_SKETCHES: Record<string, () => JSX.Element> = {
+    trends: TrendsSketch,
+    funnel: FunnelSketch,
+    retention: RetentionSketch,
+    paths: PathsSketch,
+}
+
+function MutedLabel({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="text-secondary text-[0.625rem] font-semibold tracking-wide uppercase">{children}</div>
+}
+
+/** Variant I: sketch gallery. A plain surface card where the chart sketches carry the visual weight. */
+function SketchGalleryCard(): JSX.Element {
+    const { families, family, subs, activeMeta, selectFamily } = useFamilySelection('config')
+
+    return (
+        <div
+            className="border-primary bg-surface-primary mb-3 rounded-lg border p-3"
+            data-attr="prototype-insight-type-sketch-card"
+        >
+            <MutedLabel>Insight type</MutedLabel>
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {families.map((candidate) => {
+                    const Sketch = FAMILY_SKETCHES[candidate.key] ?? GenericInsightSketch
+                    const selected = candidate.key === family.key
+                    return (
+                        <button
+                            key={candidate.key}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => selectFamily(candidate)}
+                            className={clsx(
+                                'cursor-pointer rounded-md border p-1.5 text-left transition-colors',
+                                selected
+                                    ? 'border-accent bg-accent-highlight-secondary shadow-sm'
+                                    : 'border-primary hover:border-accent'
+                            )}
+                            data-attr={`prototype-insight-sketch-${candidate.key}`}
+                        >
+                            <Sketch />
+                            <div
+                                className={clsx(
+                                    'mt-1 text-xs font-semibold',
+                                    selected ? 'text-accent' : 'text-primary'
+                                )}
+                            >
+                                {candidate.name}
+                            </div>
+                        </button>
+                    )
+                })}
+            </div>
+            <div className="mt-3">
+                <MutedLabel>Method</MutedLabel>
+                <SubChips options={subs} dataAttrPrefix="prototype-insight-sketch-method" />
+            </div>
+            <div className="text-secondary mt-2 text-xs">{activeMeta.description}</div>
+        </div>
+    )
+}
+
+/** Variant J: quiet list. No card chrome; families as rows, methods indented under the active one. */
+function QuietListCard(): JSX.Element {
+    const { families, family, subs, activeMeta, selectFamily } = useFamilySelection('config')
+
+    return (
+        <div className="border-primary mb-3 border-b pb-3" data-attr="prototype-insight-type-list">
+            <MutedLabel>Insight type</MutedLabel>
+            <div className="mt-1 flex flex-col">
+                {families.map((candidate) => {
+                    const Icon = INSIGHT_TYPES_METADATA[candidate.types[0]].icon
+                    const selected = candidate.key === family.key
+                    return (
+                        <div key={candidate.key}>
+                            <button
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => selectFamily(candidate)}
+                                className={clsx(
+                                    'flex w-full cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-left text-sm transition-colors',
+                                    selected
+                                        ? 'text-primary font-semibold'
+                                        : 'text-secondary hover:bg-surface-primary hover:text-primary'
+                                )}
+                                data-attr={`prototype-insight-list-${candidate.key}`}
+                            >
+                                <Icon className={clsx(selected && 'text-accent')} />
+                                {candidate.name}
+                            </button>
+                            {selected && (
+                                <div className="border-primary mt-0.5 mb-1 ml-3 flex flex-col gap-0.5 border-l pl-3">
+                                    {subs.map((option) => {
+                                        const row = (
+                                            <button
+                                                key={option.key}
+                                                type="button"
+                                                aria-pressed={option.active}
+                                                onClick={option.disabledReason ? undefined : option.onSelect}
+                                                className={clsx(
+                                                    'w-fit rounded px-1 py-0.5 text-left text-xs transition-colors',
+                                                    option.active
+                                                        ? 'text-accent font-semibold'
+                                                        : 'text-secondary hover:text-primary',
+                                                    option.disabledReason
+                                                        ? 'cursor-not-allowed opacity-50'
+                                                        : 'cursor-pointer'
+                                                )}
+                                                data-attr={`prototype-insight-list-method-${option.key.toLowerCase()}`}
+                                            >
+                                                {option.label}
+                                            </button>
+                                        )
+                                        return option.disabledReason ? (
+                                            <Tooltip key={option.key} title={option.disabledReason} placement="right">
+                                                {row}
+                                            </Tooltip>
+                                        ) : (
+                                            row
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+            <div className="text-secondary mt-1 text-xs">{activeMeta.description}</div>
+        </div>
+    )
+}
+
+/** Variant K: compact toolbar. Family and method as two bare selects on one row, no decoration. */
+function CompactSelectsCard(): JSX.Element {
+    const { families, family, subs, selectFamily } = useFamilySelection('config')
+
+    const familyOptions: LemonSelectOptions<string> = families.map((candidate) => {
+        const Icon = INSIGHT_TYPES_METADATA[candidate.types[0]].icon
+        return { value: candidate.key, label: candidate.name, icon: <Icon /> }
+    })
+    const methodOptions: LemonSelectOptions<string | null> = subs.map((option) => ({
+        value: option.key,
+        label: option.label,
+        disabledReason: option.disabledReason,
+    }))
+    const methodValue = subs.find((option) => option.active)?.key ?? null
+
+    return (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5" data-attr="prototype-insight-type-compact">
+            <LemonSelect
+                size="small"
+                value={family.key}
+                onChange={(value) => {
+                    const candidate = families.find((entry) => entry.key === value)
+                    if (candidate) {
+                        selectFamily(candidate)
+                    }
+                }}
+                options={familyOptions}
+                dropdownMatchSelectWidth={false}
+                data-attr="prototype-insight-compact-family"
+            />
+            <LemonSelect<string | null>
+                size="small"
+                placeholder="Method"
+                value={methodValue}
+                onChange={(value) => {
+                    subs.find((option) => option.key === value)?.onSelect?.()
+                }}
+                options={methodOptions}
+                dropdownMatchSelectWidth={false}
+                data-attr="prototype-insight-compact-method"
+            />
+        </div>
+    )
+}
+
 /** Routes the sidebar card variants; inert unless the URL requests one. */
 export function SidebarTypeCardPrototype(): JSX.Element | null {
     const { searchParams } = useValues(router)
@@ -586,6 +798,15 @@ export function SidebarTypeCardPrototype(): JSX.Element | null {
     }
     if (variant === 'sidebar-modes') {
         return <FlatModesCard />
+    }
+    if (variant === 'sidebar-sketches') {
+        return <SketchGalleryCard />
+    }
+    if (variant === 'sidebar-list') {
+        return <QuietListCard />
+    }
+    if (variant === 'sidebar-compact') {
+        return <CompactSelectsCard />
     }
     return null
 }

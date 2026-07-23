@@ -41,6 +41,9 @@ import { CORE_TYPES, EXTRA_TYPES, ExtraTypeEntry } from './SidebarTypeCardProtot
  *              under trends, retention splits recurring vs first time)
  *   sidebar-modes     : sidebar, no regrouping: the six types in a select plus a uniform
  *              mode row surfacing each type's buried subtype picker
+ *   sidebar-sketches / sidebar-list / sidebar-compact : visual alternatives of the sidebar
+ *              card; same grouping as sidebar-families, only the looks change (sketch
+ *              gallery, quiet indented list, two bare selects)
  *
  * The real six types switch for real (same setActiveView as the tab strip, carry-over intact).
  * Extra entries (calendar heatmap, SQL, examples) are display-only, there to show how each
@@ -290,6 +293,9 @@ const VARIANTS = [
     { key: 'sidebar-questions', name: 'Sidebar: question families' },
     { key: 'sidebar-families', name: 'Sidebar: shared-editor families' },
     { key: 'sidebar-modes', name: 'Sidebar: flat + mode row' },
+    { key: 'sidebar-sketches', name: 'Sidebar visual: sketch gallery' },
+    { key: 'sidebar-list', name: 'Sidebar visual: quiet list' },
+    { key: 'sidebar-compact', name: 'Sidebar visual: compact selects' },
 ] as const
 
 export function InsightTypeSwitcherPrototype({ insightLogicProps }: VariantProps): JSX.Element {
