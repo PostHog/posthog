@@ -101,6 +101,7 @@ Create an access token under **Your profile → Access Tokens** in TeamCity. The
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = TEAMCITY_ENDPOINTS[endpoint]
@@ -119,7 +120,11 @@ Create an access token under **Your profile → Access Tokens** in TeamCity. The
         return schemas
 
     def validate_credentials(
-        self, config: TeamcitySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TeamcitySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_teamcity_credentials(config.host, config.access_token, team_id)

@@ -35,6 +35,16 @@ import {
     CustomPropertyDefinitionsPartialUpdateBody,
     CustomPropertyDefinitionsPartialUpdateParams,
     CustomPropertyDefinitionsRetrieveParams,
+    CustomPropertySourcesBackfillParams,
+    CustomPropertySourcesCreateBody,
+    CustomPropertySourcesDestroyParams,
+    CustomPropertySourcesListQueryParams,
+    CustomPropertySourcesPartialUpdateBody,
+    CustomPropertySourcesPartialUpdateParams,
+    CustomPropertySourcesRetrieveParams,
+    CustomPropertySourcesRunsListParams,
+    CustomPropertySourcesRunsListQueryParams,
+    CustomPropertySourcesSyncParams,
     GroupsTypesMetricsCreateBody,
     GroupsTypesMetricsCreateParams,
     GroupsTypesMetricsDestroyParams,
@@ -636,6 +646,187 @@ const customPropertyDefinitionsRetrieve = (): ToolBase<
     },
 })
 
+const CustomPropertySourcesBackfillSchema = CustomPropertySourcesBackfillParams.omit({ project_id: true })
+
+const customPropertySourcesBackfill = (): ToolBase<typeof CustomPropertySourcesBackfillSchema, unknown> => ({
+    name: 'custom-property-sources-backfill',
+    schema: CustomPropertySourcesBackfillSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesBackfillSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/backfill/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesCreateSchema = CustomPropertySourcesCreateBody
+
+const customPropertySourcesCreate = (): ToolBase<
+    typeof CustomPropertySourcesCreateSchema,
+    Schemas.CustomPropertySource
+> => ({
+    name: 'custom-property-sources-create',
+    schema: CustomPropertySourcesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.definition !== undefined) {
+            body['definition'] = params.definition
+        }
+        if (params.saved_query !== undefined) {
+            body['saved_query'] = params.saved_query
+        }
+        if (params.external_data_schema !== undefined) {
+            body['external_data_schema'] = params.external_data_schema
+        }
+        if (params.source_column !== undefined) {
+            body['source_column'] = params.source_column
+        }
+        if (params.column_property_map !== undefined) {
+            body['column_property_map'] = params.column_property_map
+        }
+        if (params.key_column !== undefined) {
+            body['key_column'] = params.key_column
+        }
+        if (params.is_enabled !== undefined) {
+            body['is_enabled'] = params.is_enabled
+        }
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesDestroySchema = CustomPropertySourcesDestroyParams.omit({ project_id: true })
+
+const customPropertySourcesDestroy = (): ToolBase<typeof CustomPropertySourcesDestroySchema, unknown> => ({
+    name: 'custom-property-sources-destroy',
+    schema: CustomPropertySourcesDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesListSchema = CustomPropertySourcesListQueryParams
+
+const customPropertySourcesList = (): ToolBase<
+    typeof CustomPropertySourcesListSchema,
+    WithPostHogUrl<Schemas.PaginatedCustomPropertySourceList>
+> => ({
+    name: 'custom-property-sources-list',
+    schema: CustomPropertySourcesListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomPropertySourceList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomPropertySourcesPartialUpdateSchema = CustomPropertySourcesPartialUpdateParams.omit({
+    project_id: true,
+}).extend(CustomPropertySourcesPartialUpdateBody.shape)
+
+const customPropertySourcesPartialUpdate = (): ToolBase<
+    typeof CustomPropertySourcesPartialUpdateSchema,
+    Schemas.CustomPropertySource
+> => ({
+    name: 'custom-property-sources-partial-update',
+    schema: CustomPropertySourcesPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_column !== undefined) {
+            body['source_column'] = params.source_column
+        }
+        if (params.key_column !== undefined) {
+            body['key_column'] = params.key_column
+        }
+        if (params.is_enabled !== undefined) {
+            body['is_enabled'] = params.is_enabled
+        }
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesRetrieveSchema = CustomPropertySourcesRetrieveParams.omit({ project_id: true })
+
+const customPropertySourcesRetrieve = (): ToolBase<
+    typeof CustomPropertySourcesRetrieveSchema,
+    Schemas.CustomPropertySource
+> => ({
+    name: 'custom-property-sources-retrieve',
+    schema: CustomPropertySourcesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesRunsListSchema = CustomPropertySourcesRunsListParams.omit({ project_id: true }).extend(
+    CustomPropertySourcesRunsListQueryParams.shape
+)
+
+const customPropertySourcesRunsList = (): ToolBase<
+    typeof CustomPropertySourcesRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedCustomPropertySyncRunList>
+> => ({
+    name: 'custom-property-sources-runs-list',
+    schema: CustomPropertySourcesRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesRunsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomPropertySyncRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomPropertySourcesSyncSchema = CustomPropertySourcesSyncParams.omit({ project_id: true })
+
+const customPropertySourcesSync = (): ToolBase<typeof CustomPropertySourcesSyncSchema, unknown> => ({
+    name: 'custom-property-sources-sync',
+    schema: CustomPropertySourcesSyncSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesSyncSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/sync/`,
+        })
+        return result
+    },
+})
+
 const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_id: true })
     .extend(GroupsTypesMetricsCreateBody.shape)
     .extend({
@@ -823,6 +1014,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'custom-property-definitions-list': customPropertyDefinitionsList,
     'custom-property-definitions-partial-update': customPropertyDefinitionsPartialUpdate,
     'custom-property-definitions-retrieve': customPropertyDefinitionsRetrieve,
+    'custom-property-sources-backfill': customPropertySourcesBackfill,
+    'custom-property-sources-create': customPropertySourcesCreate,
+    'custom-property-sources-destroy': customPropertySourcesDestroy,
+    'custom-property-sources-list': customPropertySourcesList,
+    'custom-property-sources-partial-update': customPropertySourcesPartialUpdate,
+    'custom-property-sources-retrieve': customPropertySourcesRetrieve,
+    'custom-property-sources-runs-list': customPropertySourcesRunsList,
+    'custom-property-sources-sync': customPropertySourcesSync,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

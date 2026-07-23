@@ -21,9 +21,8 @@ on:
         # start without needing a new push. Cheap checks still run on drafts.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
-        # PRs run legacy-schema only (master/merge-queue runs always cover both).
+        # PRs run legacy-schema only (master runs always cover both).
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    merge_group:
 
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -77,7 +76,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -309,7 +308,7 @@ jobs:
 
     detect-snapshot-mode:
         name: Detect snapshot mode
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -350,7 +349,7 @@ jobs:
     turbo-discover:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
         outputs:
@@ -467,8 +466,8 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and non-PR events (push,
-        # merge_group) always run full, which build_django_matrix falls back to
+        # Only draft PRs do selective runs; ready PRs and pushes always run full,
+        # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
         if: |
@@ -491,6 +490,8 @@ jobs:
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
+            run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            turbo_result: ${{ steps.fallback.outputs.turbo_result }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
         steps:
@@ -523,6 +524,10 @@ jobs:
                       skip=true
                   fi
                   echo "skip=$skip" >> "$GITHUB_OUTPUT"
+                  # Surface the inputs behind an untrusted skip so the telemetry can
+                  # tell legacy-graph impact apart from a turbo-discover failure.
+                  echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
 
             - name: Run shadow selector
               id: select
@@ -661,7 +666,7 @@ jobs:
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -707,7 +712,7 @@ jobs:
             needs.build-product-test-matrix.result == 'success' &&
             needs.build-product-test-matrix.outputs.include != '[]' &&
             needs.build-product-test-matrix.outputs.include != ''
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
         strategy:
@@ -901,8 +906,10 @@ jobs:
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
             # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -920,7 +927,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
             # a real failure still skips it, as it did before the test step got continue-on-error.
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
@@ -1022,8 +1029,8 @@ jobs:
         permissions:
             contents: read
             pull-requests: read # list PR files for the deleted-migration check
-        name: Repo checks (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Repo checks (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -1229,7 +1236,7 @@ jobs:
             pull-requests: write
 
         name: Validate migrations
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -1862,7 +1869,7 @@ jobs:
             contents: read
 
         name: Validate OpenAPI types
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -2080,7 +2087,7 @@ jobs:
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -2379,7 +2386,7 @@ jobs:
 
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
 
         strategy:
             fail-fast: false
@@ -2961,8 +2968,10 @@ jobs:
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
             # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate (Core)
               id: quarantine_gate_core
               continue-on-error: true
@@ -2990,7 +2999,7 @@ jobs:
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
             - name: Fail on test failure
-              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && steps.quarantine_gate_core.outcome != 'success') || (steps.run-temporal-tests.outcome == 'failure' && steps.quarantine_gate_temporal.outcome != 'success')) }}
+              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
@@ -3000,7 +3009,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             # Oldest supported version as plain string (for comparisons)
@@ -3492,6 +3501,8 @@ jobs:
                         "changed_file_count": ${{ needs.select-tests.outputs.changed_file_count || 'null' }},
                         "selected_test_count": ${{ needs.select-tests.outputs.selected_test_count || 'null' }},
                         "full_run_reasons_count": ${{ needs.select-tests.outputs.full_run_reasons_count || 'null' }},
+                        "run_legacy": ${{ toJSON(needs.select-tests.outputs.run_legacy || '') }},
+                        "turbo_result": ${{ toJSON(needs.select-tests.outputs.turbo_result || '') }},
                         "selected_test_seconds": ${{ needs.select-tests.outputs.selected_test_seconds || 'null' }},
                         "skipped_test_seconds": ${{ needs.select-tests.outputs.skipped_test_seconds || 'null' }},
                         "run_poe": ${{ needs.select-tests.outputs.run_poe || 'false' }},
@@ -3552,6 +3563,8 @@ jobs:
               continue-on-error: true
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  # dual emission while per-test traces migrate to the project behind POSTHOG_API_TOKEN
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
                   POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
               run: |
                   uv run --script .github/scripts/report_test_timings.py \

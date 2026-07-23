@@ -547,6 +547,20 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     assert any("CREATE SCHEMA IF NOT EXISTS" in str(call) for call in execute_calls)
     assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)
     assert any("delta_scan" in str(call) for call in execute_calls)
+
+    # delta-kernel ignores DuckDB's proxy transport and dials the org secret's
+    # plain-HTTP endpoint directly, which worker egress silently drops (~58s
+    # failure per attempt). The session must pin an HTTPS credential-chain
+    # secret over the staging tree BEFORE any delta_scan runs.
+    secret_idx = next(
+        i for i, call in enumerate(execute_calls) if "CREATE OR REPLACE SECRET posthog_staging_delta_https" in str(call)
+    )
+    secret_sql = str(execute_calls[secret_idx])
+    assert "PROVIDER credential_chain" in secret_sql
+    assert "USE_SSL true" in secret_sql
+    assert "SCOPE 's3://test-bucket/__posthog_staging'" in secret_sql
+    first_delta_idx = next(i for i, call in enumerate(execute_calls) if "delta_scan" in str(call))
+    assert secret_idx < first_delta_idx
     # Verify staging URI used, not source URI
     table_call = next(call for call in execute_calls if "delta_scan" in str(call))
     assert "s3://test-bucket/__posthog_staging/team_1/customers" in str(table_call)
@@ -781,6 +795,10 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
         MagicMock(),
     )
     monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.create_staging_read_secret",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
         MagicMock(return_value=None),
     )
@@ -853,6 +871,10 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.setup_duckgres_session",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.create_staging_read_secret",
         MagicMock(),
     )
     monkeypatch.setattr(

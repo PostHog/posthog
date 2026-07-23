@@ -535,3 +535,18 @@ def test_job_trace_key_distinguishes_jobs() -> None:
     assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "core", 2))
     assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "temporal", 1))
     assert key(_artifact("backend", "core", 1)) == key(_artifact("backend", "core", 1))
+
+
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a", "POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_b"}, ["phc_a", "phc_b"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a", "POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_a"}, ["phc_a"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a"}, ["phc_a"]),
+        ({"POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_b"}, ["phc_b"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "", "POSTHOG_CI_TRACES_EXTRA_TOKEN": ""}, []),
+        ({}, []),
+    ],
+)
+def test_emission_tokens(env: dict[str, str], expected: list[str]) -> None:
+    assert report_test_timings.emission_tokens(env) == expected

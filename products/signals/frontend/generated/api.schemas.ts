@@ -340,6 +340,7 @@ export interface SignalReportRefundResponseApi {
  * * `judgeme_reviews` - judgeme_reviews
  * * `intercom` - intercom
  * * `hubspot` - hubspot
+ * * `engineering_analytics` - engineering_analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -391,6 +392,7 @@ export const SignalSourceProductApi = {
     JudgemeReviews: 'judgeme_reviews',
     Intercom: 'intercom',
     Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -412,6 +414,9 @@ export const SignalSourceProductApi = {
  * * `anomaly_investigation` - anomaly_investigation
  * * `feedback` - feedback
  * * `review` - review
+ * * `ci_flaky_check` - ci_flaky_check
+ * * `ci_broken_default_branch` - ci_broken_default_branch
+ * * `ci_duration_regression` - ci_duration_regression
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -434,6 +439,9 @@ export const SignalSourceTypeApi = {
     AnomalyInvestigation: 'anomaly_investigation',
     Feedback: 'feedback',
     Review: 'review',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -713,6 +721,46 @@ export interface HealthCheckSignalExtraApi {
     payload: HealthCheckSignalExtraApiPayload
 }
 
+/**
+ * One immutable flaky observation: failed then passed on a later attempt of the same run,
+ * so only non-determinism can explain the flip.
+ */
+export interface EngineeringAnalyticsCIFlakyCheckSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    job_name: string
+    run_id: number
+    head_sha: string
+    failed_attempt: number
+    passed_attempt: number
+    flaky_count: number
+    window_days: number
+}
+
+export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    branch: string
+    conclusive_success_rate: number
+    conclusive_run_count: number
+    latest_conclusion: string
+    window_hours: number
+}
+
+export interface EngineeringAnalyticsCIDurationRegressionSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    current_p95_seconds: number
+    baseline_p95_seconds: number
+    pct_increase: number
+    current_p50_seconds: number
+    baseline_p50_seconds: number
+    window_days: number
+}
+
 export interface FreshdeskTicketSignalExtraApi {
     status: string | null
     priority: string | null
@@ -973,6 +1021,9 @@ export type SignalExtraApi =
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
+    | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
+    | EngineeringAnalyticsCIDurationRegressionSignalExtraApi
     | FreshdeskTicketSignalExtraApi
     | FreshserviceTicketSignalExtraApi
     | FrontConversationSignalExtraApi
@@ -1090,7 +1141,8 @@ export interface SignalNodeApi {
      * * `appfollow` - appfollow
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
-     * * `hubspot` - hubspot */
+     * * `hubspot` - hubspot
+     * * `engineering_analytics` - engineering_analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -1111,7 +1163,10 @@ export interface SignalNodeApi {
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
      * * `feedback` - feedback
-     * * `review` - review */
+     * * `review` - review
+     * * `ci_flaky_check` - ci_flaky_check
+     * * `ci_broken_default_branch` - ci_broken_default_branch
+     * * `ci_duration_regression` - ci_duration_regression */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -1427,15 +1482,20 @@ export interface SignalScoutConfigApi {
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-    enabled?: boolean
+    readonly enabled: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-    emit?: boolean
+    readonly emit: boolean
     /**
      * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
      * @minimum 30
      * @maximum 43200
      */
-    run_interval_minutes?: number
+    readonly run_interval_minutes: number
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+     * @nullable
+     */
+    readonly run_cron_schedule: string | null
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -1466,38 +1526,34 @@ export interface SignalScoutConfigCreateApi {
      * @maximum 43200
      */
     run_interval_minutes?: number
+    /**
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
 }
 
 /**
- * Per-(team, skill) scout config: schedule, enablement, and emit posture.
- *
- * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
- * when it discovers a scout skill; this serializer lets agents tune the row.
+ * Editable schedule, enablement, and emit posture for one scout config.
  */
-export interface PatchedSignalScoutConfigApi {
-    readonly id?: string
-    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-    readonly skill_name?: string
-    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-    readonly description?: string
-    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-    readonly scout_origin?: ScoutOriginEnumApi
+export interface PatchedSignalScoutConfigUpdateApi {
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
     /**
-     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * Minutes between runs (30–43200). Use 1440 for a daily schedule.
      * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
     /**
-     * When the coordinator last dispatched this scout. Null if it has never run.
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule.
+     * @maxLength 100
      * @nullable
      */
-    readonly last_run_at?: string | null
-    readonly created_at?: string
+    run_cron_schedule?: string | null
 }
 
 /**
@@ -2191,6 +2247,11 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunSummaryApiMetadata = { [key: string]: string }
+
+/**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
  *
  * Status and timestamps flow from the linked `tasks.TaskRun`.
@@ -2248,7 +2309,14 @@ export interface SignalScoutRunSummaryApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunSummaryApiMetadata
 }
+
+/**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunDetailApiMetadata = { [key: string]: string }
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
@@ -2308,6 +2376,8 @@ export interface SignalScoutRunDetailApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunDetailApiMetadata
 }
 
 /**
@@ -2823,6 +2893,7 @@ export interface ForgetResponseApi {
  * * `judgeme_reviews` - Judge.me
  * * `intercom` - Intercom
  * * `hubspot` - HubSpot
+ * * `engineering_analytics` - Engineering analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2875,6 +2946,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     JudgemeReviews: 'judgeme_reviews',
     Intercom: 'intercom',
     Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -2893,6 +2965,9 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
  * * `anomaly_investigation` - Anomaly investigation
+ * * `ci_flaky_check` - CI flaky check
+ * * `ci_broken_default_branch` - CI broken default branch
+ * * `ci_duration_regression` - CI duration regression
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2913,6 +2988,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -3148,13 +3226,18 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     date_to?: string
     /**
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * @minLength 1
+     */
+    key?: string
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean
     /**
-     * Max rows to return (default 20, hard cap 500).
+     * Max rows to return (default 20, hard cap 1000).
      * @minimum 1
-     * @maximum 500
+     * @maximum 1000
      */
     limit?: number
     /**

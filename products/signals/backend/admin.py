@@ -89,6 +89,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "enabled",
         "emit",
         "run_interval_minutes",
+        "run_cron_schedule",
         "last_run_at",
         "updated_at",
     )

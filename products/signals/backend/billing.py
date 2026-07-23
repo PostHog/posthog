@@ -115,6 +115,7 @@ BILLING_EXEMPT_SCOUT_SKILLS: dict[str, str] = {
 # mirroring `mark_report_billing_exempt`'s first-reason-wins freeze.
 BILLING_EXEMPT_SOURCE_PRODUCTS: dict[str, str] = {
     SignalSourceProduct.HEALTH_CHECKS: SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
+    SignalSourceProduct.ENGINEERING_ANALYTICS: SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
 }
 
 

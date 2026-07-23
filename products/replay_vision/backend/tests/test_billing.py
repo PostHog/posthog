@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -85,8 +86,9 @@ def test_gemini_models_config_mirrors_scanner_model_enum() -> None:
     )
 
 
-def test_flash_credit_price_tracks_the_margin_formula() -> None:
-    # The flash price is contractually the formula output (the budget tier is pinned below it), so a
-    # token price or margin change here must come with a conscious repricing, not silently stale credits.
-    flash = GEMINI_MODELS[ScannerModel.GEMINI_3_6_FLASH]
-    assert flash.credits_per_observation == suggested_observation_credits(flash)
+@pytest.mark.parametrize("model", [ScannerModel.GEMINI_3_FLASH_PREVIEW, ScannerModel.GEMINI_3_6_FLASH])
+def test_flash_credit_price_tracks_the_margin_formula(model: str) -> None:
+    # Both flash-tier prices are contractually the formula output (the budget tier is pinned below it), so a
+    # token price or margin change must come with a conscious repricing, not silently stale credits.
+    info = GEMINI_MODELS[model]
+    assert info.credits_per_observation == suggested_observation_credits(info)

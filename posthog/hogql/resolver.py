@@ -258,6 +258,25 @@ def _unify_select_set_columns(
     return columns
 
 
+def _expands_stored_column_order(branch: ast.SelectQuery) -> bool:
+    """True when a branch's asterisk expanded a table's stored field order, which is arbitrary and
+    ours to re-order, rather than a select list someone wrote. A CTE or subquery only qualifies when
+    its own columns came from an asterisk too — otherwise the order is the author's, and reordering
+    it would change what their query means."""
+    join = branch.select_from
+    if join is None or join.next_join is not None:
+        return False
+    if isinstance(join.type, ast.CTETableType):
+        return isinstance(join.table, ast.SelectQuery | ast.SelectSetQuery) and (
+            _asterisk_only_leaves(join.table) is not None
+        )
+    if isinstance(join.type, ast.BaseTableType):
+        return True
+    if isinstance(join.table, ast.SelectQuery | ast.SelectSetQuery):
+        return _asterisk_only_leaves(join.table) is not None
+    return False
+
+
 def _asterisk_only_leaves(branch: ast.SelectQuery | ast.SelectSetQuery) -> Optional[list[ast.SelectQuery]]:
     """Return the plain SELECT leaves of a set-query branch when every leaf's select list
     consists solely of asterisk-expanded fields with uniquely-named columns, else None."""
@@ -274,45 +293,38 @@ def _asterisk_only_leaves(branch: ast.SelectQuery | ast.SelectSetQuery) -> Optio
     if len(branch.type.columns) != len(branch.select):
         return None
     for expr in branch.select:
+        # An expression field expands to an alias over an expression rather than over a field,
+        # so the alias itself carries the marker.
+        if isinstance(expr, ast.Alias) and expr.from_asterisk:
+            continue
         field = expr.expr if isinstance(expr, ast.Alias) else expr
         if not (isinstance(field, ast.Field) and field.from_asterisk):
             return None
+    if not _expands_stored_column_order(branch):
+        return None
     return [branch]
 
 
-def _branch_column_names(branch: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
-    branch_type = branch.type
-    assert branch_type is not None
-    return [name for name, _ in _select_type_columns(branch_type)]
-
-
-def _reorder_select_leaf(leaf: ast.SelectQuery, canonical: list[str]) -> None:
-    assert isinstance(leaf.type, ast.SelectQueryType)
-    names = list(leaf.type.columns.keys())
-    if names == canonical:
-        return
-    index_by_name = {name: index for index, name in enumerate(names)}
-    leaf.select = [leaf.select[index_by_name[name]] for name in canonical]
-    leaf.type.columns = {name: leaf.type.columns[name] for name in canonical}
-
-
-def _reorder_branch(branch: ast.SelectQuery | ast.SelectSetQuery, canonical: list[str]) -> None:
-    if isinstance(branch, ast.SelectSetQuery):
-        for sub in branch.select_queries():
-            _reorder_branch(sub, canonical)
-        if branch.type is not None and branch.type.columns:
-            branch.type.columns = {name: branch.type.columns[name] for name in canonical}
-        return
-    _reorder_select_leaf(branch, canonical)
+def _remap_positional_references(leaf: ast.SelectQuery, new_index_by_old: dict[int, int]) -> None:
+    """ORDER BY / GROUP BY / LIMIT BY ordinals index into the select list, so reordering that
+    list has to carry them along or they silently come to mean a different column."""
+    referencing: list[ast.Expr] = [order.expr for order in leaf.order_by or []]
+    referencing.extend(leaf.group_by or [])
+    if leaf.limit_by:
+        referencing.extend(leaf.limit_by.exprs)
+    for expr in referencing:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
+            new_index = new_index_by_old.get(expr.value - 1)
+            if new_index is not None:
+                expr.value = new_index + 1
 
 
 def _column_set_mismatch_error(canonical: list[str], names: list[str]) -> QueryError:
-    missing = [name for name in canonical if name not in set(names)]
-    extra = [name for name in names if name not in set(canonical)]
+    canonical_set, names_set = set(canonical), set(names)
     details: list[str] = []
-    if missing:
+    if missing := [name for name in canonical if name not in names_set]:
         details.append(f"missing: {', '.join(missing)}")
-    if extra:
+    if extra := [name for name in names if name not in canonical_set]:
         details.append(f"unexpected: {', '.join(extra)}")
     return QueryError(
         "SELECT * across a UNION/INTERSECT/EXCEPT requires every table to have the same columns "
@@ -404,7 +416,6 @@ class Resolver(CloningVisitor):
             limit_with_ties=node.limit_with_ties,
         )
         self._align_asterisk_only_branches(result)
-        self._lower_by_name_operators(result)
 
         select_types = [
             result.initial_select_query.type,
@@ -424,55 +435,32 @@ class Resolver(CloningVisitor):
         field order, which is arbitrary (warehouse tables without a recorded `column_order`
         fall back to jsonb key order). When every branch is a plain `SELECT *`, align branches
         by column name so identically-named columns land in the same position."""
-        if self.dialect != "clickhouse" and any(
-            sub.set_operator.endswith(" BY NAME") for sub in node.subsequent_select_queries
-        ):
-            # An explicit BY NAME on a dialect with native support (DuckDB) already aligns
-            # by name and null-fills differing column sets; don't preempt it.
+        if any(sub.set_operator.endswith(" BY NAME") for sub in node.subsequent_select_queries):
+            # BY NAME already aligns by name, and null-fills differing column sets where the
+            # dialect supports it; don't preempt it.
             return
         leaves = _asterisk_only_leaves(node)
-        if leaves is None or len(leaves) < 2:
+        if leaves is None:
             return
-        name_lists = [list(cast(ast.SelectQueryType, leaf.type).columns.keys()) for leaf in leaves]
-        canonical = name_lists[0]
-        if all(names == canonical for names in name_lists):
-            return
+        leaf_types = [cast(ast.SelectQueryType, leaf.type) for leaf in leaves]
+        canonical = list(leaf_types[0].columns.keys())
         canonical_set = set(canonical)
-        for leaf, names in zip(leaves, name_lists):
+        for leaf, leaf_type in zip(leaves, leaf_types):
+            names = list(leaf_type.columns.keys())
             if set(names) != canonical_set:
                 raise _column_set_mismatch_error(canonical, names)
-            _reorder_select_leaf(leaf, canonical)
+            index_by_name = {name: index for index, name in enumerate(names)}
+            _remap_positional_references(
+                leaf, {index_by_name[name]: position for position, name in enumerate(canonical)}
+            )
+            leaf.select = [leaf.select[index_by_name[name]] for name in canonical]
+            leaf_type.columns = {name: leaf_type.columns[name] for name in canonical}
+        # A nested set query unified its own columns in its own branch order, and the outer
+        # unification pairs branches positionally — so its type has to follow the new order too.
         for branch in node.select_queries():
-            if isinstance(branch, ast.SelectSetQuery) and branch.type is not None and branch.type.columns:
-                branch.type.columns = {name: branch.type.columns[name] for name in canonical}
-
-    def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
-        """ClickHouse has no `UNION/INTERSECT/EXCEPT ... BY NAME`, so printing the operator
-        verbatim is a guaranteed syntax error. Implement the semantics here instead: reorder
-        each BY NAME operand to the first branch's column order and drop the suffix.
-        Dialects with native support (DuckDB via the postgres printer) keep the operator."""
-        if self.dialect != "clickhouse":
-            return
-        if not any(sub.set_operator.endswith(" BY NAME") for sub in node.subsequent_select_queries):
-            return
-        canonical = _branch_column_names(node.initial_select_query)
-        canonical_set = set(canonical)
-        if len(canonical_set) != len(canonical):
-            raise QueryError("BY NAME requires uniquely named columns in every branch")
-        for sub in node.subsequent_select_queries:
-            if not sub.set_operator.endswith(" BY NAME"):
-                continue
-            branch = sub.select_query
-            names = _branch_column_names(branch)
-            if set(names) != canonical_set or len(names) != len(canonical):
-                raise _column_set_mismatch_error(canonical, names)
-            if isinstance(branch, ast.SelectQuery):
-                if len(cast(ast.SelectQueryType, branch.type).columns) != len(branch.select):
-                    raise QueryError("BY NAME requires uniquely named columns in every branch")
-                _reorder_select_leaf(branch, canonical)
-            else:
-                _reorder_branch(branch, canonical)
-            sub.set_operator = cast(ast.SetOperator, sub.set_operator[: -len(" BY NAME")])
+            if isinstance(branch, ast.SelectSetQuery):
+                branch_type = cast(ast.SelectSetQueryType, branch.type)
+                branch_type.columns = {name: branch_type.columns[name] for name in canonical}
 
     def visit_values_query(self, node: ast.ValuesQuery):
         resolved_rows: list[list[ast.Expr]] = []
@@ -948,8 +936,13 @@ class Resolver(CloningVisitor):
                     visited_col = self.visit(col)
                     if isinstance(visited_col, ast.Field):
                         visited_col.from_asterisk = True
-                    elif isinstance(visited_col, ast.Alias) and isinstance(visited_col.expr, ast.Field):
-                        visited_col.expr.from_asterisk = True
+                    elif isinstance(visited_col, ast.Alias):
+                        if isinstance(visited_col.expr, ast.Field):
+                            visited_col.expr.from_asterisk = True
+                        else:
+                            # Expression fields resolve to an alias over an arbitrary expression,
+                            # which has no field to mark, so the alias carries it instead.
+                            visited_col.from_asterisk = True
                     select_nodes.append(visited_col)
             else:
                 select_nodes.append(new_expr)

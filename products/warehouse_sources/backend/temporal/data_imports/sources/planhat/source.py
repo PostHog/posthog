@@ -97,6 +97,7 @@ You can create an API access token from a Private App under **Settings → Servi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Planhat's list endpoints expose no reliably
         # ordered server-side timestamp filter, so there is no incremental cursor to advance.
@@ -104,7 +105,11 @@ You can create an API access token from a Private App under **Settings → Servi
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PlanhatSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PlanhatSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API token is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

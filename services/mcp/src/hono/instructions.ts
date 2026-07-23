@@ -139,15 +139,14 @@ export class InstructionsBuilder {
     }
 
     formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
-        // Data-catalog discovery is spliced into the same section so a flag-off render stays
-        // byte-identical to the un-gated prompt (no stray placeholder gaps).
         const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
         const schemaDiscovery = dataCatalogEnabled
-            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
+            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
             : SCHEMA_DISCOVERY.trim()
-        return formatPrompt(EXECUTE_SQL_PROMPT, {
+        const description = formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
             schema_discovery: schemaDiscovery,
         })
+        return dataCatalogEnabled ? `${METRIC_DISCOVERY.trim()}\n\n${description}` : description
     }
 }

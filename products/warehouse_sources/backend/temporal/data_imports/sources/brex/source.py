@@ -96,11 +96,12 @@ Note: Brex tokens expire after 90 days without API activity, so a token that has
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: BrexSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: BrexSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_brex_credentials(config.api_key):
             return True, None

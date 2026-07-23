@@ -8,11 +8,6 @@ on:
         # the full PostHog backend and trigger on any Python change) run when the
         # PR is marked ready for review — that full run is the merge gate.
         types: [opened, synchronize, reopened, ready_for_review]
-    # Required so `MCP Tests Pass` (a required status check) reports on merge
-    # queue entries — without it the queue would wait for the check until timeout.
-    # The jobs themselves skip on merge_group (the suite already runs in full on
-    # every PR) and the aggregator treats skipped as success.
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -30,7 +25,6 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
-        if: github.event_name != 'merge_group'
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
@@ -242,8 +236,8 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests (depot-ubuntu-latest-4)
-        runs-on: depot-ubuntu-latest-4
+        name: Integration Tests (depot-ubuntu-24.04-4)
+        runs-on: depot-ubuntu-24.04-4
         needs: changes
         timeout-minutes: 30
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
@@ -578,8 +572,10 @@ jobs:
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing job. Internal PRs only (needs the
             # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -597,7 +593,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure steps
             # so a real failure still triggers them via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-integration-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && steps.run-integration-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

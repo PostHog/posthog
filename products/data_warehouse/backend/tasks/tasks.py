@@ -148,16 +148,23 @@ def send_external_data_failure_digest_task(team_id: int) -> None:
 def sync_team_earliest_event_date(team_id: int) -> None:
     """Resolve, cache, and mirror a team's earliest event date after provision/onboard.
 
-    Dual-write: the clamped earliest event date (or the no-history sentinel for teams
-    without events) is stored on the Django ``DuckgresServerTeam`` row — the full-backfill
-    sensor's read source — and mirrored to the team's duckgres control-plane row.
+    Dual-write: the clamped earliest event date is stored on the Django
+    ``DuckgresServerTeam`` row — the full-backfill sensor's read source — and mirrored to
+    the team's duckgres control-plane row.
     Idempotent: an already-cached date is never recomputed, and both writes are upserts.
     Best-effort on the control-plane side: a failed push is logged and dropped — the
-    sensor still works entirely off the Django row.
+    sensor's reconciliation pass re-pushes it on a later tick.
+
+    A team with no events yet is left unresolved (NULL), NOT cached as the no-history
+    sentinel: this task runs seconds after provision/onboard, when a brand-new project
+    plausibly hasn't ingested its first events. A cached date is final (nothing
+    re-resolves a non-NULL value), so persisting the sentinel here would permanently
+    exclude the team from historical backfill. The full-backfill sensor resolves it
+    later, when "no events" is a meaningful answer.
     """
     # Deferred: ducklake.common pulls duckdb in, and posthog.models must not load while
     # Celery imports task modules — keep both off this module's import path.
-    from posthog.ducklake.common import resolve_team_earliest_event_date  # noqa: PLC0415
+    from posthog.ducklake.common import NO_HISTORY_SENTINEL, resolve_team_earliest_event_date  # noqa: PLC0415
     from posthog.ducklake.models import DuckgresServerTeam  # noqa: PLC0415
 
     from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
@@ -169,7 +176,11 @@ def sync_team_earliest_event_date(team_id: int) -> None:
         logger.info("No duckling membership row for team; skipping earliest event date sync", team_id=team_id)
         return
     if bf.earliest_event_date is None:
-        bf.earliest_event_date = resolve_team_earliest_event_date(team_id)
+        resolved = resolve_team_earliest_event_date(team_id)
+        if resolved == NO_HISTORY_SENTINEL:
+            logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
+            return
+        bf.earliest_event_date = resolved
         bf.save(update_fields=["earliest_event_date"])
     push_team_earliest_event_date(bf.server.organization_id, team_id, bf.earliest_event_date)
 

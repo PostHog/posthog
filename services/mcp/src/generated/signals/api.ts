@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 34 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -381,7 +381,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
+ * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, and `emit` posture. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
  * @summary List scout configs
  */
 export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
@@ -393,7 +393,7 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, and `emit`. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const SignalsScoutConfigCreateParams = /* @__PURE__ */ zod.object({
@@ -408,6 +408,8 @@ export const signalsScoutConfigCreateBodySkillNameMax = 200
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
+
+export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     .object({
@@ -430,13 +432,20 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+        run_cron_schedule: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyRunCronScheduleMax)
+            .nullish()
+            .describe(
+                "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+            ),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
     )
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
@@ -450,6 +459,8 @@ export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
+
+export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -468,13 +479,16 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
             .optional()
+            .describe('Minutes between runs (30–43200). Use 1440 for a daily schedule.'),
+        run_cron_schedule: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyRunCronScheduleMax)
+            .nullish()
             .describe(
-                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
+                "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule."
             ),
     })
-    .describe(
-        'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
-    )
+    .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
  * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
@@ -533,6 +547,18 @@ export const SignalsScoutMembersListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member."
+        ),
+})
+
+/**
+ * Return the project's scout metadata: whether it is enrolled, the current announcement banner (e.g. an alpha run-limit notice, or null when unset), and the enforced run limits with current usage. Limits reflect what the coordinator actually applies at dispatch, so a user can see the real throttle rather than what they assume they set. All values come from the `signals-scout` flag payload, so the banner and caps can change with no deploy.
+ * @summary Get scout metadata
+ */
+export const SignalsScoutMetadataGetParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
 
@@ -1011,7 +1037,7 @@ export const SignalsScoutRunsRecentEmissionsQueryParams = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
@@ -1024,7 +1050,7 @@ export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
-export const signalsScoutScratchpadSearchQueryLimitMax = 500
+export const signalsScoutScratchpadSearchQueryLimitMax = 1000
 
 export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.object({
     content_max_chars: zod
@@ -1044,6 +1070,13 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .describe(
             'ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).'
         ),
+    key: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.'
+        ),
     keys_only: zod
         .boolean()
         .optional()
@@ -1055,7 +1088,7 @@ export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.objec
         .min(1)
         .max(signalsScoutScratchpadSearchQueryLimitMax)
         .optional()
-        .describe('Max rows to return (default 20, hard cap 500).'),
+        .describe('Max rows to return (default 20, hard cap 1000).'),
     text: zod
         .string()
         .optional()
@@ -1190,9 +1223,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'judgeme_reviews',
             'intercom',
             'hubspot',
+            'engineering_analytics',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot\n* `engineering_analytics` - Engineering analytics'
         ),
     source_type: zod
         .enum([
@@ -1211,9 +1245,12 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'ci_flaky_check',
+            'ci_broken_default_branch',
+            'ci_duration_regression',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation\n* `ci_flaky_check` - CI flaky check\n* `ci_broken_default_branch` - CI broken default branch\n* `ci_duration_regression` - CI duration regression'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -1287,9 +1324,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'judgeme_reviews',
             'intercom',
             'hubspot',
+            'engineering_analytics',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot\n* `engineering_analytics` - Engineering analytics'
         ),
     source_type: zod
         .enum([
@@ -1308,9 +1346,12 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'ci_flaky_check',
+            'ci_broken_default_branch',
+            'ci_duration_regression',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation\n* `ci_flaky_check` - CI flaky check\n* `ci_broken_default_branch` - CI broken default branch\n* `ci_duration_regression` - CI duration regression'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -1375,10 +1416,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'judgeme_reviews',
             'intercom',
             'hubspot',
+            'engineering_analytics',
         ])
         .optional()
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot\n* `engineering_analytics` - Engineering analytics'
         ),
     source_type: zod
         .enum([
@@ -1397,10 +1439,13 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'ci_flaky_check',
+            'ci_broken_default_branch',
+            'ci_duration_regression',
         ])
         .optional()
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation\n* `ci_flaky_check` - CI flaky check\n* `ci_broken_default_branch` - CI broken default branch\n* `ci_duration_regression` - CI duration regression'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),

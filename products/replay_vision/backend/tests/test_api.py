@@ -29,7 +29,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
-from products.replay_vision.backend.quota import _current_period_bounds
+from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
@@ -678,6 +678,58 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.post(f"{self.scanners_url}{scanner.id}/affected_cohort/", format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertIn("cohort", resp.json()["detail"])
+
+
+class TestScannerLifecycleTelemetry(_VisionAPITestCase):
+    def test_create_reports_config_choices(self) -> None:
+        # Launch dashboards read these to see whether the 100%/comprehensive defaults get changed;
+        # dropped properties or a silent non-fire makes that read a lie.
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "telemetry-create",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_6_FLASH,
+                    "sampling_rate": 0.25,
+                    "query": {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        report.assert_called_once()
+        event, properties = report.call_args.args[1], report.call_args.args[2]
+        self.assertEqual(event, "replay vision scanner created")
+        self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
+        self.assertEqual(properties["sampling_rate"], 0.25)
+        self.assertTrue(properties["has_filters"])
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+
+    @parameterized.expand(
+        [
+            ("disable", True, False, "replay vision scanner disabled"),
+            ("enable", False, True, "replay vision scanner enabled"),
+        ]
+    )
+    def test_enabled_transition_reports_once(self, _name: str, before: bool, after: bool, event: str) -> None:
+        scanner = self._create_scanner(enabled=before)
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], event)
+
+    def test_update_without_enabled_transition_reports_nothing(self) -> None:
+        # A rename must not show up as an enable/disable in the lifecycle funnel.
+        scanner = self._create_scanner(enabled=True)
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        report.assert_not_called()
 
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):
@@ -2055,9 +2107,9 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["matched_sessions_in_window"], 3)
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["estimated_observations_per_month"], 3)
-        # Defaults to the baseline model when the request names none.
-        self.assertEqual(body["credits_per_observation"], 15)
-        self.assertEqual(body["estimated_credits_per_month"], 45)
+        # Defaults to gemini-3-flash-preview (5 credits) when the request names no model.
+        self.assertEqual(body["credits_per_observation"], 5)
+        self.assertEqual(body["estimated_credits_per_month"], 15)
 
     def test_estimate_prices_credits_at_proposed_model(self) -> None:
         for index in range(3):
@@ -2209,4 +2261,4 @@ class TestCurrentPeriodBounds(SimpleTestCase):
     )
     def test_period_selection(self, _name: str, usage: dict | None, expected: tuple[datetime, datetime]) -> None:
         organization = Organization(usage=usage) if usage is not None else None
-        self.assertEqual(_current_period_bounds(organization, self.NOW), expected)
+        self.assertEqual(_current_period_bounds(organization, self.NOW), BillingPeriod(*expected))

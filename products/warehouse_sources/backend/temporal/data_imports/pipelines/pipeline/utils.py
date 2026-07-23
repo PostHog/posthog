@@ -516,6 +516,9 @@ def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed
 
 PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
 
+# Bucket for rows whose numerical partition key is null — they can't be bucketed arithmetically.
+NULL_NUMERICAL_PARTITION = "null"
+
 
 async def setup_partitioning(
     pa_table: pa.Table,
@@ -665,9 +668,12 @@ def append_partition_key_to_table(
                 assert partition_size is not None, "append_partition_key_to_table: partition_size is None"
 
                 key = normalized_partition_keys[0]
-                partition = row[key] // partition_size
+                key_value = row[key]
 
-                partition_array.append(str(partition))
+                if key_value is None:
+                    partition_array.append(NULL_NUMERICAL_PARTITION)
+                else:
+                    partition_array.append(str(key_value // partition_size))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]

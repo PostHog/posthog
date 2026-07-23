@@ -130,14 +130,20 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         flow_id = self._create_flow()
         response = self._patch_actions(flow_id, delay_duration="1d", HTTP_X_POSTHOG_CLIENT="mcp")
         assert response.status_code == 200, response.json()
-        staged_at = HogFlow.objects.get(pk=flow_id).draft_updated_at
-        assert staged_at is not None
+        assert HogFlow.objects.get(pk=flow_id).draft_updated_at is not None
         mock_task.delay.assert_not_called()
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("count service down"),
+        ):
+            preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
+        assert preview.status_code == 200, preview.json()
 
         with self.captureOnCommitCallbacks(execute=True):
             publish = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-                {"confirm": True, "draft_updated_at": staged_at.isoformat()},
+                {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
             )
 
         assert publish.status_code == 200, publish.json()

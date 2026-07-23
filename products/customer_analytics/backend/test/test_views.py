@@ -2009,6 +2009,52 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
+    def _create_person_source(self):
+        definition, schema = self._person_definition_and_schema()
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        return created.json()["id"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_person_source_actions_are_flag_gated(self, _flag):
+        # Regression: sync/backfill must 400 when WAREHOUSE_PERSON_PROPERTIES is off. The gate lives in
+        # the facade; a viewset refactor that dropped it would ship an ungated (billable) trigger.
+        source_id = self._create_person_source()
+        for action in ("sync", "backfill"):
+            response = self.client.post(f"{self.endpoint}{source_id}/{action}/")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, (action, response.content)
+
+    @patch("products.warehouse_sources.backend.facade.temporal.start_person_property_backfill", return_value=True)
+    @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_person_source_actions_when_enabled(self, _flag, mock_trigger_sync, mock_start_backfill):
+        # Wiring guard: the actions route through the facade to the temporal seam, return the typed
+        # response, and the backfill pre-creates a running run the runs feed then surfaces.
+        source_id = self._create_person_source()
+
+        synced = self.client.post(f"{self.endpoint}{source_id}/sync/")
+        assert synced.status_code == status.HTTP_202_ACCEPTED, synced.content
+        assert synced.json()["status"] == "triggered"
+        mock_trigger_sync.assert_called_once()
+
+        backfilled = self.client.post(f"{self.endpoint}{source_id}/backfill/")
+        assert backfilled.status_code == status.HTTP_202_ACCEPTED, backfilled.content
+        assert backfilled.json() == {"status": "started", "already_running": False}
+        mock_start_backfill.assert_called_once()
+
+        runs = self.client.get(f"{self.endpoint}{source_id}/runs/")
+        assert runs.status_code == status.HTTP_200_OK
+        assert any(run["status"] == "running" for run in runs.json()["results"])
+
 
 class TestAccountNotesViewSet(APIBaseTest):
     def setUp(self):

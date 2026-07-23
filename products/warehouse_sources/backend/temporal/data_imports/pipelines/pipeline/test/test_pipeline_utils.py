@@ -945,6 +945,31 @@ def test_append_partition_key_to_table_does_not_type_error(name: str, data: list
         pytest.fail(f"raised TypeError for case {name} with data: {data}")
 
 
+def test_append_partition_key_numerical_handles_null_key():
+    # Numerical partitioning is only selected when partition_size is set, so the general
+    # does-not-type-error test (partition_size=None) never reaches the `key // partition_size`
+    # path. Pipedrive *_fields endpoints partition by `id` with partition_size=1 and can emit
+    # rows with a null id, which used to crash with `NoneType // int`.
+    partition_key = "id"
+    table = pa.table({partition_key: [1, 2, None, 4]})
+    logger: FilteringBoundLogger = structlog.get_logger()
+
+    result = append_partition_key_to_table(
+        table,
+        partition_keys=[partition_key],
+        partition_mode=None,
+        partition_count=None,
+        partition_size=1,
+        partition_format=None,
+        logger=logger,
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
+
+
 def _mock_schema(**overrides: Any) -> MagicMock:
     schema = MagicMock()
     schema.partition_count = overrides.get("partition_count")

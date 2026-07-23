@@ -123,6 +123,8 @@ GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS = 3600
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
+# TODO(migration): Stripe-only - remove once Stripe traffic has fully moved to
+# /api/partners/stripe/ (watch path_namespace on agentic_provisioning events).
 # Stripe's contracted scope ceiling, seeded onto the legacy Stripe Projects OAuth
 # app. Mirrors the de-facto set tokens already carry (`StripeIntegration.SCOPES`,
 # the default in `_exchange_authorization_code` when no per-code scopes are given).
@@ -144,6 +146,10 @@ PARTNER_TOKEN_EXPIRY_SECONDS = 3600
 #   2. pay_as_you_go (plan) — usage-based pricing, no minimum commitment
 #   3. analytics (deployable) — provisions a PostHog project, pricing varies
 #      by parent plan via component pricing
+# TODO(migration): only the Stripe orchestrator consumes this catalog today -
+# removable (along with provisioning_health/provisioning_services) once Stripe
+# traffic has fully moved to /api/partners/stripe/, unless another partner
+# starts using /provisioning/services.
 # ---------------------------------------------------------------------------
 
 ANALYTICS_SERVICE_ID = "analytics"
@@ -372,6 +378,9 @@ def account_requests(request: Request) -> Response:
     else:
         partner_account_id = orchestrator.get("account", "")
 
+    # TODO(migration): the partner-less fallback below (global Stripe HMAC +
+    # orchestrator.stripe.account) is Stripe-only — remove once Stripe traffic
+    # has fully moved to /api/partners/stripe/.
     # If no partner identified, require Stripe Projects HMAC auth
     if not partner and not request.headers.get("stripe-signature"):
         return typed_error_response("unauthorized", "Authentication required", status=401)
@@ -1236,6 +1245,8 @@ def _exchange_authorization_code(request: Request) -> Response:
 
     # Auth check: PKCE codes require code_verifier, non-PKCE codes require HMAC.
     # All verification happens BEFORE cache.delete so a failed attempt doesn't consume the code.
+    # TODO(migration): the HMAC arm is Stripe-only - remove once Stripe traffic
+    # has fully moved to /api/partners/stripe/ (PKCE remains for other partners).
     stored_challenge = code_data.get("code_challenge", "")
     has_hmac = bool(request.headers.get("stripe-signature"))
     if stored_challenge:
@@ -1542,6 +1553,8 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
+# TODO(migration): the SPT billing helpers below are Stripe-only - remove once
+# Stripe traffic has fully moved to /api/partners/stripe/.
 def _build_billing_token(team: Team, user: User) -> str | None:
     from posthog.cloud_utils import get_cached_instance_license
 
@@ -2497,6 +2510,8 @@ def provisioning_wizard_runs(request: Request, resource_id: str) -> Response:
 
 # ---------------------------------------------------------------------------
 # POST /provisioning/resources/:id/update_service
+# TODO(migration): Stripe-only (hard global-HMAC requirement, SPT billing) -
+# remove once Stripe traffic has fully moved to /api/partners/stripe/.
 # ---------------------------------------------------------------------------
 
 
@@ -2811,6 +2826,8 @@ def deep_links(request: Request) -> Response:
 
     # HMAC partners must include a valid signature on this endpoint - bearer alone
     # is not sufficient to mint a full web session via the deep-link primitive.
+    # TODO(migration): HMAC support is Stripe-only - remove this branch once
+    # Stripe traffic has fully moved to /api/partners/stripe/.
     if access_token.application.provisioning_auth_method == "hmac":
         if not request.META.get("HTTP_STRIPE_SIGNATURE"):
             return error_response(
@@ -2892,6 +2909,8 @@ def deep_links(request: Request) -> Response:
 
 
 def _partner_label(partner: OAuthApplication | None) -> str:
+    # TODO(migration): the "Stripe" fallbacks are for the partner-less legacy
+    # identity - remove once Stripe traffic has fully moved to /api/partners/stripe/.
     if not partner:
         return "Stripe"
     if partner.provisioning_partner_type:
@@ -3000,6 +3019,8 @@ def _enforce_cimd_domain_rate_limit(client_id: str) -> Response | None:
 
 
 def _verify_hmac_if_present(request: Request) -> Response | None:
+    # TODO(migration): Stripe-only - remove once Stripe traffic has fully moved
+    # to /api/partners/stripe/.
     """Verify HMAC signature only if the Stripe-Signature header is present.
 
     For HMAC partners (Stripe), both HMAC + Bearer are required on resource endpoints.
@@ -3046,12 +3067,16 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
         return None, access_token.user, access_token
 
     # Legacy fallback: accept tokens from the Stripe Projects app by client_id
+    # TODO(migration): Stripe-only - remove once Stripe traffic has fully moved
+    # to /api/partners/stripe/.
     if app and app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
         return None, access_token.user, access_token
 
     return (error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
+# TODO(migration): the legacy Stripe app resolution below is Stripe-only -
+# remove once Stripe traffic has fully moved to /api/partners/stripe/.
 class LegacyStripeOAuthAppMissingError(Exception):
     """The configured Stripe Projects OAuth app could not be resolved.
 
@@ -3122,6 +3147,8 @@ def _get_callback_url(partner_id: str) -> str:
         except OAuthApplication.DoesNotExist:
             pass
 
+    # TODO(migration): Stripe-only fallback - remove once Stripe traffic has
+    # fully moved to /api/partners/stripe/.
     return settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
 
 
