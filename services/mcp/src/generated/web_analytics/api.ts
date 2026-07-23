@@ -15,7 +15,7 @@ export const HeatmapsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -38,7 +38,7 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['unique_visitors', 'total_count'])
         .default(heatmapsListQueryAggregationDefault)
         .describe(
-            "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n* `unique_visitors` - unique_visitors\n* `total_count` - total_count"
+            "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n\* `unique_visitors` - unique_visitors\n\* `total_count` - total_count"
         ),
     cohort_ids: zod
         .string()
@@ -61,7 +61,7 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
     filter_test_accounts: zod
         .boolean()
         .nullish()
-        .describe("When true, exclude sessions from internal/test accounts using the project's test-account filters."),
+        .describe("When true, exclude sessions from internal\/test accounts using the project's test-account filters."),
     hide_zero_coordinates: zod
         .boolean()
         .default(heatmapsListQueryHideZeroCoordinatesDefault)
@@ -87,7 +87,7 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .default(heatmapsListQueryTypeDefault)
         .describe(
-            "The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates."
+            "The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x\/y coordinates."
         ),
     url_exact: zod
         .string()
@@ -120,7 +120,7 @@ export const HeatmapsEventsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -141,7 +141,7 @@ export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .enum(['unique_visitors', 'total_count'])
         .default(heatmapsEventsRetrieveQueryAggregationDefault)
         .describe(
-            "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n* `unique_visitors` - unique_visitors\n* `total_count` - total_count"
+            "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n\* `unique_visitors` - unique_visitors\n\* `total_count` - total_count"
         ),
     cohort_ids: zod
         .string()
@@ -164,7 +164,7 @@ export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     filter_test_accounts: zod
         .boolean()
         .nullish()
-        .describe("When true, exclude sessions from internal/test accounts using the project's test-account filters."),
+        .describe("When true, exclude sessions from internal\/test accounts using the project's test-account filters."),
     hide_zero_coordinates: zod
         .boolean()
         .default(heatmapsEventsRetrieveQueryHideZeroCoordinatesDefault)
@@ -191,7 +191,7 @@ export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .default(heatmapsEventsRetrieveQueryTypeDefault)
         .describe(
-            "The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates."
+            "The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x\/y coordinates."
         ),
     url_exact: zod
         .string()
@@ -224,7 +224,7 @@ export const SavedListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -252,7 +252,7 @@ export const SavedCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -289,16 +289,16 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         ),
     type: zod
         .enum(['screenshot', 'iframe', 'recording'])
-        .describe('* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording')
+        .describe('\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording')
         .default(savedCreateBodyTypeDefault)
         .describe(
-            "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording"
+            "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording"
         ),
     block_consent_modals: zod
         .boolean()
         .optional()
         .describe(
-            "When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
+            "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
         ),
 })
 
@@ -309,7 +309,7 @@ export const SavedRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -321,7 +321,7 @@ export const SavedPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -362,17 +362,17 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     type: zod
         .enum(['screenshot', 'iframe', 'recording'])
-        .describe('* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording')
+        .describe('\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording')
         .optional()
         .describe(
-            "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording"
+            "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording"
         ),
     deleted: zod.boolean().optional().describe('Set true to soft-delete the saved heatmap.'),
     block_consent_modals: zod
         .boolean()
         .optional()
         .describe(
-            "When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
+            "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
         ),
 })
 
@@ -383,7 +383,7 @@ export const SavedRegenerateCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -396,7 +396,7 @@ export const WebAnalyticsWeeklyDigestParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
