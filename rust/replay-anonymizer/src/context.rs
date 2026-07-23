@@ -59,15 +59,24 @@ impl<'a> Ctx<'a> {
     }
 
     /// Scrub one image data URI per the policy: the blurred URI (inline), or a token the patch
-    /// pass later replaces (parallel). Failures resolve to `fallback` either way.
+    /// pass later replaces (parallel). Failures resolve to `fallback` either way. A message that
+    /// exhausts the queued-bytes budget degrades to inline for the remainder — bounded memory,
+    /// identical output.
     pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
-        match self.image_policy {
-            ImagePolicy::Inline => match (self.blur_data_uri(original), fallback) {
-                (Some(blurred), _) => blurred,
-                (None, ImageFallback::Blank) => blank_image_data_uri(),
-                (None, ImageFallback::Placeholder) => PLACEHOLDER_SRC.to_string(),
-            },
-            ImagePolicy::Parallel => self.images.submit(original, fallback, true),
+        if self.image_policy == ImagePolicy::Parallel {
+            if let Some(token) = self.images.submit(
+                original,
+                fallback,
+                true,
+                crate::images::MAX_QUEUED_URI_BYTES,
+            ) {
+                return token;
+            }
+        }
+        match (self.blur_data_uri(original), fallback) {
+            (Some(blurred), _) => blurred,
+            (None, ImageFallback::Blank) => blank_image_data_uri(),
+            (None, ImageFallback::Placeholder) => PLACEHOLDER_SRC.to_string(),
         }
     }
 

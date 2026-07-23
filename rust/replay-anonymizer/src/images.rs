@@ -46,6 +46,12 @@ pub(crate) enum ImageFallback {
 const DATA_URI_PREFIX: &[u8] = b"data:image/png;base64,";
 const ID_HEX_LEN: usize = 8;
 
+/// Cap on the URI bytes one message may have queued: each job clones its data URI, so an
+/// image-stuffed message would otherwise retain a second copy of its whole payload while the
+/// fixed-size pool catches up. Past the cap, `submit` declines and the caller blurs inline —
+/// slower, bounded, identical output. Global memory stays bounded at (concurrent messages x cap).
+pub(crate) const MAX_QUEUED_URI_BYTES: usize = 32 * 1024 * 1024;
+
 /// Random 128 bits per process: payload bytes can't be crafted (or fluked, at any volume) to
 /// collide with a live token — a false match needs this exact 35-char ASCII run in the payload.
 static TOKEN_MARKER: LazyLock<String> = LazyLock::new(|| {
@@ -127,6 +133,7 @@ pub struct ImageQueue {
     ids_by_uri: RefCell<HashMap<String, u32>>,
     jobs: RefCell<HashMap<u32, JobState>>,
     next_id: Cell<u32>,
+    queued_uri_bytes: Cell<usize>,
     /// Worker-side blur time and job count, accumulated as results are claimed.
     pub(crate) blur_ns: Cell<u64>,
     pub(crate) blur_count: Cell<u32>,
@@ -134,12 +141,24 @@ pub struct ImageQueue {
 
 impl ImageQueue {
     /// Submits (or dedups) a blur job and returns the occurrence's token, `data:`-wrapped when the
-    /// call site substitutes a full URI.
-    pub(crate) fn submit(&self, uri: &str, fallback: ImageFallback, wrapped: bool) -> String {
+    /// call site substitutes a full URI. `None` = the per-message byte budget is spent and the
+    /// caller must scrub this occurrence inline.
+    pub(crate) fn submit(
+        &self,
+        uri: &str,
+        fallback: ImageFallback,
+        wrapped: bool,
+        max_queued_uri_bytes: usize,
+    ) -> Option<String> {
         let known = self.ids_by_uri.borrow().get(uri).copied();
         let id = if let Some(id) = known {
             id
         } else {
+            let queued = self.queued_uri_bytes.get().saturating_add(uri.len());
+            if queued > max_queued_uri_bytes {
+                return None;
+            }
+            self.queued_uri_bytes.set(queued);
             let id = self.next_id.get();
             self.next_id.set(id + 1);
             let (result_tx, result_rx) = mpsc::sync_channel(1);
@@ -159,14 +178,14 @@ impl ImageQueue {
             ImageFallback::Placeholder => 'p',
         };
         let core = format!("{}{id:08x}{fb}", &*TOKEN_MARKER);
-        if wrapped {
+        Some(if wrapped {
             format!(
                 "{}{core}",
                 std::str::from_utf8(DATA_URI_PREFIX).expect("static prefix is utf-8")
             )
         } else {
             core
-        }
+        })
     }
 
     /// Move blur time accumulated by claimed jobs into the timings sink (idempotent via reset).
@@ -297,12 +316,18 @@ mod tests {
     fn submit_dedups_by_uri_and_patch_replaces_every_occurrence() {
         let q = ImageQueue::default();
         let uri = png_data_uri(64, 32, [10, 20, 30, 255]);
-        let t1 = q.submit(&uri, ImageFallback::Blank, true);
-        let t2 = q.submit(&uri, ImageFallback::Blank, true);
+        let t1 = q
+            .submit(&uri, ImageFallback::Blank, true, MAX_QUEUED_URI_BYTES)
+            .unwrap();
+        let t2 = q
+            .submit(&uri, ImageFallback::Blank, true, MAX_QUEUED_URI_BYTES)
+            .unwrap();
         assert_eq!(t1, t2);
         assert_eq!(q.next_id.get(), 1);
 
-        let raw = q.submit(&uri, ImageFallback::Blank, false);
+        let raw = q
+            .submit(&uri, ImageFallback::Blank, false, MAX_QUEUED_URI_BYTES)
+            .unwrap();
         assert!(t1.ends_with(&raw));
 
         let buf = format!("{{\"a\":\"{t1}\",\"b\":\"{t2}\",\"c\":\"{raw}\"}}").into_bytes();
@@ -321,9 +346,15 @@ mod tests {
     fn failed_blur_patches_to_the_occurrence_fallback() {
         let q = ImageQueue::default();
         let bad = "data:image/png;base64,bm90IGFuIGltYWdl";
-        let wrapped = q.submit(bad, ImageFallback::Blank, true);
-        let placeholder = q.submit(bad, ImageFallback::Placeholder, true);
-        let raw = q.submit(bad, ImageFallback::Blank, false);
+        let wrapped = q
+            .submit(bad, ImageFallback::Blank, true, MAX_QUEUED_URI_BYTES)
+            .unwrap();
+        let placeholder = q
+            .submit(bad, ImageFallback::Placeholder, true, MAX_QUEUED_URI_BYTES)
+            .unwrap();
+        let raw = q
+            .submit(bad, ImageFallback::Blank, false, MAX_QUEUED_URI_BYTES)
+            .unwrap();
 
         let buf = format!("[\"{wrapped}\",\"{placeholder}\",\"{raw}\"]").into_bytes();
         let patched = String::from_utf8(q.patch(buf)).unwrap();
@@ -332,6 +363,19 @@ mod tests {
             format!("[\"data:image/png;base64,{BLANK_PNG_BASE64}\",\"{PLACEHOLDER_SRC}\",\"{BLANK_PNG_BASE64}\"]")
         );
         assert_eq!(q.blur_count.get(), 1);
+    }
+
+    #[test]
+    fn over_budget_submissions_decline_but_known_uris_still_dedup() {
+        let q = ImageQueue::default();
+        let a = png_data_uri(16, 16, [1, 2, 3, 255]);
+        let b = png_data_uri(16, 16, [4, 5, 6, 255]);
+        let budget = a.len() + 1;
+        let t1 = q.submit(&a, ImageFallback::Blank, true, budget).unwrap();
+        // A new URI over the budget declines; the caller scrubs it inline.
+        assert_eq!(q.submit(&b, ImageFallback::Blank, true, budget), None);
+        // An already-queued URI still resolves to its token, budget notwithstanding.
+        assert_eq!(q.submit(&a, ImageFallback::Blank, true, budget), Some(t1));
     }
 
     #[test]
