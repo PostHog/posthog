@@ -41,10 +41,14 @@ def _changed_new_lines(patch: str) -> set[int]:
             continue
         if new_line is None:
             continue
-        if line.startswith("+") and not line.startswith("+++"):
+        # Single-char markers on purpose: GitHub's compare `patch` is hunk-only (no `--- a/` /
+        # `+++ b/` header pair), so guarding against `+++`/`---` here would instead swallow real
+        # content lines that start with a doubled marker — a deleted `---` frontmatter delimiter,
+        # an added unindented `++x` — and shift every later new-side number.
+        if line.startswith("+"):
             changed.add(new_line)
             new_line += 1
-        elif line.startswith("-") and not line.startswith("---"):
+        elif line.startswith("-"):
             changed.add(new_line)
         elif line.startswith("\\"):
             # "\ No newline at end of file" — not a real line on either side.

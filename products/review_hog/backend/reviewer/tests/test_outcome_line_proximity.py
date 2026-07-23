@@ -23,6 +23,15 @@ class TestParseCompareFiles:
         patch = "@@ -1,1 +1,2 @@\n+a\n b\n@@ -50,1 +51,1 @@\n+z\n"
         assert parse_compare_files([{"filename": "f.py", "patch": patch}])[0].changed_new_lines == frozenset({1, 51})
 
+    def test_content_lines_starting_with_doubled_markers_still_count(self):
+        # A deleted markdown frontmatter delimiter arrives as `----` and an added unindented
+        # `++title;` as `+++title;`. GitHub's compare `patch` is hunk-only, so a `+++`/`---`
+        # file-header guard has nothing to protect against and instead swallows these real changes
+        # (the finding never reaches the judge → durably `ignored`) while also advancing the
+        # new-side counter on the dropped deletion, shifting every later anchor (+z would land on 4).
+        patch = "@@ -1,3 +1,4 @@\n front\n----\n+++title;\n+z\n end\n"
+        assert parse_compare_files([{"filename": "f.py", "patch": patch}])[0].changed_new_lines == frozenset({2, 3})
+
     def test_no_newline_marker_is_not_a_line(self):
         patch = "@@ -1,1 +1,1 @@\n+a\n\\ No newline at end of file\n"
         assert parse_compare_files([{"filename": "f.py", "patch": patch}])[0].changed_new_lines == frozenset({1})
