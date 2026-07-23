@@ -1,5 +1,4 @@
 from products.batch_exports.backend.api.destination_tests.base import DestinationTest
-from products.batch_exports.backend.models.batch_export import S3_FAMILY_TYPES
 
 
 def get_destination_test(
@@ -11,10 +10,14 @@ def get_destination_test(
     (databricks, google-cloud-bigquery, snowflake, etc.). Importing them lazily keeps the
     SDKs off the API import path — only the requested destination's SDK loads.
     """
-    if destination in S3_FAMILY_TYPES:
-        from products.batch_exports.backend.api.destination_tests.s3 import S3DestinationTest  # noqa: PLC0415
+    if destination in ("S3", "S3Compatible"):
+        from products.batch_exports.backend.api.destination_tests.s3 import S3CompatibleDestinationTest  # noqa: PLC0415
 
-        return S3DestinationTest()
+        return S3CompatibleDestinationTest()
+    elif destination == "AwsS3":
+        from products.batch_exports.backend.api.destination_tests.s3 import AwsS3DestinationTest  # noqa: PLC0415
+
+        return AwsS3DestinationTest()
     elif destination == "BigQuery":
         from products.batch_exports.backend.api.destination_tests.bigquery import (  # noqa: PLC0415
             BigQueryDestinationTest,
