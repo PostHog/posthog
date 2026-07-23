@@ -14,16 +14,11 @@ import type {
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
-    MessageTemplateApi,
     MessagingCategoriesListParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
-    MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageSuppressionApi,
-    PaginatedMessageTemplateListApi,
-    PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
-    PatchedMessageTemplateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -479,135 +474,4 @@ export const messagingSuppressionsSuppressionsRetrieve = async (
             method: 'GET',
         }
     )
-}
-
-export const getMessagingTemplatesListUrl = (projectId: string, params?: MessagingTemplatesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/messaging_templates/?${stringifiedParams}`
-        : `/api/projects/${projectId}/messaging_templates/`
-}
-
-export const messagingTemplatesList = async (
-    projectId: string,
-    params?: MessagingTemplatesListParams,
-    options?: RequestInit
-): Promise<PaginatedMessageTemplateListApi> => {
-    return apiMutator<PaginatedMessageTemplateListApi>(getMessagingTemplatesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getMessagingTemplatesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/messaging_templates/`
-}
-
-export const messagingTemplatesCreate = async (
-    projectId: string,
-    messageTemplateApi: NonReadonly<MessageTemplateApi>,
-    options?: RequestInit
-): Promise<MessageTemplateApi> => {
-    return apiMutator<MessageTemplateApi>(getMessagingTemplatesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(messageTemplateApi),
-    })
-}
-
-export const getMessagingTemplatesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging_templates/${id}/`
-}
-
-export const messagingTemplatesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<MessageTemplateApi> => {
-    return apiMutator<MessageTemplateApi>(getMessagingTemplatesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getMessagingTemplatesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging_templates/${id}/`
-}
-
-export const messagingTemplatesUpdate = async (
-    projectId: string,
-    id: string,
-    messageTemplateApi: NonReadonly<MessageTemplateApi>,
-    options?: RequestInit
-): Promise<MessageTemplateApi> => {
-    return apiMutator<MessageTemplateApi>(getMessagingTemplatesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(messageTemplateApi),
-    })
-}
-
-export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging_templates/${id}/`
-}
-
-export const messagingTemplatesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedMessageTemplateApi?: NonReadonly<PatchedMessageTemplateApi>,
-    options?: RequestInit
-): Promise<MessageTemplateApi> => {
-    return apiMutator<MessageTemplateApi>(getMessagingTemplatesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedMessageTemplateApi),
-    })
-}
-
-export const getMessagingTemplatesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging_templates/${id}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const messagingTemplatesDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<unknown> => {
-    return apiMutator<unknown>(getMessagingTemplatesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/messaging_templates/${id}/design/`
-}
-
-export const messagingTemplatesDesignPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDesignPatchApi?: PatchedDesignPatchApi,
-    options?: RequestInit
-): Promise<MessageTemplateApi> => {
-    return apiMutator<MessageTemplateApi>(getMessagingTemplatesDesignPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDesignPatchApi),
-    })
 }

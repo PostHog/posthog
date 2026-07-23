@@ -560,6 +560,51 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
+    hog-functions-create:
+        operation: hog_functions_create
+        enabled: false
+    hog-functions-destroy:
+        operation: hog_functions_destroy
+        enabled: false
+    hog-functions-enable-backfills-create:
+        operation: hog_functions_enable_backfills_create
+        enabled: false
+    hog-functions-icon-retrieve:
+        operation: hog_functions_icon_retrieve
+        enabled: false
+    hog-functions-icons-retrieve:
+        operation: hog_functions_icons_retrieve
+        enabled: false
+    hog-functions-invocations-create:
+        operation: hog_functions_invocations_create
+        enabled: false
+    hog-functions-list:
+        operation: hog_functions_list
+        enabled: false
+    hog-functions-logs-retrieve:
+        operation: hog_functions_logs_retrieve
+        enabled: false
+    hog-functions-metrics-retrieve:
+        operation: hog_functions_metrics_retrieve
+        enabled: false
+    hog-functions-metrics-totals-retrieve:
+        operation: hog_functions_metrics_totals_retrieve
+        enabled: false
+    hog-functions-partial-update:
+        operation: hog_functions_partial_update
+        enabled: false
+    hog-functions-rearrange-partial-update:
+        operation: hog_functions_rearrange_partial_update
+        enabled: false
+    hog-functions-rerun-create:
+        operation: hog_functions_rerun_create
+        enabled: false
+    hog-functions-retrieve:
+        operation: hog_functions_retrieve
+        enabled: false
+    hog-functions-update:
+        operation: hog_functions_update
+        enabled: false
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create
         enabled: true
