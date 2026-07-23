@@ -136,8 +136,8 @@ class OrganizationInviteManager:
 
 def validate_invite_target_email_domain(organization: Organization, email: str) -> None:
     """
-    When an organization enforces SSO on a verified domain, invites may only go to that domain.
-    Raises ValidationError otherwise. No-op for orgs that don't enforce SSO.
+    When an organization enforces SSO, invites may only go to emails on one of the org's verified
+    domains. No-op for orgs that don't enforce SSO.
     """
     if OrganizationDomain.objects.is_email_blocked_by_sso_enforcement(email, organization):
         raise exceptions.ValidationError(
@@ -178,9 +178,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
     def validate_target_email(self, email: str):
         email = EmailNormalizer.normalize(email)
-        get_organization = self.context.get("get_organization")
-        if get_organization:
-            validate_invite_target_email_domain(get_organization(), email)
+        validate_invite_target_email_domain(self.context["get_organization"](), email)
         return email
 
     def validate_first_name(self, value: str) -> str:

@@ -43,6 +43,14 @@ class TestOrganizationDomainSSOEnforcement(BaseTest):
         org = self._org_with_domain(sso_enforcement=sso_enforcement, licensed=licensed)
         self.assertEqual(OrganizationDomain.objects.is_email_blocked_by_sso_enforcement(email, org), expect_blocked)
 
+    def test_email_on_any_verified_domain_is_allowed(self, _mock_providers):
+        # Enforcement gates on the org, but the allow-list is all of the org's verified domains —
+        # not just the enforcing one. Multi-domain orgs must accept invitees from every verified domain.
+        org = self._org_with_domain()
+        OrganizationDomain.objects.create(domain="hogflix.dev", organization=org, verified_at=timezone.now())
+        self.assertFalse(OrganizationDomain.objects.is_email_blocked_by_sso_enforcement("x@hogflix.dev", org))
+        self.assertTrue(OrganizationDomain.objects.is_email_blocked_by_sso_enforcement("x@gmail.com", org))
+
     def test_get_active_sso_enforcement_for_organization_returns_provider(self, _mock_providers):
         org = self._org_with_domain(sso_enforcement="github")
         self.assertEqual(OrganizationDomain.objects.get_active_sso_enforcement_for_organization(org), "github")
