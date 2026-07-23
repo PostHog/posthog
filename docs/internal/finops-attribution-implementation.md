@@ -92,7 +92,7 @@ Consequence: a Temporal activity that already runs under a workflow whose type m
 
 ### 2. Usage meters vs. cost records
 
-```
+```text
                         emitted / derived                         central job
   ┌───────────────────┐   usage meters    ┌──────────────────┐   cost records   ┌────────────────────┐
   │ chokepoints &      │ ────────────────▶ │ usage_meters      │ ───────────────▶ │ cost_attribution   │
@@ -179,7 +179,7 @@ Deliberately spanning the RFC's "wide range of situations". Each shows what's am
 
 **Standardised emission** — one baseline meter per batch, aggregated by TopHog-style meter, keyed by `(topic, groupId)` and, where the batch is single-team, by `teamId`:
 
-```
+```text
 usage_meter {
   billable_unit: "events"        # supplied (what this consumer meters)
   quantity:      messages.length # supplied
