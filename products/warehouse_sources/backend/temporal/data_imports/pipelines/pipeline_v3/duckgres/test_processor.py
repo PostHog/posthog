@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+import psycopg
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor import (
     DuckgresColumn,
     _ensure_duckgres_apply_table,
@@ -11,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _process_backfill_batch,
     _process_batch,
     _session_cache,
+    _table_exists,
     process_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -730,3 +733,74 @@ class TestLiveSessionReuse:
             process_batch(_make_batch(batch_index=1))
 
         assert self.mock_team.objects.only.return_value.get.call_count == 1
+
+
+def _existence_conn(exists: bool):
+    """A mock connection whose LIMIT-0 probe reports existence: it succeeds when
+    the table exists, and raises duckgres's XX000 "... does not exist" when not."""
+    conn = MagicMock()
+    if not exists:
+        conn.execute.side_effect = psycopg.errors.InternalError_(
+            "flight execute: ... Catalog Error: Table with name t does not exist!"
+        )
+    return conn
+
+
+class TestTableExistsProbeAndCache:
+    """The existence check the sink runs every non-first batch: a cheap
+    single-table LIMIT-0 probe (the whole-catalog information_schema check cost
+    ~48s under concurrent snapshot commits, prod 2026-07), cached per connection."""
+
+    def test_probe_succeeds_means_exists(self):
+        assert _table_exists(_existence_conn(True), "s", "t") is True
+
+    def test_probe_not_found_means_absent(self):
+        assert _table_exists(_existence_conn(False), "s", "t") is False
+
+    def test_other_error_propagates_not_treated_as_absent(self):
+        # A transient failure must NOT be read as "table absent" (that would pick
+        # the create path); only DuckDB's table-missing message means absent.
+        conn = MagicMock()
+        conn.execute.side_effect = psycopg.errors.InternalError_("flight execute: rpc error: Unavailable")
+        with pytest.raises(psycopg.Error):
+            _table_exists(conn, "s", "t")
+
+    def test_missing_schema_error_propagates_not_treated_as_table_absent(self):
+        # A bare "does not exist" match would swallow a missing schema/catalog/
+        # secret and wrongly pick the create path; only "Table with name ..." is
+        # absent. (Greptile P1.)
+        conn = MagicMock()
+        conn.execute.side_effect = psycopg.errors.InternalError_(
+            "flight execute: ... Catalog Error: Schema with name s does not exist!"
+        )
+        with pytest.raises(psycopg.Error):
+            _table_exists(conn, "s", "t")
+
+    def test_second_check_on_same_connection_skips_the_probe(self):
+        conn = _existence_conn(True)
+        assert _table_exists(conn, "posthog_data_imports_team_1", "customers") is True
+        assert _table_exists(conn, "posthog_data_imports_team_1", "customers") is True
+        assert conn.execute.call_count == 1  # probed once despite two checks
+
+    def test_distinct_tables_each_probe_once(self):
+        conn = _existence_conn(True)
+        _table_exists(conn, "s", "a")
+        _table_exists(conn, "s", "b")
+        _table_exists(conn, "s", "a")
+        assert conn.execute.call_count == 2
+
+    def test_separate_connections_do_not_share_the_cache(self):
+        c1, c2 = _existence_conn(True), _existence_conn(True)
+        _table_exists(c1, "s", "t")
+        _table_exists(c2, "s", "t")
+        assert c1.execute.call_count == 1
+        assert c2.execute.call_count == 1
+
+    def test_absent_table_is_not_cached(self):
+        # A negative must be re-checked: the table may be created between batches
+        # (the create path), so caching "does not exist" would wrongly skip a
+        # later insert/merge onto the now-existing table.
+        conn = _existence_conn(False)
+        assert _table_exists(conn, "s", "t") is False
+        assert _table_exists(conn, "s", "t") is False
+        assert conn.execute.call_count == 2

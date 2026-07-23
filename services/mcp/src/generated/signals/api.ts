@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 34 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -42,6 +42,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
+        ),
+    scout: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.'
         ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
     source_product: zod
@@ -547,6 +553,18 @@ export const SignalsScoutMembersListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member."
+        ),
+})
+
+/**
+ * Return the project's scout metadata: whether it is enrolled, the current announcement banner (e.g. an alpha run-limit notice, or null when unset), and the enforced run limits with current usage. Limits reflect what the coordinator actually applies at dispatch, so a user can see the real throttle rather than what they assume they set. All values come from the `signals-scout` flag payload, so the banner and caps can change with no deploy.
+ * @summary Get scout metadata
+ */
+export const SignalsScoutMetadataGetParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
 
