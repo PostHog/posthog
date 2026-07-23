@@ -261,6 +261,31 @@ Agents should stage changes with `git add`, then use the `git_signed_commit` too
 | Image     | `ghcr.io/posthog/posthog-sandbox-base` | Local Dockerfile build                  |
 | Auth      | Modal connect token                    | No token needed                         |
 
+### Runtime selection (gVisor vs Modal VM)
+
+Production sandboxes run on one of two Modal runtimes,
+chosen per run in `get_task_processing_context` (`_is_modal_vm_sandbox_enabled`)
+and forked in `provision_sandbox`:
+
+- **gVisor** (`SandboxTemplate.DEFAULT_BASE`) — the historical default: a gVisor kernel-sandboxed container.
+- **Modal VM** (`SandboxTemplate.VM_BASE`) — a kernel microVM that also bakes in Docker-in-Docker,
+  so the agent can run nested containers.
+  Custom base images layer on this base, and it is what image-builder runs execute on.
+
+Selection is driven by the `tasks-modal-vm-sandbox` flag's JSON payload,
+which carries two origin allowlists:
+
+- `origin_products` — origins allowed on the VM runtime when a custom image is resolved for the run
+  (custom images cannot run under gVisor).
+- `default_base_origin_products` — origins that default to the bare VM base image **even without a custom image**.
+  This is the knob for making the VM runtime the default for standard cloud runs;
+  we widen it origin-by-origin (and, later, the flag's release condition) as the rollout expands.
+
+Runs with a restricted-egress `SandboxEnvironment` (a custom domain allowlist) always stay on gVisor —
+Modal's outbound domain allowlist is a gVisor-only feature.
+The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
+(image builders) and is never accepted from client input.
+
 ### Network access
 
 Network access is configured per-team via `SandboxEnvironment`:

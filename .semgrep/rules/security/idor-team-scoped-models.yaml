@@ -99,6 +99,7 @@ rules:
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertySource
+                              |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
@@ -255,6 +256,7 @@ rules:
                               |SignalReportArtefact
                               |SignalReportRefund
                               |SignalReportTask
+                              |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
                               |SignalScoutConfig
@@ -413,6 +415,7 @@ rules:
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertySource
+                        |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
@@ -564,6 +567,7 @@ rules:
                         |SignalReportArtefact
                         |SignalReportRefund
                         |SignalReportTask
+                        |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
                         |SignalScoutConfig
