@@ -1426,57 +1426,72 @@ def get_teams_with_ai_event_count_in_period(
             f"""
             SELECT
                 team_id,
-                sum(least(
-                    events_in_period,
-                    if(
-                        events_before_period >= generation_count * %(allowance)s,
-                        0,
-                        generation_count * %(allowance)s - events_before_period
-                    )
-                )) AS sponsored_count
+                countIf(
+                    relay_timestamp >= %(begin)s
+                    AND relay_timestamp < %(end)s
+                    AND relay_rank <= generation_count * %(allowance)s
+                ) AS sponsored_count
             FROM (
                 SELECT
-                    team_id,
-                    trace_id,
-                    countIf(event_timestamp < %(begin)s) AS events_before_period,
-                    countIf(event_timestamp >= %(begin)s AND event_timestamp < %(end)s) AS events_in_period
+                    relays.team_id AS team_id,
+                    relays.trace_id AS trace_id,
+                    relays.event AS event,
+                    relays.span_id AS span_id,
+                    relays.relay_timestamp AS relay_timestamp,
+                    relays.relay_rank AS relay_rank,
+                    countIf(sponsors.sponsor_timestamp <= relays.relay_timestamp) AS generation_count
                 FROM (
                     SELECT
                         team_id,
                         event,
-                        min(timestamp) AS event_timestamp,
-                        {verified_expr} IN ('true', '1') AS verified,
-                        {relay_expr} IN ('true', '1') AS relay,
-                        if(verified AND relay, {trace_id_expr}, '') AS trace_id,
-                        if(verified AND relay, {span_id_expr}, '') AS span_id
-                    FROM {events_read_table(use_new)}
-                    WHERE team_id IN %(relayed_team_ids)s
-                      AND event IN %(ai_events)s AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
-                    GROUP BY team_id, event, verified, relay, trace_id, span_id
-                )
-                WHERE verified AND relay AND trace_id != '' AND span_id != ''
-                GROUP BY team_id, trace_id
-            ) AS relays
-            INNER JOIN (
-                SELECT
-                    team_id,
-                    trace_id,
-                    uniqExact(request_id) AS generation_count
-                FROM (
+                        trace_id,
+                        span_id,
+                        relay_timestamp,
+                        row_number() OVER (
+                            PARTITION BY team_id, trace_id
+                            ORDER BY relay_timestamp, event, span_id
+                        ) AS relay_rank
+                    FROM (
+                        SELECT
+                            team_id,
+                            event,
+                            min(timestamp) AS relay_timestamp,
+                            {verified_expr} IN ('true', '1') AS verified,
+                            {relay_expr} IN ('true', '1') AS relay,
+                            if(verified AND relay, {trace_id_expr}, '') AS trace_id,
+                            if(verified AND relay, {span_id_expr}, '') AS span_id
+                        FROM {events_read_table(use_new)}
+                        WHERE team_id IN %(relayed_team_ids)s
+                          AND event IN %(ai_events)s
+                          AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
+                        GROUP BY team_id, event, verified, relay, trace_id, span_id
+                    )
+                    WHERE verified AND relay AND trace_id != '' AND span_id != ''
+                ) AS relays
+                INNER JOIN (
                     SELECT
                         team_id,
-                        {verified_expr} IN ('true', '1') AS verified,
-                        {relay_expr} IN ('true', '1') AS relay,
-                        if(verified AND NOT relay, {trace_id_expr}, '') AS trace_id,
-                        if(verified AND NOT relay, {request_id_expr}, '') AS request_id
-                    FROM {events_read_table(use_new)}
-                    WHERE team_id IN %(relayed_team_ids)s
-                      AND event = '$ai_generation'
-                      AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
-                )
-                WHERE verified AND NOT relay AND trace_id != '' AND request_id != ''
-                GROUP BY team_id, trace_id
-            ) AS sponsors USING (team_id, trace_id)
+                        request_id,
+                        argMin(raw_trace_id, (raw_generation_timestamp, raw_trace_id)) AS trace_id,
+                        min(raw_generation_timestamp) AS sponsor_timestamp
+                    FROM (
+                        SELECT
+                            team_id,
+                            timestamp AS raw_generation_timestamp,
+                            {verified_expr} IN ('true', '1') AS verified,
+                            {relay_expr} IN ('true', '1') AS relay,
+                            if(verified AND NOT relay, {trace_id_expr}, '') AS raw_trace_id,
+                            if(verified AND NOT relay, {request_id_expr}, '') AS request_id
+                        FROM {events_read_table(use_new)}
+                        WHERE team_id IN %(relayed_team_ids)s
+                          AND event = '$ai_generation'
+                          AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
+                    )
+                    WHERE verified AND NOT relay AND raw_trace_id != '' AND request_id != ''
+                    GROUP BY team_id, request_id
+                ) AS sponsors USING (team_id, trace_id)
+                GROUP BY team_id, trace_id, event, span_id, relay_timestamp, relay_rank
+            )
             GROUP BY team_id
             """,
             {
