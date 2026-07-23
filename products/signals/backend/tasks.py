@@ -10,6 +10,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
@@ -22,6 +23,7 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +59,48 @@ _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync
 @with_team_scope()
 def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.send_reviewer_added_slack_notifications",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def send_reviewer_added_slack_notifications(
+    report_id: str, team_id: int, added_github_logins: list[str], exclude_user_id: int | None = None
+) -> None:
+    """Slack-ping reviewers a human just added to a report.
+
+    Runs on a worker because delivery makes several network calls (source-product metadata,
+    Slack user lookups, chat.postMessage) that must not hold up the reviewer-edit request.
+    Best-effort end to end — the dispatcher logs per-destination failures itself.
+    """
+    # Imported here rather than at module level: signal_metadata drags posthog.schema and
+    # posthog.hogql.query onto the django.setup() path (tasks are autodiscovered by celery),
+    # which the startup import budget forbids.
+    from products.signals.backend.signal_metadata import fetch_source_products_for_reports  # noqa: PLC0415
+
+    team = Team.objects.get(id=team_id)
+    # Source products are cosmetic (one metadata line in the message), so a failure fetching
+    # them must not suppress the ping itself.
+    source_products: list[str] | None = None
+    try:
+        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        source_products = meta.source_products if meta else None
+    except Exception:
+        logger.exception(
+            "failed to fetch source products for reviewer-added notification",
+            report_id=report_id,
+            team_id=team_id,
+        )
+    dispatch_reviewer_added_notifications(
+        report_id=report_id,
+        team_id=team_id,
+        added_github_logins=added_github_logins,
+        source_products=source_products,
+        exclude_user_id=exclude_user_id,
+    )
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:

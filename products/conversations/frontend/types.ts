@@ -176,6 +176,7 @@ export interface Ticket {
     github_issue_number?: number | null
     zendesk_ticket_id?: number | null
     organization_id?: string | null
+    organization_id_source?: string | null
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage

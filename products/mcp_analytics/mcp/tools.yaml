@@ -235,11 +235,38 @@ wrappers:
         description: >
             Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came
             from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error
-            rate — grouped by $mcp_error_type and HTTP $mcp_error_status (there is no free-text error message on tool
-            calls). Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and
-            a dateRange. Use to answer "why is tool X failing?" or "what errors does tool X throw, and on which
-            clients?".
+            rate — grouped by $mcp_error_type and HTTP $mcp_error_status. Each bucket carries the raw error_type and
+            error_status, which you can pass to query-mcp-tool-failure-occurrences to see individual errored calls with
+            their error messages. Pass toolName (effective tool name, resolved server-side, matching the other
+            tool-detail tools) and a dateRange. Use to answer "why is tool X failing?" or "what errors does tool X
+            throw, and on which clients?".
         system_prompt_hint: One MCP tool's top failure buckets, by harness (error type + HTTP status)
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-tool-failure-occurrences:
+        schema_ref: MCPToolFailureOccurrencesQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Individual errored calls in one failure bucket
+        description: >
+            Return individual errored $mcp_tool_call events for a single MCP tool within one failure bucket, newest
+            first (up to 50). Each occurrence carries the timestamp, distinct_id, session id, resolved harness, the
+            agent's stated intent, the captured error message ($mcp_error_message — empty on events that predate message
+            capture), and the HTTP status. Pass toolName plus the errorType (raw $mcp_error_type; "unknown" for events
+            without one) and optional errorStatus exactly as returned by query-mcp-tool-failures — when errorStatus is
+            omitted, only events without a status match. Use to answer "show me the actual errors" after a failure
+            bucket looks suspicious.
+        system_prompt_hint: Individual errored calls (with error messages) for one MCP tool's failure bucket
         exclude_properties:
             - response
             - modifiers
