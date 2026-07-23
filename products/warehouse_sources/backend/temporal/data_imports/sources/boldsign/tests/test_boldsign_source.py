@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.source import BoldSignSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BoldSignSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.boldsign import (
+    BoldSignSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

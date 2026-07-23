@@ -1,22 +1,21 @@
 """Mirror the Replay Vision Temporal pipeline's logs into the PostHog Logs product (dogfooding).
 
-Attaching an `OtelLogHandler` to the `products.replay_vision.backend.temporal` namespace ships those
-records into Logs under `service.name = replay-vision` with no new call sites. A no-op until
-OTLP_LOGS_INGEST_* are configured, so it is safe to install at worker import.
+`build_vision_log_mirror()` returns the structlog processor the worker start command inserts into the
+log chain for the Replay Vision task queue. A no-op until OTLP_LOGS_INGEST_* are configured.
 """
 
-import logging
+from typing import TYPE_CHECKING
 
-from posthog.otel_logs import OtelLogHandler
+from posthog.otel_logs import otel_log_mirror_processor
+
+if TYPE_CHECKING:
+    import structlog
 
 VISION_LOGS_SERVICE_NAME = "replay-vision"
+VISION_LOGS_LOGGER_PREFIX = "products.replay_vision.backend.temporal"
 
-# Every Replay Vision Temporal logger falls under this namespace, so a handler here catches them all.
-_TEMPORAL_LOGGER_NAME = "products.replay_vision.backend.temporal"
-
-# Fail-closed allowlist: only these operational fields ship to the shared Logs project. Anything else
-# (previews, prompts, exception messages, payload-derived values) is dropped so no team's
-# session-derived content crosses in.
+# Fail-closed: only these operational fields ship. Payload-derived values (previews, prompts,
+# exception messages) are dropped so no team's session content crosses into the shared project.
 VISION_LOG_ATTRIBUTE_ALLOWLIST = frozenset(
     {
         "observation_id",
@@ -40,15 +39,10 @@ VISION_LOG_ATTRIBUTE_ALLOWLIST = frozenset(
     }
 )
 
-_installed = False
 
-
-def install_vision_log_bridge() -> None:
-    """Attach the OTLP log handler to the Replay Vision Temporal logger. Idempotent and cheap."""
-    global _installed
-    if _installed:
-        return
-    logger = logging.getLogger(_TEMPORAL_LOGGER_NAME)
-    if not any(isinstance(handler, OtelLogHandler) for handler in logger.handlers):
-        logger.addHandler(OtelLogHandler(VISION_LOGS_SERVICE_NAME, attribute_allowlist=VISION_LOG_ATTRIBUTE_ALLOWLIST))
-    _installed = True
+def build_vision_log_mirror() -> "structlog.types.Processor":
+    return otel_log_mirror_processor(
+        VISION_LOGS_SERVICE_NAME,
+        logger_prefix=VISION_LOGS_LOGGER_PREFIX,
+        attribute_allowlist=VISION_LOG_ATTRIBUTE_ALLOWLIST,
+    )

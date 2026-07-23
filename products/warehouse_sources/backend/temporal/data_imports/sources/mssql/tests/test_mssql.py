@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     MSSQLColumn,
@@ -463,6 +463,39 @@ class TestFetchAverageRowSize:
         cursor.execute.side_effect = RuntimeError("boom")
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
+
+
+class TestGetRowsToSync:
+    def _deadlock_victim(self) -> pymssql.OperationalError:
+        return pymssql.OperationalError(
+            1205,
+            b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
+            b"chosen as the deadlock victim. Rerun the transaction.",
+        )
+
+    def test_returns_count_from_cursor(self, impl, cursor, logger):
+        cursor.fetchone.return_value = (42,)
+        assert impl.get_rows_to_sync(cursor, "SELECT id FROM t", {}, logger) == 42
+
+    def test_retries_deadlock_and_recovers_count(self, impl, cursor, logger, mocker):
+        # Runs before any rows stream, so a 1205 here is exactly as safe to rerun as the
+        # main read query — this used to fall straight to 0 instead of retrying.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        cursor.execute.side_effect = [self._deadlock_victim(), None]
+        cursor.fetchone.return_value = (7,)
+        assert impl.get_rows_to_sync(cursor, "SELECT id FROM t", {}, logger) == 7
+        assert cursor.execute.call_count == 2
+
+    def test_falls_back_to_zero_without_capturing_on_persistent_error(self, impl, cursor, logger, mocker):
+        # This COUNT(*) shares its FROM/WHERE with the real streaming query, so a genuine
+        # problem resurfaces (and is captured) there. Capturing it here too would flood
+        # error tracking with a handled duplicate of a transient/benign probe failure.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.execute.side_effect = RuntimeError("boom")
+        assert impl.get_rows_to_sync(cursor, "SELECT id FROM t", {}, logger) == 0
+        capture.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

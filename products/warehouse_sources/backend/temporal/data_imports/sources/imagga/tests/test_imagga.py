@@ -1,54 +1,28 @@
+import json
 from typing import Any
 
 import pytest
 from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import HTTPError, Response
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga import (
     BASE_URL,
-    ImaggaRetryableError,
     _daily_usage_rows,
-    _fetch_usage,
     _usage_snapshot_row,
-    get_rows,
     imagga_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import IMAGGA_ENDPOINTS
 
-
-class _FakeResponse:
-    def __init__(self, status_code: int = 200, json_data: Any = None, text: str = ""):
-        self.status_code = status_code
-        self._json_data = json_data
-        self.text = text
-        self.url: str = ""
-
-    @property
-    def ok(self) -> bool:
-        return self.status_code < 400
-
-    def json(self) -> Any:
-        return self._json_data
-
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error", response=self)  # type: ignore[arg-type]
-
-
-class _FakeSession:
-    def __init__(self, responses: list[_FakeResponse]):
-        self._responses = list(responses)
-        self.get_calls: list[dict[str, Any]] = []
-
-    def get(self, url: str, **kwargs: Any) -> _FakeResponse:
-        self.get_calls.append({"url": url, **kwargs})
-        response = self._responses.pop(0)
-        response.url = url
-        return response
-
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the imagga module.
+IMAGGA_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga.make_tracked_session"
+)
 
 # A representative /usage result, shaped after Imagga's public docs example.
 _USAGE_RESULT = {
@@ -63,6 +37,48 @@ _USAGE_RESULT = {
     "daily": {"1519603200": 1, "1540252800": 3},
     "monthly": {"2018-10": 30},
 }
+
+
+def _response(payload: Any, *, status: int = 200, retry_after: Any = None) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(payload).encode()
+    resp.url = f"{BASE_URL}/usage?concurrency=1"
+    if retry_after is not None:
+        resp.headers["Retry-After"] = str(retry_after)
+    return resp
+
+
+def _usage_body(result: Any) -> dict[str, Any]:
+    return {"result": result, "status": {"type": "success"}}
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and snapshot each request's params/auth/url at prepare time.
+
+    ``request.params`` is mutated in place across pages, so a copy is snapshotted per prepared request.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"params": dict(request.params or {}), "auth": request.auth, "url": request.url})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(endpoint: str, result: Any, MockSession: mock.MagicMock) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    session = MockSession.return_value
+    snapshots = _wire(session, [_response(_usage_body(result))])
+    rows = _rows(imagga_source("key", "secret", endpoint, team_id=1, job_id="j"))
+    return rows, snapshots
 
 
 class TestUsageSnapshotRow:
@@ -100,107 +116,123 @@ class TestDailyUsageRows:
         assert [r["timestamp"] for r in rows] == [1519603200]
 
 
-class TestFetchUsage:
-    @parameterized.expand([(429,), (500,), (503,)])
-    def test_retryable_statuses_raise_retryable_error(self, status: int) -> None:
-        session = _FakeSession([_FakeResponse(status_code=status)])
-        with pytest.raises(ImaggaRetryableError):
-            _fetch_usage(session, "key", "secret", mock.MagicMock())  # type: ignore[arg-type]
+class TestUsageEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_yields_single_snapshot_row(self, MockSession) -> None:
+        rows, _ = _run("usage", _USAGE_RESULT, MockSession)
+        assert len(rows) == 1
+        assert rows[0]["billing_period_start"] == "18 of Oct, 2018"
+        assert rows[0]["concurrency_max"] == 2
+        assert "daily" not in rows[0]
 
-    def test_client_error_raises_http_error(self) -> None:
-        session = _FakeSession([_FakeResponse(status_code=401, text="unauthorized")])
-        with pytest.raises(requests.HTTPError):
-            _fetch_usage(session, "key", "secret", mock.MagicMock())  # type: ignore[arg-type]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sends_concurrency_param_basic_auth_and_usage_path(self, MockSession) -> None:
+        _, snapshots = _run("usage", _USAGE_RESULT, MockSession)
+        # Credentials ride in the Basic-auth header (redacted from errors), never the URL.
+        assert snapshots[0]["params"] == {"concurrency": "1"}
+        assert snapshots[0]["auth"].username == "key"
+        assert snapshots[0]["auth"].password == "secret"
+        assert snapshots[0]["url"].endswith("/usage")
+        assert "concurrency" not in snapshots[0]["url"]
 
-    def test_returns_result_object_and_sends_basic_auth(self) -> None:
-        session = _FakeSession([_FakeResponse(json_data={"result": _USAGE_RESULT, "status": {"type": "success"}})])
-        result = _fetch_usage(session, "key", "secret", mock.MagicMock())  # type: ignore[arg-type]
-        assert result == _USAGE_RESULT
-        # Credentials must ride in the Basic-auth header, not the URL.
-        assert session.get_calls[0]["auth"] == ("key", "secret")
-        assert session.get_calls[0]["url"] == f"{BASE_URL}/usage?concurrency=1"
+    @parameterized.expand([("null_result", None), ("empty_result", {})])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_result_yields_nothing(self, _name: str, result: Any, MockSession) -> None:
+        rows, _ = _run("usage", result, MockSession)
+        assert rows == []
 
-    @parameterized.expand([("missing_result", {"status": {}}), ("null_result", {"result": None}), ("not_a_dict", [])])
-    def test_missing_result_returns_empty_dict(self, _name: str, body: Any) -> None:
-        session = _FakeSession([_FakeResponse(json_data=body)])
-        assert _fetch_usage(session, "key", "secret", mock.MagicMock()) == {}  # type: ignore[arg-type]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_result_key_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"status": {"type": "success"}})])
+        assert _rows(imagga_source("key", "secret", "usage", team_id=1, job_id="j")) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_without_primary_key_yields_nothing(self, MockSession) -> None:
+        # A non-empty snapshot missing `billing_period_start` must not be yielded — merging on an
+        # absent primary key column fails the sync permanently instead of producing an empty batch.
+        rows, _ = _run("usage", {"monthly_limit": 2000, "concurrency": {"max": 2, "now": 1}}, MockSession)
+        assert rows == []
+
+
+class TestDailyUsageEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_yields_exploded_sorted_rows(self, MockSession) -> None:
+        rows, _ = _run("daily_usage", _USAGE_RESULT, MockSession)
+        assert [r["date"] for r in rows] == ["2018-02-26", "2018-10-23"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_result_yields_nothing(self, MockSession) -> None:
+        rows, _ = _run("daily_usage", {}, MockSession)
+        assert rows == []
+
+
+class TestRetryAndErrors:
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("unavailable", 503)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        # Retry-After: 0 keeps the retry wait at zero so the test doesn't sleep.
+        _wire(session, [_response({}, status=status, retry_after=0), _response(_usage_body(_USAGE_RESULT))])
+        rows = _rows(imagga_source("key", "secret", "usage", team_id=1, job_id="j"))
+        assert len(rows) == 1
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_error_raises_http_error(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"status": {"text": "unauthorized"}}, status=401)])
+        with pytest.raises(HTTPError):
+            _rows(imagga_source("key", "secret", "usage", team_id=1, job_id="j"))
 
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga.make_tracked_session")
+    @mock.patch(IMAGGA_SESSION_PATCH)
     def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _FakeResponse(status_code=status)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("key", "secret") is expected
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga.make_tracked_session")
+    @mock.patch(IMAGGA_SESSION_PATCH)
     def test_exception_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key", "secret") is False
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga.make_tracked_session")
+    @mock.patch(IMAGGA_SESSION_PATCH)
     def test_redacts_secret_and_uses_basic_auth(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _FakeResponse(status_code=200)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("key", "secret")
         # The secret is masked by value in logs/samples, and travels via Basic auth.
         assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
-        assert mock_session.return_value.get.call_args.kwargs["auth"] == ("key", "secret")
-
-
-class TestGetRows:
-    def _run(self, endpoint: str, result: dict[str, Any]) -> list[Any]:
-        session = _FakeSession([_FakeResponse(json_data={"result": result})])
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga.make_tracked_session",
-            return_value=session,
-        ):
-            return list(get_rows("key", "secret", endpoint, mock.MagicMock()))
-
-    def test_usage_yields_single_snapshot_row(self) -> None:
-        batches = self._run("usage", _USAGE_RESULT)
-        assert len(batches) == 1
-        assert len(batches[0]) == 1
-        assert batches[0][0]["billing_period_start"] == "18 of Oct, 2018"
-
-    def test_daily_usage_yields_exploded_rows(self) -> None:
-        batches = self._run("daily_usage", _USAGE_RESULT)
-        assert [r["date"] for r in batches[0]] == ["2018-02-26", "2018-10-23"]
-
-    @parameterized.expand([("usage", {}), ("daily_usage", {})])
-    def test_empty_result_yields_nothing(self, endpoint: str, result: dict[str, Any]) -> None:
-        assert self._run(endpoint, result) == []
-
-    def test_usage_without_primary_key_yields_nothing(self) -> None:
-        # A non-empty snapshot missing `billing_period_start` must not be yielded — merging on an
-        # absent primary key column fails the sync permanently instead of producing an empty batch.
-        result = {"monthly_limit": 2000, "concurrency": {"max": 2, "now": 1}}
-        assert self._run("usage", result) == []
-
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError):
-            self._run("nope", _USAGE_RESULT)
+        auth = mock_session.return_value.get.call_args.kwargs["auth"]
+        assert isinstance(auth, HTTPBasicAuth)
+        assert (auth.username, auth.password) == ("key", "secret")
 
 
 class TestImaggaSourceResponse:
     @parameterized.expand([("usage", ["billing_period_start"]), ("daily_usage", ["date"])])
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = imagga_source("key", "secret", endpoint, mock.MagicMock())
+        response = imagga_source("key", "secret", endpoint, team_id=1, job_id="j")
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
 
     def test_daily_usage_partitions_on_stable_date(self) -> None:
-        response = imagga_source("key", "secret", "daily_usage", mock.MagicMock())
+        response = imagga_source("key", "secret", "daily_usage", team_id=1, job_id="j")
         assert response.partition_keys == ["date"]
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
 
     def test_usage_snapshot_is_not_partitioned(self) -> None:
-        response = imagga_source("key", "secret", "usage", mock.MagicMock())
+        response = imagga_source("key", "secret", "usage", team_id=1, job_id="j")
         assert response.partition_keys is None
+
+    def test_unknown_endpoint_raises(self) -> None:
+        with pytest.raises(ValueError):
+            imagga_source("key", "secret", "nope", team_id=1, job_id="j")
 
     def test_every_settings_endpoint_builds_a_source_response(self) -> None:
         for endpoint in IMAGGA_ENDPOINTS:
-            response = imagga_source("key", "secret", endpoint, mock.MagicMock())
+            response = imagga_source("key", "secret", endpoint, team_id=1, job_id="j")
             assert response.name == endpoint
             assert response.primary_keys == IMAGGA_ENDPOINTS[endpoint].primary_keys

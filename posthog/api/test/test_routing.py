@@ -50,8 +50,12 @@ class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 test_router = DefaultRouterPlusPlus()
 
-test_environments_router = test_router.register(r"environments", FooViewSet, "environments")
-test_environments_router.register(r"foos", FooViewSet, "environment_foos", ["team_id"])
+# A team_id-nested parent (distinct from the project_id-nested one below) so the mixin's
+# team_id vs project_id filtering can be exercised. Deliberately NOT named `environments`:
+# EnvironmentsRewriteMiddleware rewrites any `/api/environments/*` path onto `/api/projects/*`,
+# which would mask the team_id-lookup behavior these tests cover.
+test_team_nested_router = test_router.register(r"team_nested", FooViewSet, "team_nested")
+test_team_nested_router.register(r"foos", FooViewSet, "team_nested_foos", ["team_id"])
 
 test_projects_router = test_router.register(r"projects", FooViewSet, "projects")
 test_projects_router.register(r"foos", FooViewSet, "project_foos", ["project_id"])
@@ -96,7 +100,7 @@ class TestTeamAndOrgViewSetMixinSpanTagging(APIBaseTest):
     def test_team_view_tags_request_span_with_team_id(self):
         tracer, exporter = self._recording_tracer()
         with tracer.start_as_current_span("test-request-root"):
-            response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+            response = self.client.get(f"/api/team_nested/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._root_span(exporter).attributes["team_id"], self.team.id)
 
@@ -127,8 +131,8 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.other_team_annotation = Annotation.objects.create(team=other_team, organization=self.organization)
         self.current_team_annotation = Annotation.objects.create(team=self.team, organization=self.organization)
 
-    def test_environment_nested_filtering(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+    def test_team_nested_filtering(self):
+        response = self.client.get(f"/api/team_nested/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
 
@@ -158,7 +162,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         # restored the pre-request value, not unconditionally None.
         pre_request_scope = get_current_team_id()
 
-        response = self.client.get(f"/api/environments/{other_team.id}/foos/current_scope/")
+        response = self.client.get(f"/api/team_nested/{other_team.id}/foos/current_scope/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], other_team.id)
@@ -343,38 +347,6 @@ def test_router_registry_get_unknown_name_lists_known():
         registry.get("missing")
 
 
-def _registry_with_parents():
-    registry = RouterRegistry()
-    root = DefaultRouterPlusPlus()
-    registry.set_root(root)
-    registry.add("projects", root.register(r"projects", FooViewSet, "projects"))
-    registry.add("environments", root.register(r"environments", FooViewSet, "environments"))
-    return registry
-
-
-def test_register_legacy_dual_route_registers_both_surfaces():
-    registry = _registry_with_parents()
-    project_item, environment_item = registry.register_legacy_dual_route(
-        r"things", FooViewSet, "project_things", ["team_id"]
-    )
-    assert project_item is not None
-    assert environment_item is not None
-
-
-@pytest.mark.parametrize(
-    "basename,lookups,match",
-    [
-        ("project_things", [], "non-empty"),
-        ("project_things", ["project_id"], "team_id"),
-        ("things", ["team_id"], "must start with"),
-    ],
-)
-def test_register_legacy_dual_route_rejects_bad_input(basename, lookups, match):
-    registry = _registry_with_parents()
-    with pytest.raises(ValueError, match=match):
-        registry.register_legacy_dual_route(r"things", FooViewSet, basename, lookups)
-
-
 # --- Product route auto-discovery -----------------------------------------------------
 # Mirrors the discovery loop in posthog/api/__init__.py so the tests exercise the same
 # filter (products.* app whose `.routes` module exists).
@@ -397,7 +369,6 @@ def _build_product_routes(modules):
     registry = RouterRegistry()
     registry.set_root(router)
     registry.add("projects", router.register(r"projects", FooViewSet, "projects"))
-    registry.add("environments", router.register(r"environments", FooViewSet, "environments"))
     registry.add("organizations", router.register(r"organizations", FooViewSet, "organizations"))
     for module in modules:
         module.register_routes(registry)

@@ -21,7 +21,7 @@ use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::PersonRecord;
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
-use crate::stage2::state::Stage2State;
+use crate::stage2::state::{Stage2Ownership, Stage2State};
 use crate::stage2::CohortEligibility;
 use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
@@ -102,27 +102,28 @@ pub(crate) async fn recompute_stage2(
 
         let diff = recompute_and_diff(partition_id, person_id, tree, filters, handle, lane).await?;
         evaluated += 1;
-        if !diff.flipped() {
-            continue;
+        if diff.flipped() {
+            changes.push(CohortMembershipChange {
+                team_id: tree.team_id.0,
+                cohort_id: cohort_id.0,
+                person_id: person_id.to_string(),
+                last_updated: last_updated.to_string(),
+                status: diff.status(),
+                origin: None,
+                run_id: None,
+            });
         }
-
-        changes.push(CohortMembershipChange {
-            team_id: tree.team_id.0,
-            cohort_id: cohort_id.0,
-            person_id: person_id.to_string(),
-            last_updated: last_updated.to_string(),
-            status: diff.status(),
-            origin: None,
-            run_id: None,
-        });
-        // Write `false` rather than deleting so absence means "never evaluated".
-        writes.push((
-            diff.stage2_key,
-            Stage2State {
-                in_cohort: diff.new_bit,
-                last_evaluated_at_ms: event_ms,
-            },
-        ));
+        if diff.requires_write() {
+            // Write `false` rather than deleting so absence means "never evaluated". A no-flip
+            // transferred fallback is rewritten once so receiver evaluation claims ownership.
+            writes.push((
+                diff.stage2_key,
+                Stage2State {
+                    in_cohort: diff.new_bit,
+                    last_evaluated_at_ms: event_ms,
+                },
+            ));
+        }
     }
 
     Ok(Stage2Recompute {
@@ -153,6 +154,7 @@ pub(crate) struct RecomputeDiff {
     pub new_bit: bool,
     pub prior_bit: bool,
     pub stage2_key: Stage2Key,
+    settles_transfer_fallback: bool,
 }
 
 impl RecomputeDiff {
@@ -166,6 +168,12 @@ impl RecomputeDiff {
         } else {
             MembershipStatus::Left
         }
+    }
+
+    /// A receiver evaluation must rewrite a transferred fallback even when the logical bit is
+    /// unchanged, making source provenance observably stale without touching ordinary no-flip rows.
+    pub fn requires_write(&self) -> bool {
+        self.flipped() || self.settles_transfer_fallback
     }
 }
 
@@ -196,11 +204,12 @@ pub(crate) async fn recompute_and_diff(
         cohort_id: tree.cohort_id.0 as u64,
         person_id,
     };
-    let prior_bit = read_stage2_bit(handle, &stage2_key, lane).await?;
+    let prior = read_prior_stage2_state(handle, &stage2_key, lane).await?;
     Ok(RecomputeDiff {
         new_bit,
-        prior_bit,
+        prior_bit: prior.in_cohort,
         stage2_key,
+        settles_transfer_fallback: prior.ownership == Stage2Ownership::TransferredFallback,
     })
 }
 
@@ -433,13 +442,37 @@ fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
     }
 }
 
-/// The stored `cf_stage2` membership bit for `key`, `false` when absent or undecodable.
-async fn read_stage2_bit(
+struct PriorStage2State {
+    in_cohort: bool,
+    ownership: Stage2Ownership,
+}
+
+/// Decode both the logical prior bit and its ownership. Missing or corrupt rows keep the existing
+/// fail-closed `false` behavior and are never mistaken for a transferred fallback.
+async fn read_prior_stage2_state(
     handle: &StoreHandle,
     key: &Stage2Key,
     lane: ReadLane,
-) -> Result<bool, StoreError> {
-    Ok(decode_stage2_bit(handle.get_stage2(key, lane).await?))
+) -> Result<PriorStage2State, StoreError> {
+    let Some(bytes) = handle.get_stage2(key, lane).await? else {
+        return Ok(PriorStage2State {
+            in_cohort: false,
+            ownership: Stage2Ownership::Local,
+        });
+    };
+    match Stage2State::decode_with_ownership(&bytes) {
+        Ok((state, ownership)) => Ok(PriorStage2State {
+            in_cohort: state.in_cohort,
+            ownership,
+        }),
+        Err(_) => {
+            counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
+            Ok(PriorStage2State {
+                in_cohort: false,
+                ownership: Stage2Ownership::Local,
+            })
+        }
+    }
 }
 
 /// Decode a `cf_stage2` value into its membership bit, `false` when absent or undecodable.
@@ -814,6 +847,18 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(first.len(), 1, "the first evaluation enters");
+        let key = Stage2Key {
+            partition_id: PARTITION,
+            team_id: TEAM,
+            cohort_id: 1,
+            person_id: alice,
+        };
+        let current = Stage2State::decode(&store.get_stage2(&key).unwrap().unwrap()).unwrap();
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(&key, &current.encode_transferred_fallback());
+            })
+            .unwrap();
 
         let second = compose_stage2(
             PARTITION,
@@ -829,6 +874,12 @@ mod tests {
         assert!(
             second.is_empty(),
             "a re-evaluation with no change emits nothing"
+        );
+        let bytes = store.get_stage2(&key).unwrap().unwrap();
+        assert_eq!(
+            Stage2State::decode_with_ownership(&bytes).unwrap().1,
+            Stage2Ownership::Local,
+            "the no-op evaluation still claims a transferred fallback",
         );
     }
 

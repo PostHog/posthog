@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import transaction
 
 from pydantic import BaseModel
 
@@ -35,6 +36,7 @@ from products.tasks.backend.logic.services.run_actor import (
     get_task_run_actor_user as get_task_run_actor_user,
     get_task_run_credential_user as get_task_run_credential_user,
     is_slack_interaction_state as is_slack_interaction_state,
+    loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -97,6 +99,13 @@ RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
 
 
 CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
+    # GLM 5.2 is a Cloudflare-served model driven through the `claude` runtime adapter: the LLM
+    # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
+    # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
+    "@cf/zai-org/glm-5.2": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -182,6 +191,22 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     if adapter_value == RuntimeAdapter.CODEX.value:
         return CODEX_MODELS
     return ()
+
+
+# Applied at fire time when a loop leaves its model unset ("" / None): a blank
+# model means "let PostHog pick", so defaults can improve without rewriting
+# stored loops.
+DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
+    RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
+    RuntimeAdapter.CODEX.value: "gpt-5",
+}
+
+
+def get_default_model_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> str | None:
+    if runtime_adapter is None:
+        return None
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    return DEFAULT_MODEL_BY_RUNTIME_ADAPTER.get(adapter_value)
 
 
 def get_provider_for_runtime_adapter(
@@ -270,7 +295,6 @@ class RunState(BaseModel, extra="allow"):
     auto_publish: bool | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
-    home_quick_action: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
     runtime_adapter: RuntimeAdapter | None = None
@@ -361,23 +385,33 @@ GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
-def _mcp_token_issued_cache_key(run_id: str) -> str:
-    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
+    """Cache scope for marks describing a run's live sandbox.
 
-
-def mark_mcp_token_issued(run_id: str) -> None:
-    """Record that a fresh MCP token was issued to the sandbox for this run.
-
-    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
-    `should_refresh_mcp_token` returns True again past that window.
+    Keyed on the sandbox id so a replacement sandbox (fresh provision,
+    snapshot restore, workflow retry) starts unmarked — nothing ever needs
+    clearing. Falls back to the run id when state has no sandbox id yet.
     """
-    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    return (state or {}).get("sandbox_id") or run_id
 
 
-def should_refresh_mcp_token(run_id: str) -> bool:
-    """Return True if no MCP token has been issued for this run within the
-    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
+def _sandbox_mcp_session_cache_key(scope: str) -> str:
+    return f"tasks:sandbox-mcp-session:{scope}"
+
+
+def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
+    """Record whose OAuth token the sandbox's live MCP session holds.
+
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
+    entry always reads as "must refresh".
+    """
+    get_tasks_cache().set(_sandbox_mcp_session_cache_key(scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def get_sandbox_mcp_session_user(scope: str) -> int | None:
+    """User id the sandbox's MCP session was last bound to within the
+    freshness window, or None when unknown."""
+    return get_tasks_cache().get(_sandbox_mcp_session_cache_key(scope))
 
 
 @dataclass(frozen=True)
@@ -409,6 +443,22 @@ def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
+def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
+    """The connector allowlist a loop run snapshotted at fire time, read back from ``TaskRun.state``.
+
+    Returns ``None`` only when there is no snapshot at all (every non-loop task, or pre-snapshot
+    state) so the caller keeps its current unfiltered behavior. Once a loop snapshot exists, a
+    missing or malformed id list fails closed to an empty allowlist (mount nothing) — a loop that
+    selected no connectors, or whose config omitted the key, must not fall back to mounting every
+    connector the owner has."""
+    config_snapshot = (state or {}).get("config_snapshot")
+    if not isinstance(config_snapshot, dict):
+        return None
+    connectors = config_snapshot.get("connectors")
+    ids = connectors.get("mcp_installation_ids") if isinstance(connectors, dict) else None
+    return [str(i) for i in ids] if isinstance(ids, list) else []
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -416,12 +466,19 @@ def get_user_mcp_server_configs(
     *,
     include_personal: bool = True,
     interaction_origin: str | None = None,
+    allowed_installation_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Always includes shared (team-wide) installations. When
     ``include_personal`` is True and a ``user_id`` is provided, the user's
     personal installations are included too.
+
+    ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
+    loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
+    behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
+    those installations. Without it, an unattended loop run would mount every shared team connector
+    rather than only the ones its owner chose.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -436,6 +493,9 @@ def get_user_mcp_server_configs(
         user_id=user_id,
         include_personal=include_personal,
     )
+    if allowed_installation_ids is not None:
+        allowed = {str(i) for i in allowed_installation_ids}
+        installations = [installation for installation in installations if str(installation.id) in allowed]
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
@@ -645,6 +705,72 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+# Downscope for sandboxes that only gather evidence (commit history, PR metadata) and must not be
+# able to write anywhere. Every permission here must be one the PostHog GitHub App holds, or the
+# mint 422s: contents/metadata back `gh api repos/.../commits`, pull_requests backs PR lookups.
+READONLY_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+}
+
+
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether `get_readonly_github_token` has a team-level integration to mint from.
+
+    Cheap preflight for callers that condition user-visible behavior (e.g. prompt guidance naming
+    `gh`) on the token actually being obtainable — the flag alone can't tell a team that never
+    connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
+    """
+    try:
+        return _resolve_mintable_team_integration(team_id) is not None
+    except Exception:
+        logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
+        return False
+
+
+def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+    """The team-level integration a read-only mint may use, or None.
+
+    Refuses the resolver's org-owner personal-integration fallback (its installation can span
+    repos never connected to this team) and installations already marked permanently gone by a
+    prior failed mint — re-minting those storms GitHub with doomed calls until the customer
+    reconnects.
+    """
+    # Deferred to break a circular import — repo_selection.agent transitively imports the
+    # process-task workflow, which imports this module.
+    from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
+
+    integration = resolve_team_github_integration(team_id)
+    if not isinstance(integration, GitHubIntegration) or integration.installation_unavailable():
+        return None
+    return integration
+
+
+def get_readonly_github_token(team_id: int) -> Optional[str]:
+    """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
+
+    Resolves the same integration the repo-selection agent would use for this team, then mints an
+    installation token downscoped to read-only permissions. Team-level installations only: the
+    resolver's org-owner fallback returns a *personal* integration whose installation can span
+    repositories never connected to this team, and an unpinned mint against it would read them
+    all — a scheduled scout must never widen its reach beyond what the team itself connected.
+    The scoped token is never persisted — the integration's cached token stays the
+    full-permission credential other flows share. Returns None (never raises) when the team has
+    no usable team-level integration or the mint fails: read access is an evidence-gathering
+    nicety, and its absence must not fail the run.
+    """
+    try:
+        integration = _resolve_mintable_team_integration(team_id)
+        if integration is None:
+            logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
+            return None
+        return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
+    except Exception:
+        logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
+        return None
+
+
 def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
@@ -819,6 +945,46 @@ def get_sandbox_github_token(
     github_user_integration_id: str | None = None,
     repository: str | None = None,
 ) -> str | None:
+    """Resolve a loop run's GitHub token, then re-check owner eligibility before handing it back.
+
+    Resolving the token can make an external round-trip (user-integration refresh, installation
+    token), so the eligibility lock in `_resolve_sandbox_github_token` can't be held across it. This
+    outer gate re-verifies eligibility once resolution is done — the tightest safe boundary — so a
+    deactivation or team-access revocation that commits during the round-trip still stops the token
+    reaching the sandbox. Non-loop runs are unaffected."""
+    token = _resolve_sandbox_github_token(
+        github_integration_id,
+        run_id=run_id,
+        state=state,
+        created_by=created_by,
+        actor_user=actor_user,
+        task=task,
+        github_user_integration_id=github_user_integration_id,
+        repository=repository,
+    )
+    loop_id = (state or {}).get("loop_id")
+    if token is not None and loop_id is not None and task is not None:
+        with transaction.atomic():
+            if not loop_owner_eligible_for_credentials(task.created_by_id, task.team):
+                logger.warning(
+                    "loop_github_token_owner_ineligible_post_resolution",
+                    extra={"run_id": run_id, "task_id": str(task.id)},
+                )
+                return None
+    return token
+
+
+def _resolve_sandbox_github_token(
+    github_integration_id: int | None,
+    *,
+    run_id: str,
+    state: dict[str, Any] | None = None,
+    created_by: User | None = None,
+    actor_user: User | None = None,
+    task: Task | None = None,
+    github_user_integration_id: str | None = None,
+    repository: str | None = None,
+) -> str | None:
     """Resolve the GitHub token used inside a task sandbox.
 
     Resolution order for ``USER`` authorship:
@@ -845,6 +1011,18 @@ def get_sandbox_github_token(
     else:
         run_state = parse_run_state(state)
         pr_authorship_mode = run_state.pr_authorship_mode
+
+    # Loop runs mint credentials as the owner, so gate every GitHub token resolution (initial
+    # provisioning, snapshot resume, and refresh all reach here) on current owner eligibility. A
+    # deactivated or team-access-revoked owner must not get a fresh team GitHub token handed to their
+    # still-running loop while the async cancellation is in flight.
+    loop_id = (state or {}).get("loop_id")
+    if loop_id is not None and task is not None:
+        owner_id = created_by.id if created_by is not None else task.created_by_id
+        with transaction.atomic():
+            if not loop_owner_eligible_for_credentials(owner_id, task.team):
+                logger.warning("loop_github_token_owner_ineligible", extra={"run_id": run_id, "task_id": str(task.id)})
+                return None
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
         if task is not None and slack_interaction and created_by is None:
@@ -1020,3 +1198,27 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
         "GIT_COMMITTER_NAME": name,
         "GIT_COMMITTER_EMAIL": email,
     }
+
+
+def _message_actor_cache_key(run_id: str, message_id: str) -> str:
+    return f"tasks:followup-actor:{run_id}:{message_id}"
+
+
+# Bounds how long after delivery a turn can finish and still get exact
+# per-message attribution; longer turns fall back to the run-state actors.
+MESSAGE_ACTOR_TTL_SECONDS = 2 * 60 * 60
+
+
+def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> None:
+    """Correlate a delivered message with its sender's Slack id, so a relay
+    echoing the message id can tag the exact speaker it answers. The sandbox
+    only ever echoes an opaque id — resolution happens against actors this
+    server recorded itself, so a compromised sandbox cannot pick an arbitrary
+    mention target."""
+    get_tasks_cache().set(
+        _message_actor_cache_key(run_id, message_id), slack_user_id, timeout=MESSAGE_ACTOR_TTL_SECONDS
+    )
+
+
+def get_message_actor(run_id: str, message_id: str) -> str | None:
+    return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))

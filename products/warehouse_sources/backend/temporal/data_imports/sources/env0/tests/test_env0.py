@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -6,18 +7,30 @@ import pytest
 from unittest import mock
 
 import requests
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 import (
     PAGE_SIZE,
     Env0ResumeConfig,
     _build_date_window_params,
     env0_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENDPOINTS, ENV0_ENDPOINTS
 
+# RESTClient uses the session env0_source passes it, which env0 builds via make_tracked_session; both
+# the client session and the validate_credentials probe resolve to this one patched factory.
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0"
+SESSION_PATCH = f"{MODULE}.make_tracked_session"
+
+
+def _response(payload: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(payload).encode()
+    resp.url = "https://api.env0.com/probe"
+    resp.reason = "Error"
+    return resp
 
 
 def _make_manager(resume_state: Env0ResumeConfig | None = None) -> mock.MagicMock:
@@ -27,22 +40,43 @@ def _make_manager(resume_state: Env0ResumeConfig | None = None) -> mock.MagicMoc
     return manager
 
 
-def _response(payload: Any, status_code: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    resp.json.return_value = payload
-    if status_code >= 400:
-        resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=resp)
-    return resp
+def _wire(session: mock.MagicMock, routes: list[tuple[str, Response]]) -> list[str]:
+    """Dispatch each request to the first still-unconsumed route whose substring appears in the
+    fully-prepared URL. Real ``Request.prepare()`` builds the URL (merging the path-embedded query
+    with the params dict and applying Basic auth) so fan-out and pagination route deterministically.
+    Returns the URLs sent, in order."""
+    session.headers = {}
+    sent_urls: list[str] = []
+    remaining = list(routes)
 
+    def _prepare(request: Any) -> Any:
+        return request.prepare()
 
-def _requested_urls(mock_session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in mock_session.return_value.get.call_args_list]
+    def _send(prepared: Any, **kwargs: Any) -> Response:
+        sent_urls.append(prepared.url)
+        for i, (substr, response) in enumerate(remaining):
+            if substr in prepared.url:
+                remaining.pop(i)
+                return response
+        raise AssertionError(f"no route for {prepared.url}")
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return sent_urls
 
 
 def _query(url: str) -> dict[str, list[str]]:
     return parse_qs(urlparse(url).query)
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
+    return env0_source(
+        "key-id", "key-secret", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
+    )
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestBuildDateWindowParams:
@@ -76,7 +110,7 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
         response = mock.MagicMock()
         response.status_code = status_code
@@ -84,200 +118,247 @@ class TestValidateCredentials:
 
         assert validate_credentials("key-id", "key-secret") is expected
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key-id", "key-secret") is False
 
 
 class TestGetRows:
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_root_endpoint_fetches_once(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "org-1"}, {"id": "org-2"}])
+        session = mock_session.return_value
+        urls = _wire(session, [("env0.com/organizations", _response([{"id": "org-1"}, {"id": "org-2"}]))])
 
         manager = _make_manager()
-        batches = list(get_rows("key-id", "key-secret", "organizations", mock.MagicMock(), manager))
+        rows = _rows(_source("organizations", manager))
 
-        assert [row["id"] for batch in batches for row in batch] == ["org-1", "org-2"]
-        assert mock_session.return_value.get.call_count == 1
+        assert [row["id"] for row in rows] == ["org-1", "org-2"]
+        assert len(urls) == 1
         manager.save_state.assert_not_called()
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_org_scoped_endpoint_fans_out_over_organizations(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}, {"id": "org-2"}]),
-            _response([{"id": "proj-1"}]),
-            _response([{"id": "proj-2"}]),
-        ]
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}, {"id": "org-2"}])),
+                ("organizationId=org-1", _response([{"id": "proj-1"}])),
+                ("organizationId=org-2", _response([{"id": "proj-2"}])),
+            ],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("key-id", "key-secret", "projects", mock.MagicMock(), manager))
+        rows = _rows(_source("projects", manager))
 
-        assert [row["id"] for batch in batches for row in batch] == ["proj-1", "proj-2"]
-        urls = _requested_urls(mock_session)
+        assert [row["id"] for row in rows] == ["proj-1", "proj-2"]
         assert _query(urls[1])["organizationId"] == ["org-1"]
         assert _query(urls[2])["organizationId"] == ["org-2"]
-        # Bookmark advances to the next organization so a crash between parents resumes there.
-        manager.save_state.assert_called_once_with(Env0ResumeConfig(parent_id="org-2", offset=None))
+        # Single-hop fan-out keeps resume: the dependent resource checkpoints per-parent progress.
+        assert manager.save_state.called
+        assert "completed" in manager.save_state.call_args.args[0].paginator_state
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_offset_pagination_advances_until_short_page(self, mock_session):
+        session = mock_session.return_value
         full_page = [{"id": f"env-{i}"} for i in range(PAGE_SIZE)]
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}]),
-            _response(full_page),
-            # latestDeploymentLog embeds deployment variables and injected tokens; it must be
-            # dropped even when the server ignores the excludeFields param.
-            _response(
-                [{"id": "env-last", "latestDeploymentLog": {"customEnv0EnvironmentVariables": {"oidcToken": "x"}}}]
-            ),
-        ]
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                # latestDeploymentLog embeds deployment variables and injected tokens; it must be
+                # dropped even when the server ignores the excludeFields param.
+                (
+                    "offset=100",
+                    _response(
+                        [{"id": "env-last", "latestDeploymentLog": {"customEnv0EnvironmentVariables": {"o": "x"}}}]
+                    ),
+                ),
+                ("organizationId=org-1", _response(full_page)),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key-id", "key-secret", "environments", mock.MagicMock(), manager))
+        rows = _rows(_source("environments", _make_manager()))
 
-        assert sum(len(batch) for batch in batches) == PAGE_SIZE + 1
-        assert batches[-1][-1] == {"id": "env-last"}
-        environments_query = _query(_requested_urls(mock_session)[1])
-        assert environments_query["excludeFields"] == ["latestDeploymentLog"]
-        urls = _requested_urls(mock_session)
-        assert "offset" not in _query(urls[1])
-        assert _query(urls[2])["offset"] == [str(PAGE_SIZE)]
-        # State saved after yielding the full page, pointing at the next offset.
-        manager.save_state.assert_called_once_with(Env0ResumeConfig(parent_id="org-1", offset=str(PAGE_SIZE)))
+        assert len(rows) == PAGE_SIZE + 1
+        assert rows[-1] == {"id": "env-last"}
+        # The full first page advances the offset to 100; the short page then terminates.
+        first_page = next(url for url in urls if "organizationId=org-1" in url and "offset=100" not in url)
+        second_page = next(url for url in urls if "offset=100" in url)
+        assert _query(first_page)["offset"] == ["0"]
+        assert _query(second_page)["offset"] == ["100"]
+        # excludeFields is sent on every environments request even though the field is also stripped.
+        assert _query(second_page)["excludeFields"] == ["latestDeploymentLog"]
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_teams_pagination_follows_next_page_key(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}]),
-            _response({"teams": [{"id": "team-1"}], "nextPageKey": "key-abc"}),
-            _response({"teams": [{"id": "team-2"}]}),
-        ]
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                ("offset=key-abc", _response({"teams": [{"id": "team-2"}]})),
+                ("/teams/organizations/org-1", _response({"teams": [{"id": "team-1"}], "nextPageKey": "key-abc"})),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key-id", "key-secret", "teams", mock.MagicMock(), manager))
+        rows = _rows(_source("teams", _make_manager()))
 
-        assert [row["id"] for batch in batches for row in batch] == ["team-1", "team-2"]
-        urls = _requested_urls(mock_session)
-        assert _query(urls[2])["offset"] == ["key-abc"]
+        assert [row["id"] for row in rows] == ["team-1", "team-2"]
+        second_teams = next(url for url in urls if "offset=key-abc" in url)
+        assert _query(second_teams)["offset"] == ["key-abc"]
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_deployments_fan_out_strips_heavy_and_secret_fields_and_windows_requests(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}]),
-            _response([{"id": "env-1"}]),
-            _response(
-                [
-                    {
-                        "id": "dep-1",
-                        "status": "SUCCESS",
-                        "output": "x" * 100,
-                        "plan": {"big": True},
-                        "variables": [{"name": "DB_PASSWORD", "value": "hunter2", "isSensitive": False}],
-                        "customEnv0EnvironmentVariables": {"oidcToken": "eyJ...", "vcsAccessToken": "ghs_..."},
-                    }
-                ]
-            ),
-        ]
+        session = mock_session.return_value
+        deployment = {
+            "id": "dep-1",
+            "status": "SUCCESS",
+            "output": "x" * 100,
+            "plan": {"big": True},
+            "variables": [{"name": "DB_PASSWORD", "value": "hunter2", "isSensitive": False}],
+            "customEnv0EnvironmentVariables": {"oidcToken": "eyJ...", "vcsAccessToken": "ghs_..."},
+        }
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                ("organizationId=org-1", _response([{"id": "env-1"}])),
+                ("/environments/env-1/deployments", _response([deployment])),
+            ],
+        )
 
         manager = _make_manager()
         watermark = datetime(2026, 6, 1, tzinfo=UTC)
-        batches = list(
-            get_rows(
-                "key-id",
-                "key-secret",
+        rows = _rows(
+            _source(
                 "deployments",
-                mock.MagicMock(),
                 manager,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=watermark,
             )
         )
 
-        rows = [row for batch in batches for row in batch]
         assert rows == [{"id": "dep-1", "status": "SUCCESS"}]
-
-        deployments_query = _query(_requested_urls(mock_session)[2])
+        deployments_query = _query(next(url for url in urls if "/deployments" in url))
         assert deployments_query["fromDate"] == ["2026-05-31T00:00:00.000Z"]
         assert "toDate" in deployments_query
+        # Multi-level fan-out disables resume (one shared hook can't checkpoint two levels).
+        manager.save_state.assert_not_called()
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_costs_inject_environment_id_and_skip_404s(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}]),
-            _response([{"id": "env-1"}, {"id": "env-2"}]),
-            # env-1 has no cost monitoring configured.
-            _response({"message": "not found"}, status_code=404),
-            _response([{"date": "2026-06-01", "total": 12.5}]),
-        ]
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                ("organizationId=org-1", _response([{"id": "env-1"}, {"id": "env-2"}])),
+                # env-1 has no cost monitoring configured.
+                ("/costs/environments/env-1", _response({"message": "not found"}, status_code=404)),
+                ("/costs/environments/env-2", _response([{"date": "2026-06-01", "total": 12.5}])),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key-id", "key-secret", "environment_costs", mock.MagicMock(), manager))
+        rows = _rows(_source("environment_costs", _make_manager()))
 
-        rows = [row for batch in batches for row in batch]
         assert rows == [{"date": "2026-06-01", "total": 12.5, "environment_id": "env-2"}]
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_non_404_error_fails_the_sync(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}]),
-            _response([{"id": "env-1"}]),
-            _response({"message": "forbidden"}, status_code=403),
-        ]
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                ("organizationId=org-1", _response([{"id": "env-1"}])),
+                ("/costs/environments/env-1", _response({"message": "forbidden"}, status_code=403)),
+            ],
+        )
 
         with pytest.raises(requests.HTTPError):
-            list(get_rows("key-id", "key-secret", "environment_costs", mock.MagicMock(), _make_manager()))
+            _rows(_source("environment_costs", _make_manager()))
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_resume_skips_already_processed_parents(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}, {"id": "org-2"}]),
-            _response([{"id": "proj-2"}]),
-        ]
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}, {"id": "org-2"}])),
+                ("organizationId=org-2", _response([{"id": "proj-2"}])),
+            ],
+        )
 
-        manager = _make_manager(Env0ResumeConfig(parent_id="org-2", offset=None))
-        batches = list(get_rows("key-id", "key-secret", "projects", mock.MagicMock(), manager))
+        # org-1's child page is already checkpointed as completed, so only org-2 is fetched.
+        manager = _make_manager(
+            Env0ResumeConfig(paginator_state={"completed": ["/projects?organizationId=org-1"], "current": None})
+        )
+        rows = _rows(_source("projects", manager))
 
-        assert [row["id"] for batch in batches for row in batch] == ["proj-2"]
-        urls = _requested_urls(mock_session)
+        assert [row["id"] for row in rows] == ["proj-2"]
         assert len(urls) == 2
         assert _query(urls[1])["organizationId"] == ["org-2"]
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
+    @mock.patch(SESSION_PATCH)
     def test_resume_offset_applies_only_to_bookmarked_parent(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}, {"id": "org-2"}]),
-            _response([{"id": "env-9"}]),
-            _response([{"id": "env-10"}]),
-        ]
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}, {"id": "org-2"}])),
+                ("organizationId=org-1", _response([{"id": "env-9"}])),
+                ("organizationId=org-2", _response([{"id": "env-10"}])),
+            ],
+        )
 
-        manager = _make_manager(Env0ResumeConfig(parent_id="org-1", offset="200"))
-        list(get_rows("key-id", "key-secret", "environments", mock.MagicMock(), manager))
+        manager = _make_manager(
+            Env0ResumeConfig(
+                paginator_state={
+                    "completed": [],
+                    "current": "/environments?organizationId=org-1",
+                    "child_state": {"offset": 200},
+                }
+            )
+        )
+        _rows(_source("environments", manager))
 
-        urls = _requested_urls(mock_session)
-        assert _query(urls[1])["offset"] == ["200"]
-        # The next parent starts a fresh page chain.
-        assert "offset" not in _query(urls[2])
+        org1_url = next(url for url in urls if "organizationId=org-1" in url)
+        org2_url = next(url for url in urls if "organizationId=org-2" in url)
+        assert _query(org1_url)["offset"] == ["200"]
+        # The next parent starts a fresh page chain from offset 0.
+        assert _query(org2_url)["offset"] == ["0"]
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_stale_resume_bookmark_starts_over(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "org-1"}]),
-            _response([{"id": "proj-1"}]),
-        ]
+    @mock.patch(SESSION_PATCH)
+    def test_legacy_resume_state_starts_over(self, mock_session):
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                ("organizationId=org-1", _response([{"id": "proj-1"}])),
+            ],
+        )
 
-        manager = _make_manager(Env0ResumeConfig(parent_id="org-deleted", offset="100"))
-        batches = list(get_rows("key-id", "key-secret", "projects", mock.MagicMock(), manager))
+        # State written by the previous hand-rolled implementation still deserializes (compat) but
+        # carries no framework paginator snapshot, so the sync restarts from the first parent.
+        legacy = Env0ResumeConfig(parent_id="org-deleted", offset="100")
+        assert legacy.paginator_state is None
+        manager = _make_manager(legacy)
+        rows = _rows(_source("projects", manager))
 
-        assert [row["id"] for batch in batches for row in batch] == ["proj-1"]
-        assert "offset" not in _query(_requested_urls(mock_session)[1])
+        assert [row["id"] for row in rows] == ["proj-1"]
+        assert _query(urls[1])["organizationId"] == ["org-1"]
 
 
 class TestEnv0SourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    @mock.patch(SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
+        _wire(mock_session.return_value, [])
         config = ENV0_ENDPOINTS[endpoint]
-        response = env0_source("key-id", "key-secret", endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

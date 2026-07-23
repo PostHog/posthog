@@ -5,12 +5,16 @@ from django.conf import settings
 
 import yaml
 
+from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+
 AGENTSH_DAEMON_PORT = 18080
 SESSION_ID_FILE = "/tmp/agentsh-session-id"
 ENV_FILE = "/tmp/agent-env"
+GITHUB_ENV_FILE = "/tmp/agent-github-env"
+OAUTH_ENV_FILE = "/tmp/agent-oauth-env"
 ENV_WRAPPER_SCRIPT = "/tmp/agentsh-env-wrapper.sh"
 # Sourced via BASH_ENV on every `bash -c` the agent runs, so git/gh pick up a
-# mid-session GitHub credential refresh (the backend rewrites ENV_FILE in place).
+# mid-session GitHub credential refresh from its dedicated credential file.
 BASH_ENV_SCRIPT = "/tmp/agentsh-bash-env.sh"
 AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
@@ -93,7 +97,22 @@ def _get_debug_only_ports() -> list[int]:
     return ports
 
 
-def generate_env_wrapper() -> str:
+_MANAGED_CREDENTIAL_ENV_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "POSTHOG_PERSONAL_API_KEY")
+_EXCLUDED_AGENT_ENV_KEYS = (
+    *SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
+    "BASH_ENV",
+    "PROMPT_COMMAND",
+    "PYTHONSTARTUP",
+    "PERL5OPT",
+    "RUBYOPT",
+)
+
+
+def generate_env_wrapper(
+    env_file: str = ENV_FILE,
+    github_env_file: str = GITHUB_ENV_FILE,
+    oauth_env_file: str = OAUTH_ENV_FILE,
+) -> str:
     """Generate a wrapper that restores the full sandbox environment.
 
     ``agentsh exec`` starts child processes with a heavily stripped
@@ -104,25 +123,107 @@ def generate_env_wrapper() -> str:
     Network policy enforcement happens at the syscall level (ptrace) —
     it does not depend on proxy environment variables.
     """
+    quoted_env_file = shlex.quote(env_file)
+    quoted_github_env_file = shlex.quote(github_env_file)
+    quoted_oauth_env_file = shlex.quote(oauth_env_file)
+    excluded_names = " ".join((*_MANAGED_CREDENTIAL_ENV_KEYS, *_EXCLUDED_AGENT_ENV_KEYS))
+    excluded_entries = "|".join(f"{name}=*" for name in (*_MANAGED_CREDENTIAL_ENV_KEYS, *_EXCLUDED_AGENT_ENV_KEYS))
     return f"""\
 #!/bin/bash
+unset {excluded_names}
 while IFS= read -r -d $'\\0' line; do
-  export "$line"
-done < {ENV_FILE}
+  case "$line" in
+    {excluded_entries}) ;;
+    *) export "$line" ;;
+  esac
+done < {quoted_env_file} 2>/dev/null
+
+while IFS= read -r -d $'\\0' line; do
+  case "$line" in
+    GH_TOKEN=*|GITHUB_TOKEN=*) export "$line" ;;
+  esac
+done < {quoted_github_env_file} 2>/dev/null
+
+while IFS= read -r -d $'\\0' line; do
+  case "$line" in
+    POSTHOG_PERSONAL_API_KEY=*) export "$line" ;;
+  esac
+done < {quoted_oauth_env_file} 2>/dev/null
 exec "$@"
 """
 
 
-def generate_bash_env_script() -> str:
+def generate_bash_env_script(
+    env_file: str = ENV_FILE,
+    github_env_file: str = GITHUB_ENV_FILE,
+    oauth_env_file: str = OAUTH_ENV_FILE,
+) -> str:
     """
-    Generate the script sourced via ``BASH_ENV``.
+    Generate the script sourced via ``BASH_ENV`` and used to initialize its env file.
+
+    The explicit invocation runs before the background agent-server launch. It
+    atomically replaces the full environment with the current sandbox process
+    environment, excluding launch hooks and credentials. Credential files are
+    initialized only when absent, so a backend refresh that happened before startup
+    wins. Sourced invocations stay cheap and only export GitHub credentials.
     """
+    quoted_env_file = shlex.quote(env_file)
+    quoted_github_env_file = shlex.quote(github_env_file)
+    quoted_oauth_env_file = shlex.quote(oauth_env_file)
+    excluded_entries = "|".join(f"{name}=*" for name in (*_MANAGED_CREDENTIAL_ENV_KEYS, *_EXCLUDED_AGENT_ENV_KEYS))
     return f"""\
+if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
+  set -euo pipefail
+  umask 077
+  env_tmp="$(mktemp {quoted_env_file}.tmp.XXXXXX)"
+  github_tmp="$(mktemp {quoted_github_env_file}.tmp.XXXXXX)"
+  oauth_tmp="$(mktemp {quoted_oauth_env_file}.tmp.XXXXXX)"
+  trap 'rm -f "$env_tmp" "$github_tmp" "$oauth_tmp"' EXIT
+
+  while IFS= read -r -d $'\\0' kv 2>/dev/null; do
+    case "$kv" in
+      {excluded_entries}) ;;
+      *) printf '%s\\0' "$kv" >> "$env_tmp" ;;
+    esac
+  done < <(env -0)
+  chmod 600 "$env_tmp"
+  mv "$env_tmp" {quoted_env_file}
+
+  github_token="${{GITHUB_TOKEN:-${{GH_TOKEN:-}}}}"
+  if [[ -n "$github_token" ]]; then
+    printf 'GITHUB_TOKEN=%s\\0GH_TOKEN=%s\\0' "$github_token" "$github_token" > "$github_tmp"
+  fi
+  chmod 600 "$github_tmp"
+  if [[ -e {quoted_github_env_file} || -L {quoted_github_env_file} ]]; then
+    [[ -f {quoted_github_env_file} && ! -L {quoted_github_env_file} ]]
+    chmod 600 {quoted_github_env_file}
+  else
+    if ! ln "$github_tmp" {quoted_github_env_file} 2>/dev/null; then
+      [[ -f {quoted_github_env_file} && ! -L {quoted_github_env_file} ]]
+    fi
+  fi
+
+  if [[ -n "${{POSTHOG_PERSONAL_API_KEY:-}}" ]]; then
+    printf 'POSTHOG_PERSONAL_API_KEY=%s\\0' "$POSTHOG_PERSONAL_API_KEY" > "$oauth_tmp"
+  fi
+  chmod 600 "$oauth_tmp"
+  if [[ -e {quoted_oauth_env_file} || -L {quoted_oauth_env_file} ]]; then
+    [[ -f {quoted_oauth_env_file} && ! -L {quoted_oauth_env_file} ]]
+    chmod 600 {quoted_oauth_env_file}
+  else
+    if ! ln "$oauth_tmp" {quoted_oauth_env_file} 2>/dev/null; then
+      [[ -f {quoted_oauth_env_file} && ! -L {quoted_oauth_env_file} ]]
+    fi
+  fi
+  exit 0
+fi
+
+unset GH_TOKEN GITHUB_TOKEN
 while IFS= read -r -d $'\\0' kv 2>/dev/null; do
   case "$kv" in
     GH_TOKEN=*|GITHUB_TOKEN=*) export "$kv" ;;
   esac
-done < {ENV_FILE} 2>/dev/null
+done < {quoted_github_env_file} 2>/dev/null
 """
 
 

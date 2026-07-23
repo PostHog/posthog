@@ -4,14 +4,19 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from requests import Request, Response, Session
 from requests.auth import AuthBase
 from requests.exceptions import (
     ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
+    HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
+
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -30,6 +35,46 @@ class RESTClientRetryableError(Exception):
         self.retry_after = retry_after
 
 
+class RESTClientNonRetryableError(NonReportableError):
+    """A response that retrying can never turn into usable data.
+
+    Not a subclass of RESTClientRetryableError so the tenacity retry — which only
+    reissues RESTClientRetryableError — stops immediately instead of re-fetching a
+    deterministic failure.
+
+    Raised only for a 2xx response whose body is not JSON (an auth/login page, an HTML
+    error page, plain text) — always a customer/upstream condition, never a PostHog defect.
+    Subclasses NonReportableError so the activity interceptor stops it from becoming
+    error-tracking noise while the job still fails with the message.
+    """
+
+
+# Bytes that can legally begin a JSON document: an object/array, a string, a
+# number, or one of the literals true/false/null.
+_JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
+
+
+def _looks_like_json(content: bytes) -> bool:
+    stripped = content.lstrip()
+    return bool(stripped) and stripped[0] in _JSON_START_BYTES
+
+
+def _safe_url(url: str) -> str:
+    """Scheme, host, and path only — never the query string, fragment, or userinfo.
+
+    An error message built from a URL can flow into non-retryable-error analytics
+    and error tracking, where tracked-session value redaction doesn't reach. An
+    ``api_key`` auth with ``location: "query"`` carries the secret in the query
+    string, so keep only the parts that are safe to surface."""
+    parts = urlsplit(url)
+    if not parts.scheme:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return f"{parts.scheme}://{host}{parts.path}"
+
+
 # Upper bound on how long we'll honor a server-provided retry delay, so a
 # misreported header can't stall a worker for an unbounded amount of time.
 MAX_RETRY_AFTER_SECONDS = 300.0
@@ -37,6 +82,17 @@ MAX_RETRY_AFTER_SECONDS = 300.0
 # Attempts for the default sync path. The inline preview overrides this to 1 so a
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
 DEFAULT_RETRY_ATTEMPTS = 5
+
+# Default network ports per scheme, used to compare a request URL's effective port against the
+# base origin's when host-pinning is enabled.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _effective_port(scheme: str, port: Optional[int]) -> Optional[int]:
+    """The port a request actually reaches: the explicit one, else the scheme's default."""
+    if port is not None:
+        return port
+    return _DEFAULT_PORTS.get(scheme)
 
 
 def _parse_retry_after(response: Response) -> Optional[float]:
@@ -97,6 +153,23 @@ def _retry_wait_seconds(state: RetryCallState) -> float:
 Hooks = dict[str, list[Any]]
 
 
+def _body_shape_is_list(body: Any, data_selector: Optional[TJsonPath]) -> bool:
+    """Whether ``body`` carries the expected list of rows once ``data_selector`` is applied.
+
+    Mirrors ``_extract_response``'s shape rules: with a selector the key must be present and
+    resolve to a list; without one the whole body must be a list. Used by the retryable-body
+    check so a 200 whose payload is the wrong shape (a truncating proxy, a transient error
+    envelope) is retried rather than failing loud or being silently ingested as a single row.
+    """
+    if data_selector:
+        matches: Any = find_values(data_selector, body)
+        if not matches:
+            return False
+        value = matches[0] if isinstance(matches, list) and len(matches) == 1 else matches
+        return isinstance(value, list)
+    return isinstance(body, list)
+
+
 class RESTClient:
     def __init__(
         self,
@@ -106,24 +179,93 @@ class RESTClient:
         paginator: Optional[BasePaginator] = None,
         session: Optional[Session] = None,
         max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+        allowed_hosts: Optional[list[str]] = None,
+        allow_redirects: bool = True,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
+        self._allow_redirects = allow_redirects
+        # When set (even to an empty list), every outgoing request URL — including
+        # paginator next-page links and seeded resume URLs — must resolve to one of
+        # these hosts (the base_url host is always implicitly allowed). This pins
+        # pagination to the expected host so a tampered or spoofed ``next`` link can't
+        # exfiltrate the Authorization header to an attacker-controlled origin. Pair
+        # with ``allow_redirects=False`` to also reject cross-host redirects.
+        self._allowed_hosts: Optional[set[str]] = None
+        # The base origin's scheme and effective port, pinned alongside the host set so an allowed
+        # hostname can't be reached over a downgraded scheme (https->http, which would put the
+        # Authorization header on the wire in plaintext) or a different port. Left None — and the
+        # scheme/port check skipped — when the base URL carries no scheme to pin against.
+        self._base_scheme: Optional[str] = None
+        self._base_port: Optional[int] = None
+        if allowed_hosts is not None:
+            hosts = {host.lower() for host in allowed_hosts if host}
+            base_split = urlsplit(self.base_url)
+            base_host = base_split.hostname
+            if base_host:
+                hosts.add(base_host.lower())
+            self._allowed_hosts = hosts
+            if base_split.scheme:
+                self._base_scheme = base_split.scheme.lower()
+                self._base_port = _effective_port(self._base_scheme, base_split.port)
+        # The auth's credential values, kept for value-based redaction. They feed both the
+        # tracked session's log redaction AND ``_redact`` below, which scrubs them from raised
+        # exception messages — an API that carries its key in a query param would otherwise leak
+        # it via the request URL embedded in ``raise_for_status`` / ``HTTP {status} for {url}``.
+        self._redact_values = tuple(value for value in auth_secret_values(auth) if value)
         # Default to the tracked session so every source built on top of
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
         # specialized auth (it should still be a tracked one in prod).
-        # The auth's credential values are registered for value-based redaction
-        # so a key injected into a query param/custom header can't leak into logs.
-        self.session = session or make_tracked_session(redact_values=auth_secret_values(auth))
+        self.session = session or make_tracked_session(redact_values=self._redact_values)
         if self.headers:
             self.session.headers.update(self.headers)
 
     def _join_url(self, path: str) -> str:
         return resolve_request_url(self.base_url, path)
+
+    def _redact(self, text: str) -> str:
+        for secret in self._redact_values:
+            text = text.replace(secret, "***")
+        return text
+
+    def _check_allowed_host(self, url: Optional[str]) -> None:
+        if self._allowed_hosts is None or not url:
+            return
+        split = urlsplit(url)
+        host = split.hostname
+        if host is None or host.lower() not in self._allowed_hosts:
+            raise ValueError(
+                self._redact(
+                    f"Refusing to send request to disallowed host {host!r} (url {url!r}); "
+                    f"allowed hosts: {sorted(self._allowed_hosts)}. A pagination or resume URL "
+                    "pointing off the expected API host is rejected to prevent credential exfiltration."
+                )
+            )
+        # An allowed hostname reached over a different scheme or port is still an off-origin request:
+        # an https base downgraded to http:// would send the credential in plaintext, and a different
+        # port retargets the credentialed request. Reject either before the request (and its auth) goes out.
+        if self._base_scheme is not None:
+            scheme = split.scheme.lower()
+            if scheme != self._base_scheme:
+                raise ValueError(
+                    self._redact(
+                        f"Refusing to send request with scheme {scheme!r} (url {url!r}); the API base "
+                        f"origin uses {self._base_scheme!r}. A scheme downgrade (e.g. https->http) is "
+                        "rejected to prevent sending credentials over an unexpected transport."
+                    )
+                )
+            if _effective_port(scheme, split.port) != self._base_port:
+                raise ValueError(
+                    self._redact(
+                        f"Refusing to send request to port {split.port!r} (url {url!r}); the API base "
+                        f"origin uses port {self._base_port!r}. A pagination or resume URL on a different "
+                        "port is rejected to prevent credential exfiltration."
+                    )
+                )
 
     def paginate(
         self,
@@ -137,9 +279,21 @@ class RESTClient:
         resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_malformed_retryable: bool = False,
     ) -> Iterator[list[Any]]:
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
         hooks = hooks or {}
+
+        # When set, a 200 whose parsed body isn't the expected list shape is RETRIED (not failed
+        # loud): the check runs inside the retry-wrapped ``_send_request`` so a transient malformed
+        # payload is reissued. This reproduces sources that defensively classify an unexpected
+        # 200-body shape as retryable. Distinct from ``data_selector_required`` (permanent fail-loud).
+        malformed_check: Optional[Callable[[Any], None]] = None
+        if data_selector_malformed_retryable:
+
+            def malformed_check(body: Any) -> None:
+                if not _body_shape_is_list(body, data_selector):
+                    raise RESTClientRetryableError("Unexpected 200 response body shape (expected a list of rows)")
 
         # `requests` serializes None values as the literal string "None" in the
         # query string — drop them so optional/incremental params that are not
@@ -161,7 +315,7 @@ class RESTClient:
 
         while True:
             try:
-                response, body = self._send_request(request, hooks)
+                response, body = self._send_request(request, hooks, body_check=malformed_check)
             except IgnoreResponseException:
                 break
 
@@ -185,18 +339,53 @@ class RESTClient:
         wait=_retry_wait_seconds,
         reraise=True,
     )
-    def _send_request(self, request: Request, hooks: Hooks) -> tuple[Response, Any]:
+    def _send_request(
+        self, request: Request, hooks: Hooks, body_check: Optional[Callable[[Any], None]] = None
+    ) -> tuple[Response, Any]:
         prepared = self.session.prepare_request(request)
+        # Fail loud on a pagination/resume URL that points off the expected host before the
+        # request (and its Authorization header) ever leaves the process. Raised outside the
+        # retryable-error type so it propagates immediately rather than being retried.
+        self._check_allowed_host(prepared.url)
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
-        # surfaces here as ChunkedEncodingError. Reissue it like a truncated/partial body below.
+        # surfaces here as ChunkedEncodingError. A connection that never got established at all —
+        # egress proxy refusing/resetting the connection, a connect timeout — surfaces as
+        # ConnectionError (already retried a few times inside urllib3's own adapter-level policy,
+        # but that budget is short). Both are transient network failures, so reissue them like a
+        # truncated/partial body below rather than letting them skip this retry loop and fail the
+        # whole sync on one bad connection attempt.
         try:
-            response = self.session.send(prepared)
+            response = self.session.send(prepared, allow_redirects=self._allow_redirects)
         except ChunkedEncodingError as e:
-            raise RESTClientRetryableError(f"Connection broken while reading response: {e}") from e
+            raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
+        except RequestsConnectionError as e:
+            # Unlike ChunkedEncodingError, a ConnectionError's message (e.g. urllib3's "Max
+            # retries exceeded with url: ...") embeds the full request URL including the query
+            # string. `_redact` only replaces a secret's raw value, not the percent-encoded form
+            # a query-param API key takes there — so build the message from `_safe_url` (scheme/
+            # host/path only) rather than the raw exception text, the same way the 5xx path below
+            # avoids leaking an encoded credential into the persisted `latest_error`.
+            raise RESTClientRetryableError(
+                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
+
+        # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
+        # through to JSON parsing; reject it explicitly so a redirect can't smuggle the request
+        # (and credentials) to another origin.
+        if not self._allow_redirects and response.is_redirect:
+            raise ValueError(
+                self._redact(
+                    f"Unexpected redirect ({response.status_code}) to "
+                    f"{response.headers.get('Location')!r} from {prepared.url}; refusing to follow."
+                )
+            )
 
         if response.status_code == 429 or response.status_code >= 500:
+            # `_safe_url` drops the query string entirely: `_redact` only masks the raw secret, not
+            # the percent-encoded form an `api_key` query credential takes in the URL, so scheme/
+            # host/path-only is what keeps an encoded credential out of the persisted `latest_error`.
             raise RESTClientRetryableError(
-                f"HTTP {response.status_code} for {response.url}",
+                self._redact(f"HTTP {response.status_code} for {_safe_url(response.url)}"),
                 retry_after=_parse_retry_after(response),
             )
 
@@ -205,7 +394,12 @@ class RESTClient:
             for hook in response_hooks:
                 hook(response, request=request)
         else:
-            response.raise_for_status()
+            # Redact any secret the URL carries (e.g. an api_key query param) out of the raised
+            # HTTPError message before it propagates into a user-visible ``latest_error``.
+            try:
+                response.raise_for_status()
+            except HTTPError as e:
+                raise HTTPError(self._redact(str(e)), response=e.response, request=e.request) from None
 
         # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
         # instead of bubbling up uncaught and failing the import.
@@ -215,11 +409,27 @@ class RESTClient:
             # An empty body on an otherwise-successful response is a complete "no data"
             # answer (e.g. an endpoint with nothing to return), not a truncated page —
             # retrying can't conjure rows, so treat it as an empty page and let the
-            # paginator stop. A non-empty body that fails to parse is a partial/truncated
-            # read, which stays retryable.
+            # paginator stop.
             if not response.content or not response.content.strip():
                 return response, None
-            raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
+            # A body that doesn't even begin with a JSON value is not a truncated page:
+            # the endpoint returned non-JSON content (an HTML or plain-text error page, a
+            # login redirect) on an otherwise-successful response. Re-fetching returns the
+            # same non-JSON body, so fail fast and non-retryably instead of burning the
+            # retry budget. A body that starts as JSON but fails to parse is a partial /
+            # truncated read, which stays retryable.
+            if not _looks_like_json(response.content):
+                raise RESTClientNonRetryableError(
+                    self._redact(f"Non-JSON response from {_safe_url(response.url)}")
+                ) from e
+            raise RESTClientRetryableError(
+                self._redact(f"Malformed JSON response from {_safe_url(response.url)}: {e}")
+            ) from e
+
+        # Runs inside the retry loop so an unexpected-but-parseable 200 body (wrong shape) can be
+        # reissued as retryable rather than surfacing as a permanent error or a garbage row.
+        if body_check is not None and body is not None:
+            body_check(body)
 
         return response, body
 

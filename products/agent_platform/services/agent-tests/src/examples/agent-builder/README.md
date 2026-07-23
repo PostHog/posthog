@@ -89,33 +89,37 @@ agent-builder/
 ## Auth model
 
 Auth is configured **per trigger** — there is no top-level
-`spec.auth`. Each of the Agent Builder's triggers sets
-`auth.modes: [posthog, posthog_internal]` (an array), so both entry
-points map to the same effective auth:
+`spec.auth`. Both Agent Builder entrypoints require the user-scoped
+`posthog` mode:
 
 1. **PostHog Code** — user signs into the PostHog Code app via
-   PostHog OAuth; the app mints a short-lived session-principal
-   token from the OAuth session and attaches it to the chat trigger.
-   Every tool call runs as the user without a separate MCP connection.
+   PostHog OAuth. The app sends that OAuth access token to the chat
+   trigger. Every tool call runs as the user without a separate MCP
+   sign-in.
 2. **MCP** — user attaches their PostHog PAT in their MCP client
    config. The runner resolves the PAT to a principal once at
    session start, threads it through identically.
 
 The Agent Builder holds no fallback credential.
 
-Mode order is load-bearing. `posthog` must remain first so a request carrying
-the signed-in user's bearer resolves the user-scoped `posthog_api` credential.
-`posthog_internal` is only the trusted service fallback and does not supply a
-user credential for MCP calls.
+The Agent Builder accepts only `posthog` auth on both chat and MCP entrypoints.
+For chat, PostHog Code sends the signed-in user's OAuth bearer on `/run` and
+`/send`; ingress validates it and stores it as the session's `posthog_api`
+credential. The runner forwards that same bearer to the first-party MCP, so
+there is no second interactive OAuth flow. A browser session cookie cannot be
+forwarded to the MCP host, and `posthog_internal` authenticates only a service
+call, not the asking user. Allowing that mode on either entrypoint could create
+a session without the user credential required by the nested authoring MCP, so
+the bundle fails closed instead.
 
 The PostHog MCP is a first-party implementation detail of the builder, not a
-connection the user configures. MCP startup only reuses an existing trigger or
-linked credential; it never starts OAuth or reconnects automatically. The
-identity-connect tool remains available for agents that intentionally support
-account linking, but startup never invokes it.
+connection the user configures. The Builder does not declare a PostHog identity
+provider. Its MCP resolves the trigger-edge `posthog_api` credential through the
+platform's seed-only PostHog provider, so there is no account-linking path and no
+second OAuth flow.
 
 The Agent Builder chat therefore does not use the ingress OAuth callback route.
-PostHog Code supplies the signed-in user's short-lived bearer at the trigger
+PostHog Code supplies the signed-in user's OAuth access token at the trigger
 edge, and the runner passes that credential to the first-party MCP. The
 `/link/<provider>/callback` flow exists for agents that intentionally support
 connecting an additional identity.
@@ -134,7 +138,7 @@ These are platform-side, not bundle-side — and they're in place:
    `set_secret` entries parse and validate.
 2. **Runtime MCP support** — the runner opens the clients declared in
    `spec.mcps` at session start. (The Agent Builder declares exactly
-   one — the PostHog MCP, authed by the `posthog` identity provider —
+   one — the PostHog MCP, authed by the trigger-edge PostHog bearer —
    which carries its whole authoring surface.)
 3. **OAuth principal threading** — the session principal threads
    through every tool call, so writes attribute to the user.
@@ -177,10 +181,9 @@ agent-applications-revisions-promote-create revision_id=<rid>
 
 The Agent Builder lives in **PostHog's primary org** so it's
 available to every team via the standard MCP / chat ingress. Each
-trigger's `auth.modes: [posthog, posthog_internal]` means it's not
-callable as a random external bot — only PostHog Code's signed
-session-principal token (`posthog_internal`) + verified user PATs
-(`posthog`) get through.
+trigger's `auth.modes: [posthog]` means every request must carry a
+verified user credential. PostHog Code supplies the user's OAuth
+access token to chat; standalone MCP clients supply a user PAT.
 
 ## Regression test
 
@@ -197,6 +200,8 @@ loads the bundle from disk and asserts:
 - Both `chat` and `mcp` triggers are declared — and NO `slack` trigger
   (no dedicated Slack app exists, and a slack trigger blocks promote
   until its required secrets are set)
+- Both entrypoints reject service-only `posthog_internal` auth, while
+  accepting the user bearer required by the nested authoring MCP
 - The `kind: "client"` tools (`focus_*`, `toast`, `get_context`,
   `set_secret`, `connect_mcp`) are present, and the destructive MCP
   authoring tools (`promote`, `archive`, `destroy`) are gated with

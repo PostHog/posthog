@@ -1,3 +1,5 @@
+import { decode } from '@toon-format/toon'
+
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
 import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'
@@ -14,6 +16,8 @@ import { RecordingUniversalFilters } from '~/types'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
+import { parseExecCall, parseExecCommand } from '../posthogExecDisplay'
+
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
  * `ToolCallMessage` (built by `runStreamLogic` from ACP frames) into the props the atomic
@@ -22,6 +26,59 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 
 function asRecord(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+function parseJsonRecord(text: string): Record<string, unknown> | null {
+    try {
+        return asRecord(JSON.parse(text))
+    } catch {
+        return null
+    }
+}
+
+function parseToonRecord(text: string): Record<string, unknown> | null {
+    // TOON decode is lenient — JSON text doesn't throw, it mangles into a garbage record — so
+    // anything that reads as JSON syntax must never reach it.
+    if (/^[[{]/.test(text)) {
+        return null
+    }
+    try {
+        return asRecord(decode(text))
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Best-effort record from a tool call's `rawOutput`. Objects pass through; strings are parsed per the
+ * exec `call` output contract: `--json` means the server responded with `JSON.stringify`, otherwise
+ * TOON (`services/mcp/src/lib/response.ts`). The off-order format is still tried as a fallback, and
+ * anything unparseable (or empty) resolves to null so the widget falls back to the generic card.
+ */
+export function parseToolOutputRecord(message: ToolCallMessage): Record<string, unknown> | null {
+    const direct = asRecord(message.rawOutput)
+    if (direct) {
+        return direct
+    }
+    if (typeof message.rawOutput !== 'string') {
+        return null
+    }
+    const text = message.rawOutput.trim()
+    if (!text) {
+        return null
+    }
+    const command = typeof message.rawInput.command === 'string' ? message.rawInput.command : ''
+    const { verb, rest } = parseExecCommand(command)
+    const forceJson = verb === 'call' && parseExecCall(rest).forceJson
+    const attempts = forceJson ? [parseJsonRecord, parseToonRecord] : [parseToonRecord, parseJsonRecord]
+    for (const attempt of attempts) {
+        const record = attempt(text)
+        // decode('') and JSON '{}' both yield {}, which carries nothing a widget can render.
+        if (record && Object.keys(record).length > 0) {
+            return record
+        }
+    }
+    return null
 }
 
 function asString(value: unknown): string | undefined {
@@ -72,7 +129,7 @@ export interface VisualizationArtifactExtraction {
  * query-only outputs carry neither and render inline as ephemeral visualizations.
  */
 export function extractVisualizationArtifact(message: ToolCallMessage): VisualizationArtifactExtraction | null {
-    const output = asRecord(message.rawOutput)
+    const output = parseToolOutputRecord(message)
     if (!output) {
         return null
     }
@@ -118,7 +175,7 @@ export interface QueryResultExtraction {
  * renderer (e.g. a single LLM trace) return null and fall back to the generic card.
  */
 export function extractQueryResult(message: ToolCallMessage): QueryResultExtraction | null {
-    const output = asRecord(message.rawOutput)
+    const output = parseToolOutputRecord(message)
     const query = (output ? asRecord(output.query) : null) ?? queryFromToolInput(message)
     if (!query || typeof query.kind !== 'string') {
         return null
@@ -161,7 +218,7 @@ export interface DashboardExtraction {
 }
 
 export function extractDashboard(message: ToolCallMessage): DashboardExtraction | null {
-    const output = asRecord(message.rawOutput)
+    const output = parseToolOutputRecord(message)
     if (!output) {
         return null
     }
@@ -180,7 +237,7 @@ export function extractDashboard(message: ToolCallMessage): DashboardExtraction 
  * falls back to the generic card rather than feeding the playlist a shape it can't use.
  */
 export function extractRecordingFilters(message: ToolCallMessage): RecordingUniversalFilters | null {
-    const output = asRecord(message.rawOutput)
+    const output = parseToolOutputRecord(message)
     if (!output) {
         return null
     }
@@ -223,7 +280,7 @@ const ERROR_TRACKING_RESPONSE_KEYS: readonly (keyof MaxErrorTrackingSearchRespon
  * REST issues list — fall back to the generic card instead of rendering empty filter chips.
  */
 export function extractErrorTrackingResponse(message: ToolCallMessage): MaxErrorTrackingSearchResponse | null {
-    const output = asRecord(message.rawOutput)
+    const output = parseToolOutputRecord(message)
     if (!output || !ERROR_TRACKING_RESPONSE_KEYS.some((key) => key in output)) {
         return null
     }

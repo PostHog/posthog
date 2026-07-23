@@ -4,27 +4,35 @@ from typing import Any, Optional
 
 import requests
 from dateutil import parser
-from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 
 PADDLE_BASE_URL = "https://api.paddle.com"
+PAGE_SIZE = 200
 
 
 @dataclasses.dataclass
 class PaddleResumeConfig:
-    next_url: str
+    # Self-contained next-page URL from Paddle's `meta.pagination.next`. Empty once the sync is done.
+    next_url: str = ""
 
 
 class PaddlePermissionError(Exception):
@@ -62,87 +70,14 @@ def _get_paddle_session(api_key: str) -> requests.Session:
     )
 
 
-def paddle_request(session: requests.Session, method: str, url: str, **kwargs) -> requests.Response:
-    response = session.request(method, url, **kwargs)
-    return response
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    db_incremental_field_last_value: Optional[Any],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PaddleResumeConfig],
-    should_use_incremental_field: bool = False,
-):
-    url = f"{PADDLE_BASE_URL}/{endpoint}"
-    params: dict[str, Any] = {"per_page": 200}
-    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
-    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else None
-
-    params["order_by"] = f"{incremental_field_name}[ASC]" if incremental_field_name else "id[ASC]"
-
-    if should_use_incremental_field and incremental_field_name:
-        if db_incremental_field_last_value:
-            params[f"{incremental_field_name}[GT]"] = _format_paddle_datetime_query_value(
-                db_incremental_field_last_value
-            )
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config and resume_config.next_url:
-        url = resume_config.next_url
-        params = {}
-
-    batcher = Batcher(logger=logger)
-    session = _get_paddle_session(api_key)
-    seen_urls: set[str] = set()
-
-    while url:
-        if url in seen_urls:
-            break
-        seen_urls.add(url)
-
-        response = paddle_request(session, "GET", url, params=params)
-
-        response.raise_for_status()
-        data = response.json()
-
-        items = data.get("data", [])
-
-        for item in items:
-            batcher.batch(item)
-
-            if batcher.should_yield():
-                py_table = batcher.get_table()
-                yield py_table
-
-        meta = data.get("meta", {})
-        pagination = meta.get("pagination", {})
-        next_url = pagination.get("next")
-        if next_url == url or next_url in seen_urls:
-            next_url = None
-
-        url = next_url
-        params = {}
-
-        if batcher.should_yield(include_incomplete_chunk=not url):
-            py_table = batcher.get_table()
-            if py_table.num_rows > 0:
-                yield py_table
-
-        if url:
-            resumable_source_manager.save_state(PaddleResumeConfig(next_url=url))
-        else:
-            resumable_source_manager.save_state(PaddleResumeConfig(next_url=""))
-
-
 def paddle_source(
     api_key: str,
     endpoint: str,
-    db_incremental_field_last_value: Optional[Any],
-    should_use_incremental_field: bool,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PaddleResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
+    should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     column_mapping = get_dlt_mapping_for_external_table(f"paddle_{endpoint.lower()}")
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
@@ -150,18 +85,60 @@ def paddle_source(
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else None
 
-    def items():
-        yield from get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            should_use_incremental_field=should_use_incremental_field,
-            resumable_source_manager=resumable_source_manager,
-            logger=logger,
-        )
+    params: dict[str, Any] = {"per_page": PAGE_SIZE}
+    params["order_by"] = f"{incremental_field_name}[ASC]" if incremental_field_name else "id[ASC]"
+
+    # Server-side incremental filter: Paddle supports a `<field>[GT]` query param, so only rows newer
+    # than the last-synced watermark are returned. The paginator's self-contained `next` links carry
+    # this filter forward, so it's set once on the first request.
+    if should_use_incremental_field and incremental_field_name and db_incremental_field_last_value:
+        params[f"{incremental_field_name}[GT]"] = _format_paddle_datetime_query_value(db_incremental_field_last_value)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": PADDLE_BASE_URL,
+            "headers": {"Content-Type": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": JSONResponsePaginator(next_url_path="meta.pagination.next"),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": endpoint,
+                    "params": params,
+                    "data_selector": "data",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded so a crash re-yields the last page (merge dedupes) rather than
+        # skipping it. Persist the self-contained next-page URL while pages remain, and an empty
+        # marker once the last page is reached.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(PaddleResumeConfig(next_url=str(state["next_url"])))
+        else:
+            resumable_source_manager.save_state(PaddleResumeConfig(next_url=""))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
-        items=items,
+        items=lambda: resource,
         primary_keys=["id"],
         name=endpoint,
         column_hints=column_hints,
@@ -176,12 +153,15 @@ def paddle_source(
 
 def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
     endpoints_to_check = [table_name] if table_name else ENDPOINTS
-    session = _get_paddle_session(api_key)
 
     for endpoint in endpoints_to_check:
-        response = paddle_request(session, "GET", f"{PADDLE_BASE_URL}/{endpoint}")
-        if response.status_code == 403:
+        ok, status = validate_via_probe(
+            lambda: _get_paddle_session(api_key),
+            f"{PADDLE_BASE_URL}/{endpoint}",
+        )
+        if status == 403:
             raise PaddlePermissionError(f"Missing permissions for {endpoint}")
-        response.raise_for_status()
+        if not ok:
+            return False
 
     return True

@@ -1,15 +1,18 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.settings import (
     INFLOWINVENTORY_ENDPOINTS,
@@ -20,14 +23,9 @@ INFLOWINVENTORY_BASE_URL = "https://cloudapi.inflowinventory.com"
 INFLOWINVENTORY_API_VERSION = "2023-04-01"
 # The list endpoints accept up to 100 records per page; the largest page minimises round trips.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # inFlow company IDs are GUIDs. Restrict to host/path-safe characters so the credential stays
 # pinned to cloudapi.inflowinventory.com and can't be redirected via a crafted path segment.
 COMPANY_ID_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
-
-
-class InflowInventoryRetryableError(Exception):
-    """Raised for transient API responses (429 / 5xx) so tenacity retries them."""
 
 
 @dataclasses.dataclass
@@ -42,117 +40,143 @@ def base_url(company_id: str) -> str:
     return f"{INFLOWINVENTORY_BASE_URL}/{company_id}"
 
 
+def _version_headers() -> dict[str, str]:
+    # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs and
+    # raised error messages; only the non-secret version/accept header is set here.
+    return {"Accept": f"application/json;version={INFLOWINVENTORY_API_VERSION}"}
+
+
 def _headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": f"application/json;version={INFLOWINVENTORY_API_VERSION}",
-    }
+    return {"Authorization": f"Bearer {api_key}", **_version_headers()}
 
 
 def _make_session(api_key: str) -> requests.Session:
     # Redirects are pinned off so the Bearer key can't be replayed to a cross-host redirect target
-    # (SSRF / credential-exfiltration defense). urllib3 retries are disabled so tenacity (on
-    # `_fetch_page`) is the single retry layer — otherwise 429/5xx would be retried by both.
+    # (SSRF / credential-exfiltration defense). urllib3 retries are disabled — the credential probe
+    # is a single request that must not silently retry a transient failure.
     return make_tracked_session(
         headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0)
     )
 
 
-@retry(
-    retry=retry_if_exception_type((InflowInventoryRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    company_id: str,
-    path: str,
-    after: str | None,
-    count: int,
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"count": count}
-    if after is not None:
-        params["after"] = after
+class InflowInventoryPaginator(BasePaginator):
+    """Cursor pagination where the ``after`` cursor is the last row's ``id_field`` value.
 
-    response = session.get(
-        f"{base_url(company_id)}/{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    inFlow list endpoints return a bare JSON array ordered by ID. A page shorter than the requested
+    ``count`` means the collection is exhausted, so we stop; otherwise the last row's id becomes the
+    ``after`` cursor for the next page. A full page whose last row lacks the cursor field can't be
+    paginated past, so we stop rather than loop forever on the same cursor. Resumable: the cursor is
+    persisted so a crashed sync restarts from the record after the last one yielded.
+    """
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise InflowInventoryRetryableError(
-            f"inFlow Inventory API error (retryable): status={response.status_code}, path={path}"
-        )
+    def __init__(self, id_field: str, page_size: int) -> None:
+        super().__init__()
+        self.id_field = id_field
+        self.page_size = page_size
+        self._after: Optional[str] = None
 
-    if not response.ok:
-        logger.error(f"inFlow Inventory API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
+    def _set_after(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["after"] = self._after
 
-    data = response.json()
-    # inFlow list endpoints return a bare JSON array of records. A non-list body on a 200 is a
-    # permanent contract violation, not transient, so raise ValueError (not retryable) to fail fast.
-    if not isinstance(data, list):
-        raise ValueError(f"inFlow Inventory returned an unexpected payload for {path}: {type(data).__name__}")
-    return data
+    def init_request(self, request: Request) -> None:
+        # Honour a seeded resume cursor on the first request.
+        if self._after is not None:
+            self._set_after(request)
 
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # A short (or empty) page means we've reached the end of the collection.
+        if data is None or len(data) < self.page_size:
+            self._has_next_page = False
+            return
 
-def get_rows(
-    api_key: str,
-    company_id: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[InflowInventoryResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = INFLOWINVENTORY_ENDPOINTS[endpoint]
-    session = _make_session(api_key)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    after = resume.after if resume else None
-    if resume and resume.after:
-        logger.debug(f"inFlow Inventory: resuming {endpoint} after cursor {after}")
-
-    while True:
-        items = _fetch_page(session, company_id, config.path, after, PAGE_SIZE, logger)
-        if items:
-            yield items
-
-        # A short page (or an empty one) means we've reached the end of the collection.
-        if len(items) < PAGE_SIZE:
-            break
-
-        next_after = items[-1].get(config.id_field)
+        next_after = data[-1].get(self.id_field)
         if next_after is None:
             # Without a cursor value we can't request the next page safely — stop rather than loop.
-            logger.warning(f"inFlow Inventory: {endpoint} row missing '{config.id_field}', ending pagination")
-            break
+            self._has_next_page = False
+            return
 
-        after = str(next_after)
-        # Save AFTER yielding so a crash re-fetches from the last cursor (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(InflowInventoryResumeConfig(after=after))
+        self._after = str(next_after)
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        if self._after is not None:
+            self._set_after(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"after": self._after} if self._has_next_page and self._after is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        after = state.get("after")
+        if after is not None:
+            self._after = str(after)
+            self._has_next_page = True
 
 
 def inflowinventory_source(
     api_key: str,
     company_id: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[InflowInventoryResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = INFLOWINVENTORY_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(company_id),
+            "headers": _version_headers(),
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": InflowInventoryPaginator(id_field=config.id_field, page_size=PAGE_SIZE),
+            # Pin every request (including resume URLs) to the base_url host and reject any redirect
+            # so the Bearer key can't be replayed to a cross-host target.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"count": PAGE_SIZE},
+                    # inFlow list endpoints return a bare JSON array. A non-list body on a 200 is a
+                    # permanent contract violation, not transient — fail loud instead of syncing the
+                    # stray object as a single row.
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.after is not None:
+            initial_paginator_state = {"after": resume.after}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # from the last cursor (already-yielded pages are persisted) rather than skipping it — merge
+        # dedupes the re-pulled page on the primary key.
+        if state and state.get("after") is not None:
+            resumable_source_manager.save_state(InflowInventoryResumeConfig(after=str(state["after"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            company_id=company_id,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

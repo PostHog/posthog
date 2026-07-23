@@ -27,6 +27,7 @@ import {
     VisionScannersObserveCreateParams,
     VisionScannersPartialUpdateBody,
     VisionScannersPartialUpdateParams,
+    VisionScannersPromptSuggestionsApplyCreateBody,
     VisionScannersPromptSuggestionsApplyCreateParams,
     VisionScannersPromptSuggestionsCurrentRetrieveParams,
     VisionScannersPromptSuggestionsDismissCreateParams,
@@ -119,6 +120,8 @@ const visionObservationsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
@@ -368,6 +371,8 @@ const visionScannersObservationsGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
@@ -398,6 +403,8 @@ const visionScannersObservationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 limit: params.limit,
                 offset: params.offset,
@@ -430,6 +437,8 @@ const visionScannersObservationsStats = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/stats/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 recent_days: params.recent_days,
                 recording_subject: params.recording_subject,
@@ -446,7 +455,7 @@ const visionScannersObservationsStats = (): ToolBase<
 
 const VisionScannersPromptSuggestionsApplySchema = VisionScannersPromptSuggestionsApplyCreateParams.omit({
     project_id: true,
-})
+}).extend(VisionScannersPromptSuggestionsApplyCreateBody.shape)
 
 const visionScannersPromptSuggestionsApply = (): ToolBase<
     typeof VisionScannersPromptSuggestionsApplySchema,
@@ -456,9 +465,14 @@ const visionScannersPromptSuggestionsApply = (): ToolBase<
     schema: VisionScannersPromptSuggestionsApplySchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersPromptSuggestionsApplySchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
         const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/${encodeURIComponent(String(params.id))}/apply/`,
+            body,
         })
         return result
     },

@@ -470,6 +470,14 @@ describe('dataVisualizationLogic', () => {
         expect(logic.values.query.tableSettings?.transpose).toEqual(true)
     })
 
+    it('flags the table as sorted only after setTableSorted', async () => {
+        await expectLogic(logic).toMatchValues({ hasSortedTable: false })
+
+        logic.actions.setTableSorted()
+
+        await expectLogic(logic).toMatchValues({ hasSortedTable: true })
+    })
+
     it('does not mutate the original query when updating y-axis formatting', async () => {
         const queryWithAxisSettings: DataVisualizationNode = {
             ...defaultQuery,

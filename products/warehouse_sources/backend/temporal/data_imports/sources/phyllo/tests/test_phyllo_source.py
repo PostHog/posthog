@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PhylloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.phyllo import PhylloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.phyllo import PhylloResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.source import PhylloSource

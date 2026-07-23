@@ -16,10 +16,11 @@ from unittest.mock import patch
 
 from django.core import signing
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -40,6 +41,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
 from products.notebooks.backend.sql_v2 import (
     SQLV2KernelNotRunning,
     SQLV2PageError,
+    build_callback_url,
     dispatch_sql_v2_run,
     ensure_sql_v2_server,
     fetch_sql_v2_page,
@@ -52,6 +54,7 @@ from products.notebooks.backend.sql_v2 import (
 )
 from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
+from products.notebooks.backend.sql_v2_direct import notebook_direct_query_id, sync_direct_run
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -78,6 +81,19 @@ def _restrict_query_access(test: APIBaseTest) -> None:
         access_level="none",
     )
     cache.clear()
+
+
+class TestSQLV2BackendBaseURL(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("explicit_override", "https://tunnel.example.dev/", True, "https://tunnel.example.dev"),
+            ("dev_fallback", None, True, "http://host.docker.internal:8000"),
+            ("prod_fallback", None, False, "https://us.posthog.com"),
+        ]
+    )
+    def test_callback_url_base(self, _name: str, sandbox_api_url: str | None, debug: bool, expected_base: str) -> None:
+        with override_settings(SANDBOX_API_URL=sandbox_api_url, DEBUG=debug, SITE_URL="https://us.posthog.com"):
+            assert build_callback_url("run-1") == f"{expected_base}/internal/notebooks/runs/run-1/result/"
 
 
 class TestSQLV2Callback(APIBaseTest):
@@ -298,17 +314,77 @@ class TestSQLV2Run(APIBaseTest):
         self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_run_creates_row_and_starts_workflow(self, _mock_enabled, mock_start):
+    def test_sql_run_takes_the_direct_lane_not_the_sandbox(self, _mock_enabled, mock_enqueue, mock_start):
+        # A pure-SQL run must never require a sandbox: no Temporal workflow, no kernel.
         response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
         self.assertEqual(response.status_code, 200)
         run_id = response.json()["run_id"]
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=run_id)
         self.assertEqual(run.status, NotebookNodeRun.Status.RUNNING)
-        # Paging re-queries the run's stored code, so losing it here breaks every page fetch.
+        # The direct result poll and any future re-query read the run's stored code.
         self.assertEqual(run.code, "select 1")
-        mock_start.assert_called_once()
-        self.assertEqual(str(mock_start.call_args.args[0].run_id), run_id)
+        mock_enqueue.assert_called_once()
+        self.assertEqual(str(mock_enqueue.call_args.args[2].id), run_id)
+        mock_start.assert_not_called()
+        self.assertFalse(KernelRuntime.objects.filter(team=self.team).exists())
+
+    @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_direct_enqueue_threads_user_and_private_query_id(self, _mock_enabled, mock_enqueue):
+        # user_id drives HogQL/warehouse access control downstream (a userless run fails
+        # closed). The query_id must be the private derived id, never the client-visible
+        # run_id — using the run_id would expose a run's rows through the generic query
+        # endpoint and let a colliding client_query_id poison them.
+        response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        run_id = response.json()["run_id"]
+        kwargs = mock_enqueue.call_args.kwargs
+        self.assertEqual(kwargs["user_id"], self.user.id)
+        self.assertNotEqual(kwargs["query_id"], run_id)
+        self.assertEqual(kwargs["query_id"], notebook_direct_query_id(run_id))
+        self.assertTrue(kwargs["refresh_requested"])
+        self.assertIn("select 1", kwargs["query_json"]["query"])
+
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError())
+    def test_a_query_status_under_the_run_id_cannot_poison_the_run(self, mock_status):
+        # The vuln being closed: a collaborator enqueues a query with client_query_id =
+        # run_id, then polls while the run is RUNNING. The poll must look up the private
+        # derived id, not the run_id, so the attacker's rows are never adopted.
+        with team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team, notebook=self.notebook, node_id="n1", status=NotebookNodeRun.Status.RUNNING
+            )
+        sync_direct_run(run)
+        self.assertEqual(mock_status.call_args.kwargs["query_id"], notebook_direct_query_id(str(run.id)))
+        self.assertNotEqual(mock_status.call_args.kwargs["query_id"], str(run.id))
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_sql_run_completes_direct_with_no_kernel(self, _mock_enabled, mock_start):
+        # End to end through the real async query manager (inline in tests): run a SQL
+        # node with no kernel anywhere, then poll the result to completion.
+        response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1 as a"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        run_id = response.json()["run_id"]
+
+        result_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/"
+        body = self.client.get(result_url).json()
+        self.assertEqual(body["status"], NotebookNodeRun.Status.DONE)
+        envelope = body["result"]
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["columns"], ["a"])
+        self.assertEqual(envelope["first_page"], [[1]])
+        self.assertEqual(envelope["row_count"], 1)
+        self.assertFalse(envelope["has_more"])
+        self.assertTrue(envelope["result_id"])
+        # The full capped row set rides the poll for client-side paging, on repeat polls too.
+        self.assertEqual(body["rows"], [[1]])
+        self.assertEqual(self.client.get(result_url).json()["rows"], [[1]])
+
+        mock_start.assert_not_called()
+        self.assertFalse(KernelRuntime.objects.filter(team=self.team).exists())
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -339,11 +415,11 @@ class TestSQLV2Run(APIBaseTest):
                 status=NotebookNodeRun.Status.DONE,
             )
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_run_inlines_referenced_nodes_last_run_query_as_ctes(self, _mock_enabled, mock_start):
-        # Paging re-queries run.code, so the stored + dispatched query must already carry the
-        # referenced definitions as CTEs — and it must be each node's last run, not its live text.
+    def test_run_inlines_referenced_nodes_last_run_query_as_ctes(self, _mock_enabled, mock_enqueue):
+        # The direct lane executes run.code verbatim, so the stored query must already carry
+        # the referenced definitions as CTEs — and it must be each node's last run, not its live text.
         self._record_done_run("node-df1", "select id from events")
         self._record_done_run("node-df2", "select id from persons")
         response = self.client.post(
@@ -359,11 +435,11 @@ class TestSQLV2Run(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertIn("WITH df1 AS (SELECT id FROM events)", run.code)
         self.assertIn("df2 AS (SELECT id FROM persons)", run.code)
-        self.assertEqual(mock_start.call_args.args[0].code, run.code)
+        mock_enqueue.assert_called_once()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_run_uses_the_latest_done_run_of_a_referenced_node(self, _mock_enabled, mock_start):
+    def test_run_uses_the_latest_done_run_of_a_referenced_node(self, _mock_enabled, _mock_enqueue):
         # An edited-then-rerun upstream: only its most recent run should be inlined.
         with freeze_time("2026-07-04T00:00:00Z"):
             self._record_done_run("node-df1", "select 1 as old_col")
@@ -503,11 +579,11 @@ class TestSQLV2Run(APIBaseTest):
         )
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow",
-        side_effect=RuntimeError("temporal unavailable"),
+        "products.notebooks.backend.presentation.views.notebook.enqueue_direct_run",
+        side_effect=RuntimeError("redis unavailable"),
     )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_run_marks_failed_when_workflow_start_fails(self, _mock_enabled, _mock_start):
+    def test_run_marks_failed_when_direct_enqueue_fails(self, _mock_enabled, _mock_enqueue):
         response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
         self.assertEqual(response.status_code, 503)
         run = NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).first()
@@ -627,11 +703,20 @@ class TestSQLV2RunPage(APIBaseTest):
             {"offset": offset, "limit": limit},
         )
 
+    def _create_kernel_run(self, status=NotebookNodeRun.Status.DONE, node_id="n1") -> NotebookNodeRun:
+        return self._create_run(
+            status=status,
+            node_id=node_id,
+            code="df1.head()",
+            node_type=NotebookNodeRun.NodeType.PYTHON,
+            result_id="11111111-1111-1111-1111-111111111111",
+        )
+
     @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_returns_page_from_kernel(self, _mock_enabled, mock_fetch):
         mock_fetch.return_value = {"columns": ["a"], "types": [["a", "Int64"]], "rows": [[51]], "has_more": False}
-        run = self._create_run()
+        run = self._create_kernel_run()
         response = self._get(str(run.id))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["rows"], [[51]])
@@ -652,18 +737,19 @@ class TestSQLV2RunPage(APIBaseTest):
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_kernel_not_running_returns_503(self, _mock_enabled):
         # No KernelRuntime exists, so the real fetch path raises SQLV2KernelNotRunning.
-        run = self._create_run()
+        run = self._create_kernel_run()
         response = self._get(str(run.id))
         self.assertEqual(response.status_code, 503)
 
     @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_empty_code_run_is_rejected_before_reaching_the_kernel(self, _mock_enabled, mock_fetch):
-        # Pre-migration runs stored code="" — paging must fail clearly, not round-trip to an opaque error.
-        run = self._create_run(code="")
+    def test_hogql_run_paging_is_retired(self, _mock_enabled, mock_fetch):
+        # SQL results page client-side over the rows the result poll serves; the server
+        # page endpoint must refuse hogql runs instead of round-tripping to a kernel.
+        run = self._create_run()
         response = self._get(str(run.id))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("re-run", response.json()["detail"])
+        self.assertIn("Re-run", response.json()["detail"])
         mock_fetch.assert_not_called()
 
     @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
@@ -702,7 +788,7 @@ class TestSQLV2RunPage(APIBaseTest):
         # Each out-of-cache page fetch holds a web worker for up to the kernel timeout, so a
         # user with a fetch already in flight must be rejected instead of stacking workers.
         mock_fetch.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
-        run = self._create_run()
+        run = self._create_kernel_run()
         lock_key = sql_v2_page_lock_key(self.team.id, self.user.id)
         cache.add(lock_key, True, timeout=10)
         try:
@@ -873,18 +959,66 @@ class TestSQLV2RunResult(APIBaseTest):
         _restrict_query_access(self)
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, 403)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_running_direct_run_expires_to_failed_after_grace(self, _mock_enabled):
+        # A RUNNING hogql run with no query status left can never complete — this poll is
+        # its watchdog. Within the grace window it keeps waiting (covers pre-deploy
+        # kernel-executed hogql runs whose callback is still due).
+        with freeze_time("2026-07-01T00:00:00Z"):
+            expired = self._create_run(NotebookNodeRun.Status.RUNNING)
+        body = self.client.get(self._url(str(expired.id))).json()
+        self.assertEqual(body["status"], NotebookNodeRun.Status.FAILED)
+        self.assertIn("expired", body["error"])
+
+        young = self._create_run(NotebookNodeRun.Status.RUNNING)
+        body = self.client.get(self._url(str(young.id))).json()
+        self.assertEqual(body["status"], NotebookNodeRun.Status.RUNNING)
+
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_error_fails_the_direct_run_with_its_message(self, _mock_enabled, mock_status):
+        # An errored query must fail the run with the user-facing message, or the node
+        # polls a RUNNING row forever.
+        mock_status.return_value = SimpleNamespace(complete=True, error=True, error_message="Query exceeds time budget")
+        run = self._create_run(NotebookNodeRun.Status.RUNNING)
+        body = self.client.get(self._url(str(run.id))).json()
+        self.assertEqual(body["status"], NotebookNodeRun.Status.FAILED)
+        self.assertEqual(body["error"], "Query exceeds time budget")
+
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
+    def test_completed_query_never_overwrites_an_interrupt(self, mock_status):
+        # The race: the user interrupts while a poller holds a stale RUNNING row and the
+        # query then completes. The guarded transition must let the interrupt stand.
+        run = self._create_run(NotebookNodeRun.Status.RUNNING)
+        stale = NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id)
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=NotebookNodeRun.Status.INTERRUPTED
+        )
+        mock_status.return_value = SimpleNamespace(
+            complete=True,
+            error=False,
+            error_message=None,
+            results={"columns": ["a"], "types": [["a", "Int64"]], "results": [[1]]},
+        )
+        self.assertIsNone(sync_direct_run(stale))
+        reloaded = NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id)
+        self.assertEqual(reloaded.status, NotebookNodeRun.Status.INTERRUPTED)
+        self.assertIsNone(reloaded.envelope)
+
 
 class TestSQLV2RunInterrupt(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbint01")
         with team_scope(self.team.id):
+            # A kernel-lane run: interrupt round-trips to the kernel only for these.
             self.node_run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
                 node_id="n1",
                 status=NotebookNodeRun.Status.RUNNING,
-                code="select event from events",
+                code="df1.head()",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
             )
 
     def _url(self, run_id: str) -> str:
@@ -987,6 +1121,30 @@ class TestSQLV2RunInterrupt(APIBaseTest):
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
 
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_direct_sql_run_interrupt_marks_without_kernel(self, mock_post, _mock_enabled):
+        # A direct (hogql) run has no kernel to signal: interrupt marks the row abandoned
+        # immediately, even when a live kernel exists for this user.
+        self._create_runtime()
+        with team_scope(self.team.id):
+            sql_run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n2",
+                status=NotebookNodeRun.Status.RUNNING,
+                code="select 1",
+            )
+
+        response = self.client.post(self._url(str(sql_run.id)))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], NotebookNodeRun.Status.INTERRUPTED)
+        mock_post.assert_not_called()
+        reloaded = NotebookNodeRun.objects.for_team(self.team.id).get(id=sql_run.id)
+        self.assertEqual(reloaded.status, NotebookNodeRun.Status.INTERRUPTED)
+        self.assertTrue(reloaded.error)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_from_another_notebook_is_404(self, _mock_enabled):
         # IDOR guard: a run id from a different notebook must not be interruptible (or even
         # discoverable) through this notebook's endpoint.
@@ -1024,10 +1182,28 @@ class TestSQLV2Activities(APIBaseTest):
     def _reload(self, run: NotebookNodeRun) -> NotebookNodeRun:
         return NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id)
 
-    def test_dispatch_activity_marks_failed_without_kernel(self):
+    @patch("products.notebooks.backend.temporal.sql_v2.dispatch_sql_v2_run")
+    @patch("products.notebooks.backend.temporal.sql_v2.get_kernel_runtime")
+    def test_dispatch_activity_provisions_kernel_when_missing(self, mock_get_runtime, mock_dispatch):
+        # Scenario B: a kernel-lane run with no kernel must provision one and dispatch,
+        # not dead-end on "start the instance first".
+        mock_dispatch.side_effect = [SQLV2KernelNotRunning(), None]
         run = self._create_run()
         dispatch_sql_v2_run_activity(self._run_input(run))
-        self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.FAILED)
+        mock_get_runtime.return_value.ensure.assert_called_once()
+        self.assertEqual(mock_dispatch.call_count, 2)
+        self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
+
+    @patch("products.notebooks.backend.temporal.sql_v2.dispatch_sql_v2_run", side_effect=SQLV2KernelNotRunning())
+    @patch("products.notebooks.backend.temporal.sql_v2.get_kernel_runtime")
+    def test_dispatch_activity_raises_when_provisioning_fails(self, mock_get_runtime, _mock_dispatch):
+        # A provisioning failure must raise out of the activity so Temporal retries and,
+        # on exhaustion, the workflow marks the run failed — never a silent RUNNING row.
+        mock_get_runtime.return_value.ensure.side_effect = RuntimeError("no sandbox capacity")
+        run = self._create_run()
+        with self.assertRaises(RuntimeError):
+            dispatch_sql_v2_run_activity(self._run_input(run))
+        self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
     @patch("products.notebooks.backend.sql_v2._server_version")
     @patch("products.notebooks.backend.sql_v2.requests.post")

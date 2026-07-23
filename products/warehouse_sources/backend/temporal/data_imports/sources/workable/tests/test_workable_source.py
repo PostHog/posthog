@@ -8,7 +8,9 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WorkableSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
+    WorkableSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.source import WorkableSource

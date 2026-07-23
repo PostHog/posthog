@@ -9,7 +9,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -112,6 +112,7 @@ REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
 REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
 REFRESH_FAILURE_REASON_NETWORK = "network"
+REFRESH_FAILURE_REASON_RATE_LIMITED = "rate_limited"
 REFRESH_FAILURE_REASON_OTHER = "other"
 
 
@@ -126,6 +127,17 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # endpoint means the grant, not the request - match that exact shape for reddit only.
     if kind == "reddit-ads" and status_code == 400 and error == 400:
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # HubSpot reports a grant whose portal (hub) was deleted or disconnected as
+    # `{"status": "BAD_HUB", "error": "access_denied", ...}` - no `invalid_grant` code, so
+    # without this mapping the row is retried forever instead of going terminal. Its
+    # `BAD_REFRESH_TOKEN` responses do carry `"error": "invalid_grant"` and need no special case.
+    if kind == "hubspot" and status_code < 500 and body.get("status") == "BAD_HUB":
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Transient throttling, not a credential problem: the backoff cap synchronises failed
+    # integrations into retry herds that can trip a provider's per-second limit and take
+    # healthy refreshes in the same second down with them.
+    if status_code == 429:
+        return REFRESH_FAILURE_REASON_RATE_LIMITED
     if status_code >= 500:
         return REFRESH_FAILURE_REASON_HTTP_5XX
     return REFRESH_FAILURE_REASON_OTHER
@@ -139,8 +151,8 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
     integration goes terminal and the sweep stops retrying entirely. The streak is tracked
     separately from the total failure count and resets on any other reason, so one transient
     invalid_grant amid e.g. a 5xx outage can't brick the integration. Other reasons
-    (invalid_client, 5xx, network) never go terminal - a platform-side credential fix must let
-    the fleet self-recover.
+    (invalid_client, 5xx, network, rate_limited) never go terminal - a platform-side credential
+    fix must let the fleet self-recover.
 
     Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
@@ -488,6 +500,33 @@ def _build_posthog_slack_scope() -> str:
 
 
 POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
+
+
+def _salesforce_instance_host(instance_url: str | None) -> str | None:
+    # Every Salesforce-issued instance_url host ends in .salesforce.com: login/test, the
+    # pod hosts (na1.salesforce.com, ...), and My Domain variants like
+    # acme.my.salesforce.com and acme--sandbox.sandbox.my.salesforce.com. Validating at
+    # the point of use means a stray write to integration.config can't cause the shared
+    # SALESFORCE_CONSUMER_SECRET to be POSTed to an attacker origin during a refresh,
+    # even if a future endpoint or admin tool exposes config as writable. Returns
+    # "https://<host>" for a legitimate value, None otherwise (caller falls back to the
+    # hardcoded prod URL).
+    if not instance_url:
+        return None
+    try:
+        parsed = urlparse(instance_url)
+        # port/hostname/username/password are lazily parsed from netloc on access, and
+        # port in particular raises ValueError on a non-numeric or out-of-range value
+        # (e.g. https://host:abc/). Keep every derived-property read inside the try so a
+        # poisoned instance_url can never crash the refresh sweep.
+        if parsed.scheme != "https" or parsed.port is not None or parsed.username or parsed.password:
+            return None
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return None
+    if not host.endswith(".salesforce.com"):
+        return None
+    return f"https://{host}"
 
 
 class OauthIntegration:
@@ -1269,12 +1308,14 @@ class OauthIntegration:
             return
 
         revoke_url = oauth_config.token_revoke_url
-        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only a
-        # token-exchange fallback), so the static prod revoke URL would miss them. Revoke at the
-        # org's own instance host instead - it serves oauth2/revoke and matches prod or sandbox.
-        instance_url = self.integration.config.get("instance_url")
-        if self.integration.kind == "salesforce" and instance_url:
-            revoke_url = f"{instance_url.rstrip('/')}/services/oauth2/revoke"
+        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only
+        # a token-exchange fallback), so the static prod revoke URL would miss them. Revoke at
+        # the validated instance host so a stray write to config can't redirect the token to
+        # an attacker origin.
+        if self.integration.kind == "salesforce":
+            allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
+            if allowed_host:
+                revoke_url = f"{allowed_host}/services/oauth2/revoke"
 
         # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
         # resending the token to another host. raise_for_status surfaces a provider rejection
@@ -1368,8 +1409,20 @@ class OauthIntegration:
                 timeout=10,
             )
         else:
+            token_url = oauth_config.token_url
+            # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox
+            # is only a token-exchange fallback in the OAuth callback), so the static prod
+            # token URL would refuse a sandbox-issued refresh_token. Refresh at the org's
+            # own instance host instead. Validate the host before sending client_secret +
+            # refresh_token so a stray write to config can't exfiltrate the fleet-wide
+            # Salesforce app secret; fall back to the hardcoded prod URL on rejection.
+            if kind == "salesforce":
+                allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
+                if allowed_host:
+                    token_url = f"{allowed_host}/services/oauth2/token"
+
             return requests.post(
-                oauth_config.token_url,
+                token_url,
                 data={
                     "client_id": client_id,
                     "client_secret": client_secret,
@@ -1377,6 +1430,7 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                 },
                 timeout=10,
+                allow_redirects=False,
             )
 
     @staticmethod
@@ -1813,7 +1867,9 @@ class GoogleAdsIntegration:
 
             return accounts
 
-        for account in accessible_accounts["resourceNames"]:
+        # A Google login with no accessible Ads accounts gets a 200 with an empty body, so
+        # `resourceNames` is absent (proto3 omits empty repeated fields) rather than an empty list.
+        for account in accessible_accounts.get("resourceNames", []):
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
 
         return all_accounts

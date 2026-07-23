@@ -7,6 +7,14 @@ import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 // Matches SUPER_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the early-access
 // enrollment super condition has no position among the zero-based release conditions.
 export const SUPER_CONDITION_INDEX = -1
+// Matches HOLDOUT_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the holdout has no
+// position among the zero-based release conditions either.
+export const HOLDOUT_CONDITION_INDEX = -2
+
+const SYNTHETIC_CONDITION_LABELS: Record<number, string> = {
+    [SUPER_CONDITION_INDEX]: 'Early access enrollment',
+    [HOLDOUT_CONDITION_INDEX]: 'Holdout',
+}
 
 export interface ConditionAnalysis {
     index: number
@@ -51,12 +59,15 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
     }
 
     const matchedConditionLabel = (): string => {
-        // Reuse the same signal the condition list below uses (a matched entry at the sentinel
-        // index) instead of re-deriving "was this enrollment" from flag.reason separately.
+        // Reuse the same signal and label map the condition list below uses (a matched entry at
+        // the sentinel index) instead of re-deriving "was this enrollment/holdout" from flag.reason.
         const matchedCondition = flag.conditions.find((condition) => condition.matched)
-        if (matchedCondition?.index === SUPER_CONDITION_INDEX) {
-            return 'Early access enrollment'
+        const syntheticLabel = matchedCondition && SYNTHETIC_CONDITION_LABELS[matchedCondition.index]
+        if (syntheticLabel) {
+            return syntheticLabel
         }
+        // Falls back to flag.reason if the backend hasn't started emitting the synthetic holdout
+        // entry yet (the Rust service and this frontend deploy independently).
         if (flag.reason === 'holdout_condition_value') {
             return 'Holdout'
         }
@@ -146,15 +157,16 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                         <CardContent>
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">
-                                                    {condition.index === SUPER_CONDITION_INDEX
-                                                        ? 'Early access enrollment:'
-                                                        : `Condition #${condition.index + 1}:`}
+                                                    {`${
+                                                        SYNTHETIC_CONDITION_LABELS[condition.index] ??
+                                                        `Condition #${condition.index + 1}`
+                                                    }:`}
                                                 </span>
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
-                                                {/* enrollment super condition has no rollout */}
-                                                {condition.index !== SUPER_CONDITION_INDEX && (
+                                                {/* synthetic (enrollment/holdout) entries have no release rollout */}
+                                                {condition.index >= 0 && (
                                                     <Badge>{condition.rollout_percentage}% rollout</Badge>
                                                 )}
                                                 {condition.variant && <Badge variant="info">{condition.variant}</Badge>}

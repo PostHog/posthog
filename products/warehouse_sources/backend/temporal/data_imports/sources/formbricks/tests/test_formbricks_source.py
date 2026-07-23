@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source import FormbricksSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FormbricksSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
+    FormbricksSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

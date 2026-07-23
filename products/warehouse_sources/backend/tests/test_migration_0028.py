@@ -1,12 +1,17 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class BackfillDirectQueryEnabledMigrationTest(TestMigrations):
+class BackfillDirectQueryEnabledMigrationTest(NonAtomicTestMigrations):
     """0028 defaults every row to True. The backfill must opt existing synced (warehouse) sources out so
     the direct-connect capability gate only lights up sources a user explicitly enables; direct sources
     keep True.
+
+    NonAtomic: setUp's MigrationExecutor spends minutes CPU-bound building migration project state.
+    Under the atomic TestCase wrapper the connection sits idle in transaction for that whole stretch,
+    tripping the CI/dev Postgres idle_in_transaction_session_timeout (300s), which kills the session
+    mid-test with "the connection is closed".
     """
 
     migrate_from = "0028_externaldatasource_direct_query_enabled"

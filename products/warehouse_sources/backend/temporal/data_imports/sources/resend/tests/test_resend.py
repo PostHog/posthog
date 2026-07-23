@@ -1,285 +1,331 @@
+import json
+from collections.abc import Iterable
+from typing import Any, cast
+
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import (
     RESEND_BASE_URL,
     ResendResumeConfig,
-    get_rows,
     resend_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS, RESEND_ENDPOINTS
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the resend module.
+RESEND_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session"
+)
 
-def _mock_manager(can_resume: bool = False, state: ResendResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = state
-    manager.save_state = MagicMock()
+
+def _response(body: Any, status_code: int = 200, url: str = f"{RESEND_BASE_URL}/x") -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    resp.url = url
+    resp.reason = "OK" if status_code < 400 else "Error"
+    resp.headers["Content-Type"] = "application/json"
+    return resp
+
+
+def _make_manager(resume_state: ResendResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
     return manager
 
 
-def _mock_response(status_code: int = 200, json_payload: dict | None = None) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = status_code < 400
-    response.json.return_value = json_payload or {}
-    response.text = "" if response.ok else "error body"
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Wire a mock session and capture (url, params) snapshots AT SEND TIME.
 
-    def _raise_for_status():
-        if not response.ok:
-            raise Exception(f"{status_code} Client Error")
+    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[tuple[str, dict[str, Any]]] = []
 
-    response.raise_for_status.side_effect = _raise_for_status
-    return response
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append((request.url, dict(request.params or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
 
 
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok_200", 200, True),
-            ("unauthorized_401", 401, False),
-            ("forbidden_403", 403, False),
-            ("server_500", 500, False),
-        ]
+def _source(endpoint: str, manager: mock.MagicMock | None = None) -> SourceResponse:
+    return resend_source(
+        api_key="re_test",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job-1",
+        resumable_source_manager=manager if manager is not None else _make_manager(),
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_validate_credentials(self, _name: str, status_code: int, expected: bool, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = _mock_response(status_code=status_code)
-        assert validate_credentials("re_test") is expected
 
-        # Auth headers are bound to the session itself; URL is on `.get(...)`.
-        session_kwargs = mock_get.call_args.kwargs
-        assert session_kwargs["headers"]["Authorization"] == "Bearer re_test"
-        called_args, _ = mock_get.return_value.get.call_args
-        assert called_args[0] == f"{RESEND_BASE_URL}/domains"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_validate_credentials_network_error_returns_false(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("re_test") is False
+def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
 
 
 class TestFlatEndpoints:
-    @parameterized.expand([("audiences",), ("broadcasts",), ("domains",)])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_flat_endpoint_yields_single_batch(self, endpoint: str, mock_get: MagicMock) -> None:
+    @pytest.mark.parametrize("endpoint", ["audiences", "broadcasts", "domains"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flat_endpoint_yields_single_batch(self, MockSession, endpoint: str) -> None:
+        session = MockSession.return_value
         rows = [{"id": "a1", "created_at": "2026-01-01T00:00:00Z"}]
-        mock_get.return_value.get.return_value = _mock_response(json_payload={"data": rows})
+        snapshots = _wire(session, [_response({"data": rows})])
 
-        manager = _mock_manager()
-        logger = MagicMock()
+        manager = _make_manager()
+        result = _rows(_source(endpoint, manager))
 
-        tables = list(get_rows("re_test", endpoint, logger, manager))
+        assert result == rows
+        assert snapshots[0][0] == f"{RESEND_BASE_URL}{RESEND_ENDPOINTS[endpoint].path}"
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-        assert len(tables) == 1
-        assert tables[0].num_rows == 1
-        assert tables[0].column("id").to_pylist() == ["a1"]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flat_endpoint_empty_response_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"data": []})])
 
-        called_url = mock_get.return_value.get.call_args[0][0]
-        assert called_url == f"{RESEND_BASE_URL}{RESEND_ENDPOINTS[endpoint].path}"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_flat_endpoint_empty_response_yields_nothing(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = _mock_response(json_payload={"data": []})
-        manager = _mock_manager()
-        logger = MagicMock()
-
-        tables = list(get_rows("re_test", "audiences", logger, manager))
-
-        assert tables == []
+        assert _rows(_source("audiences")) == []
 
 
 class TestEmailsPagination:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_paginates_with_has_more_and_saves_state(self, mock_get: MagicMock) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_with_has_more_and_saves_state(self, MockSession) -> None:
+        session = MockSession.return_value
         page1 = [{"id": f"e{i}", "created_at": "2026-01-01T00:00:00Z"} for i in range(2)]
         page2 = [{"id": f"e{i}", "created_at": "2026-01-01T00:00:00Z"} for i in range(2, 4)]
+        snapshots = _wire(
+            session,
+            [
+                _response({"data": page1, "has_more": True}),
+                _response({"data": page2, "has_more": False}),
+            ],
+        )
 
-        mock_get.return_value.get.side_effect = [
-            _mock_response(json_payload={"data": page1, "has_more": True}),
-            _mock_response(json_payload={"data": page2, "has_more": False}),
-        ]
+        manager = _make_manager()
+        rows = _rows(_source("emails", manager))
 
-        manager = _mock_manager()
-        logger = MagicMock()
-
-        tables = list(get_rows("re_test", "emails", logger, manager))
-
-        assert sum(t.num_rows for t in tables) == 4
-        assert mock_get.return_value.get.call_count == 2
-
-        second_call_params = mock_get.return_value.get.call_args_list[1].kwargs["params"]
-        assert second_call_params["after"] == "e1"
-
+        assert [r["id"] for r in rows] == ["e0", "e1", "e2", "e3"]
+        assert session.send.call_count == 2
+        # The `after` cursor advances from the last row's id of the previous page.
+        assert "after" not in snapshots[0][1]
+        assert snapshots[0][1]["limit"] == 100
+        assert snapshots[1][1]["after"] == "e1"
+        # First page is not terminal -> save next cursor; second page (has_more=False) -> no save.
         manager.save_state.assert_called_once()
-        saved: ResendResumeConfig = manager.save_state.call_args[0][0]
-        assert saved.next_cursor == "e1"
+        assert manager.save_state.call_args.args[0] == ResendResumeConfig(next_cursor="e1")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_resumes_from_saved_cursor(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = _mock_response(
-            json_payload={"data": [{"id": "e42"}], "has_more": False}
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"data": [{"id": "e42"}], "has_more": False})])
 
-        manager = _mock_manager(can_resume=True, state=ResendResumeConfig(next_cursor="e41"))
-        logger = MagicMock()
+        manager = _make_manager(ResendResumeConfig(next_cursor="e41"))
+        rows = _rows(_source("emails", manager))
 
-        list(get_rows("re_test", "emails", logger, manager))
+        assert [r["id"] for r in rows] == ["e42"]
+        assert snapshots[0][1]["after"] == "e41"
 
-        first_call_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
-        assert first_call_params["after"] == "e41"
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_has_more_false(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"data": [{"id": "e1"}], "has_more": False})])
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_stops_when_has_more_false(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = _mock_response(
-            json_payload={"data": [{"id": "e1"}], "has_more": False}
-        )
+        manager = _make_manager()
+        _rows(_source("emails", manager))
 
-        manager = _mock_manager()
-        logger = MagicMock()
-
-        list(get_rows("re_test", "emails", logger, manager))
-
-        assert mock_get.return_value.get.call_count == 1
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_raises_when_empty_page_with_has_more_true(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = _mock_response(json_payload={"data": [], "has_more": True})
-
-        manager = _mock_manager()
-        logger = MagicMock()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_raises_when_empty_page_with_has_more_true(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"data": [], "has_more": True})])
 
         with pytest.raises(ValueError, match="empty page but has_more=True"):
-            list(get_rows("re_test", "emails", logger, manager))
+            _rows(_source("emails"))
 
 
-class TestContactsFanout:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_fanout_injects_audience_id_and_saves_parent(self, mock_get: MagicMock) -> None:
-        audiences = [{"id": "aud_1"}, {"id": "aud_2"}]
-        contacts_1 = [{"id": "c1", "email": "a@example.com"}]
-        contacts_2 = [{"id": "c2", "email": "b@example.com"}]
+class TestContactsFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fanout_injects_audience_id_and_checkpoints(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"data": [{"id": "aud_1"}, {"id": "aud_2"}]}),  # audiences
+                _response({"data": [{"id": "c1", "email": "a@example.com"}]}),  # aud_1 contacts
+                _response({"data": [{"id": "c2", "email": "b@example.com"}]}),  # aud_2 contacts
+            ],
+        )
 
-        mock_get.return_value.get.side_effect = [
-            _mock_response(json_payload={"data": audiences}),
-            _mock_response(json_payload={"data": contacts_1}),
-            _mock_response(json_payload={"data": contacts_2}),
+        manager = _make_manager()
+        rows = _rows(_source("contacts", manager))
+
+        assert rows == [
+            {"id": "c1", "email": "a@example.com", "_audience_id": "aud_1"},
+            {"id": "c2", "email": "b@example.com", "_audience_id": "aud_2"},
         ]
+        assert snapshots[0][0] == f"{RESEND_BASE_URL}/audiences"
+        assert snapshots[1][0] == f"{RESEND_BASE_URL}/audiences/aud_1/contacts"
+        assert snapshots[2][0] == f"{RESEND_BASE_URL}/audiences/aud_2/contacts"
+        # After finishing aud_1 a checkpoint marks its path completed, so a crash resumes on aud_2.
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert any(
+            state.fanout_state is not None
+            and any("audiences/aud_1/contacts" in p for p in state.fanout_state["completed"])
+            for state in saved
+        )
 
-        manager = _mock_manager()
-        logger = MagicMock()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fanout_resumes_past_completed_parents(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"data": [{"id": "aud_1"}, {"id": "aud_2"}, {"id": "aud_3"}]}),  # audiences re-fetched
+                _response({"data": [{"id": "c3"}]}),  # aud_3 only
+            ],
+        )
 
-        tables = list(get_rows("re_test", "contacts", logger, manager))
+        manager = _make_manager(
+            ResendResumeConfig(
+                fanout_state={
+                    "completed": ["/audiences/aud_1/contacts", "/audiences/aud_2/contacts"],
+                    "current": None,
+                    "child_state": None,
+                }
+            )
+        )
+        rows = _rows(_source("contacts", manager))
 
-        # Both audiences' contacts are buffered into one table by the batcher since
-        # they're tiny — assert content rather than table count.
-        all_rows: list[dict] = []
-        for table in tables:
-            all_rows.extend(table.to_pylist())
+        assert [r["id"] for r in rows] == ["c3"]
+        # audiences list + aud_3 contacts only; completed parents are skipped.
+        assert session.send.call_count == 2
+        assert snapshots[1][0] == f"{RESEND_BASE_URL}/audiences/aud_3/contacts"
 
-        audience_ids = [row["_audience_id"] for row in all_rows]
-        assert sorted(audience_ids) == ["aud_1", "aud_2"]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fanout_full_resync_when_completed_parent_absent(self, MockSession) -> None:
+        # If the completed audience no longer exists (e.g. deleted between syncs) no current parent
+        # matches the stale path, so every present audience is fetched — no silent data loss.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"data": [{"id": "aud_1"}, {"id": "aud_2"}]}),
+                _response({"data": [{"id": "c1"}]}),
+                _response({"data": [{"id": "c2"}]}),
+            ],
+        )
 
-        contact_urls = [call.args[0] for call in mock_get.return_value.get.call_args_list[1:]]
-        assert contact_urls == [
-            f"{RESEND_BASE_URL}/audiences/aud_1/contacts",
-            f"{RESEND_BASE_URL}/audiences/aud_2/contacts",
-        ]
+        manager = _make_manager(
+            ResendResumeConfig(
+                fanout_state={"completed": ["/audiences/aud_deleted/contacts"], "current": None, "child_state": None}
+            )
+        )
+        rows = _rows(_source("contacts", manager))
 
-        saved_parent_ids = [call.args[0].last_completed_parent_id for call in manager.save_state.call_args_list]
-        assert saved_parent_ids == ["aud_1", "aud_2"]
+        assert sorted(r["_audience_id"] for r in rows) == ["aud_1", "aud_2"]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_fanout_resumes_past_completed_parent(self, mock_get: MagicMock) -> None:
-        audiences = [{"id": "aud_1"}, {"id": "aud_2"}, {"id": "aud_3"}]
-        contacts_3 = [{"id": "c3"}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pre_migration_resume_state_starts_fresh(self, MockSession) -> None:
+        # An old-shape bookmark (last_completed_parent_id, no fanout_state) can't be translated into
+        # the framework's completed/current map — the fan-out restarts from the first audience.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"data": [{"id": "aud_1"}, {"id": "aud_2"}]}),
+                _response({"data": [{"id": "c1"}]}),
+                _response({"data": [{"id": "c2"}]}),
+            ],
+        )
 
-        mock_get.return_value.get.side_effect = [
-            _mock_response(json_payload={"data": audiences}),
-            _mock_response(json_payload={"data": contacts_3}),
-        ]
+        manager = _make_manager(ResendResumeConfig(last_completed_parent_id="aud_2"))
+        rows = _rows(_source("contacts", manager))
 
-        manager = _mock_manager(can_resume=True, state=ResendResumeConfig(last_completed_parent_id="aud_2"))
-        logger = MagicMock()
-
-        list(get_rows("re_test", "contacts", logger, manager))
-
-        # Only the audiences list fetch + contacts fetch for aud_3 should happen.
-        assert mock_get.return_value.get.call_count == 2
-        assert mock_get.return_value.get.call_args_list[1].args[0] == f"{RESEND_BASE_URL}/audiences/aud_3/contacts"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_fanout_resumes_from_start_when_completed_parent_deleted(self, mock_get: MagicMock) -> None:
-        # If the last completed audience was deleted between syncs we must fall back to a
-        # full resync rather than silently skipping every remaining audience.
-        audiences = [{"id": "aud_1"}, {"id": "aud_2"}]
-        contacts_1 = [{"id": "c1"}]
-        contacts_2 = [{"id": "c2"}]
-
-        mock_get.return_value.get.side_effect = [
-            _mock_response(json_payload={"data": audiences}),
-            _mock_response(json_payload={"data": contacts_1}),
-            _mock_response(json_payload={"data": contacts_2}),
-        ]
-
-        manager = _mock_manager(can_resume=True, state=ResendResumeConfig(last_completed_parent_id="aud_deleted"))
-        logger = MagicMock()
-
-        tables = list(get_rows("re_test", "contacts", logger, manager))
-
-        all_rows: list[dict] = []
-        for table in tables:
-            all_rows.extend(table.to_pylist())
-        assert sorted(row["_audience_id"] for row in all_rows) == ["aud_1", "aud_2"]
-        logger.warning.assert_called_once()
-
-
-class TestSourceResponseShape:
-    @parameterized.expand([(name,) for name in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        manager = _mock_manager()
-        logger = MagicMock()
-
-        response = resend_source("re_test", endpoint, logger, manager)
-
-        endpoint_config = RESEND_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == [endpoint_config.primary_key]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == [endpoint_config.partition_key]
+        assert sorted(r["_audience_id"] for r in rows) == ["aud_1", "aud_2"]
+        assert snapshots[1][0] == f"{RESEND_BASE_URL}/audiences/aud_1/contacts"
 
 
 class TestRetryable:
-    @patch("tenacity.nap.time.sleep")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_429_retries_until_success(self, mock_get: MagicMock, _mock_sleep: MagicMock) -> None:
-        mock_get.return_value.get.side_effect = [
-            _mock_response(status_code=429),
-            _mock_response(json_payload={"data": [{"id": "a1"}]}),
-        ]
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_429_retries_until_success(self, MockSession, _mock_sleep) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({}, status_code=429),
+                _response({"data": [{"id": "a1"}]}),
+            ],
+        )
 
-        manager = _mock_manager()
-        logger = MagicMock()
+        rows = _rows(_source("audiences"))
 
-        tables = list(get_rows("re_test", "audiences", logger, manager))
+        assert [r["id"] for r in rows] == ["a1"]
+        assert session.send.call_count == 2
 
-        assert len(tables) == 1
-        assert mock_get.return_value.get.call_count == 2
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend.make_tracked_session")
-    def test_401_does_not_retry_and_raises(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = _mock_response(status_code=401)
-
-        manager = _mock_manager()
-        logger = MagicMock()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_401_does_not_retry_and_raises(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"message": "unauthorized"}, status_code=401)])
 
         with pytest.raises(Exception):
-            list(get_rows("re_test", "audiences", logger, manager))
+            _rows(_source("audiences"))
 
-        assert mock_get.return_value.get.call_count == 1
+        assert session.send.call_count == 1
+
+
+class TestResumeConfigCompatibility:
+    def test_old_saved_state_still_parses(self) -> None:
+        # ResumableSourceManager._load_json does dataclass(**saved) — state saved by the
+        # pre-framework implementation must keep loading after the migration.
+        state = ResendResumeConfig(**cast("dict[str, Any]", {"next_cursor": "e1", "last_completed_parent_id": "aud_2"}))
+        assert state.next_cursor == "e1"
+        assert state.last_completed_parent_id == "aud_2"
+        assert state.fanout_state is None
+
+
+class TestSourceResponseShape:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_source_response_shape(self, endpoint: str) -> None:
+        response = _source(endpoint)
+
+        config = RESEND_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.partition_mode == "datetime"
+        assert response.partition_format == "month"
+        assert response.partition_keys == [config.partition_key]
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        "status_code, expected",
+        [(200, True), (401, False), (403, False), (500, False)],
+    )
+    @mock.patch(RESEND_SESSION_PATCH)
+    def test_status_mapping(self, mock_session, status_code: int, expected: bool) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+
+        assert validate_credentials("re_test") is expected
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert url == f"{RESEND_BASE_URL}/domains"
+        headers = mock_session.return_value.get.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer re_test"
+
+    @mock.patch(RESEND_SESSION_PATCH)
+    def test_network_error_returns_false(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("re_test") is False

@@ -1,9 +1,13 @@
+import os
 import shlex
+import tempfile
+import subprocess
+from pathlib import Path
 from typing import Any
 
 from unittest.mock import Mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import yaml
 from parameterized import parameterized
@@ -14,6 +18,7 @@ from products.tasks.backend.logic.services.agentsh import (
     INFRASTRUCTURE_DOMAINS,
     build_audit_query_command,
     build_exec_prefix,
+    generate_bash_env_script,
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
@@ -227,20 +232,136 @@ class TestGeneratePolicyYaml(TestCase):
         self.assertNotIn("deny-cloud-metadata", rule_names)
 
 
-class TestEnvWrapper(TestCase):
-    def test_wrapper_restores_environment_dump(self):
-        wrapper = generate_env_wrapper()
-        self.assertIn("done < /tmp/agent-env", wrapper)
+class TestEnvWrapper(SimpleTestCase):
+    def test_restores_safe_environment_and_only_managed_credentials(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            wrapper_file = Path(temp_dir) / "wrapper.sh"
+            env_file.write_bytes(
+                b"SAFE_BASE=kept\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghs_snapshot\x00"
+            )
+            github_env_file.write_bytes(b"GITHUB_TOKEN=ghs_fresh\x00GH_TOKEN=ghs_fresh\x00IGNORED=unsafe\x00")
+            oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00IGNORED=unsafe\x00")
+            wrapper_file.write_text(generate_env_wrapper(str(env_file), str(github_env_file), str(oauth_env_file)))
 
-    def test_wrapper_execs_command(self):
-        wrapper = generate_env_wrapper()
-        self.assertIn('exec "$@"', wrapper)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(wrapper_file),
+                    "bash",
+                    "-c",
+                    'printf "%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
+                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}"',
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ["PATH"], "NODE_OPTIONS": "--require=/tmp/inherited.js"},
+            )
+
+            self.assertEqual(result.stdout, "kept|ghs_fresh|ghs_fresh|oauth_fresh|")
 
     def test_wrapper_does_not_set_proxy_vars(self):
         wrapper = generate_env_wrapper()
         self.assertNotIn("HTTPS_PROXY", wrapper)
         self.assertNotIn("NO_PROXY", wrapper)
         self.assertNotIn("--use-env-proxy", wrapper)
+
+
+class TestBashEnvScript(SimpleTestCase):
+    def test_initialization_replaces_snapshot_env_and_preserves_refreshed_credentials(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            env_file.write_bytes(
+                b"PATH=/snapshot\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghu_snapshot\x00"
+            )
+            github_env_file.write_bytes(b"GH_TOKEN=ghu_fresh\x00GITHUB_TOKEN=ghu_fresh\x00")
+            oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00")
+            script_file.write_text(generate_bash_env_script(str(env_file), str(github_env_file), str(oauth_env_file)))
+
+            subprocess.run(
+                ["bash", str(script_file)],
+                check=True,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "SAFE_BASE": "kept",
+                    "GH_TOKEN": "ghu_process",
+                    "POSTHOG_PERSONAL_API_KEY": "oauth_process",
+                    "NODE_OPTIONS": "--require=/tmp/current.js",
+                },
+            )
+
+            entries = {
+                entry.split(b"=", 1)[0]: entry.split(b"=", 1)[1]
+                for entry in env_file.read_bytes().split(b"\x00")
+                if entry
+            }
+            self.assertEqual(entries[b"SAFE_BASE"], b"kept")
+            self.assertNotIn(b"NODE_OPTIONS", entries)
+            self.assertNotIn(b"GITHUB_TOKEN", entries)
+            self.assertNotIn(b"POSTHOG_PERSONAL_API_KEY", entries)
+            self.assertEqual(github_env_file.read_bytes(), b"GH_TOKEN=ghu_fresh\x00GITHUB_TOKEN=ghu_fresh\x00")
+            self.assertEqual(oauth_env_file.read_bytes(), b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00")
+            for path in (env_file, github_env_file, oauth_env_file):
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+            sourced = subprocess.run(
+                ["bash", "-c", 'printf "%s|%s" "$GH_TOKEN" "$GITHUB_TOKEN"'],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ["PATH"], "BASH_ENV": str(script_file)},
+            )
+            self.assertEqual(sourced.stdout, "ghu_fresh|ghu_fresh")
+
+    def test_initialization_creates_restrictive_credential_files_when_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            script_file.write_text(generate_bash_env_script(str(env_file), str(github_env_file), str(oauth_env_file)))
+
+            subprocess.run(
+                ["bash", str(script_file)],
+                check=True,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "SAFE_BASE": "kept",
+                    "GITHUB_TOKEN": "ghs_current",
+                    "POSTHOG_PERSONAL_API_KEY": "oauth_current",
+                },
+            )
+
+            self.assertEqual(
+                github_env_file.read_bytes(),
+                b"GITHUB_TOKEN=ghs_current\x00GH_TOKEN=ghs_current\x00",
+            )
+            self.assertEqual(oauth_env_file.read_bytes(), b"POSTHOG_PERSONAL_API_KEY=oauth_current\x00")
+            for path in (env_file, github_env_file, oauth_env_file):
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_initialization_fails_for_untrusted_credential_file_type(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            github_env_file.mkdir()
+            script_file.write_text(generate_bash_env_script(str(env_file), str(github_env_file), str(oauth_env_file)))
+
+            result = subprocess.run(
+                ["bash", str(script_file)],
+                check=False,
+                env={"PATH": os.environ["PATH"]},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
 
 
 class TestBuildAuditQueryCommand(TestCase):
@@ -285,9 +406,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        # The env file is written at launch regardless of agentsh so the
-        # mid-session credential refresh can re-source the token per command.
-        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        self.assertIn("bash /tmp/agentsh-bash-env.sh", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
 
@@ -334,7 +453,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
     def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
         from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
-        from products.tasks.backend.logic.services.sandbox import ExecutionResult
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
         # Snapshots restored from old images carry an agent-server that rejects unknown
         # options; the launch probe must drop --autoPublish instead of crashing the run.
@@ -354,6 +473,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             sandbox = DockerSandbox.__new__(DockerSandbox)
             sandbox._host_port = 8080
         sandbox.id = "sb-test"
+        sandbox.config = SandboxConfig(name="sb-test")
         cast_sandbox: Any = sandbox
         cast_sandbox.is_running = Mock(return_value=True)
         cast_sandbox._agent_server_is_healthy = Mock(return_value=False)
@@ -388,7 +508,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             allowed_domains=["example.com", "api.example.com"],
         )
         self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        self.assertIn("bash /tmp/agentsh-bash-env.sh", cmd)
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)

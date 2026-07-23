@@ -15,6 +15,7 @@ import {
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DataWarehouseSourceUsage,
     DatabaseSchemaQuery,
     DateRange,
     EndpointsUsageOverviewQuery,
@@ -504,11 +505,17 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
     return undefined
 }
 
+// For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
+// the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
+// selectors derive from — makes such insights behave exactly like their UI-created equivalents.
+const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
+    display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
+
 export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
     if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.display
+        return normalizeDisplay(query.stickinessFilter?.display)
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.display
+        return normalizeDisplay(query.trendsFilter?.display)
     }
     return undefined
 }
@@ -612,6 +619,29 @@ export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWareho
         return query.series
     }
     return undefined
+}
+
+/** Client-side check: does this query have a data-warehouse-backed series (insight surface)?
+ * For raw SQL / HogQL queries the client can't know without the backend — use
+ * `dataWarehouseSourcesFromResponse` on the query response instead. */
+export function queryUsesDataWarehouse(query?: Record<string, any> | null): boolean {
+    if (!query) {
+        return false
+    }
+    const source = isInsightVizNode(query) ? query.source : query
+    if (isInsightQueryNode(source)) {
+        return !!getSeries(source)?.some((entity) => isAnyDataWarehouseNode(entity))
+    }
+    return false
+}
+
+/** Extract the connector-synced warehouse sources a query touched from its response, if the
+ * backend populated them (currently HogQL / SQL-editor responses). Always returns an array. */
+export function dataWarehouseSourcesFromResponse(response: unknown): DataWarehouseSourceUsage[] {
+    if (response && typeof response === 'object' && Array.isArray((response as any).used_data_warehouse_sources)) {
+        return (response as any).used_data_warehouse_sources
+    }
+    return []
 }
 
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {

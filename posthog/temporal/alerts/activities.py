@@ -10,9 +10,12 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertState
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
+from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
@@ -250,8 +253,31 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 should_notify=False,  # disable_invalid_alert already emailed subscribers
                 new_state=AlertState.ERRORED,
             )
+        except TableAccessDeniedError as err:
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
+            # A revoked creator's access-denied error is a known limitation - report it as an event
+            # rather than capturing it, which would recur on every check until the alert is fixed.
+            if creator_access_revoked(alert.created_by, alert.team):
+                report_creator_access_revoked(
+                    user=alert.created_by,
+                    team=alert.team,
+                    source="alert",
+                    error=err,
+                    properties={"alert_id": str(alert.id), "insight_id": alert.insight_id},
+                )
+                error = {"message": str(err)}
+            else:
+                capture_exception(
+                    err,
+                    additional_properties={
+                        "alert_configuration_id": str(alert.id),
+                        "insight_id": alert.insight_id,
+                        "team_id": alert.team_id,
+                    },
+                )
+                error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
-            logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
                 err,
                 additional_properties={

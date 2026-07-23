@@ -18,6 +18,8 @@ from pathlib import Path
 
 from django.conf import settings
 
+import yaml
+
 logger = logging.getLogger(__name__)
 
 BUILD_OUTPUT_SUBDIR = "dist"
@@ -81,6 +83,7 @@ def get_local_posthog_code_packages() -> tuple[LocalPackage, ...] | None:
 def get_local_package_runtime_dependencies(packages: tuple[LocalPackage, ...]) -> dict[str, dict[str, str]]:
     """Collect registry dependencies needed by the overlaid local package builds."""
     dependencies: dict[str, dict[str, str]] = {}
+    dependency_catalogs: dict[Path, tuple[dict[str, str], dict[str, dict[str, str]]]] = {}
 
     for package in packages:
         manifest_path = package.source_path / "package.json"
@@ -95,6 +98,57 @@ def get_local_package_runtime_dependencies(packages: tuple[LocalPackage, ...]) -
                 raise ValueError(f"Expected dependency names and versions to be strings in {manifest_path}")
             if version.startswith("workspace:"):
                 continue
+            if version.startswith("catalog:"):
+                workspace_manifest_path = next(
+                    (
+                        parent / "pnpm-workspace.yaml"
+                        for parent in package.source_path.parents
+                        if (parent / "pnpm-workspace.yaml").is_file()
+                    ),
+                    None,
+                )
+                if workspace_manifest_path is None:
+                    raise ValueError(f"Could not resolve catalog dependency {name} from {manifest_path}")
+
+                if workspace_manifest_path not in dependency_catalogs:
+                    workspace_manifest = yaml.safe_load(workspace_manifest_path.read_text())
+                    catalog = workspace_manifest.get("catalog", {}) if isinstance(workspace_manifest, dict) else None
+                    catalogs = workspace_manifest.get("catalogs", {}) if isinstance(workspace_manifest, dict) else None
+                    if not isinstance(catalog, dict) or not all(
+                        isinstance(catalog_name, str) and isinstance(catalog_version, str)
+                        for catalog_name, catalog_version in catalog.items()
+                    ):
+                        raise ValueError(
+                            f"Expected catalog to contain string dependencies in {workspace_manifest_path}"
+                        )
+                    if not isinstance(catalogs, dict) or not all(
+                        isinstance(catalog_name, str)
+                        and isinstance(named_catalog, dict)
+                        and all(
+                            isinstance(dependency_name, str) and isinstance(dependency_version, str)
+                            for dependency_name, dependency_version in named_catalog.items()
+                        )
+                        for catalog_name, named_catalog in catalogs.items()
+                    ):
+                        raise ValueError(
+                            f"Expected catalogs to contain named string dependencies in {workspace_manifest_path}"
+                        )
+                    dependency_catalogs[workspace_manifest_path] = (catalog, catalogs)
+
+                catalog, catalogs = dependency_catalogs[workspace_manifest_path]
+                catalog_reference = version.removeprefix("catalog:")
+                if catalog_reference in {"", "*"}:
+                    selected_catalog = catalog
+                else:
+                    named_catalog = catalogs.get(catalog_reference)
+                    if named_catalog is None:
+                        raise ValueError(f"Catalog {catalog_reference} is missing from {workspace_manifest_path}")
+                    selected_catalog = named_catalog
+
+                resolved_version = selected_catalog.get(name)
+                if resolved_version is None:
+                    raise ValueError(f"Catalog dependency {name} is missing from {workspace_manifest_path}")
+                version = resolved_version
             runtime_dependencies[name] = version
 
         if runtime_dependencies:

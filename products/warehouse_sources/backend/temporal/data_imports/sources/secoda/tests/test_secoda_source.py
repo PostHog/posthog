@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SecodaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secoda import SecodaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.secoda import SecodaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source import SecodaSource

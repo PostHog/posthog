@@ -146,6 +146,37 @@ def test_build_dependent_resource_backwards_compatible_defaults(mock_rest_api_re
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_build_dependent_resource_threads_resume_state(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = []
+    resume_hook = Mock()
+    initial_state = {"completed": ["/parents/a/children"], "current": None, "child_state": None}
+    try:
+        build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=DependentEndpointConfig(
+                parent_name="parents",
+                resolve_param="parent_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+            ),
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+            resume_hook=resume_hook,
+            initial_paginator_state=initial_state,
+        )
+    except StopIteration:
+        pass
+
+    kwargs = mock_rest_api_resources.call_args.kwargs
+    assert kwargs["resume_hook"] is resume_hook
+    assert kwargs["initial_paginator_state"] == initial_state
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_api_resources) -> None:
     mock_rest_api_resources.return_value = []
 

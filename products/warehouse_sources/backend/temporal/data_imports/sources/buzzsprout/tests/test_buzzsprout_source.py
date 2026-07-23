@@ -8,7 +8,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.source import BuzzsproutSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BuzzsproutSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buzzsprout import (
+    BuzzsproutSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -133,5 +135,6 @@ class TestBuzzsproutSource:
             api_token="test-token",
             podcast_id="123456",
             endpoint="podcasts",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

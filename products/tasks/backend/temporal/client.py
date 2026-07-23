@@ -17,9 +17,16 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import is_native_steering_signals_enabled
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
+from products.tasks.backend.temporal.constants import (
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
+    STEERING_PROTOCOL_VERSION,
+)
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -80,6 +87,18 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
             "duration_seconds": task_run._duration_seconds(),
         },
     )
+
+    # A run that never starts its workflow never reaches the update_task_run_status activity, so
+    # loop bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
+    # Swallowed so a bookkeeping failure never masks the start failure being reported.
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
+        handle_loop_run_terminal,
+    )
+
+    try:
+        handle_loop_run_terminal(task_run)
+    except Exception:
+        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
     return True
 
 
@@ -345,6 +364,12 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
         return "signals_scout_reports"
 
+    # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
+    # degrade to read_only, never escalate to the full write surface the generic fallback
+    # below grants (loop runs carry no run_source).
+    if task_run.task.origin_product == Task.OriginProduct.LOOP:
+        return "read_only"
+
     run_source = parse_run_state(task_run.state).run_source
     return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
 
@@ -395,9 +420,12 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
     if workflow_id_prefix:
         _record_prefixed_workflow_id(run_id, workflow_id)
+    # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
+    # other run keeps the historical True default.
+    default_create_pr = task.origin_product != Task.OriginProduct.LOOP
     workflow_input = ProcessTaskInput(
         run_id=run_id,
-        create_pr=dispatch_params.get("create_pr", True),
+        create_pr=dispatch_params.get("create_pr", default_create_pr),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
         posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
     )
@@ -465,10 +493,41 @@ def execute_build_sandbox_image_workflow(image_id: str, team_id: int, *, refresh
     )
 
 
-def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
+def signal_task_followup_message(
+    workflow_id: str,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+    actor_user_id: int | None = None,
+    context: dict[str, Any] | None = None,
+    *,
+    steer: bool = False,
+) -> None:
+    """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+
+    async def signal() -> None:
+        signal_name = "send_followup_message"
+        if steer and is_native_steering_signals_enabled():
+            try:
+                protocol_version = await handle.query(
+                    STEERING_PROTOCOL_QUERY,
+                    rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+                )
+            except Exception:
+                logger.info(
+                    "task_followup_steering_capability_unavailable",
+                    extra={"workflow_id": workflow_id},
+                    exc_info=True,
+                )
+            else:
+                if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
+                    signal_name = SEND_STEER_SIGNAL
+        signal_args = [message, artifact_ids, message_id, actor_user_id, context]
+        await handle.signal(signal_name, args=signal_args)
+
+    asyncio.run(signal())
 
 
 def signal_agent_text_delta(workflow_id: str, text: str) -> None:
@@ -485,6 +544,7 @@ def execute_posthog_code_agent_relay_workflow(
     user_message_ts: str | None = None,
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
+    message_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -500,6 +560,7 @@ def execute_posthog_code_agent_relay_workflow(
                 user_message_ts=user_message_ts,
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
+                message_id=message_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

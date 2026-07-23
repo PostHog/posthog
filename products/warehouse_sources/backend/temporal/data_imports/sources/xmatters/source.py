@@ -19,11 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import XmattersSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xmatters import (
+    XmattersSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.settings import (
     ENDPOINTS,
-    XMATTERS_ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.xmatters import (
     XmattersResumeConfig,
@@ -107,23 +112,17 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=XMATTERS_ENDPOINTS[endpoint].supports_from,
-                supports_append=False,
-                incremental_fields=XMATTERS_ENDPOINTS[endpoint].incremental_fields,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only `events` carries incremental fields; every endpoint is merge/full-refresh (no append).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=ENDPOINTS)
 
     def validate_credentials(
-        self, config: XmattersSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: XmattersSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not is_valid_subdomain(config.subdomain):
             return False, "xMatters subdomain is invalid"
@@ -162,7 +161,8 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
             username=config.username,
             password=config.password,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

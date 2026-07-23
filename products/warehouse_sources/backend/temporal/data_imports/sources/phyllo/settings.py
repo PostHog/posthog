@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class PhylloEndpointConfig:
@@ -33,4 +35,4 @@ PHYLLO_ENDPOINTS: dict[str, PhylloEndpointConfig] = {
 
 ENDPOINTS = tuple(PHYLLO_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

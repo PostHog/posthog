@@ -1,249 +1,240 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
-from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton import hellobaton
 from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.hellobaton import (
-    PER_PAGE,
     HellobatonResumeConfig,
-    _build_url,
-    _fetch_page,
-    get_rows,
+    hellobaton_source,
     normalize_company,
+    validate_credentials,
+)
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the hellobaton module.
+HELLOBATON_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.hellobaton.make_tracked_session"
 )
 
 
-class TestNormalizeCompany:
-    @parameterized.expand(
-        [
-            ("bare", "acme", "acme"),
-            ("full_host", "acme.hellobaton.com", "acme"),
-            ("https_url", "https://acme.hellobaton.com", "acme"),
-            ("trailing_slash", "acme.hellobaton.com/", "acme"),
-            ("with_hyphen", "acme-corp", "acme-corp"),
-            ("whitespace", "  acme  ", "acme"),
-        ]
+def _response(items: list[dict[str, Any]] | None, *, next_url: str | None = None) -> Response:
+    """A Baton DRF page: `results` list plus a `next` cursor URL (absent on the last page)."""
+    body: dict[str, Any] = {"results": items or [], "next": next_url}
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    resp.url = "https://acme.hellobaton.com/api/projects/"
+    return resp
+
+
+def _make_manager(resume_state: HellobatonResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared. The prepared mock carries a valid same-host URL so the ``allowed_hosts``
+    guard (which inspects ``prepared.url``) passes.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        prepared = mock.MagicMock()
+        prepared.url = "https://acme.hellobaton.com/api/projects/"
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    if responses:
+        session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(manager: mock.MagicMock, endpoint: str = "projects"):
+    return hellobaton_source(
+        company="acme",
+        api_key="key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
     )
-    def test_valid_companies(self, _name: str, value: str, expected: str) -> None:
+
+
+class TestNormalizeCompany:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("acme", "acme"),
+            ("acme.hellobaton.com", "acme"),
+            ("https://acme.hellobaton.com", "acme"),
+            ("acme.hellobaton.com/", "acme"),
+            ("acme-corp", "acme-corp"),
+            ("  acme  ", "acme"),
+        ],
+    )
+    def test_valid_companies(self, value: str, expected: str) -> None:
         assert normalize_company(value) == expected
 
-    @parameterized.expand(
-        [
-            ("path_injection", "acme/../evil"),
-            ("host_injection", "acme.evil.com"),
-            ("userinfo_injection", "acme@evil.com"),
-            ("empty", ""),
-            ("space_inside", "ac me"),
-            ("trailing_hyphen", "acme-"),
-        ]
+    @pytest.mark.parametrize(
+        "value",
+        ["acme/../evil", "acme.evil.com", "acme@evil.com", "", "ac me", "acme-"],
     )
-    def test_invalid_companies_raise(self, _name: str, value: str) -> None:
+    def test_invalid_companies_raise(self, value: str) -> None:
+        # The api_key must never be retargeted off <company>.hellobaton.com.
         with pytest.raises(ValueError):
             normalize_company(value)
 
 
-class TestBuildUrl:
-    def test_no_params(self) -> None:
-        assert (
-            _build_url("https://acme.hellobaton.com/api", "/projects/", {})
-            == "https://acme.hellobaton.com/api/projects/"
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_next_is_absent(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response([{"id": 1}, {"id": 2}], next_url="https://acme.hellobaton.com/api/projects/?page=2"),
+                _response([{"id": 3}], next_url=None),
+            ],
         )
 
-    def test_encodes_params(self) -> None:
-        url = _build_url("https://acme.hellobaton.com/api", "/projects/", {"api_key": "k", "page": 2})
-        assert url == "https://acme.hellobaton.com/api/projects/?api_key=k&page=2"
-
-
-class _FakeResumableManager:
-    def __init__(self, state: HellobatonResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[HellobatonResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> HellobatonResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: HellobatonResumeConfig) -> None:
-        self.saved.append(data)
-
-
-class _FakeBatcher:
-    """Yields one batch per item so save-after-yield behavior is observable without 2000+ rows."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._rows: list[dict] = []
-
-    def batch(self, row: dict) -> None:
-        self._rows.append(row)
-
-    def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
-        return len(self._rows) > 0
-
-    def get_table(self) -> list[dict]:
-        rows = self._rows
-        self._rows = []
-        return rows
-
-
-def _patch_fetch(monkeypatch: Any, pages: dict[str, Any]) -> list[str]:
-    fetched: list[str] = []
-
-    def fake_fetch(session: Any, url: str, logger: Any) -> dict:
-        fetched.append(url)
-        return pages[url]
-
-    monkeypatch.setattr(hellobaton, "_fetch_page", fake_fetch)
-    return fetched
-
-
-def _collect(monkeypatch: Any, manager: _FakeResumableManager, **kwargs: Any) -> list[dict]:
-    monkeypatch.setattr(hellobaton, "Batcher", _FakeBatcher)
-    rows: list[dict] = []
-    for batch in get_rows(
-        company="acme",
-        api_key="key",
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(batch)
-    return rows
-
-
-class TestGetRows:
-    def test_paginates_until_next_is_absent(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://acme.hellobaton.com/api/projects/?api_key=key&page_size={PER_PAGE}&page=1": {
-                "results": [{"id": 1}, {"id": 2}],
-                "next": "https://acme.hellobaton.com/api/projects/?page=2",
-            },
-            f"https://acme.hellobaton.com/api/projects/?api_key=key&page_size={PER_PAGE}&page=2": {
-                "results": [{"id": 3}],
-                "next": None,
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="projects")
+        rows = _rows(_source(_make_manager()))
 
         assert [r["id"] for r in rows] == [1, 2, 3]
-        assert fetched == list(pages)
+        # Stops when `next` is absent — never probes a third (would-be 404) page.
+        assert session.send.call_count == 2
+        assert params[0]["page"] == 1
+        assert params[1]["page"] == 2
 
-    def test_sends_api_key_and_page_size_on_every_page(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://acme.hellobaton.com/api/projects/?api_key=key&page_size={PER_PAGE}&page=1": {
-                "results": [{"id": 1}],
-                "next": "https://acme.hellobaton.com/api/projects/?page=2",
-            },
-            f"https://acme.hellobaton.com/api/projects/?api_key=key&page_size={PER_PAGE}&page=2": {
-                "results": [{"id": 2}],
-                "next": None,
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        _collect(monkeypatch, _FakeResumableManager(), endpoint="projects")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_size_sent_on_every_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response([{"id": 1}], next_url="https://acme.hellobaton.com/api/projects/?page=2"),
+                _response([{"id": 2}], next_url=None),
+            ],
+        )
 
-        # Baton re-requires the api_key query param on paginated requests, not just the first page.
-        assert all("api_key=key" in url for url in fetched)
+        _rows(_source(_make_manager()))
+        # Baton caps page size at 100; request the max on every page.
+        assert all(p["page_size"] == 100 for p in params)
 
-    def test_saves_resume_state_after_each_yielded_page(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://acme.hellobaton.com/api/projects/?api_key=key&page_size={PER_PAGE}&page=1": {
-                "results": [{"id": 1}],
-                "next": "https://acme.hellobaton.com/api/projects/?page=2",
-            },
-            f"https://acme.hellobaton.com/api/projects/?api_key=key&page_size={PER_PAGE}&page=2": {
-                "results": [{"id": 2}],
-                "next": None,
-            },
-        }
-        _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-        _collect(monkeypatch, manager, endpoint="projects")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_empty_results(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([], next_url=None)])
 
-        # State is saved only while more pages remain (page 1 -> next_page 2), never on the last page.
-        assert manager.saved == [HellobatonResumeConfig(next_page=2)]
-
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://acme.hellobaton.com/api/tasks/?api_key=key&page_size={PER_PAGE}&page=2": {
-                "results": [{"id": 2}],
-                "next": None,
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(HellobatonResumeConfig(next_page=2)), endpoint="tasks")
-
-        assert [r["id"] for r in rows] == [2]
-        assert fetched == [f"https://acme.hellobaton.com/api/tasks/?api_key=key&page_size={PER_PAGE}&page=2"]
-
-    def test_stops_on_empty_results(self, monkeypatch: Any) -> None:
-        pages: dict[str, Any] = {
-            f"https://acme.hellobaton.com/api/companies/?api_key=key&page_size={PER_PAGE}&page=1": {
-                "results": [],
-                "next": None,
-            },
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="companies")
+        rows = _rows(_source(_make_manager(), endpoint="companies"))
 
         assert rows == []
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_resume_state_only_while_more_pages_remain(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": 1}], next_url="https://acme.hellobaton.com/api/projects/?page=2"),
+                _response([{"id": 2}], next_url=None),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source(manager))
+
+        # Checkpoint points at the next page after page 1; the last page (no `next`) saves nothing.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == HellobatonResumeConfig(next_page=2)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_saves_no_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}], next_url=None)])
+
+        manager = _make_manager()
+        _rows(_source(manager))
+
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 2}], next_url=None)])
+
+        rows = _rows(_source(_make_manager(HellobatonResumeConfig(next_page=2)), endpoint="tasks"))
+
+        assert [r["id"] for r in rows] == [2]
+        assert params[0]["page"] == 2
+        assert session.send.call_count == 1
 
 
-class TestFetchPage:
-    @parameterized.expand([("rate_limited", 429), ("bad_gateway", 502), ("server_error", 500)])
-    def test_retryable_status_is_retried(self, _name: str, status_code: int) -> None:
-        # 429 and 5xx are transient (rate limit / server blip); the page must retry, then succeed.
-        bad = MagicMock()
-        bad.status_code = status_code
-        good = MagicMock()
-        good.status_code = 200
-        good.ok = True
-        good.json.return_value = {"results": [], "next": None}
+class TestErrorHandling:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_error_raises_and_scrubs_api_key(self, MockSession) -> None:
+        # The api_key rides in the query string; a 4xx must fail loud (non-retryable) while never
+        # leaking the key into the raised error the user sees, and still expose the status text
+        # get_non_retryable_errors() matches on.
+        session = MockSession.return_value
+        _wire(session, [])
+        resp = Response()
+        resp.status_code = 401
+        resp.reason = "Unauthorized"
+        resp.url = "https://acme.hellobaton.com/api/projects/?api_key=supersecret&page_size=100&page=1"
+        resp._content = b""
+        session.send.side_effect = [resp]
 
-        session = MagicMock()
-        session.get.side_effect = [bad, good]
-
-        with patch.object(_fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = _fetch_page(session, "https://acme.hellobaton.com/api/projects/", MagicMock())
-
-        assert result == {"results": [], "next": None}
-        assert session.get.call_count == 2
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_without_retry(self, _name: str, status_code: int) -> None:
-        # A 4xx (bad key, missing scope, deleted resource) can never be fixed by retrying.
-        response = requests.Response()
-        response.status_code = status_code
-
-        session = MagicMock()
-        session.get.return_value = response
-
-        with pytest.raises(requests.HTTPError):
-            _fetch_page(session, "https://acme.hellobaton.com/api/projects/", MagicMock())
-
-    def test_raised_error_scrubs_api_key_but_keeps_status_text(self) -> None:
-        # The api_key rides in the query string, so a failing request must not leak it into the
-        # raised HTTPError, while still exposing the status text get_non_retryable_errors matches on.
-        response = requests.Response()
-        response.status_code = 401
-        response.reason = "Unauthorized"
-        response.url = "https://acme.hellobaton.com/api/projects/?api_key=supersecret&page=1"
-
-        session = MagicMock()
-        session.get.return_value = response
-
+        source = hellobaton_source(
+            company="acme",
+            api_key="supersecret",
+            endpoint="projects",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
         with pytest.raises(requests.HTTPError) as exc_info:
-            _fetch_page(session, response.url, MagicMock())
+            _rows(source)
 
         message = str(exc_info.value)
         assert "supersecret" not in message
-        assert "api_key" not in message
         assert "401 Client Error: Unauthorized" in message
 
-        assert session.get.call_count == 1
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        "status_code, expected_ok",
+        [(200, True), (401, False), (403, False)],
+    )
+    @mock.patch(HELLOBATON_SESSION_PATCH)
+    def test_maps_probe_status(self, mock_session, status_code: int, expected_ok: bool) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        ok, status = validate_credentials("acme", "key")
+        assert ok is expected_ok
+        assert status == status_code
+
+    @mock.patch(HELLOBATON_SESSION_PATCH)
+    def test_transport_error_is_not_validated(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("acme", "key") == (False, None)
+
+    def test_malformed_company_raises_before_probe(self) -> None:
+        # _base_url validates the company, so a bad instance fails before any network call.
+        with pytest.raises(ValueError):
+            validate_credentials("acme/../evil", "key")

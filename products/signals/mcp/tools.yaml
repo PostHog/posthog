@@ -117,13 +117,14 @@ tools:
         title: Dismiss or snooze signal reports in bulk
         description: >
             Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`,
-            for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report
-            ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason`
-            (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each
-            id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one
-            entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` /
-            `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as
-            `skipped` (the single-report 409) while the rest still go through.
+            for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids`
+            (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss,
+            'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report
+            tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the
+            whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and
+            the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose
+            transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the
+            rest still go through.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -222,16 +223,20 @@ tools:
         enrich_url: '{id}'
         title: Dismiss or snooze a signal report
         description: >
-            Transition a single signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the
+            Transition a single signal report to a new state. Use 'resolved' when the work this report asked for has
+            been done (e.g. you fixed the issue it describes), 'suppressed' to dismiss the report from the inbox (the
             user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the
-            pipeline for later review. Optionally include a `dismissal_reason` — a canonical code from the inbox UI
-            (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`),
-            so it renders as a labelled chip rather than a raw string. `already_fixed` is a snooze, not a dismissal:
-            pair it with state='potential'. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for
-            anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale
-            survives later transitions. Returns 409 if the transition is not allowed from the report's current status.
-            To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per
-            report.
+            pipeline for later review. Resolving is only allowed from a researched status (ready or pending_input) or a
+            suppressed report — other statuses return 409. Optionally include a `dismissal_reason` — a canonical code
+            from the inbox UI (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`,
+            `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string; on a 'resolved'
+            transition it records why it was resolved. When the requested work is done, prefer state='resolved' over
+            `already_fixed`+snooze — reserve `already_fixed` with state='potential' for "fixed by something else / might
+            recur" cases, so the report reappears if the issue comes back. Use `other` plus a `dismissal_note`
+            (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL
+            artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
+            allowed from the report's current status. To transition several reports at once, use
+            `inbox-reports-bulk-set-state` instead of calling this per report.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
@@ -356,10 +361,13 @@ tools:
         title: Create a scout config
         description: >
             Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the
-            coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200),
-            `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project
-            (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
-            fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
+            coordinator to auto-register it. The same call can optionally set its schedule (rolling
+            `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *' that takes
+            precedence when set), `enabled`, and `emit` (false = dry-run). Cron schedules use the project timezone
+            automatically and occurrences must be at least 30 minutes apart. The same call can configure
+            `output_destinations`. The skill must already exist on the project (author it via the skills store first).
+            Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled
+            config is activity-logged, since running a scout drives spend.
     scout-config-delete:
         operation: signals_scout_config_destroy
         enabled: true
@@ -389,11 +397,12 @@ tools:
         list: true
         title: List scout configs
         description: >
-            List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
-            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears
-            once its config is registered — immediately via `scout-config-create` (one skill) or `scout-config-sync`
-            (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and
-            whether they emit findings to the inbox. Pair with `scout-config-update` to tune them.
+            List the per-scout configs for this project. Each `signals-scout-*` skill has one row with its schedule
+            (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and
+            `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is
+            registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or
+            on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to
+            the inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -422,9 +431,13 @@ tools:
         enrich_url: '{id}'
         title: Update a scout config
         description: >
-            Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or
-            `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
-            Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+            Tune one scout by its config `id`: change its schedule (rolling `run_interval_minutes`, 30–43200, or a
+            five-field cron `run_cron_schedule` like '30 9 * * *', '0 9,17 * * *', or '0 9 * * 1-5' that takes
+            precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to
+            the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30
+            minutes apart; set null to return to the rolling interval. You can also configure
+            `output_destinations.slack` with a Slack integration and channel. `skill_name` is fixed. Enabling records
+            who flipped it on and is activity-logged, since running a scout drives spend.
     scout-edit-report:
         operation: signals_scout_edit_report
         enabled: true
@@ -503,7 +516,21 @@ tools:
             another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
-        enabled: false
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get scout enrollment, banner, and run limits
+        description: >
+            Return this project's scout metadata: whether it is enrolled to run scouts, the current announcement banner
+            (e.g. an early-access run-limit notice, or null when unset), and the enforced run limits with current usage
+            — `max_runs_per_tick`, `max_runs_per_day` (null = unbounded), `runs_today`, and `runs_remaining_today`.
+            Limits reflect what the scout coordinator actually applies at dispatch, so use this to size an enabled scout
+            troop against the project's real daily run budget rather than assuming a value. Read-only and side-effect
+            free.
     scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true
@@ -694,7 +721,7 @@ tools:
             / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the
             oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist
             without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview
-            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.
+            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false

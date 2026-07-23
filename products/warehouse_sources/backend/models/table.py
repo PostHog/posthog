@@ -656,6 +656,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=postgres_schema,
                 postgres_table_name=postgres_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                source_type=self.external_data_source.source_type,
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -764,6 +765,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
+            external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
+            source_type=self.external_data_source.source_type if self.external_data_source else None,
         )
 
         if self._is_csv_format():

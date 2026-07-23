@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GroqSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.groq import GroqSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.groq import (
     groq_source,
     validate_credentials as validate_groq_credentials,
@@ -89,6 +89,7 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Groq exposes no server-side timestamp filter on any list endpoint, so every table is full
         # refresh only.
@@ -112,7 +113,7 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
         return schemas
 
     def validate_credentials(
-        self, config: GroqSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GroqSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_groq_credentials(config.api_key)
         if ok:
@@ -127,5 +128,6 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
         return groq_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
