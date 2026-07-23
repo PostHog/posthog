@@ -11,12 +11,10 @@
  * Once an icon wins: set it on the 'All types' entry of INSIGHT_TYPE_OPTIONS in
  * insightTypesMetadata.tsx, then delete this file and its uses in SavedInsightsFilters.
  */
+import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { router } from 'kea-router'
-
 import { IconApps, IconAsterisk, IconChevronLeft, IconChevronRight, IconGridMasonry, IconStack } from '@posthog/icons'
-
 import { LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
 interface AllTypesIconVariant {

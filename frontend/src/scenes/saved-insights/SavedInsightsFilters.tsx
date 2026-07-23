@@ -10,12 +10,12 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import {
     AllTypesIconPrototypeSwitcher,
     useAllTypesIconVariant,
     withAllTypesIconVariant,
 } from 'scenes/saved-insights/allTypesIconPrototype'
+import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
