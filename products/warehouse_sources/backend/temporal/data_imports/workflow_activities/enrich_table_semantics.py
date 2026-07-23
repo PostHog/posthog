@@ -22,6 +22,8 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
+
 import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -407,6 +409,23 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         log.info("warehouse_enrichment.done", canonical=canonical_count, ai=0, llm_called=False)
         emit_completed("done", canonical_annotations=canonical_count, ai_annotations=0, llm_called=False)
         return {"status": "done", "canonical_annotations": canonical_count, "ai_annotations": 0}
+
+    # The LLM pass needs the internal gateway. Where it isn't configured (e.g. a worker without the
+    # gateway env), get_llm_client raises a ValueError that the broad except below would capture on
+    # every sync — an expected environment condition, not a per-table failure. Skip the AI pass instead:
+    # canonical descriptions above are already persisted and don't need the gateway, and a later sync
+    # fills in the rest once it's available.
+    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+        log.info("warehouse_enrichment.skipped", reason="llm_gateway_not_configured", canonical=canonical_count)
+        emit_completed(
+            "skipped", reason="llm_gateway_not_configured", canonical_annotations=canonical_count, ai_annotations=0
+        )
+        return {
+            "status": "skipped",
+            "reason": "llm_gateway_not_configured",
+            "canonical_annotations": canonical_count,
+            "ai_annotations": 0,
+        }
 
     # 2) LLM pass for everything still undescribed. Known descriptions (canonical + existing) give the
     # model context about neighbouring columns without re-describing them.

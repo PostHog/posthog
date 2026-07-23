@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
@@ -707,6 +709,37 @@ class TestEnrichTableSemanticsSync:
         annotations = _annotations(team, table)
         assert annotations["amount"].description == "charge amount in cents"
         assert annotations["currency"].description == "ISO currency code"
+
+    @override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="")
+    def test_skips_llm_pass_without_capturing_when_gateway_not_configured(self):
+        # Where the LLM gateway env isn't set, get_llm_client raises — an expected config condition,
+        # not a per-table bug. The AI pass must skip without capturing an exception, while canonical
+        # descriptions (which need no gateway) still persist.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[
+                {"name": "amount", "data_type": "Int64", "is_nullable": False},
+                {"name": "status", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_generate_descriptions") as mock_llm,
+            patch.object(enrich, "capture_exception") as mock_capture,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        mock_llm.assert_not_called()
+        mock_capture.assert_not_called()
+        assert result["status"] == "skipped"
+        assert result["reason"] == "llm_gateway_not_configured"
+        # Canonical description still landed; the un-canonical column was not enriched.
+        annotations = _annotations(team, table)
+        assert annotations["amount"].description == "charge amount in cents"
+        assert "status" not in annotations
 
     def test_partial_status_when_llm_fails(self):
         team = _team()
