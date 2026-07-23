@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import Q
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 
@@ -199,3 +200,49 @@ class SlackChannel(UUIDModel):
     @property
     def is_approved(self) -> bool:
         return self.approved_at is not None
+
+
+class TelegramChatTaskMapping(TeamScopedRootMixin, UUIDModel):
+    """Maps one Telegram message (the mention that started a task) to its task run,
+    so relayed agent output and terminal updates land as replies to that message.
+
+    One row per originating message: Telegram v1 has no follow-up forwarding, so a
+    second mention in the same chat starts a second task with its own row.
+    """
+
+    # db_constraint=False keeps the migration from taking a lock on the hot
+    # posthog_team table; enforcement is app-level, like every read on this model.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="telegram_chat_task_mappings",
+        db_constraint=False,
+    )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.CASCADE,
+        related_name="telegram_chat_task_mappings",
+    )
+    chat_id = models.CharField(max_length=64)
+    root_message_id = models.CharField(max_length=64)
+    task = models.ForeignKey(
+        "tasks.Task",
+        on_delete=models.CASCADE,
+        related_name="telegram_chat_mappings",
+    )
+    task_run = models.ForeignKey(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="telegram_chat_mappings",
+    )
+    telegram_user_id = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["integration", "chat_id", "root_message_id"],
+                name="uniq_telegram_chat_task_mapping",
+            )
+        ]

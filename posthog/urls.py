@@ -68,9 +68,13 @@ from products.slack_app.backend.api import (
     slack_workspace_claims_view,
 )
 from products.slack_app.backend.views import (
+    chat_workspace_claims_view,
     slack_app_command_handler,
     slack_user_link_authorize,
     slack_user_link_callback,
+    telegram_connect_start,
+    telegram_event_handler,
+    telegram_link_start,
 )
 from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
@@ -664,12 +668,20 @@ urlpatterns = [
     # and likewise must precede `social_django.urls` for the same reason.
     path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
     path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
+    # Telegram linking has no OAuth callback — the bot's webhook redeems the codes.
+    path("telegram/link/start/", telegram_link_start, name="telegram_link_start"),
+    path("telegram/connect/start/", telegram_connect_start, name="telegram_connect_start"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
+    opt_slash_path("telegram/event-callback", telegram_event_handler),
+    # Generic successor to the Slack-scoped claims route above; used by cross-region
+    # probes for any chat provider. `path` (not `opt_slash_path`) because the route
+    # needs the <provider> converter; the sender always uses the trailing slash.
+    path("chat/<str:provider>/workspace/claims/", chat_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),

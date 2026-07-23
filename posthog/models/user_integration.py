@@ -69,6 +69,7 @@ class UserIntegration(UUIDModel):
     class IntegrationKind(models.TextChoices):
         GITHUB = "github"
         SLACK = "slack"
+        TELEGRAM = "telegram"
 
     user = models.ForeignKey(
         "posthog.User",

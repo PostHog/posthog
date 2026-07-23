@@ -178,10 +178,9 @@ def post_permission_delivery_failure_notice(input: PostPermissionDeliveryFailure
     without this note a failed delivery leaves the thread permanently claiming a response
     the agent never saw.
     """
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.facade.api import thread_handler_from_context
 
-    context = SlackThreadContext.from_dict(input.slack_thread_context)
-    handler = SlackThreadHandler(context)
+    handler = thread_handler_from_context(input.slack_thread_context)
     handler.post_thread_message(
         "⚠️ I couldn't deliver that permission response to the agent — it may still be waiting on the request. "
         "Please respond from the task page in PostHog if the run doesn't continue."
