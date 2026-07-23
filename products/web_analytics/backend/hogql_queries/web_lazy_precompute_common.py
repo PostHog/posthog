@@ -547,18 +547,6 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
     )
 
 
-def is_precompute_unrestricted_for_team(team: Team) -> bool:
-    """Whether a team is on the standalone precompute enrollment list.
-
-    Membership implies enrollment without needing the org rollout flag or the
-    `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` list (see `is_precompute_enabled_for_team`
-    and the eager warmer). The filter-shape gate no longer varies by this list —
-    every enrolled team accepts arbitrary filters — so it now only governs enrollment.
-    Driven by the `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` env-var setting.
-    """
-    return team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS
-
-
 def is_precompute_enabled_for_team(team: Team) -> bool:
     """Whether a team should take the lazy precompute path.
 
@@ -568,19 +556,14 @@ def is_precompute_enabled_for_team(team: Team) -> bool:
     on local flag-definition evaluation, which isn't reliably available outside
     the Django app (e.g. the Dagster warmer, where `only_evaluate_locally`
     returned falsy and silently dropped the warmer onto the raw path).
-
-    Unrestricted teams are implicitly enrolled — membership in the unrestricted
-    list is enough, so a team need not appear in both settings.
     """
     if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
-        return True
-    if is_precompute_unrestricted_for_team(team):
         return True
     # Background warmers build buckets for every active team regardless of the
     # rollout flag: warming precedes read enablement, and flag evaluation is not
     # reliably available in the Dagster processes the warmers run in. User-facing
-    # reads still require flag enrollment; the restricted filter-shape gate keeps
-    # the warmed set bounded to canonical shapes.
+    # reads still require flag enrollment; the per-team shape ceiling keeps the
+    # warmed set bounded.
     if is_background_warming_request():
         return True
     return is_org_feature_flag_enabled(team)

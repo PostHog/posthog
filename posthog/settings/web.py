@@ -1179,19 +1179,6 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
 
-# Standalone precompute enrollment list: membership enrolls a team without needing
-# the org rollout flag or `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. The filter-shape
-# gate no longer varies by this list — every enrolled team accepts arbitrary filters
-# (each distinct filter set becomes its own cache key via `property_to_expr`, bounded
-# by the per-team shape ceiling below) — so this now only governs enrollment. Same
-# Cloud-only default (project 2) and comma-separated env-var override as the enrollment list.
-WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
-    int(team_id)
-    for team_id in get_list(
-        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
-    )
-]
-
 # Upper bound on the number of distinct precompute shapes (query cache keys) a single
 # team may have live at once. Any filter combination becomes its own shape, so a
 # pathological team could otherwise mint unbounded namespaces. This is a coarse backstop,

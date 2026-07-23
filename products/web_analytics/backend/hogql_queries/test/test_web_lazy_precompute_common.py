@@ -44,7 +44,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
-    is_precompute_unrestricted_for_team,
     is_team_oom_pinned,
     pin_team_oom,
     try_reserve_precompute_shape,
@@ -86,23 +85,8 @@ class TestIsPrecomputeEnabledForTeam(BaseTest):
         assert is_precompute_enabled_for_team(self.team) is True
         flag.assert_not_called()
 
-    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
-    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
-    def test_unrestricted_team_is_enrolled_without_being_in_enrollment_list(self, flag) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            assert is_precompute_enabled_for_team(self.team) is True
-        flag.assert_not_called()
 
-    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[])
-    def test_team_not_in_unrestricted_list_is_restricted(self) -> None:
-        assert is_precompute_unrestricted_for_team(self.team) is False
-
-    def test_team_in_unrestricted_list_is_unrestricted(self) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            assert is_precompute_unrestricted_for_team(self.team) is True
-
-
-class TestCheckCommonEligibilityUnrestricted(BaseTest):
+class TestCheckCommonEligibility(BaseTest):
     def _check(self, *, use_precompute, properties=None) -> None:
         check_common_eligibility(
             team=self.team,
@@ -114,21 +98,15 @@ class TestCheckCommonEligibilityUnrestricted(BaseTest):
             resolve_date_range=_date_range,
         )
 
-    def test_restricted_team_untouched_toggle_defaults_on(self) -> None:
+    def test_enrolled_team_untouched_toggle_defaults_on(self) -> None:
         # Re-introducing the old opt-in requirement would silently send every
         # enrolled team without the UI toggle back to the raw path.
-        with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
-        ):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None)
             with self.assertRaises(PerQueryOptedOut):
                 self._check(use_precompute=False)
 
-    @override_settings(
-        WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[],
-        WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
-    )
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
     def test_flag_enrolled_team_defaults_on_and_respects_opt_out(self, _flag) -> None:
         # The fleet-rollout path: enrollment via the org flag alone must grant
@@ -137,37 +115,15 @@ class TestCheckCommonEligibilityUnrestricted(BaseTest):
         with self.assertRaises(PerQueryOptedOut):
             self._check(use_precompute=False)
 
-    def test_unrestricted_team_accepts_untouched_as_opt_out_default(self) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            self._check(use_precompute=None)
-            self._check(use_precompute=True)
-
-    def test_unrestricted_team_rejects_explicit_opt_out(self) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            with self.assertRaises(PerQueryOptedOut):
-                self._check(use_precompute=False)
-
-    def test_unrestricted_team_accepts_arbitrary_multi_filter(self) -> None:
+    def test_enrolled_team_accepts_arbitrary_filters(self) -> None:
+        # The filter gate is loosened for every enrolled team: multiple, non-`$host`,
+        # non-`exact` filters that the old restriction rejected must pass. Re-introducing
+        # that restriction would silently send every filtered dashboard back to live.
         props = [
             EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
             EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
         ]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
-            self._check(use_precompute=None, properties=props)
-
-    def test_flag_enrolled_team_accepts_arbitrary_filters(self) -> None:
-        # The filter gate is loosened for everyone: a flag-enrolled team (not in the
-        # unrestricted list) must accept multiple, non-`$host`, non-`exact` filters that
-        # the old restriction rejected. Re-introducing that restriction would silently
-        # send every filtered dashboard back to the live path.
-        props = [
-            EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
-            EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
-        ]
-        with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
-        ):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None, properties=props)
 
 
