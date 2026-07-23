@@ -77,7 +77,10 @@ def collect_repository_commit_activity(
             name=f"repo-activity-{team_id}",
             # Git-only job, no agent server — the slim image boots faster (stamphog precedent).
             template=SandboxTemplate.SLIM_BASE,
-            environment_variables={},
+            # The token reaches the clone URL via ${GITHUB_TOKEN} expansion inside the
+            # sandbox — never in the command string, which sandbox provider/timeout
+            # exceptions carry into logs and exception capture unredacted.
+            environment_variables={"GITHUB_TOKEN": github_token},
             snapshot_id=None,
             metadata={"purpose": "repo_commit_activity"},
         )
@@ -93,8 +96,11 @@ def collect_repository_commit_activity(
 
 
 def _clone_history(sandbox: SandboxBase, repository: str, github_token: str, since_days: int) -> None:
+    # `repository` passed first_for_team_repository's safe-path check, so it's plain
+    # owner/repo and safe inside double quotes. The token placeholder expands from the
+    # sandbox environment; the command string itself never contains the credential.
     org, repo = repository.split("/")
-    repo_url = f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
+    repo_url = f'"https://x-access-token:${{GITHUB_TOKEN}}@github.com/{org}/{repo}.git"'
     target_path = sandbox_repo_path(repository)
     org_path = f"{WORKING_DIR}/repos/{org}"
     command = (
@@ -102,12 +108,11 @@ def _clone_history(sandbox: SandboxBase, repository: str, github_token: str, sin
         f"mkdir -p {shlex.quote(org_path)} && "
         f"cd {shlex.quote(org_path)} && "
         f"git clone --single-branch --no-checkout --filter=blob:none "
-        f"--shallow-since={shlex.quote(f'{since_days} days')} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+        f"--shallow-since={shlex.quote(f'{since_days} days')} {repo_url} {shlex.quote(repo)}"
     )
     result = sandbox.execute(command, timeout_seconds=_CLONE_TIMEOUT_SECONDS)
     if result.exit_code != 0:
-        # Git fatal messages echo the remote URL including the embedded token; this message
-        # flows into logs and exception capture.
+        # Git argv sees the expanded URL, so fatal messages can still echo the token.
         stderr = result.stderr.replace(github_token, "<redacted>") if github_token else result.stderr
         raise RepositoryCommitActivityError(
             f"History clone of {repository} failed with exit code {result.exit_code}: {stderr[:300]}"
