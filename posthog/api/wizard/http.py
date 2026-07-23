@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 import hashlib
-from typing import cast
+from typing import NoReturn, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -35,7 +36,6 @@ from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import (
     SetupWizardAuthenticationRateThrottle,
-    SetupWizardCloudRunAttemptsRateThrottle,
     SetupWizardCloudRunBurstRateThrottle,
     SetupWizardCloudRunSustainedRateThrottle,
     SetupWizardQueryRateThrottle,
@@ -54,6 +54,12 @@ ERROR_INVALID_OPENAI_JSON = "Invalid JSON response from OpenAI"
 ERROR_PROJECT_NOT_FOUND = "This project does not exist."
 
 OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
+
+# Absolute ceiling on sandbox boots per user per day, reserved atomically right before run
+# creation. The DB-counted throttles above the view are read-then-create and can be raced by
+# parallel requests; this cache.incr cannot, so it is the hard bound a start-cancel or crash
+# loop lands on. Only requests that reach creation consume it.
+WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
@@ -152,7 +158,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         return []
 
-    def throttled(self, request: Request, wait: float | None) -> None:
+    def throttled(self, request: Request, wait: float) -> NoReturn:
         # 429s never reach the action body, so without this the kickoff counter is blind to
         # rate-limited users and throttle pressure is invisible in dashboards.
         if self.action == "cloud_run":
@@ -441,7 +447,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
         throttle_classes=[
             SetupWizardCloudRunBurstRateThrottle,
             SetupWizardCloudRunSustainedRateThrottle,
-            SetupWizardCloudRunAttemptsRateThrottle,
         ],
     )
     def cloud_run(self, request: Request) -> Response:
@@ -464,8 +469,32 @@ class SetupWizardViewSet(viewsets.ViewSet):
         except exceptions.ValidationError:
             WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="invalid").inc()
             raise
+        except exceptions.Throttled:
+            # The atomic attempt reservation inside _cloud_run raises after check_throttles
+            # ran, so the throttled() hook below never sees it.
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
+            raise
         WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="created").inc()
         return response
+
+    @staticmethod
+    def _reserve_cloud_run_attempt(user_id: int) -> None:
+        """Atomically consume one of the user's daily cloud-run attempts or raise Throttled.
+
+        Runs after validation and project access checks, immediately before run creation, so
+        rejected requests never consume the budget — while parallel requests cannot all slip
+        under the ceiling the way they can with the read-then-create DB throttles.
+        """
+        window = int(time.time()) // 86400
+        key = f"wizard_cloud_run_attempts:{user_id}:{window}"
+        cache.add(key, 0, timeout=86400)
+        try:
+            count = cache.incr(key)
+        except ValueError:
+            # The key expired between add and incr; this request is the window's first.
+            count = 1
+        if count > WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP:
+            raise exceptions.Throttled(detail="You've reached today's limit for cloud setup runs. Try again tomorrow.")
 
     def _cloud_run(self, request: Request) -> Response:
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
@@ -485,6 +514,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
         if project.id not in visible_project_ids:
             raise exceptions.PermissionDenied("You don't have access to this project.")
+
+        self._reserve_cloud_run_attempt(cast(User, request.user).id)
 
         try:
             result = tasks_facade.create_wizard_cloud_run(

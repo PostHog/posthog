@@ -890,36 +890,31 @@ class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
     evaluates every throttle on every request, so a cache-side counter would silently charge
     rejected requests.
 
-    ``SetupWizardCloudRunAttemptsRateThrottle`` below is the abuse backstop: same run counting, but
-    including failed and cancelled runs, so a start-cancel or crash loop cannot boot unbounded
-    sandboxes.
+    These DB counts are read-then-create and can be raced by parallel requests, so they are the
+    user-facing soft limits; the hard ceiling on sandbox boots is the atomic per-request attempt
+    reservation inside the cloud_run view itself.
     """
-
-    count_unsuccessful_runs = False
 
     def allow_request(self, request: "Request", view: "APIView") -> bool:
         user = getattr(request, "user", None)
         if user is None or not user.is_authenticated:
             # cloud_run requires IsAuthenticated; anything else is rejected by permissions.
             return True
-        # DRF evaluates all three sibling throttles on every request; memoizing on the request
-        # keeps that at one DB read per distinct (shape, window) instead of one per throttle.
-        cache_key = (self.count_unsuccessful_runs, self.duration)
+        # DRF evaluates both sibling throttles on every request; memoizing on the request keeps
+        # that at one DB read per distinct window instead of one per throttle.
         memo = getattr(request, "_wizard_run_times_memo", None)
         if memo is None:
             memo = {}
             request._wizard_run_times_memo = memo
-        if cache_key not in memo:
+        if self.duration not in memo:
             # Deferred: rate_limit is core and imports at module scope would pull the tasks
             # product into every process's import path.
             from products.tasks.backend.facade.api import recent_wizard_cloud_run_times  # noqa: PLC0415
 
-            memo[cache_key] = recent_wizard_cloud_run_times(
-                user.pk,
-                timezone.now() - timedelta(seconds=self.duration),
-                include_unsuccessful=self.count_unsuccessful_runs,
+            memo[self.duration] = recent_wizard_cloud_run_times(
+                user.pk, timezone.now() - timedelta(seconds=self.duration)
             )
-        self._recent_run_times = memo[cache_key]
+        self._recent_run_times = memo[self.duration]
         return len(self._recent_run_times) < self.num_requests
 
     def wait(self) -> float | None:
@@ -937,15 +932,6 @@ class SetupWizardCloudRunBurstRateThrottle(SetupWizardCloudRunOutcomeAwareThrott
 class SetupWizardCloudRunSustainedRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
     scope = "wizard_cloud_run_day"
     rate = "5/day"
-
-
-class SetupWizardCloudRunAttemptsRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
-    # Absolute ceiling on sandbox boots: counts every run created in the window regardless of
-    # outcome, so a crash-looping or start-cancel-looping user stays bounded even though those
-    # runs don't consume the outcome-aware quota above.
-    scope = "wizard_cloud_run_attempts"
-    rate = "15/day"
-    count_unsuccessful_runs = True
 
 
 class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):

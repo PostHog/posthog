@@ -649,17 +649,6 @@ class TestRecentWizardCloudRunTimes(TestCase):
         since = django_timezone.now() - timedelta(hours=1)
         self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), expected_count)
 
-    def test_include_unsuccessful_counts_failed_and_cancelled_but_not_non_wizard_runs(self):
-        # The attempts backstop counts every sandbox boot, so failed/cancelled must count with
-        # the flag while runs lacking the wizard marker stay excluded either way.
-        self._make_run(status=TaskRun.Status.FAILED)
-        self._make_run(status=TaskRun.Status.CANCELLED)
-        self._make_run(state={})
-        since = django_timezone.now() - timedelta(hours=1)
-
-        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), 0)
-        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since, include_unsuccessful=True)), 2)
-
     def test_scopes_by_user_across_teams_and_respects_window(self):
         self._make_run()
         # Same user, different team: the throttle is per user, so this counts too.

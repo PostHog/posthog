@@ -546,16 +546,22 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         mock_create.assert_not_called()
 
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 2)
     @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
-    def test_attempts_backstop_throttles_regardless_of_run_outcome(self, mock_create, mock_run_times):
-        # Failed/cancelled runs don't consume the outcome-aware quota, so the backstop (which
-        # counts runs regardless of outcome via include_unsuccessful) is the only thing
-        # bounding a start-fail or start-cancel loop.
-        now = timezone.now()
-        mock_run_times.side_effect = lambda user_id, since, include_unsuccessful=False: (
-            [now - timedelta(minutes=i) for i in range(15, 0, -1)] if include_unsuccessful else []
-        )
+    def test_attempt_reservation_is_a_hard_ceiling_regardless_of_run_outcome(self, mock_create, mock_run_times):
+        # The DB-counted throttles ignore failed/cancelled runs, so the atomic reservation is
+        # the only thing bounding a start-fail or start-cancel loop.
+        mock_run_times.return_value = []
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        for _ in range(2):
+            response = self.client.post(
+                self.CLOUD_RUN_URL,
+                data={"project_id": self.team.id, "repository": "acme/app"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
 
         response = self.client.post(
             self.CLOUD_RUN_URL,
@@ -564,7 +570,7 @@ class SetupWizardCloudRunTests(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        mock_create.assert_not_called()
+        assert mock_create.call_count == 2
 
     def tearDown(self):
         super().tearDown()
