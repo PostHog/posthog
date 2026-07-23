@@ -40,7 +40,12 @@ from posthog.models.person.util import get_person_by_distinct_id, get_persons_by
 from posthog.models.tag import tagify
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
+from posthog.rate_limit import (
+    BulkTagTicketsBurstThrottle,
+    BulkTagTicketsSustainedThrottle,
+    ComposeTicketBurstThrottle,
+    ComposeTicketSustainedThrottle,
+)
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
@@ -180,6 +185,10 @@ class ComposeTicketResponseSerializer(serializers.Serializer):
 
 BULK_UPDATE_STATUS_MAX_IDS = 500
 BULK_ADD_TAGS_MAX_TAGS = 50
+# Bounds the write amplification of a single bulk tag request: each (ticket, tag)
+# pair is up to one TaggedItem write plus an activity-log entry, so the total work
+# is tickets × tags. The per-field maxes alone would allow 500 × 50 = 25,000.
+BULK_TAG_MAX_OPERATIONS = 2000
 
 
 class BulkUpdateStatusRequestSerializer(serializers.Serializer):
@@ -203,7 +212,20 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
     )
 
 
-class BulkAddTagsRequestSerializer(serializers.Serializer):
+class _BulkTagsRequestSerializer(serializers.Serializer):
+    # Shared validation for bulk tag add/remove: caps total write amplification.
+    # Kept as a comment, not a docstring, so it doesn't leak into the OpenAPI schema.
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        operations = len(attrs["ids"]) * len(attrs["tags"])
+        if operations > BULK_TAG_MAX_OPERATIONS:
+            raise serializers.ValidationError(
+                f"Too many operations: {operations} (tickets × tags) exceeds the limit of "
+                f"{BULK_TAG_MAX_OPERATIONS}. Select fewer tickets or tags."
+            )
+        return attrs
+
+
+class BulkAddTagsRequestSerializer(_BulkTagsRequestSerializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
         allow_empty=False,
@@ -226,7 +248,7 @@ class BulkAddTagsResponseSerializer(serializers.Serializer):
     )
 
 
-class BulkRemoveTagsRequestSerializer(serializers.Serializer):
+class BulkRemoveTagsRequestSerializer(_BulkTagsRequestSerializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
         allow_empty=False,
@@ -1088,7 +1110,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         request=BulkAddTagsRequestSerializer,
         responses={200: OpenApiResponse(response=BulkAddTagsResponseSerializer)},
     )
-    @action(detail=False, methods=["POST"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        throttle_classes=[BulkTagTicketsBurstThrottle, BulkTagTicketsSustainedThrottle],
+    )
     def bulk_add_tags(self, request, *args, **kwargs):
         """Add one or more tags to multiple tickets in a single request.
 
@@ -1136,7 +1162,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         request=BulkRemoveTagsRequestSerializer,
         responses={200: OpenApiResponse(response=BulkRemoveTagsResponseSerializer)},
     )
-    @action(detail=False, methods=["POST"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        throttle_classes=[BulkTagTicketsBurstThrottle, BulkTagTicketsSustainedThrottle],
+    )
     def bulk_remove_tags(self, request, *args, **kwargs):
         """Remove one or more tags from multiple tickets in a single request.
 

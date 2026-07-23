@@ -959,7 +959,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 const result = await api.conversationsTickets.bulkAddTags(ids, tags)
                 lemonToast.success(`Tagged ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
                 // Patch locally instead of reloading so the selection and tag editor stay open.
-                actions.applyTicketTagPatch(ids, tags, [])
+                // Use result.ids (what the backend actually changed), not the requested ids —
+                // tickets it skipped (other-team, already tagged) must not be patched.
+                actions.applyTicketTagPatch(result.ids, tags, [])
             } catch {
                 lemonToast.error('Failed to add tags')
             } finally {
@@ -974,7 +976,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             try {
                 const result = await api.conversationsTickets.bulkRemoveTags(ids, tags)
                 lemonToast.success(`Removed tags from ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
-                actions.applyTicketTagPatch(ids, [], tags)
+                actions.applyTicketTagPatch(result.ids, [], tags)
             } catch {
                 lemonToast.error('Failed to remove tags')
             } finally {

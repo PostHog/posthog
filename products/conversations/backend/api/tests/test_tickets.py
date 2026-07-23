@@ -952,6 +952,13 @@ class TestBulkAddTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_rejects_over_cap_operations(self, mock_on_commit):
+        # 50 tickets × 50 tags = 2500 > BULK_TAG_MAX_OPERATIONS (2000). Rejected before any write.
+        ids = [f"00000000-0000-0000-0000-{i:012d}" for i in range(50)]
+        tags = [f"tag-{j}" for j in range(50)]
+        response = self.client.post(self._bulk_url(), {"ids": ids, "tags": tags}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestBulkRemoveTags(APIBaseTest):
@@ -1026,6 +1033,13 @@ class TestBulkRemoveTags(APIBaseTest):
         self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
         # The other team's ticket keeps its tag.
         self.assertEqual(set(other_ticket.tagged_items.values_list("tag__name", flat=True)), {"shared"})
+
+    def test_rejects_over_cap_operations(self, mock_on_commit):
+        # 50 tickets × 50 tags = 2500 > BULK_TAG_MAX_OPERATIONS (2000). Rejected before any delete.
+        ids = [f"00000000-0000-0000-0000-{i:012d}" for i in range(50)]
+        tags = [f"tag-{j}" for j in range(50)]
+        response = self.client.post(self._bulk_url(), {"ids": ids, "tags": tags}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestTicketAssignment(APIBaseTest):
