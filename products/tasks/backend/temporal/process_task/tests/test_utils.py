@@ -1068,6 +1068,7 @@ class TestGetRelayedMcpServerNames(TestCase):
 
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
 
+
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
