@@ -727,11 +727,14 @@ class HogQLQueryExecutor:
         """Emit a telemetry event when a query reads the events table with no ``timestamp`` bound.
 
         A full-history events scan is never intended — compiled insight queries always inject a date
-        range, so this only trips on hand-written HogQL. Emitting it as an event lets us alert on and
-        chase down unbounded queries (they dominate cost on shared/embedded dashboards, where every
-        anonymous view re-runs them). Best-effort: capture is a non-blocking enqueue on every path —
-        no flush happens here, so telemetry can never delay or block query execution. Delivery from
-        Celery workers is handled by the bounded flush in ``on_worker_process_shutdown``.
+        range, so this only trips on hand-written HogQL. These queries dominate cost on
+        shared/embedded dashboards, where every anonymous view re-runs them. An event rather than a
+        first-party metric: the goal is chasing down the specific offender, so the payload is
+        per-occurrence attribution (insight/dashboard/session ids) — cardinality metric attributes
+        must not carry — and an insight threshold alert counts events just as well. Best-effort:
+        capture is a non-blocking enqueue on every path — no flush happens here, so telemetry can
+        never delay or block query execution. Delivery from Celery workers is handled by the bounded
+        flush in ``on_worker_process_shutdown``.
         """
         if not is_cloud():
             return
