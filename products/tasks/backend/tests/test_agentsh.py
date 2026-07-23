@@ -453,7 +453,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
     def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
         from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
-        from products.tasks.backend.logic.services.sandbox import ExecutionResult
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
         # Snapshots restored from old images carry an agent-server that rejects unknown
         # options; the launch probe must drop --autoPublish instead of crashing the run.
@@ -473,6 +473,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             sandbox = DockerSandbox.__new__(DockerSandbox)
             sandbox._host_port = 8080
         sandbox.id = "sb-test"
+        sandbox.config = SandboxConfig(name="sb-test")
         cast_sandbox: Any = sandbox
         cast_sandbox.is_running = Mock(return_value=True)
         cast_sandbox._agent_server_is_healthy = Mock(return_value=False)

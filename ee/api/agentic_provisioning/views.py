@@ -106,9 +106,11 @@ PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
     "wizard_runs": "wizard_run",
 }
 
-# Per-user wizard-run budget, mirroring the session endpoint's DRF throttles
-# (SetupWizardCloudRunBurstRateThrottle 2/hour, SetupWizardCloudRunSustainedRateThrottle
-# 5/day) which can't run here — the partner path has no session user on the request.
+# Per-user wizard-run budget matching the session endpoint's limits (2/hour, 5/day), which
+# can't run here — the partner path has no session user on the request. Unlike the session
+# endpoint's throttles, which count only non-failed/non-cancelled runs from the DB, this is a
+# plain request counter: failed runs still consume partner quota. Aligning it with the
+# outcome-aware counting is a pending follow-up.
 WIZARD_RUN_USER_RATE_LIMIT_PREFIX = "provisioning_wizard_run_user:"
 WIZARD_RUN_USER_RATE_LIMITS: list[tuple[str, int, int]] = [
     ("burst", 2, 3600),
