@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -38,7 +39,7 @@ import type {
     UserType,
 } from '../../../types'
 import { onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
-import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
+import { arraysEqual, mayStepAppearLater, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import { appendSharedTrailingSteps } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
 import { type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
@@ -730,15 +731,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // but don't fire an additional `onboarding completed` analytics event.
             eventUsageLogic.actions.reportOnboardingCompleted(primary)
             props.onCompleteOnboarding?.(primary)
-            // Error Tracking has a side-effect tied to onboarding completion (set up in the
-            // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.
-            if (primary === ProductKey.ERROR_TRACKING) {
-                teamLogic.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
-            }
-            // Support has no onboarding screen; enable the product on completion so it's live on arrival.
-            if (primary === ProductKey.CONVERSATIONS) {
-                teamLogic.actions.updateCurrentTeam({ conversations_enabled: true })
-            }
             // Only mark a product as fully onboarded when the user actually visited at
             // least one of its steps. Without this guard, a hand-crafted URL with an
             // arbitrary `?with=...` list would silently flip every secondary's flag on
@@ -784,9 +776,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     tickedTaskIds.add(id)
                 }
             }
-            if (setup && tickedTaskIds.size > 0) {
-                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
-            }
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
@@ -795,17 +784,40 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
             }
+            // One PATCH for every completion-time team change: concurrent team PATCHes silently
+            // revert each other's fields, and both completion signals must stay in sync so
+            // sceneLogic doesn't redirect a completed user back into onboarding after refresh.
+            const completionPatch: Partial<TeamType> = {
+                completed_snippet_onboarding: true,
+                has_completed_onboarding_for: completedMap,
+            }
+            if (primary === ProductKey.ERROR_TRACKING) {
+                completionPatch.autocapture_exceptions_opt_in = true
+            }
+            // Support has no steps of its own, so selection in either slot is the consent signal.
+            // Skipped for non-admins: `conversations_enabled` is an admin-gated field, and sending
+            // it would 403 the entire completion PATCH.
+            const isTeamAdmin =
+                (!!values.currentTeam?.effective_membership_level &&
+                    values.currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
+                values.currentTeam?.user_access_level === 'admin'
+            if (
+                isTeamAdmin &&
+                (primary === ProductKey.CONVERSATIONS || values.secondaryProductKeys.includes(ProductKey.CONVERSATIONS))
+            ) {
+                completionPatch.conversations_enabled = true
+            }
             try {
-                // Keep both completion signals in sync so every bootstrapped team shape prevents
-                // sceneLogic from redirecting a completed user back into onboarding after refresh.
-                await teamLogic.asyncActions.updateCurrentTeam({
-                    completed_snippet_onboarding: true,
-                    has_completed_onboarding_for: completedMap,
-                })
+                await teamLogic.asyncActions.updateCurrentTeam(completionPatch)
                 setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
             } catch {
                 // The completion update failed, so leave the user's homepage untouched
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            }
+            // Ticking tasks issues its own team PATCH; fired concurrently with the one above it
+            // would read a stale row and wipe the fields just written.
+            if (setup && tickedTaskIds.size > 0) {
+                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
             }
         },
         completeContextOnboarding: async () => {
@@ -890,24 +902,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // the 4th arg here, not the 2nd — that was the breakpoint function.
             const previousStepId = selectors.stepId(previousState)
 
-            // URL self-correction: if the user navigated to a stepId we can't resolve
-            // (typo'd bookmark, deprecated step name, secondary product not in `?with=`),
-            // `currentFlowStep` returns null and the host shows a spinner forever.
-            // Reconcile by falling through to flow[0].
+            // URL self-correction: if the user navigated to a stepId the flow can't resolve
+            // (typo'd bookmark, deprecated step name, secondary product not in `?with=`, or
+            // a step key the selected product's flow never emits — e.g. `?step=install` for
+            // a product whose provider contributes no install step), `currentFlowStep`
+            // returns null and the host shows a spinner forever. Reconcile by falling
+            // through to flow[0].
             //
-            // Important: only self-correct when the stepId is genuinely unknown — NOT when
-            // it's a valid OnboardingStepKey that simply hasn't been emitted into the flow
-            // yet. Steps like `plans` are appended async (after billing loads) by
-            // `appendSharedTrailingSteps`; self-correcting too eagerly here would clobber
-            // the URL before the flow settles, leaving the user on `flow[0]` even after
-            // billing arrives.
-            // A `?` or `&` means query params fused into the step value (a mangled URL) — never
-            // treat that as a valid namespaced id, or self-correction skips it and the host
-            // spins forever waiting for a step that can't resolve.
-            const isKnownStepKey = (id: string): boolean =>
-                !/[?&]/.test(id) &&
-                (Object.values(OnboardingStepKey).includes(id as OnboardingStepKey) || id.includes(':'))
-            if (stepId && values.flow.length > 0 && !isKnownStepKey(stepId)) {
+            // Important: only self-correct when the step can never resolve — NOT when it's
+            // one of the async-appended step keys that simply hasn't been emitted into the
+            // flow yet (`plans` arrives only after billing loads; see `mayStepAppearLater`).
+            // Self-correcting those too eagerly would clobber the URL before the flow
+            // settles, leaving the user on `flow[0]` even after billing arrives.
+            if (stepId && values.flow.length > 0 && !mayStepAppearLater(stepId)) {
                 const exact = values.flow.find((step) => step.id === stepId)
                 const loose = exact ? null : values.flow.find((step) => step.stepKey === stepId)
                 if (!exact && !loose) {
@@ -980,6 +987,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
     })),
+    subscriptions(({ actions, values }) => ({
+        flow: (flow: OnboardingStepDescriptor[]): void => {
+            // The setStepId listener can only self-correct at dispatch time. When the flow
+            // was still empty then (e.g. billing hadn't loaded and the product contributes
+            // no steps of its own), re-run the reconciliation once steps exist so a step
+            // that can never resolve falls through to flow[0] instead of spinning forever.
+            const stepId = values.stepId
+            if (!stepId || flow.length === 0 || mayStepAppearLater(stepId)) {
+                return
+            }
+            if (!flow.some((step) => step.id === stepId || step.stepKey === stepId)) {
+                actions.setStepId('')
+            }
+        },
+    })),
     actionToUrl(({ values, actions }) => ({
         setStepId: ({ stepId }) => {
             // `success`/`upgraded` are billing-callback signals consumed once; keeping them in
@@ -1005,17 +1027,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // through urlToAction and re-dispatches setStepId(bogus), looping
             // indefinitely. Stripping unresolvable stepIds here keeps the URL
             // self-consistent with the reducer state.
-            // Mirror the `setStepId` listener's `isKnownStepKey` heuristic. Billing-gated
-            // steps (plans, invite_teammates, link_data) are appended async after billing
-            // loads, so they may not be in `flow` when the URL push lands. Stripping them
-            // from the URL would re-fire `setStepId('')` and permanently lose the request.
-            const isKnownStepKey =
-                !/[?&]/.test(stepId) &&
-                (Object.values(OnboardingStepKey).includes(stepId as OnboardingStepKey) || stepId.includes(':'))
+            // Mirror the `setStepId` listener's heuristic. Async-appended steps (plans,
+            // invite_teammates, link_data) may not be in `flow` when the URL push lands.
+            // Stripping them from the URL would re-fire `setStepId('')` and permanently
+            // lose the request.
             const stepResolves =
                 !stepId ||
                 values.flow.length === 0 ||
-                isKnownStepKey ||
+                mayStepAppearLater(stepId) ||
                 !!values.flow.find((s) => s.id === stepId || s.stepKey === stepId)
             // The first tuple element must be a bare pathname: kea-router joins the tuple by
             // string concatenation (`path + '?' + search`), so a query embedded here would get a

@@ -1,13 +1,16 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { OnboardingStepKey } from '~/types'
+import { AccessControlLevel, OnboardingStepKey, type OrganizationType } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { INSTALL_DEDUP_KEYS } from './types'
@@ -487,6 +490,97 @@ describe('onboardingLogic — flow composition', () => {
         })
     })
 
+    describe('completeOnboarding — conversations enablement', () => {
+        // Conversations has no onboarding steps, so enablement rides on completion, for both
+        // slots, and must travel in the SAME team PATCH as the completion fields: a
+        // separately-dispatched enable is silently reverted by the concurrent completion PATCH.
+        it.each([
+            ['primary', (): void => logic.actions.setProductKey(ProductKey.CONVERSATIONS)],
+            [
+                'secondary',
+                (): void => {
+                    logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+                    logic.actions.setSecondaryProductKeys([ProductKey.CONVERSATIONS])
+                },
+            ],
+        ])('enables conversations atomically with completion when selected as %s', async (_slot, setup) => {
+            setup()
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    const payload = action.payload as Record<string, unknown>
+                    return (
+                        payload?.conversations_enabled === true &&
+                        payload?.completed_snippet_onboarding === true &&
+                        !!payload?.has_completed_onboarding_for
+                    )
+                },
+            ])
+        })
+
+        it('does not touch conversations_enabled when conversations was not selected', async () => {
+            // Guards against the enable becoming unconditional — that would silently turn
+            // Support on for every team completing any product's onboarding.
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            const patches: Record<string, unknown>[] = []
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type === logic.actionTypes.updateCurrentTeam) {
+                        patches.push(action.payload as Record<string, unknown>)
+                    }
+                    // The completion PATCH (has_completed_onboarding_for) is the tail of the
+                    // synchronous completion path — stop matching there.
+                    return (
+                        action.type === logic.actionTypes.updateCurrentTeam &&
+                        !!(action.payload as Record<string, unknown>)?.has_completed_onboarding_for
+                    )
+                },
+            ])
+            expect(patches.some((patch) => 'conversations_enabled' in (patch ?? {}))).toBe(false)
+        })
+
+        it('omits conversations_enabled for non-admin members so completion still succeeds', async () => {
+            // The field is admin-gated server-side; including it 403s the whole completion PATCH,
+            // which would block the member from completing onboarding at all.
+            logic.unmount()
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    effective_membership_level: OrganizationMembershipLevel.Member,
+                    user_access_level: AccessControlLevel.Member,
+                },
+                MOCK_DEFAULT_PROJECT,
+                MOCK_DEFAULT_ORGANIZATION
+            )
+            logic = onboardingLogic()
+            logic.mount()
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.CONVERSATIONS])
+            const patches: Record<string, unknown>[] = []
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type === logic.actionTypes.updateCurrentTeam) {
+                        patches.push(action.payload as Record<string, unknown>)
+                    }
+                    return (
+                        action.type === logic.actionTypes.updateCurrentTeam &&
+                        !!(action.payload as Record<string, unknown>)?.has_completed_onboarding_for
+                    )
+                },
+            ])
+            expect(patches.some((patch) => 'conversations_enabled' in (patch ?? {}))).toBe(false)
+        })
+    })
+
     describe('completeContextOnboarding', () => {
         it('persists both onboarding completion signals', async () => {
             await expectLogic(logic, () => {
@@ -606,6 +700,98 @@ describe('onboardingLogic — flow composition', () => {
                     payload: { subscribedDuringOnboarding: true } as any,
                 },
             ])
+        })
+    })
+
+    describe('unresolvable step reconciliation', () => {
+        it('self-corrects ?step=install to the first available step for a product with no install step', async () => {
+            // Conversations' provider emits no product steps, but product selection and
+            // setup-task links route to `?step=install` unconditionally. The requested
+            // step will never exist — the URL must reconcile to flow[0] instead of
+            // leaving `currentFlowStep` null (an infinite spinner with no escape button).
+            router.actions.push('/onboarding/conversations?step=install')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
+            expect(router.values.searchParams.step).toBeUndefined()
+        })
+
+        it('resolves ?step=install via a secondary product when conversations is picked with others', async () => {
+            // The most common real-world selection shape: conversations alongside another
+            // product. The flow then contains the secondary's install step and the bare key
+            // loose-matches it — reconciliation must not fire, and loose matching must not
+            // be scoped to the primary product's own steps.
+            router.actions.push('/onboarding/conversations?step=install&with=logs')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('install')
+            expect(logic.values.currentFlowStep?.id).toBe('install:logs')
+            expect(router.values.searchParams.step).toBe('install')
+        })
+
+        it.each(['plans', 'plans:conversations'])(
+            'keeps waiting on ?step=%s while billing has not loaded (async-appended step)',
+            async (step) => {
+                // `plans` joins the flow only after billing loads; reconciling it away would
+                // permanently lose the requested step (e.g. the post-upgrade round-trip
+                // landing before billing settles). The namespaced form must wait too.
+                router.actions.push(`/onboarding/conversations?step=${step}`)
+                await expectLogic(logic).toDispatchActions(['setStepId'])
+                await new Promise((resolve) => setTimeout(resolve, 0))
+                expect(logic.values.stepId).toBe(step)
+                expect(logic.values.currentFlowStep).toBeNull()
+                expect(router.values.searchParams.step).toBe(step)
+            }
+        )
+
+        it('self-corrects a namespaced step id that is not in the flow and never will be', async () => {
+            // A stale bookmark or edited `?with=` list can request a namespaced id
+            // (`install:llm_analytics`) for a product that isn't selected. Product steps are
+            // contributed synchronously, so it can never appear — reconcile instead of spinning.
+            router.actions.push('/onboarding/web_analytics?step=install:llm_analytics')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
+            expect(router.values.searchParams.step).toBeUndefined()
+        })
+
+        it('leaves a resolvable bare ?step=install untouched for a product that has an install step', async () => {
+            router.actions.push('/onboarding/web_analytics?step=install')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('install')
+            expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
+            expect(router.values.searchParams.step).toBe('install')
+        })
+
+        it('reconciles an unresolvable step when the flow builds after the URL was parsed', async () => {
+            // A member without invite rights gets an empty conversations flow until an
+            // async input (org permissions, billing) contributes a shared step. The
+            // setStepId listener can't reconcile against an empty flow, so the flow
+            // subscription must pick it up once steps exist.
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                members_can_invite: false,
+                membership_level: OrganizationMembershipLevel.Member,
+            })
+            logic = onboardingLogic()
+            logic.mount()
+
+            router.actions.push('/onboarding/conversations?step=install')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            expect(logic.values.flow).toEqual([])
+            expect(logic.values.stepId).toBe('install')
+
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                members_can_invite: true,
+            } as OrganizationType)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
         })
     })
 
