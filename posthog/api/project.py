@@ -32,6 +32,7 @@ from posthog.api.team import (
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamCustomerAnalyticsConfigSerializer,
+    TeamLogsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamSerializer,
@@ -1618,6 +1619,15 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
+    @extend_schema(
+        request=TeamLogsConfigSerializer,
+        responses=TeamLogsConfigSerializer,
+        description=(
+            "Logs product configuration for this project, including the attribute keys "
+            "that correlate logs with other products (person distinct ID and session ID)."
+        ),
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,

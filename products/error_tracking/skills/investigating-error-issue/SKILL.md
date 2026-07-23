@@ -284,11 +284,46 @@ than treating it as a failure.
 
 #### 5c. Server logs around the error (OTEL via `query-logs`)
 
-For server-side exceptions, correlate the exception timestamp with OTEL log
-entries the customer ingests. Many projects don't ingest logs at all — if
-`query-logs` returns nothing or errors, say so and move on. Discover available
-services first with `logs-attribute-values-list` when you don't know which
-service produced the error.
+For server-side exceptions, correlate OTEL log entries the customer ingests.
+Many projects don't ingest logs at all — if `query-logs` returns nothing or
+errors, say so and move on.
+
+**Prefer a session-scoped pull when the sample event has a `$session_id`.**
+Call `posthog:logs-config-get` and read `logs_session_id_attribute_keys` (an
+ordered list of log attribute keys, default `["posthogSessionId"]`) — these
+are the attributes the project's pipeline stamps the PostHog session ID on.
+Filter on them rather than guessing keys:
+
+```json
+posthog:query-logs
+{
+  "query": {
+    "dateRange": {
+      "date_from": "<error_timestamp minus 30 minutes>",
+      "date_to":   "<error_timestamp plus 30 minutes>"
+    },
+    "filterGroup": [
+      {
+        "key": "<each key from logs_session_id_attribute_keys>",
+        "operator": "exact",
+        "type": "log_attribute",
+        "value": "<session_id_from_step_2>"
+      }
+    ],
+    "limit": 50,
+    "orderBy": "earliest"
+  }
+}
+```
+
+This returns exactly the session's logs across all services and severities —
+strictly better signal than a timestamp window when the pipeline stamps
+session IDs. Zero results means it doesn't; fall back to the timestamp
+window below.
+
+**Fallback: timestamp-window correlation.** Discover available services first
+with `logs-attribute-values-list` when you don't know which service produced
+the error.
 
 ```json
 posthog:query-logs
