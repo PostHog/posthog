@@ -1,22 +1,56 @@
 {% extends "admin/base_site.html" %}
 
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    #dryrun-loading { display: none; margin-top: 20px; }
+    #dryrun-loading .spinner {
+        display: inline-block; width: 16px; height: 16px; margin-right: 8px;
+        border: 2px solid var(--border-color, #ccc); border-top-color: var(--link-fg, #447e9b);
+        border-radius: 50%; vertical-align: text-bottom;
+        animation: dryrun-spin 0.8s linear infinite;
+    }
+    @keyframes dryrun-spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
 {% block content %}
-<h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} (inactive){% endif %}</h1>
+<h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} <span style="opacity:0.6">(inactive)</span>{% endif %}</h1>
 <p>Classifies archived orgs with this config and shows the verdicts. Nothing is persisted.</p>
-<form method="post">
+<form method="post" id="dryrun-form">
     {% csrf_token %}
     <input type="hidden" name="action" value="dry_run_selected" />
     <input type="hidden" name="apply" value="1" />
     <input type="hidden" name="_selected_action" value="{{ config.pk }}" />
-    <p>
-        <label for="sample">Sample size (most recent archived orgs, max {{ max_sample }}):</label>
-        <input type="number" id="sample" name="sample" value="10" min="1" max="{{ max_sample }}" />
-    </p>
-    <p>
-        <label for="contains">Only orgs whose company name contains (optional):</label>
-        <input type="text" id="contains" name="contains" placeholder="e.g. acme" />
-    </p>
-    <button type="submit" class="button default">Run</button>
-    <a href="{% url 'admin:growth_enrichmentpromptconfig_changelist' %}">Cancel</a>
+    <fieldset class="module aligned">
+        <div class="form-row">
+            <label for="sample">Sample size:</label>
+            <input type="number" id="sample" name="sample" value="10" min="1" max="{{ max_sample }}" />
+            <div class="help">Most recent archived orgs, up to {{ max_sample }}. Roughly 2 orgs/second.</div>
+        </div>
+        <div class="form-row">
+            <label for="contains">Company contains:</label>
+            <input type="text" id="contains" name="contains" placeholder="e.g. acme" />
+            <div class="help">Optional - spot-check specific orgs by company name.</div>
+        </div>
+    </fieldset>
+    <div class="submit-row">
+        <input type="submit" class="default" value="Run" id="dryrun-submit" />
+        <a href="{% url 'admin:growth_enrichmentpromptconfig_changelist' %}" class="closelink">Cancel</a>
+    </div>
+    <div id="dryrun-loading">
+        <span class="spinner"></span>
+        <strong>Classifying <span id="dryrun-count">10</span> orgs&hellip;</strong>
+        this page will replace itself with the verdict table when done.
+    </div>
 </form>
+<script>
+    document.getElementById("dryrun-form").addEventListener("submit", function () {
+        var submit = document.getElementById("dryrun-submit");
+        submit.disabled = true;
+        submit.value = "Running…";
+        document.getElementById("dryrun-count").textContent = document.getElementById("sample").value;
+        document.getElementById("dryrun-loading").style.display = "block";
+    });
+</script>
 {% endblock %}
