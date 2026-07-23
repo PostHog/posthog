@@ -130,12 +130,12 @@ class CommunitySkillListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Substring filter applied to skill names, descriptions, and tags.",
+        help_text="Substring filter on skill names and descriptions; also matches a tag exactly (case-insensitive).",
     )
     tag = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Return only skills carrying this tag.",
+        help_text="Return only skills carrying this exact tag (case-insensitive).",
     )
     trust_tier = serializers.ChoiceField(
         choices=CommunitySkillTrustTier.choices,

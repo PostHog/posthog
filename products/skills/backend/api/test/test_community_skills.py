@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
@@ -58,6 +59,12 @@ class TestCommunitySkillAPI(APIBaseTest):
 
         response = self.client.get(self._url(), {"trust_tier": "community"})
         self.assertEqual([s["slug"] for s in response.json()["results"]], ["community-one"])
+
+    def test_filter_by_tag_is_case_insensitive(self, _mock_flag) -> None:
+        _create_community_skill(slug="tagged")  # stored tag is lowercase "web-analytics"
+        # A differently-cased tag query must still match the stored tag.
+        response = self.client.get(self._url(), {"tag": "Web-Analytics"})
+        self.assertEqual([s["slug"] for s in response.json()["results"]], ["tagged"])
 
     def test_retrieve_by_slug_includes_body(self, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
@@ -121,13 +128,43 @@ class TestCommunitySkillAPI(APIBaseTest):
         skill.refresh_from_db()
         self.assertEqual(skill.install_count, 0)
 
-    def test_install_rejects_reserved_scout_namespace(self, _mock_flag) -> None:
+    @parameterized.expand(
+        [
+            # signals-scout-* auto-registers and runs with privileged scout scopes.
+            ("scout_namespace", "signals-scout-evil"),
+            # A canonical ReviewHog name auto-enables and runs in the installing user's PR reviews.
+            ("reviewhog_canonical", "review-hog-perspective-logic-correctness"),
+        ]
+    )
+    def test_install_rejects_reserved_auto_running_names(self, _name, reserved_name, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
-        # Installing into the signals-scout- namespace would let a community skill auto-run with
-        # privileged scout scopes, so it must be refused.
-        response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": "signals-scout-evil"})
+        # These namespaces auto-run community-controlled instructions on install, so they're refused.
+        response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": reserved_name})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="signals-scout-evil").exists())
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name=reserved_name).exists())
+
+    def test_install_strips_internal_reviewhog_provenance(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="web-analytics-triage")
+        # ReviewHog prunes rows by seeded_by, so these keys must not be copied through on install —
+        # otherwise a catalog entry could make a user's freshly installed skill disappear.
+        CommunitySkill.objects.filter(pk=skill.pk).update(
+            metadata={"seeded_by": "review_hog", "canonical_hash": "deadbeef", "keep": "me"}
+        )
+        response = self.client.post(self._url("web-analytics-triage/install/"), {})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        installed = LLMSkill.objects.get(team=self.team, name="web-analytics-triage")
+        self.assertNotIn("seeded_by", installed.metadata)
+        self.assertNotIn("canonical_hash", installed.metadata)
+        self.assertEqual(installed.metadata["keep"], "me")
+
+    def test_install_rejects_blank_description(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="web-analytics-triage")
+        # A blank description installs a skill that later fails export validation.
+        CommunitySkill.objects.filter(pk=skill.pk).update(description="   ")
+        response = self.client.post(self._url("web-analytics-triage/install/"), {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
     def test_install_unknown_slug_returns_404(self, _mock_flag) -> None:
         response = self.client.post(self._url("does-not-exist/install/"), {})

@@ -148,7 +148,9 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         "compatibility": entry.get("compatibility", ""),
         "allowed_tools": entry.get("allowed_tools", []),
         "metadata": entry.get("metadata", {}),
-        "tags": entry.get("tags", []),
+        # Store tags lowercased so the tag/search filters match regardless of how a contributor
+        # capitalized them in frontmatter (_validate_entry_shape guarantees a list of strings).
+        "tags": [t.lower() for t in entry.get("tags", [])],
         "trust_tier": trust_tier,
         "author_handle": entry.get("author_handle", ""),
         "github_url": entry.get("github_url", ""),

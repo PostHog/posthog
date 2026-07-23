@@ -210,6 +210,25 @@ class TestCommunitySkillSync(APIBaseTest):
         self.assertEqual(CommunitySkill.objects.get(slug="nullish").body, "")
 
     @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_lowercases_tags(self, mock_get) -> None:
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {
+                    "slug": "web-analytics-triage",
+                    "name": "Web analytics triage",
+                    "description": "Investigate a change in web traffic.",
+                    "body": "# Triage",
+                    "tags": ["Web-Analytics", "SQL"],
+                }
+            ],
+        }
+
+        # Tags are stored lowercased so the case-insensitive tag/search filters match reliably.
+        sync_community_skills_from_github()
+        self.assertEqual(CommunitySkill.objects.get(slug="web-analytics-triage").tags, ["web-analytics", "sql"])
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
     def test_sync_coerces_unknown_trust_tier_to_community(self, mock_get) -> None:
         mock_get.return_value.raise_for_status.return_value = None
         mock_get.return_value.json.return_value = {

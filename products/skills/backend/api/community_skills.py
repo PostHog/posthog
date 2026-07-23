@@ -144,12 +144,13 @@ class CommunitySkillViewSet(
         queryset = self.get_queryset()
         search = params.validated_data.get("search", "").strip()
         if search:
-            # tags is a JSONField array — use `contains` for exact element membership, not a
-            # substring match against the serialized JSON.
+            # Substring-match name/description; tags is a JSONField array of lowercased slugs, so
+            # match a tag exactly (case-folded) rather than substring-matching the serialized JSON.
             queryset = queryset.filter(
-                Q(name__icontains=search) | Q(description__icontains=search) | Q(tags__contains=[search])
+                Q(name__icontains=search) | Q(description__icontains=search) | Q(tags__contains=[search.lower()])
             )
-        tag = params.validated_data.get("tag", "").strip()
+        # Tags are stored lowercased at sync, so case-fold the query to keep the filter case-insensitive.
+        tag = params.validated_data.get("tag", "").strip().lower()
         if tag:
             queryset = queryset.filter(tags__contains=[tag])
         trust_tier = params.validated_data.get("trust_tier")
