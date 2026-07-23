@@ -1,11 +1,15 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { ExecHelpCatalog } from '@/tools/exec-help'
 import {
@@ -62,6 +66,7 @@ export class InstructionsBuilder {
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
             groupTypes: state.groupTypes,
+            dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         }
     }
 
@@ -133,10 +138,15 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(): string {
-        return formatPrompt(EXECUTE_SQL_PROMPT, {
+    formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
+        const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        const schemaDiscovery = dataCatalogEnabled
+            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
+            : SCHEMA_DISCOVERY.trim()
+        const description = formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
-            schema_discovery: SCHEMA_DISCOVERY.trim(),
+            schema_discovery: schemaDiscovery,
         })
+        return dataCatalogEnabled ? `${METRIC_DISCOVERY.trim()}\n\n${description}` : description
     }
 }

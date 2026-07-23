@@ -3,13 +3,29 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
-from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
+from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
 
-_VIEWS = "products.engineering_analytics.backend.presentation.views.api"
+
+class TestScopeEnrollment(SimpleTestCase):
+    def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
+        actions = {a.__name__ for a in EngineeringAnalyticsViewSet.get_extra_actions()}
+        enrolled = set(EngineeringAnalyticsViewSet.scope_object_read_actions) | set(
+            EngineeringAnalyticsViewSet.scope_object_write_actions
+        )
+        assert actions == enrolled, (
+            f"unenrolled actions (personal API keys get 403): {sorted(actions - enrolled)}; "
+            f"stale scope entries: {sorted(enrolled - actions)}"
+        )
+
+
+_VIEWS = "products.engineering_analytics.backend.facade.api"
 
 
 def _pr_lifecycle() -> contracts.PRLifecycle:
@@ -159,7 +175,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     def test_sources_serializes(self) -> None:
         sources = [
-            contracts.GitHubSource(id="0192f000-0000-7000-8000-000000000000", repo="PostHog/posthog", prefix="older"),
+            contracts.GitHubSource(
+                id="0192f000-0000-7000-8000-000000000000", repo="PostHog/posthog", prefix="older", synced=True
+            ),
             contracts.GitHubSource(
                 id="0192f000-0000-7000-8000-000000000001", repo="PostHog/posthog.com", prefix="website"
             ),
@@ -170,7 +188,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert [s["id"] for s in body] == [sources[0].id, sources[1].id]
-        assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older"}
+        assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older", "synced": True}
+        # synced defaults to False when the repo isn't fully synced yet.
+        assert body[1]["synced"] is False
 
     def test_ci_cards_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()):

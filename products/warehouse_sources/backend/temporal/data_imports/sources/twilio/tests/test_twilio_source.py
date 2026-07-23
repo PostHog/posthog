@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twilio import (
     TwilioAuthMethodConfig,
     TwilioSourceConfig,
 )
@@ -148,6 +148,8 @@ class TestTwilioSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_twilio_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "messages"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-03-04"
         inputs.incremental_field = "date_sent"
@@ -159,6 +161,8 @@ class TestTwilioSource:
         assert kwargs["auth"] == ("SK123", "secret")
         assert kwargs["account_sid"] == ACCOUNT_SID
         assert kwargs["endpoint"] == "messages"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-03-04"

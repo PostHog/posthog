@@ -32,7 +32,8 @@ enum ChaosEvent {
     WriterCrash,
     WriterPause,
     WriterResume,
-    RouterKill,
+    RouterKill { fast: bool },
+    RouterShutdown,
 }
 
 impl fmt::Display for ChaosEvent {
@@ -48,7 +49,11 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::WriterCrash => write!(f, "writer crash-restart"),
             ChaosEvent::WriterPause => write!(f, "writer pause (lag injection)"),
             ChaosEvent::WriterResume => write!(f, "writer resume"),
-            ChaosEvent::RouterKill => write!(f, "coordinator router kill"),
+            ChaosEvent::RouterKill { fast: true } => write!(f, "coordinator router kill"),
+            ChaosEvent::RouterKill { fast: false } => {
+                write!(f, "coordinator router crash (lease TTL expiry)")
+            }
+            ChaosEvent::RouterShutdown => write!(f, "coordinator router graceful shutdown"),
         }
     }
 }
@@ -84,7 +89,15 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
         events.push((after + args.writer_pause_duration, ChaosEvent::WriterResume));
     }
     if let Some(after) = args.router_kill_after {
-        events.push((after, ChaosEvent::RouterKill));
+        events.push((
+            after,
+            ChaosEvent::RouterKill {
+                fast: args.router_kill_fast,
+            },
+        ));
+    }
+    if let Some(after) = args.router_shutdown_after {
+        events.push((after, ChaosEvent::RouterShutdown));
     }
     events.sort_by_key(|(after, _)| *after);
     events
@@ -118,8 +131,14 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
     }
-    if args.router_kill_after.is_some() && args.routers < 2 {
-        bail!("--router-kill-after requires --routers >= 2 (traffic targets the last router)");
+    if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
+        && args.routers < 3
+    {
+        bail!(
+            "coordinator chaos requires --routers >= 3: traffic targets the last router, \
+             which never campaigns, so two routers leave no standby to win the failover \
+             election"
+        );
     }
     if args.kill_handoff_target && args.shutdown_after.is_none() && args.scale_up_after.is_none() {
         bail!("--kill-handoff-target needs a handoff-creating event (--shutdown-after or --scale-up-after)");
@@ -141,6 +160,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     writer_flush_interval_ms: 1000,
                     pg_target_table: args.pg_target_table.clone(),
                     cache_memory_capacity: args.cache_capacity,
+                    recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
                 })
                 .await?,
@@ -247,7 +267,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 stack.resume_writer()?;
                 None
             }
-            ChaosEvent::RouterKill => Some(stack.kill_coordinator_router().await?),
+            ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
+            ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
         };
         println!(
             "Chaos at {:.1}s: {event} → pod {} | {}",
@@ -275,13 +296,21 @@ pub async fn run(args: GateArgs) -> Result<()> {
     let prober_violations = probers.await.context("prober task panicked")??;
 
     // Verification asserts data visibility on a converged topology, not
-    // recovery speed: chaos legitimately leaves handoffs to re-drive, and
-    // the protocol's convergence is bounded (worst known case ~40s via the
-    // drained pod's lifecycle timeout). An already-settled run waits zero
-    // time; a run that cannot converge fails here with the stuck state.
+    // recovery speed: chaos legitimately leaves handoffs to re-drive. The
+    // slowest legitimate recoveries can serialize: a leader kill with
+    // --kill-fast false is blind until the leader lease expires (30s
+    // default), and a concurrent slow router crash appends the election
+    // TTL + campaign retry + registration TTL chain (~16s) — so the
+    // deadline stretches with the configured leader TTL plus that chain
+    // with margin, floored at 30s. A regression toward the old
+    // multi-tens-of-seconds wedges still fails loudly. An already-settled
+    // run waits zero time; a run that cannot converge fails here with the
+    // stuck state.
     if let Some(stack) = stack.as_mut() {
+        let convergence_deadline =
+            Duration::from_secs(30).max(Duration::from_secs(args.leader_lease_ttl as u64 + 30));
         let settled = stack
-            .wait_converged(Duration::from_secs(90))
+            .wait_converged(convergence_deadline)
             .await
             .context("coordination must converge before verification")?;
         println!(

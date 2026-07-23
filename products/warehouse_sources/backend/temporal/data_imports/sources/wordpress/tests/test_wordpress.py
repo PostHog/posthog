@@ -4,6 +4,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress import wordpress as wordpress_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import WORDPRESS_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.wordpress import (
@@ -274,18 +276,44 @@ class TestValidateCredentials:
             else:
                 assert expected_msg_substr in (msg or "")
 
+    @pytest.mark.parametrize(
+        "json_data, text, expects_substr, forbidden_substr",
+        [
+            # A bare proxy/WAF status line must not leak; the user gets an actionable message instead.
+            (None, "Bad Request", "unexpected response (HTTP 400)", "Bad Request"),
+            # A genuine WordPress REST error message is still surfaced.
+            ({"message": "rest_invalid_param"}, "", "rest_invalid_param", None),
+        ],
+    )
+    def test_unrecognized_status_does_not_leak_raw_body(self, json_data, text, expects_substr, forbidden_substr):
+        with self._patch_session(_response(status_code=400, json_data=json_data, text=text)):
+            valid, msg = validate_credentials("https://example.com", None, None)
+            assert valid is False
+            assert expects_substr in (msg or "")
+            if forbidden_substr is not None:
+                assert forbidden_substr not in (msg or "")
+
     def test_invalid_site_url(self):
         valid, msg = validate_credentials("", None, None)
         assert valid is False
         assert msg == "Invalid WordPress site URL"
 
-    def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+    @pytest.mark.parametrize(
+        "exc_factory, expected_msg_substr",
+        [
+            (lambda: requests.exceptions.SSLError("certificate verify failed"), "secure connection"),
+            (lambda: requests.exceptions.ConnectionError("boom"), "Couldn't connect"),
+            (lambda: requests.exceptions.Timeout("slow"), "took too long"),
+            (lambda: requests.exceptions.RequestException("weird"), "Couldn't reach"),
+        ],
+    )
+    def test_request_exception_returns_actionable_message(self, exc_factory, expected_msg_substr):
+        # The raw exception string (e.g. an SSL traceback) must never surface to the user.
+        with self._patch_session(raises=exc_factory()):
             valid, msg = validate_credentials("https://example.com", None, None)
             assert valid is False
-            assert "boom" in (msg or "")
+            assert expected_msg_substr in (msg or "")
+            assert "certificate verify failed" not in (msg or "")
 
     def test_rejects_redirect_response(self):
         with self._patch_session(_response(status_code=302)) as patched:

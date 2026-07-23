@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UnstructuredSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unstructured import (
+    UnstructuredSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UnstructuredSource(ResumableSource[UnstructuredSourceConfig, UnstructuredResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.unstructured.io/api-reference"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -108,6 +113,7 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -127,7 +133,11 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
         return schemas
 
     def validate_credentials(
-        self, config: UnstructuredSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UnstructuredSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_unstructured_credentials(config.base_url, config.api_key, team_id)
 

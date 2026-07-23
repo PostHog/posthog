@@ -21,20 +21,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LambdaLabsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lambdalabs import (
+    LambdaLabsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.lambda_labs import (
     LambdaLabsResumeConfig,
     lambda_labs_source,
     validate_credentials as validate_lambda_labs_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.settings import LAMBDA_LABS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://cloud.lambda.ai/api/v1/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -63,25 +72,16 @@ class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeC
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint.name,
-                supports_incremental=endpoint.supports_incremental,
-                supports_append=endpoint.supports_incremental,
-                incremental_fields=endpoint.incremental_fields,
-            )
-            for endpoint in LAMBDA_LABS_ENDPOINTS.values()
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: LambdaLabsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LambdaLabsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             if validate_lambda_labs_credentials(config.api_key):
@@ -106,7 +106,8 @@ class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeC
         return lambda_labs_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

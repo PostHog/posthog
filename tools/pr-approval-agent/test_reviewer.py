@@ -11,8 +11,9 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import policy  # noqa: E402
 from github import PRData  # noqa: E402
-from reviewer import Reviewer, _sanitize_untrusted, _truncate_inline_comments  # noqa: E402
+from reviewer import Reviewer, _load_review_guidance, _sanitize_untrusted, _truncate_inline_comments  # noqa: E402
 
 
 def _pr(**overrides: object) -> PRData:
@@ -183,6 +184,31 @@ def test_inline_truncation_keeps_unresolved_drops_resolved(
     assert {c["body"] for c in shown} == kept_ids
     assert all(c["body"] != dropped_id for c in shown)
     assert line == omission
+
+
+def _fake_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guidance: str) -> Path:
+    monkeypatch.setattr(policy, "repo_root", lambda: tmp_path)
+    stamphog_dir = tmp_path / ".stamphog"
+    stamphog_dir.mkdir()
+    (stamphog_dir / "review-guidance.md").write_text(guidance)
+    return stamphog_dir
+
+
+def test_guidance_appends_steering_under_marked_section(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stamphog_dir = _fake_stamphog_dir(tmp_path, monkeypatch, "norms prose\n")
+    (stamphog_dir / "steering.md").write_text("Prefer squash merges.\n")
+
+    text = _load_review_guidance()
+
+    assert text.startswith("norms prose\n")
+    assert "\n\n# Repository-specific steering\n\n" in text
+    assert text.endswith("Prefer squash merges.\n")
+
+
+def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # No steering.md must mean a byte-identical prompt — the Action's existing repos see no change.
+    _fake_stamphog_dir(tmp_path, monkeypatch, "norms prose\n")
+    assert _load_review_guidance() == "norms prose\n"
 
 
 @pytest.mark.parametrize(

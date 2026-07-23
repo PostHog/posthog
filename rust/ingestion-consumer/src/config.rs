@@ -121,10 +121,12 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
-    /// Upper bound on retrying a batch's deferred messages (held because no
-    /// worker was routable) before failing the batch (milliseconds). Bounds how
-    /// long a full worker outage holds offsets before the process exits and
-    /// restarts.
+    /// No-progress bound on flushing a batch's deferred messages
+    /// (milliseconds): the deadline resets whenever any of the batch's
+    /// messages are accepted, so a slow drain keeps going and the batch only
+    /// fails (exiting the process) after a full window with nothing landed —
+    /// e.g. no worker routable at all. Bounds how long a genuine wedge holds
+    /// offsets before the process exits and restarts.
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
@@ -132,6 +134,14 @@ pub struct Config {
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    /// Release a deferring key's next stashed group as soon as the send
+    /// blocking it resolves, instead of waiting for the owning batch to become
+    /// the oldest completed one. Breaks the deferral cascade where a hot key
+    /// re-stashes on every arriving batch faster than completion-paced flushes
+    /// drain it. The completion-time flush remains as backstop either way.
+    #[envconfig(from = "DISPATCHER_EAGER_DEFERRED_FLUSH", default = "false")]
+    pub dispatcher_eager_deferred_flush: bool,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -186,6 +196,13 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
+    /// Gzip-compress /ingest request bodies (`Content-Encoding: gzip`). Batch
+    /// bodies are JSON wrapping JSON-text Kafka messages, so they compress
+    /// several-fold; the worker's Express body parser inflates transparently.
+    /// Kill switch in case compression CPU cost is ever implicated.
+    #[envconfig(from = "INGESTION_TRANSPORT_COMPRESSION_ENABLED", default = "true")]
+    pub transport_compression_enabled: bool,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
@@ -224,6 +241,29 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
+    /// many workers this dispatcher's ring slice spans. The effective width
+    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
+    /// cover the whole pool, no matter the pool/dispatcher ratio. Small
+    /// values maximize sub-batch consolidation; the width becomes
+    /// feedback-driven in a later stage.
+    #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
+    pub min_aperture: usize,
+
+    // ---- Peer awareness ----
+    /// Kubernetes Service whose EndpointSlices list this consumer's own peer
+    /// pods. Enables coordination-free peer awareness (each pod's stable index
+    /// among its replicas), the basis for deterministic aperture routing.
+    /// Empty (default) disables it. The Service is looked up in the pod's own
+    /// namespace (`POD_NAMESPACE`).
+    #[envconfig(from = "PEER_SERVICE_NAME", default = "")]
+    pub peer_service_name: String,
+
+    /// This pod's IP from the downward API, used to locate self in the peer
+    /// Service's EndpointSlices. Required when PEER_SERVICE_NAME is set.
+    #[envconfig(from = "POD_IP")]
+    pub pod_ip: Option<String>,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).

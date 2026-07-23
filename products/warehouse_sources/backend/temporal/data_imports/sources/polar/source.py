@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PolarSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.polar import (
     PolarPermissionError,
     PolarResumeConfig,
@@ -91,7 +91,7 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         }
 
     def validate_credentials(
-        self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             validate_polar_credentials(config.polar_api_key, schema_name)
@@ -126,6 +126,7 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Full refresh only — Polar's list endpoints accept no server-side timestamp filter,
         # so an "incremental" sync would still fetch every page. We surface that honestly by

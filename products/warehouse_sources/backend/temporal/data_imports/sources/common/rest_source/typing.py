@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, TypedDict
+from typing import Any, Literal, NotRequired, Optional, TypedDict
 
 from requests import Session
 
@@ -55,6 +55,7 @@ class PageNumberPaginatorConfig(PaginatorTypeConfig, total=False):
     page_param: Optional[str]
     total_path: Optional[TJsonPath]
     maximum_page: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -63,7 +64,9 @@ class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
     offset_param: Optional[str]
     limit_param: Optional[str]
     total_path: Optional[TJsonPath]
+    total_header: Optional[str]
     maximum_offset: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class HeaderLinkPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -77,6 +80,7 @@ class JSONResponsePaginatorConfig(PaginatorTypeConfig, total=False):
 class JSONResponseCursorPaginatorConfig(PaginatorTypeConfig, total=False):
     cursor_path: Optional[TJsonPath]
     cursor_param: Optional[str]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 PaginatorConfig = (
@@ -166,6 +170,14 @@ class ClientConfig(TypedDict, total=False):
     # Cap on retry attempts per request. Left unset, RESTClient uses its default;
     # the inline preview sets 1 so a rate-limited endpoint errors instead of sleeping.
     max_retries: int
+    # SSRF host-pinning. When set (even to an empty list), every outgoing request URL —
+    # including paginator next-page links and seeded resume URLs — must resolve to one of
+    # these hosts; the base_url host is always implicitly allowed. Off-host URLs are rejected
+    # so a spoofed ``next`` link can't exfiltrate credentials. Pair with allow_redirects=False.
+    allowed_hosts: Optional[list[str]]
+    # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
+    # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
+    allow_redirects: bool
 
 
 class IncrementalArgs(TypedDict, total=False):
@@ -211,7 +223,19 @@ class ResolvedParam:
 class ResponseAction(TypedDict, total=False):
     status_code: Optional[int | str]
     content: Optional[str]
+    # One of:
+    #  - "ignore" — treat the matched response as a valid empty page and stop pagination.
+    #  - "retry"  — raise a retryable error so the request is re-issued (for an HTTP-200 body-level
+    #               error envelope, e.g. a rate-limit signal carried in the JSON, or to promote a
+    #               non-5xx status like 408 to retryable). The framework retries on HTTP status only,
+    #               so this is the hook for content-classified retries.
+    #  - "raise"  — raise a permanent (non-retryable) error with ``message``, for a success-status
+    #               body error envelope that should fail loud with an actionable message that
+    #               ``get_non_retryable_errors`` can match.
     action: str
+    # Message for the "raise" action (and, optionally, "retry"). Authored in the manifest, so it
+    # carries no secret — kept out of any URL. Falls back to a status-only default when unset.
+    message: Optional[str]
 
 
 class Endpoint(TypedDict, total=False):
@@ -221,6 +245,16 @@ class Endpoint(TypedDict, total=False):
     json: Optional[dict[str, Any]]
     paginator: Optional[PaginatorConfig]
     data_selector: Optional[TJsonPath]
+    # When True, a response whose ``data_selector`` matches nothing (the key is absent) raises
+    # instead of yielding an empty page — fail-loud on an unexpected/changed API response shape,
+    # rather than silently syncing 0 rows. A present-but-empty list is still a valid 0-row page.
+    data_selector_required: Optional[bool]
+    # When True, a 200 whose parsed body isn't the expected list shape (selector matches nothing, or
+    # the matched value / selector-less body isn't a list) raises a RETRYABLE error and the request is
+    # reissued — for sources that defensively treat an unexpected 200-body shape as transient. This is
+    # the retryable counterpart of ``data_selector_required`` (which fails loud permanently); set at
+    # most one of the two.
+    data_selector_malformed_retryable: Optional[bool]
     response_actions: Optional[list[ResponseAction]]
     incremental: Optional[IncrementalConfig]
 
@@ -242,6 +276,10 @@ class ResourceBase(TypedDict, total=False):
 class EndpointResourceBase(ResourceBase, total=False):
     endpoint: Optional[str | Endpoint]
     include_from_parent: Optional[list[str]]
+    # Per-item transform applied after ``data_selector`` and before type coercion, for reshaping
+    # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
+    # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
+    data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):
@@ -250,5 +288,5 @@ class EndpointResource(EndpointResourceBase, total=False):
 
 class RESTAPIConfig(TypedDict):
     client: ClientConfig
-    resource_defaults: Optional[EndpointResourceBase]
+    resource_defaults: NotRequired[Optional[EndpointResourceBase]]
     resources: list[str | EndpointResource]
