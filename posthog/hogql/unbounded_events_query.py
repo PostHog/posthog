@@ -155,7 +155,9 @@ def _expr_bounds_events_timestamp(expr: ast.Expr | None, events_ids: set[str]) -
     """Whether a filter expression guarantees the events ``timestamp`` is constrained. Respects
     boolean structure: an ``AND`` bounds if any operand bounds; an ``OR`` bounds only if *every*
     operand does (``timestamp > x OR event = 'y'`` still admits all history); a leaf bounds when it
-    references the events ``timestamp`` column."""
+    references the events ``timestamp`` column — deliberately without checking it's a range
+    comparison, so ``timestamp IS NOT NULL`` or ``timestamp != now()`` count as bounded too; full
+    range-pruning analysis would require semantic evaluation this module doesn't attempt."""
     if expr is None:
         return False
     if isinstance(expr, ast.And):

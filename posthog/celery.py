@@ -228,7 +228,9 @@ _ANALYTICS_FLUSH_TIMEOUT_SECONDS = 10.0
 
 @worker_process_shutdown.connect
 def on_worker_process_shutdown(**kwargs) -> None:
-    """Remove metric files for this child so recycled workers don't leak stale data."""
+    """Remove metric files for this child so recycled workers don't leak stale data, and flush the
+    posthoganalytics SDK's event queue and metrics window before exit — the only delivery chance,
+    since billiard calls os._exit() right after this handler runs."""
     if _PROMETHEUS_MULTIPROC_DIR:
         from prometheus_client import multiprocess
 
