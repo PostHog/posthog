@@ -10,6 +10,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -20,6 +21,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.permissions import is_service_auth
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
@@ -237,7 +240,7 @@ def _apply_primary_key_columns(
         )
 
 
-class ExternalDataSchemaSerializer(serializers.ModelSerializer):
+class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
@@ -382,6 +385,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "source",
             "api_version",
             "api_version_deprecation",
+            "user_access_level",
         ]
 
         read_only_fields = [
@@ -396,6 +400,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "available_columns",
             "source",
             "api_version_deprecation",
+            "user_access_level",
         ]
 
     @extend_schema_field(
@@ -478,6 +483,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
         }
+
+    def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
+        # Most-specific rule wins: the synced table's own rules if any, else the parent source's
+        # access (table is null before first sync). Drives the row's sync/delete gating in the UI.
+        uac = self.user_access_control
+        if uac is None:
+            return None
+        return uac.warehouse_table_effective_level(schema.table, schema.source)
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
@@ -1318,9 +1331,34 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
+class WarehouseTableSyncPermission(BasePermission):
+    """Requires editor access to the schema's warehouse table for write actions.
+
+    Table-level rules take precedence; if the table has none, the source's access level applies.
+    Runs on top of AccessControlPermission's source resource-level gate (scope_object is
+    "external_data_source"). Reads are not gated here."""
+
+    def has_permission(self, request: Request, view) -> bool:
+        return True
+
+    def has_object_permission(self, request: Request, view, obj: ExternalDataSchema) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        # Service credentials (PSAK/TST) are synthetic users UserAccessControl can't evaluate; they're
+        # gated by API scope + project membership. Mirror AccessControlPermission.
+        if is_service_auth(request):
+            return True
+        uac = view.user_access_control
+        if uac is None or uac.is_organization_admin:
+            return True
+        level = uac.warehouse_table_effective_level(obj.table, obj.source)
+        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "editor")
+
+
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
+    permission_classes = [WarehouseTableSyncPermission]
     scope_object_write_actions = [
         "update",
         "partial_update",
