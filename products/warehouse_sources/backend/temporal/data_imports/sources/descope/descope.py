@@ -97,13 +97,14 @@ def get_resource(
             "paginator": PageNumberPaginator(base_page=0, page_param="page", param_location="json"),
             "data_selector": "users",
         }
-        return {
+        users_resource: EndpointResource = {
             "name": name,
             "table_name": "users",
             "write_disposition": write_disposition,
             "endpoint": endpoint,
             "table_format": "delta",
         }
+        return users_resource
 
     if name == "Audit":
         endpoint = {
@@ -113,7 +114,7 @@ def get_resource(
             "paginator": SinglePagePaginator(),
             "data_selector": "audits",
         }
-        return {
+        audit_resource: EndpointResource = {
             "name": name,
             "table_name": "audit",
             "write_disposition": write_disposition,
@@ -121,6 +122,7 @@ def get_resource(
             "data_map": _audit_row_id,
             "table_format": "delta",
         }
+        return audit_resource
 
     if name == "Tenants":
         endpoint = {
@@ -128,13 +130,14 @@ def get_resource(
             "paginator": SinglePagePaginator(),
             "data_selector": "tenants",
         }
-        return {
+        tenants_resource: EndpointResource = {
             "name": name,
             "table_name": "tenants",
             "write_disposition": "replace",
             "endpoint": endpoint,
             "table_format": "delta",
         }
+        return tenants_resource
 
     if name == "Roles":
         endpoint = {
@@ -144,13 +147,14 @@ def get_resource(
             "paginator": SinglePagePaginator(),
             "data_selector": "roles",
         }
-        return {
+        roles_resource: EndpointResource = {
             "name": name,
             "table_name": "roles",
             "write_disposition": "replace",
             "endpoint": endpoint,
             "table_format": "delta",
         }
+        return roles_resource
 
     if name == "AccessKeys":
         endpoint = {
@@ -160,13 +164,14 @@ def get_resource(
             "paginator": SinglePagePaginator(),
             "data_selector": "keys",
         }
-        return {
+        access_keys_resource: EndpointResource = {
             "name": name,
             "table_name": "access_keys",
             "write_disposition": "replace",
             "endpoint": endpoint,
             "table_format": "delta",
         }
+        return access_keys_resource
 
     raise ValueError(f"Unknown Descope endpoint: {name}")
 
