@@ -4,6 +4,7 @@ use common_temporal::{
     StartWorkflowOptions, StartWorkflowOutcome, TemporalClientConfig, TemporalWorkflowClient,
 };
 use serde::Serialize;
+use tracing::error;
 use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
@@ -14,6 +15,7 @@ const WORKFLOW_NAME: &str = "error-tracking-issue-created";
 const WORKFLOW_ID_PREFIX: &str = "error-tracking-issue-created";
 const WORKFLOW_STARTS_TOTAL: &str = "cymbal_issue_created_workflow_starts_total";
 const WORKFLOW_ROUTES_TOTAL: &str = "cymbal_issue_created_workflow_routes_total";
+const WORKFLOW_STARTER_INIT_TOTAL: &str = "cymbal_issue_created_workflow_starter_init_total";
 
 #[derive(Clone, Default)]
 pub struct MaybeIssueCreatedWorkflowStarter(Option<IssueCreatedWorkflowStarter>);
@@ -24,9 +26,49 @@ impl MaybeIssueCreatedWorkflowStarter {
             return Ok(Self::default());
         }
 
-        Ok(Self(Some(
-            IssueCreatedWorkflowStarter::from_config(config).await?,
-        )))
+        // Parse the rollout allowlist eagerly so genuine misconfiguration still fails fast.
+        let enabled_team_ids = parse_team_ids(&config.issue_created_workflow_team_ids)?;
+
+        Ok(Self::connect_or_fallback(
+            temporal_client_config(config),
+            config.error_tracking_lifecycle_task_queue.clone(),
+            enabled_team_ids,
+        )
+        .await)
+    }
+
+    /// Connect to Temporal, degrading to the legacy (non-Temporal) route on failure.
+    ///
+    /// A Temporal connect failure (e.g. a TLS trust-chain error, or Temporal being
+    /// unreachable) must not crash the notifications consumer at boot. Falling back
+    /// keeps notification processing running; the workflow route is picked back up
+    /// on the next redeploy once Temporal is reachable again.
+    async fn connect_or_fallback(
+        client_config: TemporalClientConfig,
+        task_queue: String,
+        enabled_team_ids: Option<HashSet<i32>>,
+    ) -> Self {
+        match TemporalWorkflowClient::connect(client_config).await {
+            Ok(client) => {
+                metrics::counter!(WORKFLOW_STARTER_INIT_TOTAL, "outcome" => "connected")
+                    .increment(1);
+                Self(Some(IssueCreatedWorkflowStarter {
+                    client,
+                    task_queue,
+                    enabled_team_ids,
+                }))
+            }
+            Err(error) => {
+                metrics::counter!(WORKFLOW_STARTER_INIT_TOTAL, "outcome" => "connect_failed")
+                    .increment(1);
+                error!(
+                    error = %error,
+                    "failed to connect to Temporal for the issue-created workflow; \
+                     falling back to the legacy notification route",
+                );
+                Self::default()
+            }
+        }
     }
 
     pub async fn start_if_enabled(
@@ -56,27 +98,6 @@ struct IssueCreatedWorkflowStarter {
 }
 
 impl IssueCreatedWorkflowStarter {
-    async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
-        let client = TemporalWorkflowClient::connect(TemporalClientConfig {
-            host: config.temporal_host.clone(),
-            port: config.temporal_port,
-            namespace: config.temporal_namespace.clone(),
-            client_cert: config.temporal_client_cert.clone(),
-            client_key: config.temporal_client_key.clone(),
-            server_root_ca_cert: config.temporal_client_root_ca.clone(),
-            payload_encryption_key: config.temporal_secret_key.clone(),
-            identity: "cymbal-notifications".to_string(),
-        })
-        .await
-        .map_err(|error| UnhandledError::Other(error.to_string()))?;
-
-        Ok(Self {
-            client,
-            task_queue: config.error_tracking_lifecycle_task_queue.clone(),
-            enabled_team_ids: parse_team_ids(&config.issue_created_workflow_team_ids)?,
-        })
-    }
-
     fn is_enabled_for_team(&self, team_id: i32) -> bool {
         self.enabled_team_ids
             .as_ref()
@@ -106,6 +127,19 @@ impl IssueCreatedWorkflowStarter {
                 )))
             }
         }
+    }
+}
+
+fn temporal_client_config(config: &NotificationsConfig) -> TemporalClientConfig {
+    TemporalClientConfig {
+        host: config.temporal_host.clone(),
+        port: config.temporal_port,
+        namespace: config.temporal_namespace.clone(),
+        client_cert: config.temporal_client_cert.clone(),
+        client_key: config.temporal_client_key.clone(),
+        server_root_ca_cert: config.temporal_client_root_ca.clone(),
+        payload_encryption_key: config.temporal_secret_key.clone(),
+        identity: "cymbal-notifications".to_string(),
     }
 }
 
@@ -230,6 +264,30 @@ mod tests {
         );
         assert_eq!(options.request_id, notification_id().to_string());
         assert_eq!(options.task_queue, "error-tracking-lifecycle-task-queue");
+    }
+
+    #[tokio::test]
+    async fn connect_failure_falls_back_to_legacy_route() {
+        // An empty client cert makes the Temporal connect fail fast, standing in for the
+        // TLS trust-chain failures seen in production. Boot must degrade to the legacy
+        // route instead of erroring out (which panicked the whole consumer at boot).
+        let starter = MaybeIssueCreatedWorkflowStarter::connect_or_fallback(
+            TemporalClientConfig {
+                host: "temporal.invalid".to_string(),
+                port: 7233,
+                namespace: "default".to_string(),
+                client_cert: String::new(),
+                client_key: String::new(),
+                server_root_ca_cert: None,
+                payload_encryption_key: "a".repeat(32),
+                identity: "cymbal-notifications-test".to_string(),
+            },
+            "error-tracking-lifecycle-task-queue".to_string(),
+            None,
+        )
+        .await;
+
+        assert!(!starter.start_if_enabled(&notification()).await.unwrap());
     }
 
     #[test]
