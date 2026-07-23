@@ -7,7 +7,11 @@ from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.settings import TEST
 
-from products.marketing_analytics.backend.hogql_queries.constants import ROAS_COLUMN, UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    CAC_COLUMN_SUFFIX,
+    ROAS_COLUMN,
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+)
 
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
@@ -366,13 +370,17 @@ class ConversionGoalsAggregator:
                 )
                 columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
 
-        # ROAS = revenue from goals marked counts_as_revenue, over the channel's spend. Only when
-        # campaign_costs is joined (include_cost_per), since spend is the denominator. Skipped when
-        # no goal is flagged as revenue, so the column stays hidden until revenue goals exist.
+        # ROAS and CAC both need the channel's spend, so they only exist when campaign_costs is
+        # joined (include_cost_per), and each stays hidden until a goal is flagged for it.
         if include_cost_per:
             revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue]
             if revenue_processors:
                 columns[ROAS_COLUMN] = self._build_roas_column(revenue_processors)
+
+            customer_processors = [p for p in self.processors if p.goal.counts_as_customer]
+            if customer_processors:
+                cac_alias = f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}"
+                columns[cac_alias] = self._build_cac_column(customer_processors, cac_alias)
 
         return columns
 
@@ -388,6 +396,28 @@ class ConversionGoalsAggregator:
                         left=total_revenue,
                         op=ast.ArithmeticOperationOp.Div,
                         right=ast.Call(name="nullif", args=[total_cost, ast.Constant(value=0)]),
+                    ),
+                    ast.Constant(value=2),
+                ],
+            ),
+        )
+
+    def _build_cac_column(self, customer_processors: list[ConversionGoalProcessor], alias: str) -> ast.Alias:
+        # Customer acquisition cost: the channel's spend over the customers it produced. Each
+        # customer goal contributes its conversion count as customers, which is right when the goal
+        # marks a once-per-person conversion (a sign-up or first purchase). A goal pointed at a
+        # repeatable event would overcount, needing a first-time-per-person scan we don't do here.
+        total_customers = self._sum_conversion_values(customer_processors)
+        total_cost = ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field))
+        return ast.Alias(
+            alias=alias,
+            expr=ast.Call(
+                name="round",
+                args=[
+                    ast.ArithmeticOperation(
+                        left=total_cost,
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(name="nullif", args=[total_customers, ast.Constant(value=0)]),
                     ),
                     ast.Constant(value=2),
                 ],
