@@ -14374,22 +14374,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `new` - new
-     * * `rate_shift` - rate_shift
-     * * `gone` - gone
-     * * `unchanged` - unchanged
-     */
-    export type ClassificationEnum = typeof ClassificationEnum[keyof typeof ClassificationEnum];
-
-
-    export const ClassificationEnum = {
-      New: 'new',
-      RateShift: 'rate_shift',
-      Gone: 'gone',
-      Unchanged: 'unchanged',
-    } as const;
-
-    /**
      * * `abandoned` - Abandoned
      * * `off-topic` - Off-topic
      */
@@ -31524,31 +31508,49 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    /**
+     * * `confirmed_flake` - CONFIRMED_FLAKE
+     * * `suspected_regression` - SUSPECTED_REGRESSION
+     * * `quarantined` - QUARANTINED
+     */
+    export type FlakyTestItemClassificationEnum = typeof FlakyTestItemClassificationEnum[keyof typeof FlakyTestItemClassificationEnum];
+
+
+    export const FlakyTestItemClassificationEnum = {
+      ConfirmedFlake: 'confirmed_flake',
+      SuspectedRegression: 'suspected_regression',
+      Quarantined: 'quarantined',
+    } as const;
+
     export interface FlakyTestItem {
       /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
       nodeid: string;
       /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
       selector: string;
-      /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
-      rerun_passed_count: number;
-      /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */
-      failed_count: number;
-      /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
+      /** confirmed_flake: an in-job retry recovered the test in the same run, so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+       *
+       * * `confirmed_flake` - CONFIRMED_FLAKE
+       * * `suspected_regression` - SUSPECTED_REGRESSION
+       * * `quarantined` - QUARANTINED */
+      classification: FlakyTestItemClassificationEnum;
+      /** Runs where an in-job pytest retry recovered the test after it failed. Above zero is the only proof of flakiness this data carries, and it reaches only tests hand-marked @pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures stay visible. */
+      rerun_passed_run_count: number;
+      /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
+      failed_run_count: number;
+      /** Distinct pull requests among the failed runs. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_run_count). */
       failed_pr_count: number;
-      /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
-      master_failed_count: number;
-      /** Distinct git branches across all of the test's flaky-signal spans in the window. */
-      branch_count: number;
-      /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
-      xfailed_count: number;
-      /** Most recent flaky-signal span for this test in the window. */
-      last_seen_at: string;
+      /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
+      master_failed_run_count: number;
+      /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+      quarantined_failed_run_count: number;
+      /** Most recent failure, recovery, or xfail run for this test in the window. */
+      last_signal_at: string;
     }
 
     export interface FlakyTestList {
-      /** Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`. */
+      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
       items: FlakyTestItem[];
-      /** True when more tests qualified than the cap; `items` is the strongest `limit` rows. */
+      /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
       truncated: boolean;
       /** Maximum number of tests returned in `items`. */
       limit: number;
@@ -51809,6 +51811,25 @@ export namespace Schemas {
       summary?: string;
     }
 
+    export interface SignalScoutSlackDestination {
+      /**
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+         * @maxLength 255
+         * @nullable
+         */
+      channel?: string | null;
+    }
+
+    export interface SignalScoutOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+    }
+
     /**
      * Editable schedule, enablement, and emit posture for one scout config.
      */
@@ -51829,6 +51850,8 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
+      output_destinations?: SignalScoutOutputDestinations;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -61283,7 +61306,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+     * Read shape for a per-(team, skill) scout config.
      *
      * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
      * when it discovers a scout skill; this serializer lets agents tune the row.
@@ -61311,6 +61334,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly run_cron_schedule: string | null;
+      /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+      readonly output_destinations: SignalScoutOutputDestinations;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -61341,6 +61366,8 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -61424,8 +61451,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -61491,8 +61525,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -68282,11 +68323,11 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest selector; exact when the CI reporter emitted it. */
       selector: string;
-      /** Failed + error + pass-on-retry spans in the current window (xfail excluded). */
+      /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent signal span for this test, either window. */
+      /** Most recent failure, recovery, or xfail run for this test, either window. */
       last_seen_at: string;
     }
 
@@ -68302,23 +68343,27 @@ export namespace Schemas {
     export interface TeamCIHealthItem {
       /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
       owner_team: string;
-      /** Owned tests meeting the flaky-leaderboard bar in the window (passed on retry or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta. */
+      /** Owned tests an in-job retry recovered in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
       flaky_test_count: number;
       /** Same count over the equal-length window immediately before date_from. */
       flaky_test_count_prior: number;
-      /** Signal spans on owned tests with final outcome 'failed' or 'error' in the window. An absolute count, not a rate: fast passing runs are not emitted. */
-      failed_count: number;
+      /** Owned tests that failed with no recorded in-run recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
+      regression_test_count: number;
       /** Same count over the prior window. */
-      failed_count_prior: number;
-      /** Spans on owned tests that failed, then passed on an automatic retry, the strongest flaky signal. Only rerun-enabled CI lanes emit it. */
-      rerun_passed_count: number;
+      regression_test_count_prior: number;
+      /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+      failed_run_count: number;
       /** Same count over the prior window. */
-      rerun_passed_count_prior: number;
-      /** Spans on owned tests that failed while quarantined (xfail): masked in CI but still flaky. */
-      xfailed_count: number;
+      failed_run_count_prior: number;
+      /** Runs where an in-job pytest retry recovered an owned test after it failed. */
+      rerun_passed_run_count: number;
       /** Same count over the prior window. */
-      xfailed_count_prior: number;
-      /** Most recent signal span across the team's owned tests, either window. */
+      rerun_passed_run_count_prior: number;
+      /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+      quarantined_failed_run_count: number;
+      /** Same count over the prior window. */
+      quarantined_failed_run_count_prior: number;
+      /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
       last_seen_at: string;
     }
 
@@ -69970,6 +70015,22 @@ export namespace Schemas {
       match_literal: string | null;
     }
 
+    /**
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged
+     */
+    export type _LogPatternDiffEntryClassificationEnum = typeof _LogPatternDiffEntryClassificationEnum[keyof typeof _LogPatternDiffEntryClassificationEnum];
+
+
+    export const _LogPatternDiffEntryClassificationEnum = {
+      New: 'new',
+      RateShift: 'rate_shift',
+      Gone: 'gone',
+      Unchanged: 'unchanged',
+    } as const;
+
     export interface _LogPatternDiffEntry {
       /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
        *
@@ -69977,7 +70038,7 @@ export namespace Schemas {
        * * `rate_shift` - rate_shift
        * * `gone` - gone
        * * `unchanged` - unchanged */
-      classification: ClassificationEnum;
+      classification: _LogPatternDiffEntryClassificationEnum;
       /**
          * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
          * @nullable
@@ -74223,13 +74284,9 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * A test with no recorded recovery qualifies once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3.
      */
     min_failed_prs?: number;
-    /**
-     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
-     */
-    min_rerun_passes?: number;
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -74482,13 +74539,9 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.
      */
     min_failed_prs?: number;
-    /**
-     * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
-     */
-    min_rerun_passes?: number;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

@@ -5,7 +5,12 @@ import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import ChunkedEncodingError, HTTPError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
+    HTTPError,
+    ReadTimeout,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
@@ -261,15 +266,29 @@ class TestDocumentDeltasResumable:
         manager.save_state.assert_not_called()
 
 
-class TestConvexChunkedEncodingRetry:
+class TestConvexTransientErrorRetry:
+    @parameterized.expand(
+        [
+            (
+                "chunked_encoding",
+                ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+            ),
+            ("read_timeout", ReadTimeout("Read timed out. (read timeout=60)")),
+            ("connection_error", RequestsConnectionError("Max retries exceeded with url: /api/document_deltas")),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_document_deltas_retries_on_chunked_encoding_error(self, mock_get: Mock) -> None:
-        # A connection broken mid-body surfaces as ChunkedEncodingError after the response headers,
-        # past _CONVEX_RETRY's reach (urllib3 only retries pre-response failures). The reads are
-        # idempotent GETs, so a fresh request must re-fetch the page rather than fail the sync.
+    def test_document_deltas_retries_on_transient_error(
+        self, _name: str, transient_error: Exception, mock_get: Mock
+    ) -> None:
+        # These surface after urllib3's own (much shorter) retry budget is exhausted — a
+        # ChunkedEncodingError happens after the response headers, past _CONVEX_RETRY's reach
+        # entirely (urllib3 only retries pre-response failures), while ReadTimeout/ConnectionError
+        # can still occur once _CONVEX_RETRY's total attempts run out. The reads are idempotent
+        # GETs, so a fresh request must re-fetch the page rather than fail the whole sync.
         manager = _make_manager(can_resume=False)
         mock_get.return_value.get.side_effect = [
-            ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+            transient_error,
             _make_response({"values": [{"_id": "a"}], "cursor": 30, "hasMore": False}),
         ]
 
