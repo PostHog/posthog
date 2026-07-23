@@ -26,6 +26,10 @@ T_MASTER = "posthog/api/test/test_master/TestMaster::test_breaks_trunk"
 T_QUARANTINED = "posthog/api/test/test_quarantined/TestQuarantined::test_still_fails"
 T_OLD = "posthog/api/test/test_old/TestOld::test_old_flake"
 T_NO_RUN_ID = "posthog/api/test/test_norun/TestNoRun::test_unstamped_spans"
+T_TREE_RECOVERY = "posthog/api/test/test_tree/TestTree::test_recovers_in_sibling_run"
+T_TREE_OTHER_SHA = "posthog/api/test/test_othertree/TestOtherTree::test_passes_at_another_sha"
+T_TREE_CROSS_LANE = "posthog/api/test/test_lanes/TestLanes::test_passes_in_other_lane"
+T_TREE_SAME_LANE = "posthog/api/test/test_samelane/TestSameLane::test_passes_in_same_lane"
 T_TIE_A = "posthog/api/test/test_tie_a/TestTie::test_retry"
 T_TIE_B = "posthog/api/test/test_tie_b/TestTie::test_retry"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
@@ -63,7 +67,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             # arrives under two attempts. One run, one failure.
             cls._span(3, T_STALE_REREPORT, "failed", ts=earlier, run="200", branch="master"),
             cls._span(4, T_STALE_REREPORT, "failed", ts=earlier, run="200", attempt="2", branch="master"),
-            # A pass in a different run is a different commit and proves nothing.
+            # Without a ci.sha stamp a cross-run pass can't prove it ran the same tree, so a pass
+            # in a different run proves nothing.
             cls._span(8, T_CROSS_RUN_PASS, "failed", ts=earlier, run="300", branch="master"),
             cls._span(9, T_CROSS_RUN_PASS, "passed", ts=recent, run="301", attempt="2", branch="master"),
             # One commit disagreeing with itself proves nondeterminism whichever way round it lands,
@@ -118,6 +123,60 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(22, T_OTHER_REPO, "rerun_passed", ts=recent, run="1200", pr="1201", repo="PostHog/posthog.com"),
             # A job-root span carries no test.outcome and must never become a row.
             cls._span(23, "Backend CI / core (1)", None, ts=recent, run="1300", branch="master"),
+            # Two runs tested the identical tree (same merge sha) and disagreed: one code state
+            # both failed and passed, so the cross-run pass is same-commit recovery proof.
+            cls._span(30, T_TREE_RECOVERY, "failed", ts=earlier, run="1500", branch="master", sha="tree-aaa"),
+            cls._span(31, T_TREE_RECOVERY, "passed", ts=recent, run="1501", branch="master", sha="tree-aaa"),
+            # A pass at a different sha is a different tree and proves nothing.
+            cls._span(32, T_TREE_OTHER_SHA, "failed", ts=earlier, run="1600", branch="master", sha="tree-bbb"),
+            cls._span(33, T_TREE_OTHER_SHA, "passed", ts=recent, run="1601", branch="master", sha="tree-ccc"),
+            # Same tree, but the pass ran in another matrix leg (lanes resolve through the
+            # job-root span sharing each trace): a different job config proves nothing.
+            cls._span(34, "Backend CI / core (9)", None, ts=earlier, run="1700", trace="lane-1700", segment="core"),
+            cls._span(
+                35,
+                T_TREE_CROSS_LANE,
+                "failed",
+                ts=earlier,
+                run="1700",
+                branch="master",
+                sha="tree-ddd",
+                trace="lane-1700",
+            ),
+            cls._span(36, "Backend CI / compat (9)", None, ts=recent, run="1701", trace="lane-1701", segment="compat"),
+            cls._span(
+                37,
+                T_TREE_CROSS_LANE,
+                "passed",
+                ts=recent,
+                run="1701",
+                branch="master",
+                sha="tree-ddd",
+                trace="lane-1701",
+            ),
+            # Same tree in the same lane across two runs: the pass pairs and confirms.
+            cls._span(38, "Backend CI / core (9)", None, ts=earlier, run="1800", trace="lane-1800", segment="core"),
+            cls._span(
+                39,
+                T_TREE_SAME_LANE,
+                "failed",
+                ts=earlier,
+                run="1800",
+                branch="master",
+                sha="tree-eee",
+                trace="lane-1800",
+            ),
+            cls._span(40, "Backend CI / core (9)", None, ts=recent, run="1801", trace="lane-1801", segment="core"),
+            cls._span(
+                41,
+                T_TREE_SAME_LANE,
+                "passed",
+                ts=recent,
+                run="1801",
+                branch="master",
+                sha="tree-eee",
+                trace="lane-1801",
+            ),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -145,15 +204,22 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         attempt: str = "1",
         pr: str = "",
         branch: str = "",
+        sha: str = "",
         selector: str = "",
+        trace: str = "",
+        segment: str = "",
         service: str = "ci-backend",
         repo: str = "PostHog/posthog",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is; attempt="" drops the
-        # ci.run_attempt key, the shape of spans emitted before attempts were stamped.
-        attr_pairs = ([f"'test.outcome__str', '{outcome}'"] if outcome else []) + (
-            [f"'test.selector__str', '{selector}'"] if selector else []
+        # ci.run_attempt key, the shape of spans emitted before attempts were stamped. segment
+        # makes a job-root span (the emitter stamps shard.suite/shard.segment on those); test
+        # spans reach it through a shared trace.
+        attr_pairs = (
+            ([f"'test.outcome__str', '{outcome}'"] if outcome else [])
+            + ([f"'test.selector__str', '{selector}'"] if selector else [])
+            + ([f"'shard.suite__str', 'backend', 'shard.segment__str', '{segment}'"] if segment else [])
         )
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
         resource_pairs = [
@@ -163,6 +229,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 ("ci.run_attempt", attempt),
                 ("ci.pr_number", pr),
                 ("ci.branch", branch),
+                ("ci.sha", sha),
                 ("ci.repository", repo),
             )
             if value
@@ -170,7 +237,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         resource = f"map({', '.join(resource_pairs)})"
         stamp = ts.strftime("%Y-%m-%d %H:%M:%S")
         return (
-            f"('uuid-{index}', {cls.team.id}, 'trace-{index}', 'span-{index}', 'parent', '{name}', 1, "
+            f"('uuid-{index}', {cls.team.id}, '{trace or f'trace-{index}'}', 'span-{index}', 'parent', '{name}', 1, "
             f"'{stamp}', '{stamp}', '{stamp}', 0, '{service}', {attrs}, {resource})"
         )
 
@@ -200,6 +267,10 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_TIE_A,
             T_TIE_B,
             T_NO_RUN_ID,
+            T_TREE_RECOVERY,
+            T_TREE_OTHER_SHA,
+            T_TREE_CROSS_LANE,
+            T_TREE_SAME_LANE,
         }
         assert data["truncated"] is False
         assert data["limit"] == 50
@@ -210,12 +281,18 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ("recovered_via_in_job_retry", T_IN_JOB_RETRY, "confirmed_flake"),
             # The pass came before the failure; one commit, both outcomes, still a flake.
             ("passed_then_failed_in_one_run", T_PASS_THEN_FAIL, "confirmed_flake"),
-            # The pass is in another run, so it is another commit and proves nothing.
+            # The pass is in another run with no sha stamp: nothing proves it ran the same tree.
             ("pass_in_a_different_run", T_CROSS_RUN_PASS, "suspected_regression"),
             # A passing leg alongside a failing one is not proof of anything, in any attempt.
             ("pass_in_another_matrix_leg", T_MATRIX_LEGS, "suspected_regression"),
             ("no_recovery_recorded", T_THREE_PRS, "suspected_regression"),
             ("failing_while_xfailed", T_QUARANTINED, "quarantined"),
+            # Two runs tested the identical tree and disagreed: same-commit proof across runs.
+            ("recovered_in_a_sibling_run_of_the_same_tree", T_TREE_RECOVERY, "confirmed_flake"),
+            ("same_tree_same_lane_pass_pairs", T_TREE_SAME_LANE, "confirmed_flake"),
+            # A pass at another sha is another tree; a pass in another lane is another job config.
+            ("pass_at_a_different_sha", T_TREE_OTHER_SHA, "suspected_regression"),
+            ("pass_in_another_lane_of_the_same_tree", T_TREE_CROSS_LANE, "suspected_regression"),
         ]
     )
     def test_classification_needs_proof_to_call_a_test_flaky(self, _name: str, nodeid: str, expected: str) -> None:

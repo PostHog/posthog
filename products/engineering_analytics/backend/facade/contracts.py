@@ -525,7 +525,8 @@ FLAKY_TEST_SIGNAL_CAVEAT = (
 
 
 class FlakyTestClassification(StrEnum):
-    # One commit both failed and passed the test: a re-run attempt going green, or an in-job retry.
+    # One code state both failed and passed the test in the same lane: a re-run attempt going
+    # green, an in-job retry, or another run of the identical tree (same merge sha) passing it.
     CONFIRMED_FLAKE = "confirmed_flake"
     # Only failures recorded, which is absence of proof, not proof of a regression.
     SUSPECTED_REGRESSION = "suspected_regression"
@@ -561,8 +562,9 @@ class FlakyTestItem:
     # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
     selector: str
     classification: FlakyTestClassification
-    # Runs where one commit both failed and passed the test: a later run attempt going green, or an
-    # in-job retry. A pass in a different run is a different commit and proves nothing, hence the name.
+    # Runs where one code state both failed and passed the test: a later run attempt going green, an
+    # in-job retry, or another run testing the identical tree (same merge sha). A pass at a different
+    # commit proves nothing, hence the name.
     same_commit_recovery_run_count: int
     failed_run_count: int
     # Master/branch failures carry no PR number and don't count here.
@@ -599,8 +601,8 @@ class TeamCIHealthItem:
 
     # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
     owner_team: str
-    # Owned tests one commit was seen both failing and passing: the same proof, and the same word,
-    # the test-health queue's `confirmed_flake` uses.
+    # Owned tests one code state was seen both failing and passing: the same proof, and the same
+    # word, the test-health queue's `confirmed_flake` uses.
     flaky_test_count: int
     flaky_test_count_prior: int
     # Owned tests that failed with no such proof and still hit the blast-radius bar. Not flakes.

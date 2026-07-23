@@ -455,7 +455,7 @@ export interface FlakyTestRow {
     /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
     classification: FlakyTestClassification
-    /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
+    /** Runs where one code state both failed and passed the test (re-run attempt, in-job retry, or another run of the same merge commit): the flake proof. */
     sameCommitRecoveryRunCount: number
     failedRunCount: number
     failedPrCount: number
