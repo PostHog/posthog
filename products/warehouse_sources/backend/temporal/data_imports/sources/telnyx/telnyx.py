@@ -97,6 +97,10 @@ def telnyx_source(
                 "token": api_key,
             },
             "paginator": PageNumberPaginator(base_page=1, page_param="page[number]", total_path="meta.total_pages"),
+            # Detail records carry customer-defined tags, profile names, call metadata, and billing
+            # details the name-based sample scrubbers don't recognise, so keep response bodies out of
+            # shared HTTP sample storage. Requests are still metered and logged (with the key redacted).
+            "session": make_tracked_session(capture=False, redact_values=(api_key,)),
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -129,7 +133,9 @@ def telnyx_source(
 
 def validate_credentials(api_key: str) -> bool:
     probe_params: dict[str, str | int] = {"filter[record_type]": "messaging", "page[size]": 1}
-    res = make_tracked_session(redact_values=(api_key,)).get(
+    # capture=False: the probe returns a real detail record (customer content) the name-based
+    # scrubbers can't reliably redact, so keep it out of shared HTTP sample storage.
+    res = make_tracked_session(redact_values=(api_key,), capture=False).get(
         f"{TELNYX_BASE_URL}/v2/detail_records",
         params=probe_params,
         headers={"Authorization": f"Bearer {api_key}"},

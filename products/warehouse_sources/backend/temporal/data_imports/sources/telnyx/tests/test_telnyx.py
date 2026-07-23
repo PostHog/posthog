@@ -116,7 +116,7 @@ class TestTelnyxSourceResumeBehavior:
             return next(response_iter)
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.telnyx.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
@@ -213,7 +213,7 @@ class TestValidateCredentials:
 
         validate_credentials("api-key")
 
-        mock_session_factory.assert_called_once_with(redact_values=("api-key",))
+        mock_session_factory.assert_called_once_with(redact_values=("api-key",), capture=False)
         called_url = mock_get.call_args.args[0]
         called_kwargs = mock_get.call_args.kwargs
         assert called_url == "https://api.telnyx.com/v2/detail_records"
