@@ -453,6 +453,20 @@ def aggregate_resource_stats(
     )
 
 
+def _wall_ratio_key(finding: InsightFinding) -> float:
+    if finding.perf is None or finding.perf.ratio_median_wall is None:
+        return 0.0
+    return finding.perf.ratio_median_wall
+
+
+def _delta_key(finding: InsightFinding) -> float:
+    return finding.perf.delta_median_wall_ms if finding.perf else 0.0
+
+
+def _bytes_ratio_key(finding: InsightFinding) -> float:
+    return finding.bytes_ratio if finding.bytes_ratio is not None else 0.0
+
+
 def build_perf_aggregate(findings: list[InsightFinding], *, worst_n: int) -> PerfAggregate:
     compared = [f for f in findings if f.perf is not None]
     wall_ratios = [f.perf.ratio_median_wall for f in compared if f.perf and f.perf.ratio_median_wall]
@@ -467,13 +481,11 @@ def build_perf_aggregate(findings: list[InsightFinding], *, worst_n: int) -> Per
         bytes_ratio_dist=_distribution(bytes_ratios),
         n_regressions=len(regressions),
         n_improvements=len(improvements),
-        regressions=sorted(regressions, key=lambda f: f.perf.ratio_median_wall or 0, reverse=True),
-        improvements=sorted(improvements, key=lambda f: f.perf.ratio_median_wall or 0),
-        worst_by_rel=sorted(with_ratio, key=lambda f: f.perf.ratio_median_wall, reverse=True)[:worst_n],
-        worst_by_abs=sorted(compared, key=lambda f: f.perf.delta_median_wall_ms if f.perf else 0, reverse=True)[
-            :worst_n
-        ],
-        worst_by_bytes=sorted(with_bytes, key=lambda f: f.bytes_ratio, reverse=True)[:worst_n],
+        regressions=sorted(regressions, key=_wall_ratio_key, reverse=True),
+        improvements=sorted(improvements, key=_wall_ratio_key),
+        worst_by_rel=sorted(with_ratio, key=_wall_ratio_key, reverse=True)[:worst_n],
+        worst_by_abs=sorted(compared, key=_delta_key, reverse=True)[:worst_n],
+        worst_by_bytes=sorted(with_bytes, key=_bytes_ratio_key, reverse=True)[:worst_n],
     )
 
 
@@ -491,7 +503,10 @@ def run_variant(
     capture_query_ids: bool = False,
 ) -> VariantRun:
     """Execute one retention variant. Read-only: deepcopies the query, scopes the patch."""
-    source = deepcopy(insight.query["source"])
+    query = insight.query
+    if not isinstance(query, dict):
+        raise ValueError(f"insight {insight.id} has a non-dict query")
+    source = deepcopy(query["source"])
     if marker:
         # The query_id ClickHouse records becomes f"{team_id}_{client_query_id}_{random}", so the
         # marker makes captured query_ids self-describing in the report. Setting client_query_id
@@ -612,9 +627,9 @@ def _fmt_bytes(num: Optional[int]) -> str:
     if num is None:
         return "n/a"
     size = float(num)
-    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
-        if size < 1024 or unit == "TiB":
-            return f"{size:.1f}{unit}" if unit != "B" else f"{int(size)}B"
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if size < 1024:
+            return f"{int(size)}B" if unit == "B" else f"{size:.1f}{unit}"
         size /= 1024
     return f"{size:.1f}TiB"
 

@@ -92,6 +92,7 @@ class TestDiffRetentionResults(TestCase):
         self.assertEqual(cell.legacy, 50)
         self.assertEqual(cell.dwh, 40)
         self.assertEqual(cell.abs_diff, 10)
+        assert cell.rel_diff is not None
         self.assertAlmostEqual(cell.rel_diff, -0.2)
 
     def test_aggregation_value_diff_is_mismatch(self):
@@ -168,54 +169,43 @@ class TestSummarizeSamples(TestCase):
 
 
 class TestComputePerfResult(TestCase):
-    def test_regression_needs_both_thresholds(self):
-        result = compute_perf_result(
-            [100, 100, 100],
-            [200, 200, 200],
-            [80, 80, 80],
-            [180, 180, 180],
-            regression_rel=0.10,
-            regression_ms=50.0,
-        )
-        self.assertEqual(result.ratio_median_wall, 2.0)
-        self.assertTrue(result.is_regression)
-        self.assertFalse(result.is_improvement)
-
-    def test_relative_slowdown_below_ms_floor_is_not_regression(self):
-        result = compute_perf_result(
-            [10, 10],
-            [20, 20],
-            [5, 5],
-            [10, 10],
-            regression_rel=0.10,
-            regression_ms=50.0,
-        )
-        self.assertEqual(result.ratio_median_wall, 2.0)
-        self.assertFalse(result.is_regression)
-
-    def test_improvement_detection(self):
-        result = compute_perf_result(
-            [200, 200],
-            [100, 100],
-            [180, 180],
-            [90, 90],
-            regression_rel=0.10,
-            regression_ms=50.0,
-        )
-        self.assertTrue(result.is_improvement)
-        self.assertFalse(result.is_regression)
-
-    def test_zero_legacy_median_yields_no_ratio(self):
-        result = compute_perf_result(
-            [0, 0],
-            [10, 10],
-            [0, 0],
-            [10, 10],
-            regression_rel=0.10,
-            regression_ms=1.0,
-        )
-        self.assertIsNone(result.ratio_median_wall)
-        self.assertFalse(result.is_regression)
+    @parameterized.expand(
+        [
+            # name, wall_legacy, wall_dwh, ch_legacy, ch_dwh, rel, ms, ratio, is_regression, is_improvement
+            (
+                "regression",
+                [100, 100, 100],
+                [200, 200, 200],
+                [80, 80, 80],
+                [180, 180, 180],
+                0.10,
+                50.0,
+                2.0,
+                True,
+                False,
+            ),
+            ("slowdown_below_ms_floor", [10, 10], [20, 20], [5, 5], [10, 10], 0.10, 50.0, 2.0, False, False),
+            ("improvement", [200, 200], [100, 100], [180, 180], [90, 90], 0.10, 50.0, 0.5, False, True),
+            ("zero_legacy_median", [0, 0], [10, 10], [0, 0], [10, 10], 0.10, 1.0, None, False, False),
+        ]
+    )
+    def test_compute_perf_result(
+        self,
+        _name,
+        wall_legacy,
+        wall_dwh,
+        ch_legacy,
+        ch_dwh,
+        rel,
+        ms,
+        expected_ratio,
+        expected_regression,
+        expected_improvement,
+    ):
+        result = compute_perf_result(wall_legacy, wall_dwh, ch_legacy, ch_dwh, regression_rel=rel, regression_ms=ms)
+        self.assertEqual(result.ratio_median_wall, expected_ratio)
+        self.assertEqual(result.is_regression, expected_regression)
+        self.assertEqual(result.is_improvement, expected_improvement)
 
 
 class TestResourceStats(TestCase):
