@@ -341,6 +341,13 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
         self.assertIn("first", deleted_paths[0])
         self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
 
+    def test_replace_requires_a_declared_content_length(self):
+        loop = self._create_loop(self.owner_client)
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), CONTENT_LENGTH="0")
+
+        self.assertEqual(response.status_code, status.HTTP_411_LENGTH_REQUIRED, response.content)
+
     @patch("products.tasks.backend.presentation.views.loops.MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES", 10)
     def test_replace_rejects_an_oversized_request_up_front(self):
         loop = self._create_loop(self.owner_client)

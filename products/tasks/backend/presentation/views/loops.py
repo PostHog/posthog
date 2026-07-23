@@ -295,16 +295,24 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: LoopSerializer,
             403: OpenApiResponse(description="Not permitted to change this loop's skills"),
             404: OpenApiResponse(description="Loop not found"),
+            411: OpenApiResponse(description="Content-Length header missing"),
             413: OpenApiResponse(description="Request body exceeds the skill bundle size ceiling"),
         },
     )
     @action(detail=True, methods=["put"], url_path="skill_bundles", required_scopes=["loop:write"])
     def skill_bundles(self, request, pk=None, **kwargs):
-        # Reject oversized requests from the declared Content-Length, before request.data
-        # parses (and retains) the body. Django's DATA_UPLOAD_MAX_MEMORY_SIZE (20MB,
-        # posthog/settings/web.py) bounds the body independently; this explicit gate keeps
-        # the endpoint's own ceiling visible and returns a structured 413 either way.
-        if _content_length(request) > MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES:
+        # Same shape as `trigger`'s payload gate: require a declared length, then reject
+        # oversized requests from it, all before request.data parses (and retains) the
+        # body. Django's DATA_UPLOAD_MAX_MEMORY_SIZE (20MB, posthog/settings/web.py)
+        # bounds the body independently; this keeps the endpoint's ceiling explicit and
+        # the responses structured.
+        content_length = _content_length(request)
+        if content_length <= 0:
+            return Response(
+                {"detail": "A Content-Length header is required."},
+                status=status.HTTP_411_LENGTH_REQUIRED,
+            )
+        if content_length > MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES:
             return Response(
                 {"detail": (f"Skill bundle request exceeds {MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES // (1024 * 1024)}MB.")},
                 status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

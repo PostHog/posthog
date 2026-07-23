@@ -559,6 +559,14 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         entry.update(overrides)
         return entry
 
+    def fire_with_post_commit(self, loop: Loop, trigger: LoopTrigger):
+        """Fire once, executing the post-commit seed-and-dispatch tail with the workflow
+        dispatch mocked. Returns (result, mock_dispatch)."""
+        with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = fire_loop(loop, trigger, "fire-1", "ctx")
+        return result, mock_dispatch
+
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.copy")
     def test_fire_copies_loop_skill_bundles_into_the_run_manifest(self, mock_copy, mock_tag):
@@ -566,7 +574,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         loop = self.create_loop(skill_bundles=[entry])
         trigger = self.create_trigger(loop)
 
-        result = fire_loop(loop, trigger, "fire-1", "ctx")
+        result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
 
         self.assertTrue(result.created)
         assert result.task_run_id is not None
@@ -577,6 +585,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         self.assertEqual(len(seeded), 1)
         self.assertEqual(seeded[0]["storage_path"], expected_target)
         self.assertEqual(seeded[0]["metadata"], entry["metadata"])
+        mock_dispatch.assert_called_once()
         loop.refresh_from_db()
         self.assertEqual(loop.skill_bundles[0]["storage_path"], entry["storage_path"])
 
@@ -585,27 +594,53 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         trigger = self.create_trigger(loop)
 
         with patch("posthog.storage.object_storage.copy") as mock_copy:
-            result = fire_loop(loop, trigger, "fire-1", "ctx")
+            result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
 
         self.assertTrue(result.created)
         mock_copy.assert_not_called()
+        mock_dispatch.assert_called_once()
 
-    @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
-    def test_fire_fails_when_a_bundle_cannot_be_seeded(self, mock_copy):
+    def test_seeding_happens_after_commit_not_under_the_fire_lock(self):
+        # S3 copies must never run inside the fire transaction: it holds the team-wide
+        # advisory lock, so an S3 stall there would serialize every fire for the team.
         loop = self.create_loop(skill_bundles=[self._bundle_entry()])
         trigger = self.create_trigger(loop)
 
-        with self.assertRaises(RuntimeError):
-            fire_loop(loop, trigger, "fire-1", "ctx")
+        with patch("posthog.storage.object_storage.copy") as mock_copy:
+            with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop"):
+                with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                    result = fire_loop(loop, trigger, "fire-1", "ctx")
+                mock_copy.assert_not_called()
+                for callback in callbacks:
+                    callback()
+                mock_copy.assert_called_once()
 
+        self.assertTrue(result.created)
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
+    def test_a_failed_seed_terminalizes_the_run_and_skips_dispatch(self, mock_copy, mock_delete):
+        loop = self.create_loop(skill_bundles=[self._bundle_entry()])
+        trigger = self.create_trigger(loop)
+
+        result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
+
+        # The fire itself committed; the compensation happens post-commit.
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertEqual(task_run.status, TaskRun.Status.FAILED)
+        self.assertIn("skill bundles", task_run.error_message)
+        mock_dispatch.assert_not_called()
         self.assertEqual(self.active_run_count(loop), 0)
 
     @patch("posthog.storage.object_storage.delete_objects")
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.copy")
     def test_a_partially_seeded_fire_deletes_the_copies_it_made(self, mock_copy, mock_tag, mock_delete):
-        # The rollback reclaims the run row but not S3, and a retried fire mints a new run
-        # id — without cleanup every failed attempt would strand another set of objects.
+        # Nothing ever references a partial copy set (the run is terminalized, and any
+        # later fire mints a new run id) — without cleanup every failed attempt would
+        # strand another set of objects.
         mock_copy.side_effect = [None, RuntimeError("s3 down")]
         first = self._bundle_entry()
         second = self._bundle_entry(
@@ -616,13 +651,14 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         loop = self.create_loop(skill_bundles=[first, second])
         trigger = self.create_trigger(loop)
 
-        with self.assertRaises(RuntimeError):
-            fire_loop(loop, trigger, "fire-1", "ctx")
+        result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
 
+        self.assertTrue(result.created)
         mock_delete.assert_called_once()
         deleted_paths = mock_delete.call_args.args[0]
         self.assertEqual(len(deleted_paths), 1)
         self.assertIn("abcdef01_my-skill.zip", deleted_paths[0])
+        mock_dispatch.assert_not_called()
         self.assertEqual(self.active_run_count(loop), 0)
 
 

@@ -991,7 +991,11 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
 
 
 MAX_LOOP_SKILL_BUNDLES = 10
-MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 30 * 1024 * 1024
+# Decoded per-bundle ceiling. The request is JSON with base64 content and Django's
+# DATA_UPLOAD_MAX_MEMORY_SIZE (20MB) bounds the raw body first, leaving roughly 15MB of
+# decoded budget per request — 10MB keeps this advertised limit honestly reachable
+# within it instead of promising the run-artifact 30MB that a JSON upload can never hit.
+MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 10 * 1024 * 1024
 
 
 def _delete_skill_bundle_objects(loop_id: UUID, paths: list[str]) -> None:

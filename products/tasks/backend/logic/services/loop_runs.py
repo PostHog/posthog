@@ -490,15 +490,55 @@ def _team_rate_capped(loop: Loop) -> bool:
     return fire_count >= LOOP_TEAM_RATE_CAP_PER_DAY
 
 
+def _seed_skill_bundles_and_dispatch(
+    *,
+    loop: Loop,
+    task_run: TaskRun,
+    team_id: int,
+    user_id: int | None,
+    task_id: str,
+    run_id: str,
+    create_pr: bool,
+    posthog_mcp_scopes: PosthogMcpScopes,
+) -> None:
+    """Post-commit tail of a fire: seed the loop's skill bundles, then dispatch the
+    Temporal workflow. Seeding copies S3 objects, and ``_fire_loop_committed`` holds the
+    team-wide advisory lock for its whole transaction — an external call under that lock
+    would serialize every fire for the team behind S3 latency (the same reason the usage
+    gate runs before the lock and dispatch runs after commit). Post-commit there is no
+    rollback to lean on, so a failed seed compensates instead: the run is terminalized
+    as failed (feeding the loop's failure bookkeeping) and the workflow is never
+    dispatched, so the agent can't run with silently missing skills."""
+    try:
+        _seed_skill_bundle_artifacts(loop, task_run)
+    except Exception as exc:
+        logger.exception(
+            "loop_run.skill_bundle_seed_failed",
+            extra={"loop_id": str(loop.id), "task_run_id": run_id, "error": str(exc)},
+        )
+        from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — breaks the temporal.client -> loop_runs import cycle
+            _terminalize_unstarted_task_run,
+        )
+
+        _terminalize_unstarted_task_run(run_id, "Failed to stage the loop's skill bundles for this run")
+        return
+
+    _execute_task_processing_workflow_for_loop(
+        team_id=team_id,
+        user_id=user_id,
+        task_id=task_id,
+        run_id=run_id,
+        create_pr=create_pr,
+        posthog_mcp_scopes=posthog_mcp_scopes,
+    )
+
+
 def _seed_skill_bundle_artifacts(loop: Loop, task_run: TaskRun) -> None:
     """Copy the loop's stored skill bundles into the new run: S3 objects under the run's
     artifact prefix plus matching ``skill_bundle`` manifest entries, so the sandbox
     agent-server installs them exactly like bundles a client uploaded at task creation.
-    Raises on a failed copy — a fire whose skills can't be seeded rolls back and retries
-    cleanly rather than running with silently missing skills. The database rollback
-    can't reclaim already-copied objects (and a retried fire mints a new run id, so
-    nothing would ever reference them), so those are deleted best-effort before
-    re-raising."""
+    Raises on a failed copy; the caller compensates. Already-copied objects are deleted
+    best-effort before re-raising, since nothing would ever reference them."""
     bundles = [entry for entry in (loop.skill_bundles or []) if isinstance(entry, dict) and entry.get("storage_path")]
     if not bundles:
         return
@@ -620,7 +660,6 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "workflow_id_prefix": None,
     }
     task_run = task.create_run(mode="background", extra_state=extra_state)
-    _seed_skill_bundle_artifacts(loop, task_run)
 
     team_id = loop.team_id
     user_id = loop.created_by_id
@@ -628,7 +667,9 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     run_id = str(task_run.id)
 
     transaction.on_commit(
-        lambda: _execute_task_processing_workflow_for_loop(
+        lambda: _seed_skill_bundles_and_dispatch(
+            loop=loop,
+            task_run=task_run,
             team_id=team_id,
             user_id=user_id,
             task_id=task_id,
