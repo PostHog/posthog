@@ -1,3 +1,5 @@
+from posthog.schema import EntityType
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
@@ -20,6 +22,14 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         else:  # Day
             unit, count = "hour", 24
 
+        has_data_warehouse_series = (
+            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
+        )
+        if has_data_warehouse_series:
+            return self._build_base_query_data_warehouse(unit, count)
+        return self._build_base_query_events(unit, count)
+
+    def _build_base_query_events(self, unit: str, count: int) -> ast.SelectQuery:
         t0_expr: ast.Expr
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
             t0_expr = self.get_first_time_anchor_expr(self.start_event)
@@ -105,3 +115,156 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
         return inner_query
+
+    def _build_base_query_data_warehouse(self, unit: str, count: int) -> ast.SelectQuery:
+        # Breakdowns are rejected upstream by DisallowBreakdownsWithDataWarehouse24HourWindows: apply_breakdown
+        # references events / person columns, which aren't in scope in this query shape. Global property filters,
+        # test-account filters, and sampling are rejected by DisallowUnsupportedDataWarehouseSettings.
+        first_event_cte = self._build_data_warehouse_first_event_cte()
+        return_scan = self._build_return_scan()
+
+        return_ts = ast.Field(chain=["return_events", "timestamp"])
+        # The return scan already restricts its rows to the return entity inside the analysis window, so the only
+        # outer condition is >= t_0. That comparison doubles as the discriminator that drops the NULL-filled
+        # unmatched LEFT-join row: against a NULL timestamp it evaluates falsy.
+        return_match = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=return_ts,
+            right=ast.Field(chain=["actors_with_t0", "t_0"]),
+        )
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["actors_with_t0", "actor_id"])),
+                ast.Alias(
+                    alias="start_interval_index",
+                    expr=parse_expr(
+                        "floor(dateDiff({unit}, {date_from}, actors_with_t0.t_0) / {count})",
+                        {
+                            "unit": ast.Constant(value=unit),
+                            "count": ast.Constant(value=count),
+                            "date_from": self.query_date_range.date_from_as_hogql(),
+                        },
+                    ),
+                ),
+                ast.Alias(
+                    alias="intervals_from_base",
+                    expr=parse_expr(
+                        """
+                        arrayJoin(
+                            arrayDistinct(
+                                arrayConcat(
+                                    [0],
+                                    arrayFilter(
+                                        x -> x >= 0,
+                                        groupUniqArray(
+                                            if(
+                                                {return_match},
+                                                floor(dateDiff({unit}, actors_with_t0.t_0, {return_ts}) / {count}),
+                                                -1
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                        """,
+                        {
+                            "return_match": return_match,
+                            "return_ts": return_ts,
+                            "unit": ast.Constant(value=unit),
+                            "count": ast.Constant(value=count),
+                        },
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=first_event_cte,
+                alias="actors_with_t0",
+                next_join=ast.JoinExpr(
+                    table=return_scan,
+                    alias="return_events",
+                    join_type="LEFT JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["actors_with_t0", "actor_id"]),
+                            right=ast.Field(chain=["return_events", "actor_id"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            group_by=[ast.Field(chain=["actors_with_t0", "actor_id"]), ast.Field(chain=["actors_with_t0", "t_0"])],
+        )
+
+    def _build_return_scan(self) -> ast.SelectQuery:
+        # The return scan is its own subquery with the return table primary, because entity property filters emit
+        # bare field chains (e.g. `properties.plan`): with `events` joined directly on the right side instead, the
+        # lazy-table wrap that person-id resolution applies to a joined events table projects only alias-prefixed
+        # references, so those bare chains fail to resolve. Filtering inside the scan sidesteps that entirely.
+        return_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
+        return_table_name = self.return_event.table_name if return_is_dwh else "events"
+        assert return_table_name
+        return_ts_field = self.entity_timestamp_field(self.return_event)
+        return_actor_column = self.entity_actor_id_column(self.return_event)
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=[return_table_name, return_actor_column])),
+                ast.Alias(alias="timestamp", expr=return_ts_field),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
+            where=ast.And(
+                exprs=[
+                    self.entity_expr_with_props(self.return_event),
+                    self.events_timestamp_filter(field=return_ts_field),
+                ]
+            ),
+        )
+
+    def _build_data_warehouse_first_event_cte(self) -> ast.SelectQuery:
+        start_is_dwh = self.start_event.type == EntityType.DATA_WAREHOUSE
+        start_ts_field = self.entity_timestamp_field(self.start_event)
+        start_table_name = self.start_event.table_name if start_is_dwh else "events"
+        assert start_table_name
+        start_actor_column = self.entity_actor_id_column(self.start_event)
+        actor_id_expr = ast.Field(chain=[start_table_name, start_actor_column])
+
+        where: ast.Expr | None
+        having: ast.Expr | None
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            # The anchor must see the actor's true-earliest row, so the start table is scanned unwindowed; an
+            # out-of-window anchor is then excluded by the window guard + HAVING (mirrors the fixed-interval DWH
+            # variant's _first_time_start_event_timestamps_expr).
+            anchor_expr = self.get_first_time_anchor_expr(self.start_event)
+            t0_expr: ast.Expr = parse_expr(
+                "if({within_window}, {anchor}, NULL)",
+                {"within_window": self.events_timestamp_filter(field=anchor_expr), "anchor": anchor_expr},
+            )
+            where = None
+            having = ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["t_0"]), right=ast.Constant(value=None)
+            )
+        else:
+            # Recurring: t_0 is the earliest qualifying start row inside the analysis window. The WHERE restricts the
+            # group to qualifying rows so min() over a non-empty set is the cohorting timestamp (no HAVING needed).
+            t0_expr = ast.Call(name="min", args=[start_ts_field])
+            where = ast.And(
+                exprs=[
+                    self.entity_expr_with_props(self.start_event),
+                    self.events_timestamp_filter(field=start_ts_field),
+                ]
+            )
+            having = None
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=actor_id_expr),
+                ast.Alias(alias="t_0", expr=t0_expr),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[start_table_name])),
+            where=where,
+            group_by=[ast.Field(chain=["actor_id"])],
+            having=having,
+        )

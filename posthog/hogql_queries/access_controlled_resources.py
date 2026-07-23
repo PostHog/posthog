@@ -2,7 +2,13 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
-from posthog.schema import DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode
+from posthog.schema import (
+    DataWarehouseNode,
+    EntityType,
+    FunnelsDataWarehouseNode,
+    LifecycleDataWarehouseNode,
+    RetentionEntity,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -120,9 +126,11 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
 
 
 def _references_data_warehouse(value) -> bool:
-    """True if a structured query reads a data-warehouse source via a DataWarehouseNode anywhere in
-    its tree (series, sub-queries, exclusions, ...)"""
+    """True if a structured query reads a data-warehouse source via a DataWarehouseNode — or a
+    data-warehouse RetentionEntity — anywhere in its tree (series, sub-queries, exclusions, ...)"""
     if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
+        return True
+    if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True
     if isinstance(value, BaseModel):
         return any(_references_data_warehouse(field) for field in value.__dict__.values())

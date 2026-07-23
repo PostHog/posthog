@@ -4,11 +4,15 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DataWarehouseNode,
+    EntityType,
     EventsNode,
     FunnelsDataWarehouseNode,
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
+    RetentionEntity,
+    RetentionFilter,
+    RetentionQuery,
     TrendsQuery,
 )
 
@@ -42,6 +46,16 @@ class TestQueriedAccessControlledResources(BaseTest):
             distinct_id_field="distinct_id",
             table_name="some_dw_table",
             timestamp_field="timestamp",
+        )
+
+    @staticmethod
+    def _dw_retention_entity() -> RetentionEntity:
+        return RetentionEntity(
+            id="some_dw_table",
+            type=EntityType.DATA_WAREHOUSE,
+            table_name="some_dw_table",
+            timestamp_field="timestamp",
+            aggregation_target_field="person_id",
         )
 
     @parameterized.expand(
@@ -96,6 +110,22 @@ class TestQueriedAccessControlledResources(BaseTest):
         # series-only check would miss it; the recursive walk must catch it (else the cache leaks).
         query = InsightActorsQuery(source=TrendsQuery(series=[self._dw_node()]))
         assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+
+    @parameterized.expand(["targetEntity", "returningEntity"])
+    def test_retention_query_with_data_warehouse_entity(self, entity_field):
+        # Retention reads warehouse tables through RetentionEntity rather than a DataWarehouseNode; missing
+        # it here would serve an allowed user's cached warehouse rows to a denied user on a cache hit.
+        query = RetentionQuery(retentionFilter=RetentionFilter(**{entity_field: self._dw_retention_entity()}))
+        assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+
+    def test_retention_query_without_data_warehouse_entity(self):
+        query = RetentionQuery(
+            retentionFilter=RetentionFilter(
+                targetEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+                returningEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+            )
+        )
+        assert queried_access_controlled_resources(query, self.team) == set()
 
     def test_references_data_warehouse_covers_all_variants_and_nesting(self):
         variants = [
