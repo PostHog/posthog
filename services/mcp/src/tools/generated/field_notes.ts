@@ -6,7 +6,12 @@ import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools
 
 import type { Schemas } from '@/api/generated'
 
-import { FieldNotesListQueryParams, FieldNotesPartialUpdateBody, FieldNotesPartialUpdateParams, FieldNotesRetrieveParams } from '@/generated/field_notes/api'
+import {
+    FieldNotesListQueryParams,
+    FieldNotesPartialUpdateBody,
+    FieldNotesPartialUpdateParams,
+    FieldNotesRetrieveParams,
+} from '@/generated/field_notes/api'
 
 const FieldNotesGetSchema = FieldNotesRetrieveParams.omit({ project_id: true })
 
@@ -40,34 +45,87 @@ const fieldNotesList = (): ToolBase<typeof FieldNotesListSchema, WithPostHogUrl<
                 offset: params.offset,
             },
         })
-        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'comment', 'field_note_status', 'resolution', 'url', 'host', 'pathname', 'selector', 'element_text', 'screenshot_url', 'created_at', 'created_by'])) } as typeof result
-        return await withPostHogUrl(context, {
-            ...filtered,
-            results: await Promise.all((filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/field_notes/${item.id}`))),
-        }, '/field_notes')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'comment',
+                    'field_note_status',
+                    'resolution',
+                    'url',
+                    'host',
+                    'pathname',
+                    'selector',
+                    'element_text',
+                    'screenshot_url',
+                    'created_at',
+                    'created_by',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/field_notes/${item.id}`))
+                ),
+            },
+            '/field_notes'
+        )
     },
 })
 
-const FieldNotesPartialUpdateSchema = FieldNotesPartialUpdateParams.omit({ project_id: true }).extend(FieldNotesPartialUpdateBody.shape)
+const FieldNotesPartialUpdateSchema = FieldNotesPartialUpdateParams.omit({ project_id: true }).extend(
+    FieldNotesPartialUpdateBody.shape
+)
 
-const fieldNotesPartialUpdate = (): ToolBase<typeof FieldNotesPartialUpdateSchema, WithPostHogUrl<Schemas.FieldNote>> => ({
+const fieldNotesPartialUpdate = (): ToolBase<
+    typeof FieldNotesPartialUpdateSchema,
+    WithPostHogUrl<Schemas.FieldNote>
+> => ({
     name: 'field-notes-partial-update',
     schema: FieldNotesPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof FieldNotesPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.comment !== undefined) body["comment"] = params.comment
-        if (params.field_note_status !== undefined) body["field_note_status"] = params.field_note_status
-        if (params.resolution !== undefined) body["resolution"] = params.resolution
-        if (params.url !== undefined) body["url"] = params.url
-        if (params.host !== undefined) body["host"] = params.host
-        if (params.pathname !== undefined) body["pathname"] = params.pathname
-        if (params.selector !== undefined) body["selector"] = params.selector
-        if (params.element_text !== undefined) body["element_text"] = params.element_text
-        if (params.element_chain !== undefined) body["element_chain"] = params.element_chain
-        if (params.element_context !== undefined) body["element_context"] = params.element_context
-        if (params.viewport !== undefined) body["viewport"] = params.viewport
-        if (params.screenshot_url !== undefined) body["screenshot_url"] = params.screenshot_url
+        if (params.comment !== undefined) {
+            body['comment'] = params.comment
+        }
+        if (params.field_note_status !== undefined) {
+            body['field_note_status'] = params.field_note_status
+        }
+        if (params.resolution !== undefined) {
+            body['resolution'] = params.resolution
+        }
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        if (params.host !== undefined) {
+            body['host'] = params.host
+        }
+        if (params.pathname !== undefined) {
+            body['pathname'] = params.pathname
+        }
+        if (params.selector !== undefined) {
+            body['selector'] = params.selector
+        }
+        if (params.element_text !== undefined) {
+            body['element_text'] = params.element_text
+        }
+        if (params.element_chain !== undefined) {
+            body['element_chain'] = params.element_chain
+        }
+        if (params.element_context !== undefined) {
+            body['element_context'] = params.element_context
+        }
+        if (params.viewport !== undefined) {
+            body['viewport'] = params.viewport
+        }
+        if (params.screenshot_url !== undefined) {
+            body['screenshot_url'] = params.screenshot_url
+        }
         const result = await context.api.request<Schemas.FieldNote>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/field_notes/${encodeURIComponent(String(params.id))}/`,

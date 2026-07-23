@@ -7,17 +7,54 @@ import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Schemas } from '@/api/generated'
 import { withUiApp } from '@/resources/ui-apps'
 
-import { UserInterviewTopicsAddIntervieweeCreateBody, UserInterviewTopicsAddIntervieweeCreateParams, UserInterviewTopicsCreateBody, UserInterviewTopicsGenerateLinksCreateParams, UserInterviewTopicsIntervieweesBulkCreateBody, UserInterviewTopicsIntervieweesBulkCreateParams, UserInterviewTopicsIntervieweesCreateBody, UserInterviewTopicsIntervieweesCreateParams, UserInterviewTopicsIntervieweesDestroyParams, UserInterviewTopicsIntervieweesListParams, UserInterviewTopicsIntervieweesListQueryParams, UserInterviewTopicsIntervieweesPartialUpdateBody, UserInterviewTopicsIntervieweesPartialUpdateParams, UserInterviewTopicsLinksCsvCreateParams, UserInterviewTopicsListQueryParams, UserInterviewTopicsPartialUpdateBody, UserInterviewTopicsPartialUpdateParams, UserInterviewTopicsPreviewInviteCreateBody, UserInterviewTopicsPreviewInviteCreateParams, UserInterviewTopicsRemoveIntervieweeCreateBody, UserInterviewTopicsRemoveIntervieweeCreateParams, UserInterviewTopicsRetrieveParams, UserInterviewTopicsSendInvitesCreateBody, UserInterviewTopicsSendInvitesCreateParams, UserInterviewsListQueryParams, UserInterviewsPartialUpdateBody, UserInterviewsPartialUpdateParams, UserInterviewsRetrieveParams, UserInterviewsSearchCreateBody } from '@/generated/user_interviews/api'
+import {
+    UserInterviewTopicsAddIntervieweeCreateBody,
+    UserInterviewTopicsAddIntervieweeCreateParams,
+    UserInterviewTopicsCreateBody,
+    UserInterviewTopicsGenerateLinksCreateParams,
+    UserInterviewTopicsIntervieweesBulkCreateBody,
+    UserInterviewTopicsIntervieweesBulkCreateParams,
+    UserInterviewTopicsIntervieweesCreateBody,
+    UserInterviewTopicsIntervieweesCreateParams,
+    UserInterviewTopicsIntervieweesDestroyParams,
+    UserInterviewTopicsIntervieweesListParams,
+    UserInterviewTopicsIntervieweesListQueryParams,
+    UserInterviewTopicsIntervieweesPartialUpdateBody,
+    UserInterviewTopicsIntervieweesPartialUpdateParams,
+    UserInterviewTopicsLinksCsvCreateParams,
+    UserInterviewTopicsListQueryParams,
+    UserInterviewTopicsPartialUpdateBody,
+    UserInterviewTopicsPartialUpdateParams,
+    UserInterviewTopicsPreviewInviteCreateBody,
+    UserInterviewTopicsPreviewInviteCreateParams,
+    UserInterviewTopicsRemoveIntervieweeCreateBody,
+    UserInterviewTopicsRemoveIntervieweeCreateParams,
+    UserInterviewTopicsRetrieveParams,
+    UserInterviewTopicsSendInvitesCreateBody,
+    UserInterviewTopicsSendInvitesCreateParams,
+    UserInterviewsListQueryParams,
+    UserInterviewsPartialUpdateBody,
+    UserInterviewsPartialUpdateParams,
+    UserInterviewsRetrieveParams,
+    UserInterviewsSearchCreateBody,
+} from '@/generated/user_interviews/api'
 
-const UserInterviewTopicsAddIntervieweeSchema = UserInterviewTopicsAddIntervieweeCreateParams.omit({ project_id: true }).extend(UserInterviewTopicsAddIntervieweeCreateBody.shape)
+const UserInterviewTopicsAddIntervieweeSchema = UserInterviewTopicsAddIntervieweeCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsAddIntervieweeCreateBody.shape)
 
-const userInterviewTopicsAddInterviewee = (): ToolBase<typeof UserInterviewTopicsAddIntervieweeSchema, Schemas.UserInterviewTopic> => ({
+const userInterviewTopicsAddInterviewee = (): ToolBase<
+    typeof UserInterviewTopicsAddIntervieweeSchema,
+    Schemas.UserInterviewTopic
+> => ({
     name: 'user-interview-topics-add-interviewee',
     schema: UserInterviewTopicsAddIntervieweeSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsAddIntervieweeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.identifier !== undefined) body["identifier"] = params.identifier
+        if (params.identifier !== undefined) {
+            body['identifier'] = params.identifier
+        }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/add_interviewee/`,
@@ -35,13 +72,27 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.interviewee_emails !== undefined) body["interviewee_emails"] = params.interviewee_emails
-        if (params.interviewee_distinct_ids !== undefined) body["interviewee_distinct_ids"] = params.interviewee_distinct_ids
-        if (params.topic !== undefined) body["topic"] = params.topic
-        if (params.agent_context !== undefined) body["agent_context"] = params.agent_context
-        if (params.questions !== undefined) body["questions"] = params.questions
-        if (params.invite_subject !== undefined) body["invite_subject"] = params.invite_subject
-        if (params.invite_message !== undefined) body["invite_message"] = params.invite_message
+        if (params.interviewee_emails !== undefined) {
+            body['interviewee_emails'] = params.interviewee_emails
+        }
+        if (params.interviewee_distinct_ids !== undefined) {
+            body['interviewee_distinct_ids'] = params.interviewee_distinct_ids
+        }
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        if (params.agent_context !== undefined) {
+            body['agent_context'] = params.agent_context
+        }
+        if (params.questions !== undefined) {
+            body['questions'] = params.questions
+        }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
+        }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
@@ -53,7 +104,10 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
 
 const UserInterviewTopicsGenerateLinksSchema = UserInterviewTopicsGenerateLinksCreateParams.omit({ project_id: true })
 
-const userInterviewTopicsGenerateLinks = (): ToolBase<typeof UserInterviewTopicsGenerateLinksSchema, Schemas.PaginatedInterviewLinkList> => ({
+const userInterviewTopicsGenerateLinks = (): ToolBase<
+    typeof UserInterviewTopicsGenerateLinksSchema,
+    Schemas.PaginatedInterviewLinkList
+> => ({
     name: 'user-interview-topics-generate-links',
     schema: UserInterviewTopicsGenerateLinksSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsGenerateLinksSchema>) => {
@@ -66,15 +120,22 @@ const userInterviewTopicsGenerateLinks = (): ToolBase<typeof UserInterviewTopics
     },
 })
 
-const UserInterviewTopicsIntervieweesBulkCreateSchema = UserInterviewTopicsIntervieweesBulkCreateParams.omit({ project_id: true }).extend(UserInterviewTopicsIntervieweesBulkCreateBody.shape)
+const UserInterviewTopicsIntervieweesBulkCreateSchema = UserInterviewTopicsIntervieweesBulkCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsIntervieweesBulkCreateBody.shape)
 
-const userInterviewTopicsIntervieweesBulkCreate = (): ToolBase<typeof UserInterviewTopicsIntervieweesBulkCreateSchema, Schemas.BulkIntervieweeContextResponse> => ({
+const userInterviewTopicsIntervieweesBulkCreate = (): ToolBase<
+    typeof UserInterviewTopicsIntervieweesBulkCreateSchema,
+    Schemas.BulkIntervieweeContextResponse
+> => ({
     name: 'user-interview-topics-interviewees-bulk-create',
     schema: UserInterviewTopicsIntervieweesBulkCreateSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesBulkCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.items !== undefined) body["items"] = params.items
+        if (params.items !== undefined) {
+            body['items'] = params.items
+        }
         const result = await context.api.request<Schemas.BulkIntervieweeContextResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/bulk/`,
@@ -84,16 +145,25 @@ const userInterviewTopicsIntervieweesBulkCreate = (): ToolBase<typeof UserInterv
     },
 })
 
-const UserInterviewTopicsIntervieweesCreateSchema = UserInterviewTopicsIntervieweesCreateParams.omit({ project_id: true }).extend(UserInterviewTopicsIntervieweesCreateBody.shape)
+const UserInterviewTopicsIntervieweesCreateSchema = UserInterviewTopicsIntervieweesCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsIntervieweesCreateBody.shape)
 
-const userInterviewTopicsIntervieweesCreate = (): ToolBase<typeof UserInterviewTopicsIntervieweesCreateSchema, Schemas.IntervieweeContext> => ({
+const userInterviewTopicsIntervieweesCreate = (): ToolBase<
+    typeof UserInterviewTopicsIntervieweesCreateSchema,
+    Schemas.IntervieweeContext
+> => ({
     name: 'user-interview-topics-interviewees-create',
     schema: UserInterviewTopicsIntervieweesCreateSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.interviewee_identifier !== undefined) body["interviewee_identifier"] = params.interviewee_identifier
-        if (params.agent_context !== undefined) body["agent_context"] = params.agent_context
+        if (params.interviewee_identifier !== undefined) {
+            body['interviewee_identifier'] = params.interviewee_identifier
+        }
+        if (params.agent_context !== undefined) {
+            body['agent_context'] = params.agent_context
+        }
         const result = await context.api.request<Schemas.IntervieweeContext>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/`,
@@ -103,9 +173,14 @@ const userInterviewTopicsIntervieweesCreate = (): ToolBase<typeof UserInterviewT
     },
 })
 
-const UserInterviewTopicsIntervieweesDestroySchema = UserInterviewTopicsIntervieweesDestroyParams.omit({ project_id: true })
+const UserInterviewTopicsIntervieweesDestroySchema = UserInterviewTopicsIntervieweesDestroyParams.omit({
+    project_id: true,
+})
 
-const userInterviewTopicsIntervieweesDestroy = (): ToolBase<typeof UserInterviewTopicsIntervieweesDestroySchema, unknown> => ({
+const userInterviewTopicsIntervieweesDestroy = (): ToolBase<
+    typeof UserInterviewTopicsIntervieweesDestroySchema,
+    unknown
+> => ({
     name: 'user-interview-topics-interviewees-destroy',
     schema: UserInterviewTopicsIntervieweesDestroySchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesDestroySchema>) => {
@@ -118,9 +193,14 @@ const userInterviewTopicsIntervieweesDestroy = (): ToolBase<typeof UserInterview
     },
 })
 
-const UserInterviewTopicsIntervieweesListSchema = UserInterviewTopicsIntervieweesListParams.omit({ project_id: true }).extend(UserInterviewTopicsIntervieweesListQueryParams.shape)
+const UserInterviewTopicsIntervieweesListSchema = UserInterviewTopicsIntervieweesListParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsIntervieweesListQueryParams.shape)
 
-const userInterviewTopicsIntervieweesList = (): ToolBase<typeof UserInterviewTopicsIntervieweesListSchema, WithPostHogUrl<Schemas.PaginatedIntervieweeContextList>> => ({
+const userInterviewTopicsIntervieweesList = (): ToolBase<
+    typeof UserInterviewTopicsIntervieweesListSchema,
+    WithPostHogUrl<Schemas.PaginatedIntervieweeContextList>
+> => ({
     name: 'user-interview-topics-interviewees-list',
     schema: UserInterviewTopicsIntervieweesListSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesListSchema>) => {
@@ -137,15 +217,22 @@ const userInterviewTopicsIntervieweesList = (): ToolBase<typeof UserInterviewTop
     },
 })
 
-const UserInterviewTopicsIntervieweesPartialUpdateSchema = UserInterviewTopicsIntervieweesPartialUpdateParams.omit({ project_id: true }).extend(UserInterviewTopicsIntervieweesPartialUpdateBody.omit({ 'interviewee_identifier': true }).shape)
+const UserInterviewTopicsIntervieweesPartialUpdateSchema = UserInterviewTopicsIntervieweesPartialUpdateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsIntervieweesPartialUpdateBody.omit({ interviewee_identifier: true }).shape)
 
-const userInterviewTopicsIntervieweesPartialUpdate = (): ToolBase<typeof UserInterviewTopicsIntervieweesPartialUpdateSchema, Schemas.IntervieweeContext> => ({
+const userInterviewTopicsIntervieweesPartialUpdate = (): ToolBase<
+    typeof UserInterviewTopicsIntervieweesPartialUpdateSchema,
+    Schemas.IntervieweeContext
+> => ({
     name: 'user-interview-topics-interviewees-partial-update',
     schema: UserInterviewTopicsIntervieweesPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.agent_context !== undefined) body["agent_context"] = params.agent_context
+        if (params.agent_context !== undefined) {
+            body['agent_context'] = params.agent_context
+        }
         const result = await context.api.request<Schemas.IntervieweeContext>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/${encodeURIComponent(String(params.id))}/`,
@@ -172,7 +259,10 @@ const userInterviewTopicsLinksCsv = (): ToolBase<typeof UserInterviewTopicsLinks
 
 const UserInterviewTopicsListSchema = UserInterviewTopicsListQueryParams
 
-const userInterviewTopicsList = (): ToolBase<typeof UserInterviewTopicsListSchema, WithPostHogUrl<Schemas.PaginatedUserInterviewTopicList>> => ({
+const userInterviewTopicsList = (): ToolBase<
+    typeof UserInterviewTopicsListSchema,
+    WithPostHogUrl<Schemas.PaginatedUserInterviewTopicList>
+> => ({
     name: 'user-interview-topics-list',
     schema: UserInterviewTopicsListSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsListSchema>) => {
@@ -190,21 +280,40 @@ const userInterviewTopicsList = (): ToolBase<typeof UserInterviewTopicsListSchem
     },
 })
 
-const UserInterviewTopicsPartialUpdateSchema = UserInterviewTopicsPartialUpdateParams.omit({ project_id: true }).extend(UserInterviewTopicsPartialUpdateBody.shape)
+const UserInterviewTopicsPartialUpdateSchema = UserInterviewTopicsPartialUpdateParams.omit({ project_id: true }).extend(
+    UserInterviewTopicsPartialUpdateBody.shape
+)
 
-const userInterviewTopicsPartialUpdate = (): ToolBase<typeof UserInterviewTopicsPartialUpdateSchema, Schemas.UserInterviewTopic> => ({
+const userInterviewTopicsPartialUpdate = (): ToolBase<
+    typeof UserInterviewTopicsPartialUpdateSchema,
+    Schemas.UserInterviewTopic
+> => ({
     name: 'user-interview-topics-partial-update',
     schema: UserInterviewTopicsPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.interviewee_emails !== undefined) body["interviewee_emails"] = params.interviewee_emails
-        if (params.interviewee_distinct_ids !== undefined) body["interviewee_distinct_ids"] = params.interviewee_distinct_ids
-        if (params.topic !== undefined) body["topic"] = params.topic
-        if (params.agent_context !== undefined) body["agent_context"] = params.agent_context
-        if (params.questions !== undefined) body["questions"] = params.questions
-        if (params.invite_subject !== undefined) body["invite_subject"] = params.invite_subject
-        if (params.invite_message !== undefined) body["invite_message"] = params.invite_message
+        if (params.interviewee_emails !== undefined) {
+            body['interviewee_emails'] = params.interviewee_emails
+        }
+        if (params.interviewee_distinct_ids !== undefined) {
+            body['interviewee_distinct_ids'] = params.interviewee_distinct_ids
+        }
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        if (params.agent_context !== undefined) {
+            body['agent_context'] = params.agent_context
+        }
+        if (params.questions !== undefined) {
+            body['questions'] = params.questions
+        }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
+        }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/`,
@@ -214,33 +323,48 @@ const userInterviewTopicsPartialUpdate = (): ToolBase<typeof UserInterviewTopics
     },
 })
 
-const UserInterviewTopicsPreviewInviteSchema = UserInterviewTopicsPreviewInviteCreateParams.omit({ project_id: true }).extend(UserInterviewTopicsPreviewInviteCreateBody.shape)
+const UserInterviewTopicsPreviewInviteSchema = UserInterviewTopicsPreviewInviteCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsPreviewInviteCreateBody.shape)
 
-const userInterviewTopicsPreviewInvite = (): ToolBase<typeof UserInterviewTopicsPreviewInviteSchema, Schemas.PreviewInviteResult> => withUiApp('invite-email-preview', {
-    name: 'user-interview-topics-preview-invite',
-    schema: UserInterviewTopicsPreviewInviteSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsPreviewInviteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.interviewee_identifier !== undefined) body["interviewee_identifier"] = params.interviewee_identifier
-        const result = await context.api.request<Schemas.PreviewInviteResult>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/preview_invite/`,
-            body,
-        })
-        return result
-    },
-})
+const userInterviewTopicsPreviewInvite = (): ToolBase<
+    typeof UserInterviewTopicsPreviewInviteSchema,
+    Schemas.PreviewInviteResult
+> =>
+    withUiApp('invite-email-preview', {
+        name: 'user-interview-topics-preview-invite',
+        schema: UserInterviewTopicsPreviewInviteSchema,
+        handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsPreviewInviteSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.interviewee_identifier !== undefined) {
+                body['interviewee_identifier'] = params.interviewee_identifier
+            }
+            const result = await context.api.request<Schemas.PreviewInviteResult>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/preview_invite/`,
+                body,
+            })
+            return result
+        },
+    })
 
-const UserInterviewTopicsRemoveIntervieweeSchema = UserInterviewTopicsRemoveIntervieweeCreateParams.omit({ project_id: true }).extend(UserInterviewTopicsRemoveIntervieweeCreateBody.shape)
+const UserInterviewTopicsRemoveIntervieweeSchema = UserInterviewTopicsRemoveIntervieweeCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsRemoveIntervieweeCreateBody.shape)
 
-const userInterviewTopicsRemoveInterviewee = (): ToolBase<typeof UserInterviewTopicsRemoveIntervieweeSchema, Schemas.UserInterviewTopic> => ({
+const userInterviewTopicsRemoveInterviewee = (): ToolBase<
+    typeof UserInterviewTopicsRemoveIntervieweeSchema,
+    Schemas.UserInterviewTopic
+> => ({
     name: 'user-interview-topics-remove-interviewee',
     schema: UserInterviewTopicsRemoveIntervieweeSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsRemoveIntervieweeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.identifier !== undefined) body["identifier"] = params.identifier
+        if (params.identifier !== undefined) {
+            body['identifier'] = params.identifier
+        }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/remove_interviewee/`,
@@ -252,7 +376,10 @@ const userInterviewTopicsRemoveInterviewee = (): ToolBase<typeof UserInterviewTo
 
 const UserInterviewTopicsRetrieveSchema = UserInterviewTopicsRetrieveParams.omit({ project_id: true })
 
-const userInterviewTopicsRetrieve = (): ToolBase<typeof UserInterviewTopicsRetrieveSchema, Schemas.UserInterviewTopic> => ({
+const userInterviewTopicsRetrieve = (): ToolBase<
+    typeof UserInterviewTopicsRetrieveSchema,
+    Schemas.UserInterviewTopic
+> => ({
     name: 'user-interview-topics-retrieve',
     schema: UserInterviewTopicsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsRetrieveSchema>) => {
@@ -265,17 +392,28 @@ const userInterviewTopicsRetrieve = (): ToolBase<typeof UserInterviewTopicsRetri
     },
 })
 
-const UserInterviewTopicsSendInvitesSchema = UserInterviewTopicsSendInvitesCreateParams.omit({ project_id: true }).extend(UserInterviewTopicsSendInvitesCreateBody.shape)
+const UserInterviewTopicsSendInvitesSchema = UserInterviewTopicsSendInvitesCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsSendInvitesCreateBody.shape)
 
-const userInterviewTopicsSendInvites = (): ToolBase<typeof UserInterviewTopicsSendInvitesSchema, Schemas.PaginatedInterviewInviteResultList> => ({
+const userInterviewTopicsSendInvites = (): ToolBase<
+    typeof UserInterviewTopicsSendInvitesSchema,
+    Schemas.PaginatedInterviewInviteResultList
+> => ({
     name: 'user-interview-topics-send-invites',
     schema: UserInterviewTopicsSendInvitesSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsSendInvitesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.subject !== undefined) body["subject"] = params.subject
-        if (params.reply_to !== undefined) body["reply_to"] = params.reply_to
-        if (params.send_async !== undefined) body["send_async"] = params.send_async
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.reply_to !== undefined) {
+            body['reply_to'] = params.reply_to
+        }
+        if (params.send_async !== undefined) {
+            body['send_async'] = params.send_async
+        }
         const result = await context.api.request<Schemas.PaginatedInterviewInviteResultList>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/send_invites/`,
@@ -287,7 +425,10 @@ const userInterviewTopicsSendInvites = (): ToolBase<typeof UserInterviewTopicsSe
 
 const UserInterviewsListSchema = UserInterviewsListQueryParams
 
-const userInterviewsList = (): ToolBase<typeof UserInterviewsListSchema, WithPostHogUrl<Schemas.PaginatedUserInterviewList>> => ({
+const userInterviewsList = (): ToolBase<
+    typeof UserInterviewsListSchema,
+    WithPostHogUrl<Schemas.PaginatedUserInterviewList>
+> => ({
     name: 'user-interviews-list',
     schema: UserInterviewsListSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewsListSchema>) => {
@@ -306,7 +447,9 @@ const userInterviewsList = (): ToolBase<typeof UserInterviewsListSchema, WithPos
     },
 })
 
-const UserInterviewsPartialUpdateSchema = UserInterviewsPartialUpdateParams.omit({ project_id: true }).extend(UserInterviewsPartialUpdateBody.omit({ 'interviewee_emails': true, 'summary': true, 'audio': true }).shape)
+const UserInterviewsPartialUpdateSchema = UserInterviewsPartialUpdateParams.omit({ project_id: true }).extend(
+    UserInterviewsPartialUpdateBody.omit({ interviewee_emails: true, summary: true, audio: true }).shape
+)
 
 const userInterviewsPartialUpdate = (): ToolBase<typeof UserInterviewsPartialUpdateSchema, Schemas.UserInterview> => ({
     name: 'user-interviews-partial-update',
@@ -314,7 +457,9 @@ const userInterviewsPartialUpdate = (): ToolBase<typeof UserInterviewsPartialUpd
     handler: async (context: Context, params: z.infer<typeof UserInterviewsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.classifications !== undefined) body["classifications"] = params.classifications
+        if (params.classifications !== undefined) {
+            body['classifications'] = params.classifications
+        }
         const result = await context.api.request<Schemas.UserInterview>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interviews/${encodeURIComponent(String(params.id))}/`,
@@ -347,11 +492,21 @@ const userInterviewsSearch = (): ToolBase<typeof UserInterviewsSearchSchema, Sch
     handler: async (context: Context, params: z.infer<typeof UserInterviewsSearchSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
-        if (params.document_types !== undefined) body["document_types"] = params.document_types
-        if (params.topic_id !== undefined) body["topic_id"] = params.topic_id
-        if (params.classifications !== undefined) body["classifications"] = params.classifications
-        if (params.limit !== undefined) body["limit"] = params.limit
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.document_types !== undefined) {
+            body['document_types'] = params.document_types
+        }
+        if (params.topic_id !== undefined) {
+            body['topic_id'] = params.topic_id
+        }
+        if (params.classifications !== undefined) {
+            body['classifications'] = params.classifications
+        }
+        if (params.limit !== undefined) {
+            body['limit'] = params.limit
+        }
         const result = await context.api.request<Schemas.UserInterviewSearchResult[]>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interviews/search/`,
