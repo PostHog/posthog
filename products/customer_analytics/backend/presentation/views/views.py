@@ -148,23 +148,25 @@ def _object_required_level(request: Request, write: bool) -> str | None:
 _GROUP_TARGET_TYPE = "group"
 
 
-def _assert_group_scope(request: Request, *, write: bool) -> None:
-    """Group-target custom properties modify group properties (via ``$groupidentify``) — a write to
-    the ``group`` resource. These viewsets are scoped to ``account``, so without this check an
-    ``account``-scoped token could configure or trigger the group-writing pipeline without holding
-    ``group`` authorization. Require the matching ``group`` API scope from token/OAuth callers,
+def _has_group_scope(request: Request, *, write: bool) -> bool:
+    """Whether the caller may read (``write=False``) or write (``write=True``) the ``group`` resource.
+    Group-target custom properties read and modify group data, but these viewsets are scoped to
+    ``account`` — so a token/OAuth caller must additionally hold the matching ``group`` scope,
     mirroring what the group API itself enforces. Session callers are governed by project membership
     (same as the group API), and service auth is exempt."""
     if is_service_auth(request):
-        return
+        return True
     token_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if token_scopes is None:
-        return  # session / non-token auth — same footing as the group API
+        return True  # session / non-token auth — same footing as the group API
     if "*" in token_scopes or "group:write" in token_scopes:
-        return
-    if not write and "group:read" in token_scopes:
-        return
-    raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
+        return True
+    return not write and "group:read" in token_scopes
+
+
+def _assert_group_scope(request: Request, *, write: bool) -> None:
+    if not _has_group_scope(request, write=write):
+        raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
 
 
 class CustomerProfileConfigViewSet(
@@ -272,10 +274,16 @@ class CustomPropertyDefinitionViewSet(
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # Callers without group read authorization don't see group-target definitions.
+        exclude_group_targets = not _has_group_scope(request, write=False)
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_custom_property_definitions(
-                self.team_id, offset=offset, limit=limit, user_access_control=_warehouse_scoped_uac(self)
+                self.team_id,
+                offset=offset,
+                limit=limit,
+                user_access_control=_warehouse_scoped_uac(self),
+                exclude_group_targets=exclude_group_targets,
             ),
             CustomPropertyDefinitionSerializer,
         )
@@ -284,7 +292,10 @@ class CustomPropertyDefinitionViewSet(
         definition = api.get_custom_property_definition(
             self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
         )
-        if definition is None:
+        # Hide group-target definitions from callers without group read authorization.
+        if definition is None or (
+            definition.target_type == _GROUP_TARGET_TYPE and not _has_group_scope(request, write=False)
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
 
@@ -507,10 +518,16 @@ class CustomPropertySourceViewSet(
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # Callers without group read authorization don't see sources feeding group-target definitions.
+        exclude_group_targets = not _has_group_scope(request, write=False)
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_custom_property_sources(
-                self.team_id, offset=offset, limit=limit, user_access_control=_warehouse_scoped_uac(self)
+                self.team_id,
+                offset=offset,
+                limit=limit,
+                user_access_control=_warehouse_scoped_uac(self),
+                exclude_group_targets=exclude_group_targets,
             ),
             CustomPropertySourceSerializer,
         )
@@ -519,7 +536,10 @@ class CustomPropertySourceViewSet(
         source = api.get_custom_property_source(
             self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
         )
-        if source is None:
+        # Hide sources feeding a group-target definition from callers without group read authorization.
+        if source is None or (
+            self._definition_is_group(source.definition) and not _has_group_scope(request, write=False)
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
 
@@ -531,12 +551,12 @@ class CustomPropertySourceViewSet(
         )
         return definition is not None and definition.target_type == _GROUP_TARGET_TYPE
 
-    def _guard_group_source(self, request: Request, source_id) -> None:
-        # A source feeding a group definition activates/triggers the group-writing pipeline, so any
-        # mutation of it needs group scope — an account-only token must not touch group properties.
+    def _guard_group_source(self, request: Request, source_id, *, write: bool = True) -> None:
+        # A source feeding a group definition reads/activates the group-writing pipeline, so touching
+        # it needs group scope — an account-only token must not read or modify group properties.
         source = api.get_custom_property_source(self.team_id, source_id)
         if source is not None and self._definition_is_group(source.definition):
-            _assert_group_scope(request, write=True)
+            _assert_group_scope(request, write=write)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CustomPropertySourceSerializer(data=request.data)
@@ -656,6 +676,14 @@ class CustomPropertySourceViewSet(
     def runs(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: the source's sync/backfill run history, newest first. Gated on the
         caller's warehouse-source viewer access, since the runs expose its row counts and sync errors."""
+        # Hide the run history of a group-target source from callers without group read authorization.
+        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
+        if (
+            source is not None
+            and self._definition_is_group(source.definition)
+            and not _has_group_scope(request, write=False)
+        ):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         try:
             return self._paginate_via_facade(
                 request,

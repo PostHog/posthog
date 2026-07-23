@@ -970,13 +970,21 @@ def _definition_source_view(
 
 
 def list_custom_property_definitions(
-    team_id: int, offset: int, limit: int, *, user_access_control: "UserAccessControl"
+    team_id: int,
+    offset: int,
+    limit: int,
+    *,
+    user_access_control: "UserAccessControl",
+    exclude_group_targets: bool = False,
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
     ``references`` (the workflows referencing each definition) is included only when the caller can
-    read workflows — see ``_can_read_workflow_references``."""
+    read workflows — see ``_can_read_workflow_references``. ``exclude_group_targets`` hides group-target
+    definitions from callers without ``group`` read authorization."""
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
+    if exclude_group_targets:
+        queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     references = (
@@ -1529,11 +1537,21 @@ def trigger_person_property_backfill(
 
 
 def list_custom_property_sources(
-    team_id: int, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
+    team_id: int,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl | None" = None,
+    *,
+    exclude_group_targets: bool = False,
 ) -> tuple[list[contracts.CustomPropertySourceView], int]:
     """Custom-property sources for the team, newest first. Returns ``(page, total_count)``. Warehouse
-    schedule/run enrichment per source is gated on the caller's warehouse-source viewer access."""
+    schedule/run enrichment per source is gated on the caller's warehouse-source viewer access.
+
+    ``exclude_group_targets`` hides sources feeding a group-target definition from callers without
+    ``group`` read authorization."""
     queryset = CustomPropertySource.objects.for_team(team_id).order_by("-created_at")
+    if exclude_group_targets:
+        queryset = queryset.exclude(definition__target_type=TargetType.GROUP.value)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     enrichment = _batch_source_enrichment(team_id, page, user_access_control)

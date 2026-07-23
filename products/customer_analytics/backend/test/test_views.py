@@ -2177,6 +2177,72 @@ class TestCustomPropertyGroupScope(APIBaseTest):
         )
         assert patched.status_code == status.HTTP_403_FORBIDDEN, patched.content
 
+    def _create_group_definition_and_source(self):
+        definition = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.sources_endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        return definition.json()["id"], created.json()["id"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_reads_require_group_read_scope(self, _flag):
+        # A token without group read must not see group-target definitions in the list or detail;
+        # group:read makes them visible again.
+        def_id, _ = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        listed = self.client.get(self.definitions_endpoint, headers={"authorization": f"Bearer {account_token}"})
+        assert listed.status_code == status.HTTP_200_OK, listed.content
+        assert def_id not in [d["id"] for d in listed.json()["results"]]
+        detail = self.client.get(
+            f"{self.definitions_endpoint}{def_id}/", headers={"authorization": f"Bearer {account_token}"}
+        )
+        assert detail.status_code == status.HTTP_404_NOT_FOUND, detail.content
+
+        group_token = self._token(["account:read", "group:read"])
+        listed2 = self.client.get(self.definitions_endpoint, headers={"authorization": f"Bearer {group_token}"})
+        assert def_id in [d["id"] for d in listed2.json()["results"]]
+        detail2 = self.client.get(
+            f"{self.definitions_endpoint}{def_id}/", headers={"authorization": f"Bearer {group_token}"}
+        )
+        assert detail2.status_code == status.HTTP_200_OK, detail2.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_source_reads_require_group_read_scope(self, _flag):
+        # Same for sources feeding a group definition: hidden from list/detail/runs without group read.
+        _, source_id = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        listed = self.client.get(self.sources_endpoint, headers={"authorization": f"Bearer {account_token}"})
+        assert listed.status_code == status.HTTP_200_OK, listed.content
+        assert source_id not in [s["id"] for s in listed.json()["results"]]
+        for path in (f"{self.sources_endpoint}{source_id}/", f"{self.sources_endpoint}{source_id}/runs/"):
+            resp = self.client.get(path, headers={"authorization": f"Bearer {account_token}"})
+            assert resp.status_code == status.HTTP_404_NOT_FOUND, (path, resp.content)
+
+        group_token = self._token(["account:read", "group:read"])
+        detail = self.client.get(
+            f"{self.sources_endpoint}{source_id}/", headers={"authorization": f"Bearer {group_token}"}
+        )
+        assert detail.status_code == status.HTTP_200_OK, detail.content
+
 
 class TestAccountNotesViewSet(APIBaseTest):
     def setUp(self):
