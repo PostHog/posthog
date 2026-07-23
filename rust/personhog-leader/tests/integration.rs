@@ -1245,7 +1245,7 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
         team_id: team_id as i64,
         person_id: row.0,
     };
-    let person = personhog_leader::pg::load_person_from_pg(&pool, &key)
+    let person = personhog_leader::pg::load_person_from_pg(&pool, "posthog_person", &key)
         .await
         .expect("load must not fail")
         .expect("person exists");
