@@ -18,6 +18,7 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 logger = get_write_only_logger()
 
@@ -67,11 +68,14 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
-            # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative
+            # worker shutdown (raised mid-activity during a deploy, always retried on a fresh
+            # worker), and our own egress-budget backpressure (a deliberate "defer and retry later"
+            # signal that our rate limiter already records via record_outbound_decision) are expected
+            # control flow, not defects — re-raise without reporting them to error tracking.
+            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(
+                e, EgressBudgetExhausted | WorkerShuttingDownError
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
