@@ -525,6 +525,7 @@ the row lists both.
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
 | spotlercrm                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| sprig                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | squadcast                        | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
 | squarespace                      | HTTP                        | requests                                                        | ✅                          |
@@ -1288,7 +1289,6 @@ doesn't conflict with concurrent PRs.
 - speedcurve
 - spot_io
 - spotify_ads
-- sprig
 - sprinklr
 - sprout_social
 - stack_overflow_for_teams
