@@ -2,7 +2,7 @@ import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React from 'react'
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
@@ -107,6 +107,44 @@ function getCellTitle(cell: TableDataCell<any>): string | undefined {
     return undefined
 }
 
+// Header labels are clamped to a few lines with a CSS ellipsis when they don't fit. The full text stays
+// in the DOM, so we compare the rendered box against the content and reveal the full name on hover only
+// when it's actually cut off.
+function ColumnHeaderTitle({
+    formattedTitle,
+    fullTitle,
+    children,
+}: {
+    formattedTitle: React.ReactNode
+    fullTitle: string
+    children?: React.ReactNode
+}): JSX.Element {
+    const titleRef = useRef<HTMLSpanElement>(null)
+    const [isTruncated, setIsTruncated] = useState(false)
+
+    const detectTruncation = useCallback((): void => {
+        const el = titleRef.current
+        if (el) {
+            setIsTruncated(el.scrollHeight - el.clientHeight > 1 || el.scrollWidth - el.clientWidth > 1)
+        }
+    }, [])
+
+    useLayoutEffect(() => {
+        detectTruncation()
+    }, [detectTruncation, fullTitle])
+
+    return (
+        <div className="flex items-center gap-1">
+            <Tooltip title={isTruncated ? fullTitle : undefined}>
+                <span ref={titleRef} onMouseEnter={detectTruncation}>
+                    {formattedTitle}
+                </span>
+            </Tooltip>
+            {children}
+        </div>
+    )
+}
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -135,6 +173,7 @@ export const Table = (props: TableProps): JSX.Element => {
             const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
             const columnTitle = settings?.display?.label || title || column.name
             const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
+            const fullColumnTitle = typeof columnTitle === 'string' ? columnTitle : column.name
 
             const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
                 const cell = data[index]
@@ -211,8 +250,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 // (rows become the original columns), so only offer it in the normal orientation.
                 sorter: isTransposed ? undefined : (a, b) => compareTableCells(a[index], b[index]),
                 title: (
-                    <div className="flex items-center gap-1">
-                        <span>{formattedTitle}</span>
+                    <ColumnHeaderTitle formattedTitle={formattedTitle} fullTitle={fullColumnTitle}>
                         {isPinningEnabled && (
                             <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
                                 <span
@@ -230,7 +268,7 @@ export const Table = (props: TableProps): JSX.Element => {
                                 </span>
                             </Tooltip>
                         )}
-                    </div>
+                    </ColumnHeaderTitle>
                 ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
                     const cell = data[index]
