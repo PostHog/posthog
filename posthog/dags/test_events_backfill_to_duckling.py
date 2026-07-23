@@ -40,6 +40,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _is_transient_s3_error,
     _resolve_duckling_target,
     _resolve_table_names,
+    _run_duckling_events_backfill,
     _set_table_partitioning,
     _stale_run_outcome,
     _validate_identifier,
@@ -1725,7 +1726,7 @@ class TestExportFanOut:
     def target(self):
         return DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
 
-    def _run_export(self, export_fn, target, row_count, config=None, **kwargs):
+    def _run_export(self, export_fn, target, row_count, config=None, settings=None, **kwargs):
         """Run an export with a stubbed count() result; return (insert_sql, glob, client)."""
         client = MagicMock()
         # First execute is the count() estimate, second is the INSERT.
@@ -1736,7 +1737,7 @@ class TestExportFanOut:
             client=client,
             config=config,
             target=target,
-            settings={},
+            settings=settings or {},
             run_id="run1",
             **kwargs,
         )
@@ -1784,6 +1785,42 @@ class TestExportFanOut:
         )
         # 10M / 2M = 5 files (under the lowered cap of 8).
         assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
+
+    def test_events_export_applies_configured_row_group_size(self, target):
+        row_group_size_bytes = 512 * 1024 * 1024
+        config = DucklingBackfillConfig(
+            dry_run=False,
+            skip_ducklake_registration=True,
+            events_parquet_row_group_size_bytes=row_group_size_bytes,
+            max_s3_file_fanout=64,
+        )
+
+        _insert_sql, _count_sql, _glob, client = self._run_export(
+            export_events_to_duckling_s3,
+            target,
+            row_count=10_000_000,
+            config=config,
+            settings={"output_format_parquet_row_group_size_bytes": 1},
+            team_id=2,
+            date=datetime(2026, 6, 17),
+        )
+
+        export_call = next(call for call in client.execute.call_args_list if "INSERT INTO FUNCTION" in call.args[0])
+        assert export_call.kwargs["settings"]["output_format_parquet_row_group_size_bytes"] == row_group_size_bytes
+        assert export_call.kwargs["settings"]["output_format_parquet_row_group_size"] == 250_000
+
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target")
+    def test_events_run_rejects_writer_buffers_before_resolving_target(self, resolve_target):
+        config = DucklingBackfillConfig(
+            events_parquet_row_group_size_bytes=512 * 1024 * 1024,
+            max_s3_file_fanout=65,
+        )
+        context = MagicMock(partition_key="2_2026-06-17")
+
+        with pytest.raises(ValueError, match="exceed the 32 GiB events Parquet writer buffer budget"):
+            _run_duckling_events_backfill(context, config)
+
+        resolve_target.assert_not_called()
 
     def test_persons_daily_export_sizes_fanout_and_returns_glob(self, target):
         # 15M rows at the 5M-row default target → 3 files.

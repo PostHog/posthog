@@ -85,6 +85,28 @@ To run the full backfill immediately (without waiting for tomorrow):
    - `skip_ducklake_registration: true` - Export to S3 only
    - `delete_tables: true` - Reset duckling tables first
 
+#### Rewriting one events day with larger Parquet row groups
+
+Select exactly one daily `<team_id>_YYYY-MM-DD` partition in `duckling_events_backfill_job`, then use this Launchpad configuration:
+
+```yaml
+ops:
+  duckling_events_backfill:
+    config:
+      events_parquet_row_group_size_bytes: 536870912 # 512 MiB
+      target_rows_per_file: 5000000
+      max_s3_file_fanout: 64
+      cleanup_existing_partition_data: true
+      skip_ducklake_registration: false
+      delete_tables: false
+```
+
+The 250,000-row cap still applies, so `events_parquet_row_group_size_bytes` is an upper bound rather than a guaranteed row-group size. The buffer budget uses the configured `max_s3_file_fanout`, even when a particular day would produce fewer files. This example caps open row-group buffers at 32 GiB before encoding overhead. Configurations that exceed that buffer budget are rejected before any cleanup or export begins.
+
+The rewrite is not atomic. The existing DuckLake day is removed before export and registration finish, so queries may temporarily see no rows for that day. After a transient failure, rerun the same daily partition with the same configuration. After a memory or resource failure, lower `events_parquet_row_group_size_bytes`, `max_s3_file_fanout`, or both, then rerun. Keep `cleanup_existing_partition_data: true` so the retry clears partial registration and regenerates the day from current ClickHouse data. Do not manually delete the run's S3 objects.
+
+To rewrite the active DuckLake day with the default layout, rerun the same day without the row-group and fan-out overrides. This regenerates the day from current ClickHouse data; it does not restore a pinned snapshot or remove old unreferenced run objects from S3.
+
 ### Resetting a Duckling
 
 To completely reset a duckling's data and re-backfill:
@@ -104,6 +126,9 @@ class DucklingBackfillConfig:
     create_tables_if_missing: bool = True     # Auto-create events/persons tables
     delete_tables: bool = False               # DANGER: Drop and recreate tables
     dry_run: bool = False                     # Preview mode, no writes
+    events_parquet_row_group_size_bytes: int = 134_217_728  # Events only; 128 MiB
+    target_rows_per_file: int = 5_000_000      # Target rows per exported file
+    max_s3_file_fanout: int = 256              # Maximum files and open writers per export
 ```
 
 ## Adding a New Duckling
