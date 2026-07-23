@@ -132,7 +132,7 @@ describe('activeCloudRunLogic', () => {
             expect(logic.values.activeCloudRun).toMatchObject({ taskId: 'local-task' })
         })
 
-        it('cancels the active run and stays in the cancelling state until the stream ends the run', async () => {
+        it('cancels the active run and recovers the button once the request settles', async () => {
             setUser(true)
             // Server-side hydration confirms the same run, so it must not clear the local handle mid-test.
             mockActiveWizardRun.mockResolvedValue({
@@ -147,13 +147,15 @@ describe('activeCloudRunLogic', () => {
             logic.actions.setActiveCloudRun('task-1', 'run-1', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
 
             logic.actions.cancelActiveCloudRun()
+            expect(logic.values.cancellingRun).toBe(true)
             await expectLogic(logic).toDispatchActions(['cancelActiveCloudRun', 'cancelActiveCloudRunSuccess'])
 
             expect(mockRunCancel).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'task-1', 'run-1')
             // The handle stays: the run stream delivers the terminal status, and the user dismisses
-            // the finished run as usual. Cancelling stays true so the button can't double-submit.
+            // the finished run as usual. Cancelling resets so a dead stream can't strand a
+            // permanently disabled button (a repeat cancel is idempotent server-side).
             expect(logic.values.activeCloudRun).not.toBeNull()
-            expect(logic.values.cancellingRun).toBe(true)
+            expect(logic.values.cancellingRun).toBe(false)
         })
 
         it('recovers the cancel button when the cancel request fails', async () => {
@@ -177,22 +179,16 @@ describe('activeCloudRunLogic', () => {
             expect(logic.values.activeCloudRun).not.toBeNull()
         })
 
-        it('resets the cancelling state when a new run handle is set', async () => {
+        it('resets an in-flight cancelling state when a new run handle is set', () => {
             // The flag belongs to the run it was set for; a new run (startCloudRun or server
             // hydration) must start with a usable Cancel button, not one disabled by the old run.
             setUser(true)
-            mockActiveWizardRun.mockResolvedValue({
-                task_id: 'task-1',
-                run_id: 'run-1',
-                status: 'in_progress',
-                started_at: '2026-01-01T00:00:00Z',
-            })
-            mockRunCancel.mockResolvedValue({ id: 'run-1', status: 'cancelled' })
+            mockActiveWizardRun.mockResolvedValue(undefined)
+            mockRunCancel.mockReturnValue(new Promise(() => {}))
             logic = activeCloudRunLogic()
             logic.mount()
             logic.actions.setActiveCloudRun('task-1', 'run-1', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
             logic.actions.cancelActiveCloudRun()
-            await expectLogic(logic).toDispatchActions(['cancelActiveCloudRunSuccess'])
             expect(logic.values.cancellingRun).toBe(true)
 
             logic.actions.setActiveCloudRun('task-2', 'run-2', '2026-01-02T00:00:00Z', MOCK_TEAM_ID)

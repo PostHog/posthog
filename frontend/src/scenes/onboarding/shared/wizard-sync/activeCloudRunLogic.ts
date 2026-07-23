@@ -145,15 +145,16 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
                 setPanelMounted: (_, { mounted }) => mounted,
             },
         ],
-        // Guards the Cancel button against double-submission. Stays true after a successful
-        // request: the button only disappears when the stream delivers the terminal status, and
-        // re-enabling it in that window would invite a second (idempotent but confusing) POST.
-        // A new handle always resets it — the flag belongs to the run it was set for, and both
-        // startCloudRun and server hydration set handles without ever dispatching clear.
+        // Guards the Cancel button against double-submission while the request is in flight.
+        // It resets on success too: the terminal status normally arrives via the stream and
+        // removes the button, but if the stream disconnects first, a permanently disabled
+        // button would strand the user — a repeat cancel is idempotent server-side. A new
+        // handle also resets it, since the flag belongs to the run it was set for.
         cancellingRun: [
             false,
             {
                 cancelActiveCloudRun: () => true,
+                cancelActiveCloudRunSuccess: () => false,
                 cancelActiveCloudRunFailure: () => false,
                 clearActiveCloudRun: () => false,
                 setActiveCloudRun: () => false,

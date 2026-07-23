@@ -909,17 +909,19 @@ def recent_wizard_cloud_run_times(
     Backs the outcome-aware cloud_run throttles: failed and cancelled runs are excluded so a
     user whose run broke (or who cancelled a stuck one) can start another without waiting out
     the window. ``include_unsuccessful`` counts those too — that variant backs the absolute
-    attempts ceiling, which bounds sandbox boots regardless of outcome. Requires the immutable
-    markers ``create_wizard_cloud_run`` stamps (cloud environment + the protected
-    ``wizard_config`` state key) so ordinary task runs can never consume or shield wizard quota.
+    attempts ceiling, which bounds sandbox boots regardless of outcome.
+
+    The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
+    protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
+    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
+    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
+    or flipping it would launder sandbox boots out of the attempts ceiling.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
     """
     runs = TaskRun.objects.filter(
         task__created_by_id=user_id,
-        task__origin_product=Task.OriginProduct.ONBOARDING,
-        environment=TaskRun.Environment.CLOUD,
         state__has_key="wizard_config",
         created_at__gte=since,
     )

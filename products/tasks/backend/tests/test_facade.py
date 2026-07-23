@@ -636,9 +636,11 @@ class TestRecentWizardCloudRunTimes(TestCase):
             ("in_progress_run", {"status": TaskRun.Status.IN_PROGRESS}, 1),
             ("queued_run", {"status": TaskRun.Status.QUEUED}, 1),
             ("completed_run", {"status": TaskRun.Status.COMPLETED}, 1),
-            # Ordinary task runs lack the wizard markers and must not consume wizard quota.
-            ("non_onboarding_task", {"origin_product": Task.OriginProduct.USER_CREATED}, 0),
-            ("local_run", {"environment": TaskRun.Environment.LOCAL}, 0),
+            # Only the PATCH-immutable wizard_config marker decides membership. Mutable fields
+            # (environment, origin_product) must NOT be filtered, or a user could PATCH a run
+            # to local and launder sandbox boots out of the quota.
+            ("run_patched_to_local", {"environment": TaskRun.Environment.LOCAL}, 1),
+            ("non_onboarding_task_with_marker", {"origin_product": Task.OriginProduct.USER_CREATED}, 1),
             ("run_without_wizard_config", {"state": {}}, 0),
         ]
     )
@@ -649,10 +651,10 @@ class TestRecentWizardCloudRunTimes(TestCase):
 
     def test_include_unsuccessful_counts_failed_and_cancelled_but_not_non_wizard_runs(self):
         # The attempts backstop counts every sandbox boot, so failed/cancelled must count with
-        # the flag while ordinary task runs stay excluded either way.
+        # the flag while runs lacking the wizard marker stay excluded either way.
         self._make_run(status=TaskRun.Status.FAILED)
         self._make_run(status=TaskRun.Status.CANCELLED)
-        self._make_run(origin_product=Task.OriginProduct.USER_CREATED)
+        self._make_run(state={})
         since = django_timezone.now() - timedelta(hours=1)
 
         self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), 0)

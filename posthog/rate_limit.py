@@ -902,15 +902,24 @@ class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
         if user is None or not user.is_authenticated:
             # cloud_run requires IsAuthenticated; anything else is rejected by permissions.
             return True
-        # Deferred: rate_limit is core and imports at module scope would pull the tasks product
-        # into every process's import path.
-        from products.tasks.backend.facade.api import recent_wizard_cloud_run_times  # noqa: PLC0415
+        # DRF evaluates all three sibling throttles on every request; memoizing on the request
+        # keeps that at one DB read per distinct (shape, window) instead of one per throttle.
+        cache_key = (self.count_unsuccessful_runs, self.duration)
+        memo = getattr(request, "_wizard_run_times_memo", None)
+        if memo is None:
+            memo = {}
+            request._wizard_run_times_memo = memo
+        if cache_key not in memo:
+            # Deferred: rate_limit is core and imports at module scope would pull the tasks
+            # product into every process's import path.
+            from products.tasks.backend.facade.api import recent_wizard_cloud_run_times  # noqa: PLC0415
 
-        self._recent_run_times = recent_wizard_cloud_run_times(
-            user.pk,
-            timezone.now() - timedelta(seconds=self.duration),
-            include_unsuccessful=self.count_unsuccessful_runs,
-        )
+            memo[cache_key] = recent_wizard_cloud_run_times(
+                user.pk,
+                timezone.now() - timedelta(seconds=self.duration),
+                include_unsuccessful=self.count_unsuccessful_runs,
+            )
+        self._recent_run_times = memo[cache_key]
         return len(self._recent_run_times) < self.num_requests
 
     def wait(self) -> float | None:
