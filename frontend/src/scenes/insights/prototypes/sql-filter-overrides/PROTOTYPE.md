@@ -12,7 +12,7 @@
 
 Open any saved SQL insight that uses `{filters}` and append `?variant=A`:
 
-```
+```text
 http://localhost:8010/project/<id>/insights/<short_id>?variant=A
 ```
 
