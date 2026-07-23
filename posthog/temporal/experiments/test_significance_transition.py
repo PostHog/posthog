@@ -185,6 +185,35 @@ class TestCheckSignificanceTransition(BaseTest):
         assert event.properties["goal_direction"] == expected_goal_direction
         assert event.properties["chance_to_win"] == expected_chance_to_win
 
+    @parameterized.expand([("increase",), ("decrease",)])
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
+    def test_missing_chance_to_win_reports_na(self, goal: str, mock_produce: MagicMock) -> None:
+        # Frequentist results have no chance_to_win; it must not be inverted into a fabricated 100%
+        flag = FeatureFlag.objects.create(team=self.team, key=f"test-flag-na-{goal}", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="No Probability Experiment",
+            feature_flag=flag,
+            start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            metrics=[{**METRIC_DICT, "goal": goal}],
+        )
+
+        result_dict = _make_result(["test"])
+        for variant in result_dict["variant_results"]:
+            variant.pop("chance_to_win")
+
+        check_significance_transition(
+            experiment, "metric-123", "fp", result_dict, datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
+        )
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["chance_to_win"] == "N/A"
+
     @patch("posthog.temporal.experiments.utils.produce_internal_event")
     def test_metric_name_fallback_to_event_name(self, mock_produce: MagicMock) -> None:
         flag = FeatureFlag.objects.create(

@@ -145,11 +145,15 @@ def check_significance_transition(
 
         for variant_key in newly_significant:
             variant_result = _get_variant_result(result_dict, variant_key)
-            chance_to_win_raw = variant_result.get("chance_to_win", 0) if variant_result else 0
-            # chance_to_win is P(variant > control); invert it for decrease goals so lower is better
-            if goal_direction == "decrease":
-                chance_to_win_raw = 1 - chance_to_win_raw
-            chance_to_win = f"{round(chance_to_win_raw * 100)}%"
+            chance_to_win_raw = variant_result.get("chance_to_win") if variant_result else None
+            if chance_to_win_raw is None:
+                # No probability computed (e.g. frequentist results) — don't fabricate one
+                chance_to_win = "N/A"
+            else:
+                # chance_to_win is P(variant > control); invert it for decrease goals so lower is better
+                if goal_direction == "decrease":
+                    chance_to_win_raw = 1 - chance_to_win_raw
+                chance_to_win = f"{round(chance_to_win_raw * 100)}%"
             raw_change = _get_relative_change(result_dict, variant_key)
             relative_change = f"({raw_change})" if raw_change else ""
 
