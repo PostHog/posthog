@@ -8,13 +8,19 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
-from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
+from products.managed_migrations.backend.api.batch_imports import BatchImportS3SourceCreateSerializer
+from products.managed_migrations.backend.models.batch_imports import (
+    BatchImport,
+    BatchImportConfigBuilder,
+    ContentType,
+    get_aws_external_id,
+)
 
 
 class TestBatchImportModel(BaseTest):
@@ -400,6 +406,140 @@ class TestBatchImportConfigBuilder(BaseTest):
             "generate_group_identify_events": True,
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
+
+    @parameterized.expand([("s3", "from_s3"), ("s3_gzip", "from_s3_gzip")])
+    def test_from_s3_with_iam_role(self, _name, method):
+        getattr(self.batch_import.config, method)(
+            bucket="customer-bucket",
+            prefix="events/",
+            region="eu-west-1",
+            role_arn="arn:aws:iam::123456789012:role/PostHogImport",
+            external_id="posthog-us-test-uuid",
+        )
+
+        source = self.batch_import.import_config["source"]
+        self.assertEqual(source["type"], _name)
+        self.assertEqual(source["bucket"], "customer-bucket")
+        self.assertEqual(source["role_arn"], "arn:aws:iam::123456789012:role/PostHogImport")
+        self.assertEqual(source["external_id"], "posthog-us-test-uuid")
+        self.assertNotIn("access_key_id_key", source)
+        self.assertNotIn("secret_access_key_key", source)
+        self.assertIsNone(self.batch_import.secrets)
+
+    @parameterized.expand(
+        [
+            (
+                "role_and_keys",
+                {
+                    "role_arn": "arn:aws:iam::123456789012:role/R",
+                    "external_id": "ext",
+                    "access_key_id": "AK",
+                    "secret_access_key": "SK",
+                },
+                "Exactly one of access keys or role_arn",
+            ),
+            (
+                "role_and_endpoint",
+                {
+                    "role_arn": "arn:aws:iam::123456789012:role/R",
+                    "external_id": "ext",
+                    "endpoint_url": "http://minio:9000",
+                },
+                "only works with AWS S3",
+            ),
+            (
+                "role_without_external_id",
+                {"role_arn": "arn:aws:iam::123456789012:role/R"},
+                "external_id is required",
+            ),
+            (
+                "no_auth",
+                {},
+                "Exactly one of access keys or role_arn",
+            ),
+        ]
+    )
+    def test_from_s3_invalid_auth_combinations(self, _name, kwargs, expected_message):
+        with self.assertRaises(ValueError, msg=expected_message):
+            self.batch_import.config.from_s3(
+                bucket="b",
+                prefix="",
+                region="us-east-1",
+                **kwargs,
+            )
+
+
+class TestBatchImportS3AuthValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "role_only_valid",
+                {"role_arn": "arn:aws:iam::123456789012:role/PostHogImport"},
+                True,
+            ),
+            (
+                "keys_only_valid",
+                {"access_key": "AKIATEST", "secret_key": "secret123"},
+                True,
+            ),
+            (
+                "role_and_keys_rejected",
+                {"role_arn": "arn:aws:iam::123456789012:role/R", "access_key": "AK", "secret_key": "SK"},
+                False,
+            ),
+            (
+                "role_and_endpoint_rejected",
+                {"role_arn": "arn:aws:iam::123456789012:role/R", "endpoint_url": "http://minio:9000"},
+                False,
+            ),
+            (
+                "partial_keys_rejected",
+                {"access_key": "AK"},
+                False,
+            ),
+            (
+                "no_auth_rejected",
+                {},
+                False,
+            ),
+        ]
+    )
+    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=True)
+    def test_auth_combination_validation(self, _name, auth_fields, should_be_valid, _mock_flag):
+        data = {
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            **auth_fields,
+        }
+        serializer = BatchImportS3SourceCreateSerializer(data=data)
+        self.assertEqual(serializer.is_valid(), should_be_valid, serializer.errors)
+
+    def test_invalid_role_arn_format_rejected(self):
+        data = {
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            "role_arn": "not-a-valid-arn",
+        }
+        serializer = BatchImportS3SourceCreateSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("role_arn", serializer.errors)
+
+    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=False)
+    def test_role_arn_rejected_when_flag_off(self, _mock_flag):
+        data = {
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
+        }
+        serializer = BatchImportS3SourceCreateSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("IAM role authentication is not available", str(serializer.errors))
 
 
 class TestBatchImportAdminActions(BaseTest):
@@ -968,6 +1108,73 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "endpoint_url")
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
+    def test_s3_import_with_iam_role_creates_config_without_secrets(self, _mock_flag):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "customer-bucket",
+                "s3_region": "eu-west-1",
+                "s3_prefix": "events/",
+                "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        source = batch_import.import_config["source"]
+        self.assertEqual(source["role_arn"], "arn:aws:iam::123456789012:role/PostHogImport")
+        self.assertIn("external_id", source)
+        self.assertNotIn("access_key_id_key", source)
+        self.assertIsNone(batch_import.secrets)
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=False)
+    def test_s3_import_with_role_rejected_when_flag_off(self, _mock_flag):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not available", str(response.json()))
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
+    def test_aws_iam_setup_returns_policy_material(self, _mock_flag):
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport"):
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["available"])
+        self.assertEqual(data["external_id"], get_aws_external_id(self.team))
+        self.assertEqual(data["posthog_role_arn"], "arn:aws:iam::999999999999:role/PostHogBatchImport")
+        self.assertIn("sts:AssumeRole", data["trust_policy"])
+        self.assertIn("s3:GetObject", data["permission_policy_template"])
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
+    def test_aws_iam_setup_unavailable_without_role_arn_setting(self, _mock_flag):
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN=""):
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["available"])
+
+    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=False)
+    def test_aws_iam_setup_unavailable_when_flag_off(self, _mock_flag):
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport"):
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["available"])
 
 
 class TestBatchImportTrialAPI(APIBaseTest):
