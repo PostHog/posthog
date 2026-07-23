@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from django.conf import settings
 
+import botocore.exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
@@ -14,6 +15,20 @@ from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+
+# A best-effort delete of old query folders can hit a transient S3 connectivity blip
+# (connect/read timeout, dropped connection). The folder is timestamped and simply gets
+# picked up by the age-based GC on a later sync, so these aren't worth an error-tracking
+# issue - unlike a real failure (permissions, missing bucket), which still gets captured.
+_TRANSIENT_S3_CONNECTION_EXCEPTIONS = (
+    botocore.exceptions.ConnectionError,  # covers ConnectTimeoutError, EndpointConnectionError
+    botocore.exceptions.ReadTimeoutError,
+    botocore.exceptions.ConnectionClosedError,
+)
+
+
+def _is_transient_s3_connection_error(error: BaseException) -> bool:
+    return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
 class NonRetryableException(Exception):
@@ -162,7 +177,8 @@ async def prepare_s3_files_for_querying(
                         await s3._rm(file, recursive=True)
                     except Exception as e:
                         await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                        capture_exception(e)
+                        if not _is_transient_s3_connection_error(e):
+                            capture_exception(e)
 
             await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
 
