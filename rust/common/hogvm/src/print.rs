@@ -41,7 +41,7 @@ pub fn escape_string(value: &str) -> String {
 /// else (including strings nested inside arrays/objects) goes through [`print_hog_value`].
 pub fn print_hog_string_output(heap: &VmHeap, value: &HogValue) -> Result<String, crate::VmError> {
     match value.deref(heap)? {
-        HogLiteral::String(s) => Ok(s.clone()),
+        HogLiteral::String(s) => Ok(s.to_string()),
         _ => print_hog_value(heap, value, &mut Vec::new(), 0),
     }
 }
@@ -230,7 +230,7 @@ fn number(heap: &VmHeap, v: Option<&HogValue>) -> Result<Option<f64>, crate::VmE
 fn string(heap: &VmHeap, v: Option<&HogValue>) -> Result<Option<String>, crate::VmError> {
     match v {
         Some(v) => Ok(match v.deref(heap)? {
-            HogLiteral::String(s) => Some(s.clone()),
+            HogLiteral::String(s) => Some(s.to_string()),
             _ => None,
         }),
         None => Ok(None),
@@ -501,7 +501,7 @@ impl<'a> HogQLPrinter<'a> {
         let chain = self.array_field(obj, "chain")?;
         if chain.len() == 1 {
             if let HogLiteral::String(s) = chain[0].deref(self.heap)? {
-                if s == "*" {
+                if s.as_str() == "*" {
                     return Ok("*".to_string());
                 }
             }

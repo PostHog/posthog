@@ -18,8 +18,8 @@ use crate::{
     },
     util::{get_json_nested, like, regex_match},
     values::{
-        compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable,
-        Num, NumOp, Upvalue, UpvalueCell,
+        compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogStr, HogValue,
+        LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
     },
 };
 
@@ -350,7 +350,8 @@ impl<'a> HogVM<'a> {
             }
             Operation::String => {
                 let val = self.next_str()?;
-                self.push_stack(val.to_string())?;
+                // Constants push a shared view of the pre-decoded token — no allocation.
+                self.push_stack(HogLiteral::String(HogStr::Shared(val.clone())))?;
             }
             Operation::Float => {
                 let val: f64 = self.next_f64()?;
@@ -363,7 +364,7 @@ impl<'a> HogVM<'a> {
                 Token::Int(i) => self.push_stack(*i)?,
                 Token::Bool(b) => self.push_stack(*b)?,
                 Token::Float(f) => self.push_stack(*f)?,
-                Token::Str(s) => self.push_stack(s.to_string())?,
+                Token::Str(s) => self.push_stack(HogLiteral::String(HogStr::Shared(s.clone())))?,
                 Token::Null => self.push_stack(HogLiteral::Null)?,
                 Token::Json(token) => {
                     let val = self.json_to_hog(token)?;
@@ -939,7 +940,7 @@ impl<'a> HogVM<'a> {
 
     fn js_string_coerce(&self, value: &HogValue) -> Result<String, VmError> {
         match value.deref(&self.heap)? {
-            HogLiteral::String(s) => Ok(s.clone()),
+            HogLiteral::String(s) => Ok(s.to_string()),
             HogLiteral::Null => Ok("null".to_string()),
             HogLiteral::Boolean(b) => Ok(b.to_string()),
             HogLiteral::Number(n) => Ok(match n {
@@ -1165,7 +1166,7 @@ impl<'a> HogVM<'a> {
             JsonValue::Null => Ok(HogLiteral::Null.into()),
             JsonValue::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
             JsonValue::Number(n) => Ok(HogLiteral::Number(n.clone().into()).into()),
-            JsonValue::String(s) => Ok(HogLiteral::String(s.clone()).into()),
+            JsonValue::String(s) => Ok(HogLiteral::from(s.clone()).into()),
             JsonValue::Array(arr) => {
                 let mut values = Vec::new();
                 for value in arr {
@@ -1205,7 +1206,7 @@ impl<'a> HogVM<'a> {
             HogLiteral::Null => Ok(JsonValue::Null),
             HogLiteral::Boolean(b) => Ok(JsonValue::Bool(*b)),
             HogLiteral::Number(n) => Ok(JsonValue::Number(n.clone().try_into()?)),
-            HogLiteral::String(s) => Ok(JsonValue::String(s.clone())),
+            HogLiteral::String(s) => Ok(JsonValue::String(s.to_string())),
             HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                 let mut json_arr = Vec::new();
                 for elem in arr {

@@ -1,4 +1,7 @@
-use std::{cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
+use std::{
+    cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr,
+    sync::Arc,
+};
 
 use chrono::NaiveDate;
 use indexmap::IndexMap;
@@ -63,11 +66,77 @@ impl From<LocalCallable> for Callable {
 // hog has "primitives", which are copied by e.g, "get_local", and "objects", which are passed around by reference. This is distinct from the
 // "Heap" allocated stuff, which is used for things which must outlive all references to themselves on the stack, e.g. upvalues.
 
+/// The payload of [`HogLiteral::String`]. `Owned` is a plain heap string (globals, native-fn
+/// results, computed strings); `Shared` is a refcounted slice of the pre-decoded token stream,
+/// so pushing a string *constant* is a refcount bump instead of a malloc+copy (the ~90-write
+/// geoip loop pushes ~3 constants per write, two of which are popped and dropped within a few
+/// ops — see perf/LOG.md iteration 3). Equality is content-based across the two arms.
+#[derive(Debug, Clone)]
+pub enum HogStr {
+    Owned(String),
+    Shared(Arc<str>),
+}
+
+impl std::ops::Deref for HogStr {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            HogStr::Owned(s) => s,
+            HogStr::Shared(s) => s,
+        }
+    }
+}
+
+impl PartialEq for HogStr {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl HogStr {
+    pub fn as_str(&self) -> &str {
+        self
+    }
+
+    /// Extract an owned `String`, moving without a copy when this is `Owned`.
+    pub fn into_string(self) -> String {
+        match self {
+            HogStr::Owned(s) => s,
+            HogStr::Shared(s) => (*s).to_string(),
+        }
+    }
+}
+
+impl From<String> for HogStr {
+    fn from(value: String) -> Self {
+        HogStr::Owned(value)
+    }
+}
+
+impl From<&str> for HogStr {
+    fn from(value: &str) -> Self {
+        HogStr::Owned(value.to_string())
+    }
+}
+
+impl From<Arc<str>> for HogStr {
+    fn from(value: Arc<str>) -> Self {
+        HogStr::Shared(value)
+    }
+}
+
+impl Display for HogStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HogLiteral {
     Number(Num),
     Boolean(bool),
-    String(String),
+    String(HogStr),
     Array(Vec<HogValue>),
     // A tuple is an array that prints as `(a, b)` and whose `typeof` is "tuple"; for every other
     // operation it behaves exactly like an array (the reference duck-types it as an array with an
@@ -140,7 +209,7 @@ impl HogValue {
                 // plain miss for the reference (Map.get), never an error.
                 let key_lit = chain[0].deref(heap)?;
                 let found = match key_lit {
-                    HogLiteral::String(key) => map.get(key),
+                    HogLiteral::String(key) => map.get(key.as_str()),
                     HogLiteral::Number(n) => map.get(&num_key_string(n)),
                     _ => None,
                 };
@@ -513,7 +582,7 @@ impl FromHogLiteral for String {
                 "String".to_string(),
             ));
         };
-        Ok(s)
+        Ok(s.into_string())
     }
 }
 
@@ -606,6 +675,12 @@ impl From<bool> for HogLiteral {
 
 impl From<String> for HogLiteral {
     fn from(value: String) -> Self {
+        Self::String(HogStr::Owned(value))
+    }
+}
+
+impl From<HogStr> for HogLiteral {
+    fn from(value: HogStr) -> Self {
         Self::String(value)
     }
 }
@@ -855,7 +930,7 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
         JsonValue::Null => Ok(HogLiteral::Null.into()),
         JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
         JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
-        JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
+        JsonValue::String(s) => Ok(HogLiteral::from(s).into()),
         JsonValue::Array(arr) => {
             let mut values = Vec::new();
             for value in arr {

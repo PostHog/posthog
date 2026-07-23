@@ -214,7 +214,7 @@ pub fn value_to_json(
         HogLiteral::Null => JsonValue::Null,
         HogLiteral::Boolean(b) => json!(b),
         HogLiteral::Number(n) => JsonValue::Number(n.clone().try_into()?),
-        HogLiteral::String(s) => json!(s),
+        HogLiteral::String(s) => json!(s.as_str()),
         HogLiteral::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {
@@ -317,7 +317,7 @@ pub fn value_from_json(
         JsonValue::Null => Ok(HogLiteral::Null.into()),
         JsonValue::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
         JsonValue::Number(n) => Ok(HogLiteral::Number(n.clone().into()).into()),
-        JsonValue::String(s) => Ok(HogLiteral::String(s.clone()).into()),
+        JsonValue::String(s) => Ok(HogLiteral::from(s.clone()).into()),
         JsonValue::Array(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {

@@ -151,3 +151,50 @@ this file does not yet contain one.
   (2) re-profile after this change to see whether memmove/allocator shares shifted and
   whether hoist/GetLocal or the IndexMap key path is now the top lever. (3) the
   SetProperty size-accounting walk (`HogLiteral::size`, backlog item 7).
+
+## 2026-07-23 — iteration 3: alloc-free constant-string pushes (`HogStr`)
+
+- Machine: same Linux sandbox runner (x86_64, 4 cores, rustc 1.94.1).
+- Baseline (HEAD = boxed-variants commit, median of 3): **251.4 us/op**
+  (247.4 / 254.9 / 251.4).
+- Fresh profile after boxing: allocator ~30% (malloc 16.3 across malloc/_int_malloc,
+  free 8.1, consolidate 3.2, unlink 2.0), `step` 9.2%, memmove down 5.1 -> 3.7%,
+  siphash+hash_one 5.5%, `get_token` 2.7%, indexmap insert 2.1 + get 1.1 +
+  reserve_rehash 1.8, memcmp 1.8, `String::clone` 1.3, `push_stack` 1.3.
+- Hypothesis: every `Operation::String` constant push does `Arc<str> -> to_string()`
+  (malloc+copy), and in the ~90-write loop two of the three pushed constants (the
+  chain names `properties`/`$set`/...) are popped and freed within a few ops — ~200
+  malloc/free pairs per event doing no useful work. Replace `HogLiteral::String(String)`
+  with `HogLiteral::String(HogStr)` where `HogStr = Owned(String) | Shared(Arc<str>)`:
+  constant pushes become `Shared` (one refcount bump, zero alloc; `Token::Str` is
+  already `Arc<str>`), while every owned-string path (globals, native returns, map
+  keys) stays `Owned` with move semantics — explicitly avoiding both iteration-1
+  failure modes (atomic churn on hot clone paths, added copies on owned paths).
+  `HogStr` gets a content-based `PartialEq` (an `Owned("a")` must equal a
+  `Shared("a")`) and `Deref<Target=str>`, so the compiler forces every match site to
+  choose an accessor — no silent semantic misses. Gate at >= 2%; predicted 4-8%.
+- Diff summary: new `HogStr { Owned(String), Shared(Arc<str>) }` payload for
+  `HogLiteral::String` in `values.rs` (content-based `PartialEq`, `Deref<Target=str>`,
+  `into_string()` that moves the `Owned` arm); `Operation::String` and the `Token::Str`
+  arm of `Integer` push `Shared(token.clone())`; everything else stays `Owned` via the
+  existing `From<String>` route. ~60 mechanical accessor fixes, compiler-enforced.
+  `HogStr` exported for extension authors.
+- Gates: 77 crate + 19 addon tests, fixture parity, cymbal/cohort-core compile,
+  fmt/clippy/shear in both workspaces — all green.
+- Measurement (interleaved A/B, 7 rounds, 100k iters each):
+  base 249.6 / 249.3 / 246.6 / 248.6 / 256.5 / 244.7 / 247.6 (median 248.6) vs
+  cand 260.1 / 242.0 / 238.8 / 240.8 / 240.6 / 234.4 / 236.8 (median 240.6);
+  round 1 of the candidate was a cold-start outlier, rounds 2-7 ratios 0.94-0.97.
+  -> **~3.2% improvement**.
+- Verdict: **COMMITTED** (`perf(hogvm): alloc-free constant-string pushes (248.6 -> 240.6 us/op)`).
+  Smaller than the 4-8% prediction: the chain-name malloc/free pairs are gone, but the
+  hashing/memcmp on the map probes and the remaining owned-string traffic (globals
+  conversion, map keys) still dominate. Cumulative same-machine ratio:
+  240.6/274.2 = 0.877 vs iteration-2 baseline, i.e. ~12.3% below this machine's branch
+  HEAD-at-session-start.
+- Iteration score: committed improvement — consecutive-no-commit counter stays 0.
+- Next-iteration candidates: (1) re-profile; if `json_to_hog`/`hog_to_json` (globals in,
+  result out) are now the biggest coherent block, attack the per-event JSON round trip
+  (e.g. lazy globals conversion — most of the ~30 event properties are never read by the
+  template beyond `properties`/`$ip`). (2) CallGlobal `Symbol` probe allocations.
+  (3) IndexMap rehash on the growing `$set`/`$set_once` maps (reserve on first insert).
