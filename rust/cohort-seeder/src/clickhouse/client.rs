@@ -1,9 +1,20 @@
-//! ClickHouse client construction: endpoint precedence and the typed `join_algorithm` setting.
+//! ClickHouse client construction: endpoint precedence, the TLS posture, and the typed
+//! `join_algorithm` setting.
 //!
 //! Depends on `config` for the raw env strings; every value that shapes a ClickHouse query option is
 //! parsed here so a misconfiguration fails startup instead of silently degrading query behavior.
 
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client as HyperClient;
+use hyper_util::rt::TokioExecutor;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::{aws_lc_rs, verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 
 use crate::config::Config;
 
@@ -115,11 +126,112 @@ impl FromStr for ClickHouseJoinAlgorithm {
 #[error("unknown ClickHouse join algorithm {0:?}")]
 pub struct UnknownJoinAlgorithm(pub String);
 
-pub fn build_client(config: &Config) -> Result<clickhouse::Client, UnknownJoinAlgorithm> {
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ClickHouseClientError {
+    #[error(transparent)]
+    JoinAlgorithm(#[from] UnknownJoinAlgorithm),
+    #[error("building the unverified ClickHouse TLS configuration: {0}")]
+    Tls(#[from] rustls::Error),
+}
+
+// Copied from the `clickhouse` crate's own default HTTP client so the unverified-TLS client differs
+// from the crate default in certificate verification and nothing else. The idle timeout has to stay
+// well under ClickHouse's server-side keep-alive, or the pool hands out sockets the server has closed.
+const TCP_KEEPALIVE: Duration = Duration::from_secs(60);
+const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Accepts any server certificate, delegating only the handshake-signature checks to the crypto
+/// provider. Selected by `CLICKHOUSE_VERIFY=false`: PostHog's ClickHouse serves certificates from a
+/// per-environment internal CA that no Kubernetes workload carries a trust anchor for, so a real
+/// chain validation could only ever fail. The wire stays encrypted — which is what keeps the
+/// ClickHouse password off the network — but the server is not authenticated.
+#[derive(Debug)]
+struct AcceptAnyServerCert(Arc<CryptoProvider>);
+
+impl ServerCertVerifier for AcceptAnyServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+/// A client whose TLS stack skips certificate validation. The crate's own `rustls-tls` feature
+/// hardwires the bundled Mozilla public roots (`webpki-roots`) and ignores the container trust
+/// store, so `with_http_client` is the only way to express verify-off.
+fn unverified_tls_client() -> Result<clickhouse::Client, rustls::Error> {
+    let provider = Arc::new(aws_lc_rs::default_provider());
+    let tls_config = ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAnyServerCert(provider)))
+        .with_no_client_auth();
+
+    let mut http_connector = HttpConnector::new();
+    http_connector.set_keepalive(Some(TCP_KEEPALIVE));
+    // The connector must pass https:// URLs through to the TLS layer below.
+    http_connector.enforce_http(false);
+
+    let connector = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(tls_config)
+        .https_or_http()
+        .enable_http1()
+        .wrap_connector(http_connector);
+
+    Ok(clickhouse::Client::with_http_client(
+        HyperClient::builder(TokioExecutor::new())
+            .pool_idle_timeout(POOL_IDLE_TIMEOUT)
+            .build(connector),
+    ))
+}
+
+pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseClientError> {
     let join_algorithm = config
         .seeder_ch_join_algorithm
         .parse::<ClickHouseJoinAlgorithm>()?;
-    Ok(clickhouse::Client::default()
+    let client = if config.clickhouse_verify {
+        clickhouse::Client::default()
+    } else {
+        unverified_tls_client()?
+    };
+    Ok(client
         .with_url(ClickHouseEndpoint::resolve(config).as_str())
         .with_user(&config.clickhouse_user)
         .with_password(&config.clickhouse_password)
@@ -224,7 +336,22 @@ mod tests {
         config.seeder_ch_join_algorithm = "grace_hashh".to_string();
         assert_eq!(
             build_client(&config).err(),
-            Some(UnknownJoinAlgorithm("grace_hashh".to_string()))
+            Some(ClickHouseClientError::JoinAlgorithm(UnknownJoinAlgorithm(
+                "grace_hashh".to_string()
+            )))
         );
+    }
+
+    #[test]
+    fn build_client_assembles_a_tls_stack_for_both_verify_modes() {
+        for verify in [true, false] {
+            let mut config = default_config();
+            config.clickhouse_secure = true;
+            config.clickhouse_verify = verify;
+            assert!(
+                build_client(&config).is_ok(),
+                "failed to build a client with CLICKHOUSE_VERIFY={verify}"
+            );
+        }
     }
 }

@@ -135,6 +135,13 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub clickhouse_secure: bool,
 
+    /// Whether to validate the ClickHouse server certificate. Defaults to on so an unconfigured
+    /// deployment fails closed; PostHog's internal ClickHouse serves certificates from a per-env
+    /// internal CA that no Kubernetes workload carries a trust anchor for, so the chart sets this
+    /// to `false` — the same TLS-on/verify-off posture every Python ClickHouse consumer runs.
+    #[envconfig(default = "true")]
+    pub clickhouse_verify: bool,
+
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 

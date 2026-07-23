@@ -28,10 +28,15 @@ common-liveness = { path = "../common/liveness" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 governor = { workspace = true }
+hyper-rustls = { workspace = true }
+# client-legacy: the `clickhouse` crate's `with_http_client` escape hatch only accepts a
+# `hyper_util::client::legacy::Client`.
+hyper-util = { workspace = true, features = ["client-legacy"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rdkafka = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
