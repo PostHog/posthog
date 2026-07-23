@@ -146,8 +146,8 @@ const insertRecordedPoisonPill = async (
  *
  * What it deliberately does NOT prove: that duplicates can't happen. The only dedup
  * it exercises is the in-flight-wrapper guard (the easy case). The harder duplicate
- * — a completed-and-swept rerun re-discovered while ClickHouse still lags — is
- * Finding 1, a known gap covered by its own test below.
+ * — a completed-and-swept rerun that gets re-discovered while ClickHouse still lags
+ * behind — is a known gap, documented and reproduced by the second test below.
  */
 describe('CyclotronPoisonPillAutodrain e2e', () => {
     jest.setTimeout(60_000)
@@ -272,9 +272,9 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
         // ── 5. In-flight guard: while the wrapper from step 4 is still on the rerun
         // queue, the next tick's real hasInFlightWrapper query finds it and skips the
         // group, so no second wrapper piles up. This proves ONLY the in-flight guard
-        // (the real query, end to end) — it does NOT prove duplicates are impossible:
-        // once the wrapper completes and is swept, a stale ClickHouse row re-triggers
-        // a drain (Finding 1), which the next test documents.
+        // (the real query, end to end) — it does NOT prove duplicates are impossible.
+        // Once that wrapper completes and is swept, a stale ClickHouse row can
+        // re-trigger a drain; the second test below documents and reproduces that gap.
         const drainAgain = await autodrain.runOnce()
         expect(drainAgain).toEqual({ groups: 1, enqueued: 0 })
         const wrappersAfter = await nodePool.query(
@@ -284,9 +284,9 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
         expect(wrappersAfter.rows[0].c).toBe(1)
     })
 
-    // KNOWN BUG — Finding 1 (ClickHouse-lag duplicate). This test exists to make the
-    // gap the in-flight guard does NOT close visible in the suite, rather than hidden
-    // behind a green "dedup" assertion.
+    // KNOWN GAP — a duplicate re-drain when ClickHouse lags behind the drain. This
+    // test exists to make the gap the in-flight guard does NOT close visible in the
+    // suite, rather than hidden behind a green "dedup" assertion.
     //
     // Mechanism: cross-tick dedup relies entirely on ClickHouse argMax visibility. The
     // only airtight guard (the in-flight wrapper) protects a group ONLY while its
@@ -295,13 +295,15 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
     // ClickHouse (ingestion lag), the next tick still sees the stale poison row, finds
     // no in-flight wrapper, and re-enqueues — a duplicate rerun that re-fires
     // post-currentAction side effects (emails/webhooks). Bounded by max_attempts, but
-    // each cycle is a real duplicate. Reachable single-pod whenever
-    // ClickHouse-visibility-lag > autodrain interval.
+    // each cycle is a real duplicate. Reachable on a single pod whenever
+    // ClickHouse-visibility-lag exceeds the autodrain interval.
     //
-    // The fix is a durable Postgres drain-marker keyed by invocation_id (the state the
-    // stateless v1 design deliberately punted on). When it lands, tick 2 below becomes
-    // enqueued: 0 and this assertion flips RED — at that point change it to
-    // `enqueued: 0`, drop this note, and it becomes the real regression guard.
+    // Closing it needs durable, strongly-consistent drain state that outlives the
+    // cyclotron row — e.g. a Postgres drain-marker keyed by invocation_id — because
+    // after a successful rerun is swept, the lagging ClickHouse row is the only trace
+    // left to dedup against. When that lands, tick 2 below stops re-enqueuing
+    // (enqueued: 0) and the final assertion here flips RED: change it to enqueued: 0,
+    // delete this note, and it becomes the real regression guard against the duplicate.
     it('re-drains a completed invocation when its wrapper is gone but ClickHouse still shows the poison', async () => {
         const functionId = uuidv7()
         const invocationId = uuidv7()
@@ -332,10 +334,10 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
         ])
 
         // Tick 2 SHOULD skip (the invocation already ran) -> enqueued 0. It does not
-        // today: the stale ClickHouse row is re-discovered and re-enqueued. Asserting
-        // the current buggy value so the suite stays green until Finding 1 is fixed,
-        // at which point this flips red (see the note above).
+        // today: the stale ClickHouse row is re-discovered and re-enqueued. We assert
+        // the current (buggy) value so the suite documents the gap and stays green
+        // until the dedup fix lands, at which point this flips red (see the note above).
         const tick2 = await autodrain.runOnce()
-        expect(tick2).toEqual({ groups: 1, enqueued: 1 }) // BUG: should be { groups: 1, enqueued: 0 }
+        expect(tick2).toEqual({ groups: 1, enqueued: 1 }) // KNOWN GAP: should be { groups: 1, enqueued: 0 } once drain state is durable
     })
 })
