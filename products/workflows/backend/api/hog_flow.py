@@ -1,6 +1,7 @@
 import re
 import json
 import uuid as uuid_mod
+import hashlib
 import dataclasses
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -245,6 +246,12 @@ class BlastRadiusSerializer(serializers.Serializer):
         choices=list(SUPPORTED_DEDUPE_KEYS),
         allow_null=True,
         help_text="The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.",
+    )
+    confirm_token = serializers.CharField(
+        help_text=(
+            "Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after "
+            "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
+        ),
     )
 
 
@@ -1608,6 +1615,22 @@ def mint_publish_confirm_token(hog_flow: HogFlow) -> str:
     return TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).sign(_publish_confirm_value(hog_flow))
 
 
+# Same structural-unskippability pattern for batch dispatch: only the blast-radius preview mints
+# this token, and it signs the exact audience filters it sized - so a valid token proves the
+# caller saw the recipient count for the filters being dispatched. Short max-age keeps it fresh.
+AUDIENCE_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
+_AUDIENCE_CONFIRM_SALT = "hogflow-batch-audience"
+
+
+def _audience_confirm_value(team_id: int, filters: dict) -> str:
+    canonical = json.dumps(filters, sort_keys=True, separators=(",", ":"))
+    return f"{team_id}:{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"
+
+
+def mint_audience_confirm_token(team_id: int, filters: dict) -> str:
+    return TimestampSigner(salt=_AUDIENCE_CONFIRM_SALT).sign(_audience_confirm_value(team_id, filters))
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
@@ -2119,6 +2142,44 @@ class HogFlowViewSet(
             lambda: reschedule_hog_flow_timing.delay(team_id=team_id, hog_flow_id=hog_flow_id, action_ids=action_ids)
         )
 
+    def _require_audience_confirm_token(self, request: Request, hog_flow: HogFlow) -> None:
+        confirm_token = request.data.get("confirm_token")
+        if not confirm_token:
+            raise exceptions.ValidationError(
+                {
+                    "confirm_token": (
+                        "Required: preview the audience with workflows-blast-radius first - its response "
+                        "carries the recipient count to confirm with the user and the confirm_token for "
+                        "this dispatch."
+                    )
+                }
+            )
+        try:
+            previewed = TimestampSigner(salt=_AUDIENCE_CONFIRM_SALT).unsign(
+                confirm_token, max_age=AUDIENCE_CONFIRM_TOKEN_MAX_AGE
+            )
+        except SignatureExpired:
+            raise exceptions.ValidationError(
+                {"confirm_token": "Expired - preview the audience again with workflows-blast-radius."}
+            )
+        except BadSignature:
+            raise exceptions.ValidationError(
+                {"confirm_token": "Invalid - get one from a workflows-blast-radius preview."}
+            )
+        # The dispatch fans out to the request's filters when given, else the flow's trigger
+        # audience - hash whichever will actually be used, so a token minted for different
+        # filters (or a since-edited audience) forces a re-preview of the real recipient set.
+        filters = request.data.get("filters") or (hog_flow.trigger or {}).get("filters") or {}
+        if previewed != _audience_confirm_value(self.team_id, filters):
+            raise exceptions.ValidationError(
+                {
+                    "confirm_token": (
+                        "The audience changed since the preview - run workflows-blast-radius again with "
+                        "the current filters and confirm the new count with the user."
+                    )
+                }
+            )
+
     def _get_in_flight_counts(self, hog_flow: HogFlow) -> Optional[dict]:
         # Best-effort: publish must not fail because the counting service is unreachable — the counts
         # are advisory ("N runs in flight will follow the new config"), not a gate. by_action and
@@ -2435,6 +2496,7 @@ class HogFlowViewSet(
                     "total": total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
                     "dedupe_key": applied_dedupe_key,
+                    "confirm_token": mint_audience_confirm_token(self.team_id, filters),
                 }
             ).data
         )
@@ -2776,6 +2838,13 @@ class HogFlowViewSet(
             # workflows; enforce it here too so API/MCP callers can't start a run the consumer would only drop.
             if hog_flow.status != HogFlow.State.ACTIVE:
                 raise exceptions.ValidationError("Workflow must be active to run a batch. Enable it first.")
+
+            # A batch run is an irreversible mass send: programmatic callers must prove they previewed
+            # the audience, because only the blast-radius preview mints this token and it signs the
+            # exact filters being dispatched. The web builder has its own confirmation UI and stays
+            # token-free.
+            if get_event_source(request) != EventSource.WEB:
+                self._require_audience_confirm_token(request, hog_flow)
 
             serializer = HogFlowBatchJobSerializer(
                 data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}

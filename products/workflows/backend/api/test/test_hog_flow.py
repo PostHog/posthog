@@ -2611,6 +2611,50 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 50000
 
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_programmatic_batch_dispatch_requires_audience_confirm_token(self, mock_create_invocation):
+        # A batch run is an irreversible mass send. Programmatic callers must hold a token only the
+        # blast-radius preview mints, signed over the exact filters being dispatched - so an agent
+        # can't size and fire in one step, and an audience edited after the preview forces a re-preview.
+        # The web builder (session auth) keeps its own confirm UI and stays token-free (covered by the
+        # existing batch job tests, which run as WEB).
+        flow_id = self._create_active_hog_flow()
+        filters = {"properties": []}
+
+        no_token = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {"filters": filters},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert no_token.status_code == 400, no_token.json()
+        assert "workflows-blast-radius" in no_token.json()["detail"]
+        mock_create_invocation.assert_not_called()
+
+        preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": filters})
+        assert preview.status_code == 200, preview.json()
+        token = preview.json()["confirm_token"]
+
+        wrong_filters = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {
+                "filters": {"properties": [{"key": "email", "type": "person", "value": "x", "operator": "icontains"}]},
+                "confirm_token": token,
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert wrong_filters.status_code == 400, wrong_filters.json()
+        assert "audience changed" in wrong_filters.json()["detail"]
+
+        dispatched = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {"filters": filters, "confirm_token": token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert dispatched.status_code == 200, dispatched.json()
+        mock_create_invocation.assert_called_once()
+
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
         hog_flow, _ = self._create_hog_flow_with_action(
