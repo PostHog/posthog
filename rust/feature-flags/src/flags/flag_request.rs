@@ -94,11 +94,12 @@ pub struct FlagRequest {
 }
 
 impl FlagRequest {
-    pub fn resolve_sent_at(&self, query_sent_at: Option<i64>) -> Option<i64> {
+    pub fn resolve_sent_at(&self, query_sent_at: Option<i64>) -> Option<u64> {
         self.sent_at
             .as_ref()
             .map(DateTime::timestamp_millis)
-            .or(query_sent_at)
+            .and_then(|sent_at| u64::try_from(sent_at).ok())
+            .or_else(|| query_sent_at.and_then(|sent_at| u64::try_from(sent_at).ok()))
     }
 
     /// Takes a request payload and tries to read it.
@@ -521,6 +522,15 @@ mod tests {
             FlagRequest::default().resolve_sent_at(Some(1_600_000_000_000)),
             Some(1_600_000_000_000)
         );
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some("1969-12-31T23:59:59Z".parse().unwrap()),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(FlagRequest::default().resolve_sent_at(Some(-1)), None);
     }
 
     #[test]
