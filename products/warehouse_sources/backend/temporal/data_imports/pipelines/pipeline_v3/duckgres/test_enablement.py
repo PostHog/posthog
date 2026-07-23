@@ -88,15 +88,3 @@ def test_duckgres_sink_enablement_uses_memberships_and_carries_org_budgets(
     # NULL suffix and disabled events backfill do not revoke sink membership;
     # the unregistered third team is never evaluated even though its org is provisioned.
     assert mock_feature_enabled.call_count == 2
-
-
-@pytest.mark.django_db
-@patch.object(enablement, "is_dev_mode", return_value=False)
-def test_duckgres_sink_enablement_closes_stale_connections_before_querying(_mock_dev: MagicMock) -> None:
-    """The poll loop calls this via a bare asyncio sync_to_async (not the connection-safe
-    database_sync_to_async wrapper), so a connection killed by the DB/proxy since the last
-    refresh is never detected and closed before reuse unless this does it."""
-    with patch("django.db.close_old_connections") as mock_close:
-        enablement.duckgres_sink_enablement()
-
-    mock_close.assert_called_once()

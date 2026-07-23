@@ -421,23 +421,6 @@ class TestValidateDuckgresIdentifier:
 
 
 @pytest.mark.django_db
-class TestGetOrgIdForTeam:
-    def test_closes_stale_connections_before_querying(self):
-        """Temporal activities call this from long-lived worker threads that never
-        go through Django's request/response cycle, so a connection killed by the
-        DB/proxy is never detected and closed before reuse unless this does it."""
-        from posthog.ducklake.common import _get_org_id_for_team
-
-        org = Organization.objects.create(name="Org")
-        team = Team.objects.create(organization=org)
-
-        with patch("django.db.close_old_connections") as mock_close:
-            assert _get_org_id_for_team(team.id) == str(org.id)
-
-        mock_close.assert_called_once()
-
-
-@pytest.mark.django_db
 class TestDuckgresDataImportsSchema:
     def _team(self):
         from posthog.models import Organization, Team

@@ -142,15 +142,8 @@ def _get_config_from_env_strict() -> dict[str, str]:
 
 def _get_org_id_for_team(team_id: int) -> str:
     """Resolve organization_id from team_id. Used by callers that only have team_id."""
-    from django.db import close_old_connections
-
     from posthog.models import Team
 
-    # Callers include sync Temporal activities running in long-lived worker threads,
-    # which never go through Django's request/response cycle — so a connection killed
-    # by the DB/proxy (e.g. after CONN_MAX_AGE) is never detected and closed before
-    # reuse, surfacing as "the connection is closed" OperationalErrors.
-    close_old_connections()
     team = Team.objects.only("organization_id").get(id=team_id)
     return str(team.organization_id)
 
