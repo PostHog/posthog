@@ -72,3 +72,10 @@ MAX_PACKAGES = 100
 # version history (some popular packages have thousands of versions) never forces one oversized
 # in-memory batch. The pipeline batches on top of this; this value only caps the per-yield list size.
 MAX_ROWS_PER_BATCH = 5000
+
+# Hard cap on the raw bytes we'll buffer for a single npm response before parsing JSON. The registry
+# document is user-selected (anyone can publish a package and point a source at it), so without a cap
+# a package crafted with enough versions/metadata could make one response exhaust the worker's memory.
+# Set well above the largest real full-registry documents (tens of MB) so legitimate packages sync,
+# while still bounding the pathological case.
+MAX_RESPONSE_BYTES = 250 * 1024 * 1024

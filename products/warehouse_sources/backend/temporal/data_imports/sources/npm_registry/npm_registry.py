@@ -1,4 +1,5 @@
 import re
+import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.npm_regist
     EARLIEST_DOWNLOAD_DATE,
     MAX_DOWNLOADS_WINDOW_DAYS,
     MAX_PACKAGES,
+    MAX_RESPONSE_BYTES,
     MAX_ROWS_PER_BATCH,
     NPM_REGISTRY_ENDPOINTS,
     NpmRegistryEndpointConfig,
@@ -82,23 +84,47 @@ def _registry_url(package: str) -> str:
     return f"{NPM_REGISTRY_BASE_URL}/{_encode_package(package)}"
 
 
+def _read_capped(response: requests.Response, url: str) -> bytes:
+    """Read a streamed response body into memory, aborting once it exceeds `MAX_RESPONSE_BYTES`.
+
+    The document is user-selected, so we never buffer an unbounded body: we read in chunks and raise
+    as soon as the running total crosses the cap, before the full body (and its parsed form) can
+    exhaust the worker's memory.
+    """
+    total = 0
+    chunks: list[bytes] = []
+    for chunk in response.iter_content(chunk_size=1 << 20):
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise ValueError(
+                f"npm registry response exceeded the {MAX_RESPONSE_BYTES}-byte limit (url={url}); "
+                "refusing to buffer it to protect worker memory."
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _fetch_json(
     session: requests.Session, url: str, logger: FilteringBoundLogger, timeout: int
 ) -> dict[str, Any] | None:
     """Fetch a single JSON document. Returns `None` for a 404 (package not found) so a typo'd or
     unpublished package is skipped rather than failing the whole sync — other configured packages
-    are unaffected. `make_tracked_session()` already retries transient 429/5xx transport errors."""
-    response = session.get(url, timeout=timeout)
+    are unaffected. `make_tracked_session()` already retries transient 429/5xx transport errors.
 
-    if response.status_code == 404:
-        logger.warning(f"npm registry: package not found, skipping: url={url}")
-        return None
+    Streams the body and caps how much we buffer (see `_read_capped`) so a user-selected package
+    can't return an unbounded document that exhausts worker memory."""
+    with session.get(url, timeout=timeout, stream=True) as response:
+        if response.status_code == 404:
+            logger.warning(f"npm registry: package not found, skipping: url={url}")
+            return None
 
-    if not response.ok:
-        logger.error(f"npm registry API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        if not response.ok:
+            logger.error(f"npm registry API error: status={response.status_code}, body={response.text}, url={url}")
+            response.raise_for_status()
 
-    return response.json()
+        body = _read_capped(response, url)
+
+    return json.loads(body)
 
 
 def _to_date(value: Any) -> date | None:

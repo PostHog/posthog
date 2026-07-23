@@ -8,6 +8,7 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.npm_registry import (
     NpmRegistryResumeConfig,
     _encode_package,
+    _fetch_json,
     _first_download_window_start,
     _first_license,
     _to_date,
@@ -288,6 +289,37 @@ class TestGetRowsVersions:
             mock.call(NpmRegistryResumeConfig(package_index=1)),
             mock.call(NpmRegistryResumeConfig(package_index=2)),
         ]
+
+
+class TestFetchJson:
+    def _session(self, *, status: int, chunks: list[bytes]) -> mock.MagicMock:
+        response = mock.MagicMock()
+        response.status_code = status
+        response.ok = 200 <= status < 400
+        response.iter_content.return_value = iter(chunks)
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        session = mock.MagicMock()
+        session.get.return_value = response
+        return session
+
+    def test_streams_and_parses_body(self):
+        session = self._session(status=200, chunks=[b'{"versions":', b'{"1.0.0":1}}'])
+        result = _fetch_json(session, "https://example.com/pkg", mock.MagicMock(), 60)
+        assert result == {"versions": {"1.0.0": 1}}
+        # stream=True keeps us from buffering the whole body up front.
+        assert session.get.call_args.kwargs["stream"] is True
+
+    def test_404_returns_none(self):
+        session = self._session(status=404, chunks=[])
+        assert _fetch_json(session, "https://example.com/missing", mock.MagicMock(), 60) is None
+
+    def test_raises_when_body_exceeds_cap(self):
+        # Two chunks over a tiny patched cap: the read must abort instead of buffering the whole body.
+        session = self._session(status=200, chunks=[b"x" * 8, b"x" * 8])
+        with mock.patch(f"{_MODULE}.MAX_RESPONSE_BYTES", 10):
+            with pytest.raises(ValueError, match="exceeded the .*-byte limit"):
+                _fetch_json(session, "https://example.com/huge", mock.MagicMock(), 60)
 
 
 class TestValidatePackages:
