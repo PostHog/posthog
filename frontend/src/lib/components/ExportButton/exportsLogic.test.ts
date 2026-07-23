@@ -268,6 +268,49 @@ describe('exportsLogic', () => {
             expect(logic.values.freshUndownloadedExports).toEqual([])
         })
 
+        it('keeps polling a tracked export when its individual fetch fails', async () => {
+            // A tracked export can be missing from a format-filtered list, so it is fetched directly.
+            // A transient fetch failure must not stop the poll loop and orphan the export.
+            jest.useFakeTimers()
+            try {
+                const pending = asset({ id: 31, export_format: ExporterFormat.MP4, has_content: false })
+                // The list omits id 31 and its only entry is already complete, so a re-poll can
+                // only come from the failed export being kept in the pending set.
+                const unrelatedDone = asset({ id: 88, export_format: ExporterFormat.CSV, has_content: true })
+                jest.spyOn(api.exports, 'get').mockRejectedValue(new Error('transient'))
+                const loadExportsSpy = jest.spyOn(logic.actions, 'loadExports')
+
+                logic.actions.addFresh(pending)
+                logic.actions.loadExportsSuccess([unrelatedDone])
+                await jest.advanceTimersByTimeAsync(30000)
+
+                expect(api.exports.get).toHaveBeenCalledWith(31)
+                expect(loadExportsSpy).toHaveBeenCalled()
+                // The export is neither dropped nor prematurely notified as complete/failed.
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toContain(31)
+                expect(lemonToast.success).not.toHaveBeenCalled()
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps the undownloaded highlight when the completion download fails', async () => {
+            const pending = asset({ id: 23, export_format: ExporterFormat.MP4, has_content: false })
+            const finished = asset({ id: 23, export_format: ExporterFormat.MP4, has_content: true })
+
+            logic.actions.addFresh(pending)
+            logic.actions.loadExportsSuccess([finished])
+            await flush()
+
+            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(false)
+            await jest.mocked(lemonToast.success).mock.calls[0][1]!.button!.action()
+
+            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[finished]])
+            // A failed download must keep the highlight so the user can retry from the exports panel.
+            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([23])
+        })
+
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {
             jest.spyOn(api.exports, 'create').mockRejectedValue({
                 data: { attr: 'export_limit_exceeded', detail: 'You hit the cap' },
