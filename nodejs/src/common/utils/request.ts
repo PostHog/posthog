@@ -1,7 +1,6 @@
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
-import { AsyncLocalStorage } from 'node:async_hooks'
 import net from 'node:net'
 import { Counter, Gauge } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
@@ -21,6 +20,7 @@ import { URL } from 'url'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { isProdEnv } from './env-utils'
+import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 
@@ -83,11 +83,6 @@ export class ResolutionError extends Error {
         this.name = 'ResolutionError'
     }
 }
-
-// Caller attribution (e.g. teamId, hogFunctionId) for URL-validation check logs. The DNS
-// check runs inside undici's connect flow, which has no caller context — callers that want
-// attributed logs wrap their fetch in `fetchAttribution.run({...}, ...)`.
-export const fetchAttribution = new AsyncLocalStorage<Record<string, unknown>>()
 
 // One log line per URL-validation check run, before the verdict, so blocked requests are
 // recorded too. The DNS check only runs when undici opens a new connection (keep-alive
