@@ -61512,11 +61512,6 @@ export namespace Schemas {
      * registered the row, the provided tunables are applied to it instead.
      */
     export interface SignalScoutConfigCreate {
-      /**
-         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
-         * @maxLength 200
-         */
-      skill_name: string;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -61535,6 +61530,73 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+    }
+
+    /**
+     * Schedule, enablement, and delivery options accepted while creating a scout.
+     */
+    export interface SignalScoutConfigOptions {
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+    }
+
+    /**
+     * Create a runnable custom scout and its config in one atomic request.
+     */
+    export interface SignalScoutCreate {
+      /**
+         * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Short description of the signal or behavior this scout investigates.
+         * @maxLength 4096
+         */
+      description: string;
+      /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+      body: string;
+      /** Optional reference files bundled with the scout prompt. */
+      files?: LLMSkillFileInput[];
+      /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+      config?: SignalScoutConfigOptions;
+    }
+
+    export interface SignalScoutSkillSummary {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      /** Server-managed report tools granted to this scout. */
+      readonly allowed_tools: readonly string[];
+    }
+
+    export interface SignalScoutCreateResponse {
+      /** True when this request created the missing scout skill or config; false when both already existed. */
+      created: boolean;
+      skill: SignalScoutSkillSummary;
+      config: SignalScoutConfig;
     }
 
     /**

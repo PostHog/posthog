@@ -9,7 +9,9 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   No registration step.
 - **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, and a `last_run_at` stamp.
   A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one — authoring the skill is enough to get a scout.
-  To configure a fresh scout immediately (instead of waiting for the tick), register the config yourself with `posthog:scout-config-create`, setting the schedule / emit posture in the same call; until one of those happens, the scout has no config row and won't show in `-config-list`.
+  Prepare a fresh per-team scout and its config together with `posthog:scout-create-prepare`; the nested `config` object sets its schedule, emit posture, and destinations before it can run.
+  Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
+  The lower-level `posthog:scout-config-create` remains available when a skill already exists without a config.
   Config responses also carry the scout's `description`, read live from the skill's frontmatter — not a config field you set.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min).
   Each tick it bounds candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then dispatches every **enabled** scout whose schedule is **due** (`last_run_at is None`, or `now - last_run_at ≥ run_interval_minutes`), most-overdue first, capped per tick.
@@ -21,7 +23,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 Pausing a scout = `enabled=false`.
 Slowing it = a larger `run_interval_minutes`.
 Dry-running it = `emit=false`.
-All three via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time via `-config-create`.
+All three via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.
 
 ## Path A — per-team (skills store)
 
@@ -35,12 +37,11 @@ posthog:skill-list {"search": "signals-scout"}
 # Read a canonical scout to use as a template
 posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 
-# New scout from scratch — always include the report-channel allowed_tools
-posthog:skill-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "allowed_tools": ["emit_report", "edit_report"], "compatibility": "...", "metadata": {"owner_team": "<team>", "scope": "<scope>"}}
+# New scout from scratch: prepare the complete definition and config.
+posthog:scout-create-prepare {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"run_interval_minutes": 120}}
 
-# Register its config immediately with the schedule you want (otherwise the coordinator
-# auto-registers the default every-24-hours schedule on its next tick)
-posthog:scout-config-create {"skill_name": "signals-scout-<scope>", "run_interval_minutes": 120}
+# Show the returned message and wait for the user to type `confirm`, then execute.
+posthog:scout-create-execute {"confirmation_hash": "<returned-hash>", "confirmation": "confirm"}
 
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
