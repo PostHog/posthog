@@ -444,7 +444,7 @@ export const PropertyDefinitionUpdateInputSchema = z.object({
         .array(z.string())
         .optional()
         .describe(
-            'Tags to organize properties by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
+            'Tags to organize properties by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention"). Warning: this REPLACES the property\'s entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.'
         ),
     property_type: z
         .enum(['DateTime', 'String', 'Numeric', 'Boolean', 'Duration'])

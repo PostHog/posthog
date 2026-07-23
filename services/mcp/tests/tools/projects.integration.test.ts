@@ -158,7 +158,8 @@ describe('Projects', { concurrent: false }, () => {
 
             expect(propertyDef.description).toBe(testDescription)
             expect(propertyDef.name).toBe('$browser')
-            expect(propertyDef.url).toContain('/data-management/properties/')
+            // The definition-detail route is keyed by id, not name, so the link must carry the id
+            expect(propertyDef.url).toContain(`/data-management/properties/${propertyDef.id}`)
         })
 
         it('should update property definition tags', async () => {

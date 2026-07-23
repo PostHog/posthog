@@ -436,7 +436,7 @@
         }
     },
     "property-definition-update": {
-        "description": "Update property definition metadata. Can update description, tags, property type (DateTime, String, Numeric, Boolean, Duration), and mark status as verified or hidden. Use the exact property name like '$browser' or 'plan_type'. Pass 'type' to target event, person, group, or session properties (defaults to event); for group properties also pass 'groupTypeIndex'.",
+        "description": "Update property definition metadata. Can update description, tags, property type (DateTime, String, Numeric, Boolean, Duration), and mark status as verified or hidden. Use the exact property name like '$browser' or 'plan_type'. Pass 'type' to target event, person, group, or session properties (defaults to event); for group properties also pass 'groupTypeIndex'. Note: passing 'tags' replaces the property's entire tag list rather than merging, so include any existing tags you want to keep.",
         "category": "Events & properties",
         "feature": "events",
         "summary": "Update a property definition's metadata.",

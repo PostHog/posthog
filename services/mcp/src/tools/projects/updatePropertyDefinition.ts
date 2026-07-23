@@ -30,7 +30,7 @@ export const updatePropertyDefinitionHandler: ToolBase<typeof schema, Result>['h
 
     return {
         ...result.data,
-        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/properties/${encodeURIComponent(result.data.name)}`,
+        url: `${context.api.getProjectBaseUrl(projectId)}/data-management/properties/${encodeURIComponent(result.data.id)}`,
     }
 }
 
