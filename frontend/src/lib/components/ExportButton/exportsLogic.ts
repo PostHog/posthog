@@ -257,10 +257,34 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.loadExports()
         },
         downloadExport: async ({ exportedAsset }) => {
-            // Only drop the "not downloaded" highlight once the file actually downloads, so a
-            // failed retrieval leaves the user a retry cue instead of a silent dead end.
-            if (await downloadExportedAsset(exportedAsset)) {
-                actions.removeFresh(exportedAsset)
+            // Downloading a synchronous export blocks server-side while the content is generated,
+            // and downloadExportedAsset probes the endpoint before navigating — that wait can run
+            // for a minute or more. Drive it through lemonToast.promise so the user sees a spinner
+            // immediately instead of a button that looks like it did nothing until the download starts.
+            const downloadToastId = 'download-' + uuid()
+            try {
+                await lemonToast.promise(
+                    (async (): Promise<string> => {
+                        // Only drop the "not downloaded" highlight once the file actually downloads, so a
+                        // failed retrieval leaves the user a retry cue instead of a silent dead end.
+                        if (!(await downloadExportedAsset(exportedAsset))) {
+                            throw new Error(EXPORT_DOWNLOAD_FAILED)
+                        }
+                        actions.removeFresh(exportedAsset)
+                        return 'Download started'
+                    })(),
+                    {
+                        pending: 'Preparing download…',
+                        success: 'Download started',
+                        error: 'Download failed',
+                    },
+                    { toastId: downloadToastId }
+                )
+            } catch (error) {
+                if (error instanceof Error && error.message === EXPORT_DOWNLOAD_FAILED) {
+                    // downloadExportedAsset already surfaced a specific error toast — drop the generic one.
+                    lemonToast.dismiss(downloadToastId)
+                }
             }
         },
         loadExportsSuccess: async ({ exports: exportsList }, breakpoint) => {
