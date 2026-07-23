@@ -11,6 +11,9 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
@@ -292,3 +295,100 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
         day_1 = self._row(result, "Day 1")  # user-2, no renewal
         self.assertEqual(day_1["values"][0]["count"], 1)
         self.assertEqual(day_1["values"][1]["count"], 0)
+
+    @parameterized.expand(
+        [
+            # first-ever excludes user-2: their earliest activity is a renewal, not a signup, so they never
+            # qualify as a first-ever signup. first-time cohorts user-2 on their first signup regardless.
+            ("retention_first_ever_occurrence", 1, 1),
+            ("retention_first_time", 2, 2),
+        ]
+    )
+    def test_first_time_modes_dwh_start_24h_window(
+        self, retention_type: str, expected_interval_0: int, expected_interval_1: int
+    ):
+        person_ids = self._create_people()
+        activity_table = self._create_data_warehouse_table(
+            filename="warehouse_ft_activity.csv",
+            table_name="warehouse_ft_activity",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", "2025-01-01 09:00:00"],
+                [2, person_ids["user-1"], "renewed", "2025-01-02 12:00:00"],  # +27h from 09:00 -> interval 1
+                [3, person_ids["user-2"], "renewed", "2025-01-01 08:00:00"],  # pre-signup activity
+                [4, person_ids["user-2"], "signed_up", "2025-01-01 10:00:00"],
+                [5, person_ids["user-2"], "renewed", "2025-01-02 11:00:00"],  # +25h from 10:00 -> interval 1
+            ],
+            table_columns=ACTIVITY_TABLE_COLUMNS,
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "timeWindowMode": "24_hour_windows",
+                    "retentionType": retention_type,
+                    "targetEntity": _signed_up_entity(activity_table),
+                    "returningEntity": _renewed_entity(activity_table),
+                },
+            }
+        )
+
+        day_0 = self._row(result, "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], expected_interval_0)
+        self.assertEqual(day_0["values"][1]["count"], expected_interval_1)
+
+    def test_first_time_dwh_start_excludes_anchor_before_window_24h(self):
+        person_ids = self._create_people()
+        activity_table = self._create_data_warehouse_table(
+            filename="warehouse_ft_guard.csv",
+            table_name="warehouse_ft_guard",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", "2024-12-30 09:00:00"],  # anchor before date_from
+                [2, person_ids["user-1"], "renewed", "2025-01-02 12:00:00"],
+                [3, person_ids["user-2"], "signed_up", "2025-01-01 09:00:00"],  # anchor in window
+                [4, person_ids["user-2"], "renewed", "2025-01-02 12:00:00"],  # +27h -> interval 1
+            ],
+            table_columns=ACTIVITY_TABLE_COLUMNS,
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "timeWindowMode": "24_hour_windows",
+                    "retentionType": "retention_first_time",
+                    "targetEntity": _signed_up_entity(activity_table),
+                    "returningEntity": _renewed_entity(activity_table),
+                },
+            }
+        )
+
+        # user-1's first signup (2024-12-30) is before date_from, so the window guard nulls their anchor and they
+        # are excluded entirely — only user-2 is cohorted, and no spurious cohort appears from a negative interval.
+        day_0 = self._row(result, "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], 1)
+        self.assertEqual(day_0["values"][1]["count"], 1)
+        self.assertEqual(sum(row["values"][0]["count"] for row in result), 1)
+
+    def test_cumulative_with_dwh_24h_window_is_rejected(self):
+        activity_table = self._create_renewals_table("warehouse_cumulative", rows=[])
+        with self.assertRaisesMessage(ValidationError, "Cumulative retention is not supported for 24 hour windows."):
+            self.run_query(
+                query={
+                    "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                    "retentionFilter": {
+                        "period": "Day",
+                        "totalIntervals": 4,
+                        "timeWindowMode": "24_hour_windows",
+                        "cumulative": True,
+                        "targetEntity": self._renewals_entity(activity_table),
+                        "returningEntity": self._renewals_entity(activity_table),
+                    },
+                }
+            )
