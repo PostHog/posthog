@@ -85,14 +85,16 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element | null {
             />
 
             <div className="space-y-4">
-                {(Object.keys(managedViewsets) as DataWarehouseManagedViewsetKind[]).map((kind) => (
-                    <DataWarehouseManagedViewsetCard
-                        key={kind}
-                        resourceType={RESOURCE_TYPES_MAP[kind]}
-                        type="DataWarehouseManagedViewsetsScene"
-                        kind={kind}
-                    />
-                ))}
+                {(Object.keys(managedViewsets) as DataWarehouseManagedViewsetKind[])
+                    .filter((kind) => kind in RESOURCE_TYPES_MAP)
+                    .map((kind) => (
+                        <DataWarehouseManagedViewsetCard
+                            key={kind}
+                            resourceType={RESOURCE_TYPES_MAP[kind]}
+                            type="DataWarehouseManagedViewsetsScene"
+                            kind={kind}
+                        />
+                    ))}
             </div>
 
             <DataWarehouseManagedViewsetImpactModal
