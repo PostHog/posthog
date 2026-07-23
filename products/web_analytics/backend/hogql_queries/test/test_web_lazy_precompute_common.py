@@ -31,6 +31,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
+    REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
@@ -498,7 +499,7 @@ class TestStaleRevalidationEnqueue(BaseTest):
     def _delay_patch(self):
         return mock.patch(
             "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
-            ".revalidate_web_analytics_precompute.delay"
+            ".revalidate_web_analytics_precompute.apply_async"
         )
 
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self):
@@ -512,7 +513,10 @@ class TestStaleRevalidationEnqueue(BaseTest):
                 handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
         assert delay.call_count == 1
-        payload = delay.call_args.kwargs
+        # The warm gets a head start delay so it never contends with the
+        # dashboard burst that enqueued it.
+        assert delay.call_args.kwargs["countdown"] == REVALIDATION_START_DELAY_SECONDS
+        payload = delay.call_args.kwargs["kwargs"]
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "WebOverviewQuery"
 

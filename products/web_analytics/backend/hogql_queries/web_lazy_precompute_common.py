@@ -173,6 +173,13 @@ def is_background_warming_request() -> bool:
 # request) so two different stale families in one request each still get their refresh.
 REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 
+# Head start for the interactive burst: warms enqueued by a dashboard load run on the
+# same team/cluster query slots as the dashboard's own live queries, so firing them
+# immediately makes the background work contend with the very read it is serving.
+# Dashboard bursts finish in seconds; the warm's purpose is the NEXT visit, so a
+# fixed delay costs nothing and removes the contention deterministically.
+REVALIDATION_START_DELAY_SECONDS = 90
+
 
 def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
@@ -192,8 +199,9 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
         debounce_key = f"web_swr_reval:{team.id}:{family}:{compute_filters_eligibility_hash(query, team.timezone)[:16]}"
         if not redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
             return
-        revalidate_web_analytics_precompute.delay(
-            team_id=team.id, query=query.model_dump(mode="json", exclude_none=True)
+        revalidate_web_analytics_precompute.apply_async(
+            kwargs={"team_id": team.id, "query": query.model_dump(mode="json", exclude_none=True)},
+            countdown=REVALIDATION_START_DELAY_SECONDS,
         )
     except Exception:
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED.labels(family=family).inc()
