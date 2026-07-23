@@ -167,7 +167,7 @@ def redact_sandbox_command(command: str) -> str:
 def build_agent_runtime_env_prefix(
     *,
     interaction_origin: str | None = None,
-    agent_protocol: str | None = None,
+    agent_runtime: str | None = None,
     sandbox_id: str | None = None,
     runtime_adapter: str | None = None,
     provider: str | None = None,
@@ -181,7 +181,7 @@ def build_agent_runtime_env_prefix(
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
-        "POSTHOG_AGENT_PROTOCOL": agent_protocol,
+        "POSTHOG_AGENT_RUNTIME": agent_runtime,
         "POSTHOG_SANDBOX_ID": sandbox_id,
         "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
         "POSTHOG_CODE_PROVIDER": provider,
@@ -333,7 +333,7 @@ class SandboxBase(ABC):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
-        agent_protocol: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
