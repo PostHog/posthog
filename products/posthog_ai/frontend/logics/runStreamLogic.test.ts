@@ -2308,6 +2308,36 @@ describe('runStreamLogic', () => {
             ])
         })
 
+        it('clears currentProgress when a step finishes so the milestone label never sticks as live status', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'in_progress',
+                        label: 'Starting agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toEqual('Starting agent')
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'completed',
+                        label: 'Started agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toBeNull()
+        })
+
         it('falls back to detail when label is absent', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(

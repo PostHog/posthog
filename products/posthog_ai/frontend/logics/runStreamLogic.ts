@@ -1533,8 +1533,8 @@ export interface runStreamLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     }
-    setCurrentProgress: (progress: string) => {
-        progress: string
+    setCurrentProgress: (progress: string | null) => {
+        progress: string | null
     }
     setCurrentStage: (stage: string | null) => {
         stage: string | null
@@ -1763,7 +1763,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         handleStreamError: (envelope: StreamErrorEnvelope) => envelope,
         // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
-        setCurrentProgress: (progress: string) => ({ progress }),
+        setCurrentProgress: (progress: string | null) => ({ progress }),
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
         markRunStarted: true,
@@ -3104,9 +3104,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (method === '_posthog/progress') {
                 const progress = (notification.params ?? {}) as PosthogProgressParams
-                actions.setCurrentProgress(
-                    stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
-                )
+                const status = normalizeProgressStatus(progress.status)
+                // A finished step is a milestone (the thread's progress card keeps it), not the current
+                // activity — clear it so the thinking line falls back to the rotating message instead of
+                // sticking on e.g. "Started agent" for the rest of the turn.
+                if (status === 'completed' || status === 'failed') {
+                    actions.setCurrentProgress(null)
+                } else {
+                    actions.setCurrentProgress(
+                        stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
+                    )
+                }
                 return
             }
             // The agent-server persists the permission lifecycle to the run log — pending approvals
