@@ -53,6 +53,9 @@ tools:
             `synthesis_config`, `alert_config`, cadence, and delivery targets. Use `vision-actions-runs-list` +
             `vision-actions-runs-retrieve` to read the reports it has actually produced.
         feature_flag: replay-vision
+    vision-actions-run-create:
+        operation: vision_actions_run_create
+        enabled: false
     vision-actions-runs-list:
         operation: vision_actions_runs_list
         enabled: true

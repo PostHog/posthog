@@ -16534,8 +16534,8 @@ export namespace Schemas {
     }
 
     /**
-     * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
-     * pipeline, never through the API.
+     * One person- or group-property sync or backfill run. Read-only: runs are created by the
+     * sync/backfill pipeline, never through the API.
      */
     export interface CustomPropertySyncRun {
       readonly id: string;
@@ -16557,11 +16557,11 @@ export namespace Schemas {
       readonly rows_read: number;
       /** Rows whose mapped values changed since the last run. */
       readonly changed: number;
-      /** Person profiles updated (changed rows that matched an existing person). */
+      /** Person or group profiles updated (changed rows that matched an existing person/group). */
       readonly existing: number;
       /** Property-update intents produced to the ingestion pipeline. */
       readonly produced: number;
-      /** Changed rows dropped because no existing person matched the distinct id. */
+      /** Changed rows dropped because no existing person/group matched the key column value. */
       readonly skipped_missing_person: number;
       /**
          * Error summary if the run failed, else null.
@@ -16573,8 +16573,9 @@ export namespace Schemas {
     }
 
     /**
-     * Binds a materialized data-warehouse view column to a custom property definition; the view's
-     * values are synced onto matching accounts on each materialization.
+     * Binds a data-warehouse source to a custom property definition. Account sources read a
+     * materialized view column and sync onto matching accounts; person and group sources read a
+     * warehouse schema and sync onto matching persons or groups on each warehouse sync.
      */
     export interface CustomPropertySource {
       readonly id: string;
@@ -16586,7 +16587,7 @@ export namespace Schemas {
          */
       saved_query?: string | null;
       /**
-         * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+         * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
          * @nullable
          */
       external_data_schema?: string | null;
@@ -16596,10 +16597,10 @@ export namespace Schemas {
          * @nullable
          */
       source_column?: string | null;
-      /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+      /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
       /**
-         * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
+         * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
          */
       key_column: string;
@@ -16623,16 +16624,16 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       /**
-         * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+         * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
          * @nullable
          */
       readonly sync_frequency_interval_seconds: number | null;
       /**
-         * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+         * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
          * @nullable
          */
       readonly next_sync_at: string | null;
-      /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+      /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
       readonly latest_run: CustomPropertySyncRun | null;
     }
 
@@ -16744,7 +16745,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Response of the person-property sync/backfill trigger actions.
+     * Response of the person/group-property sync/backfill trigger actions.
      */
     export interface CustomPropertySyncTriggerResponse {
       /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
@@ -60252,6 +60253,16 @@ export namespace Schemas {
       reference: RoleExternalReference | null;
     }
 
+    /**
+     * Async-accepted response for POST /vision/actions/{id}/run/.
+     */
+    export interface RunActionResponse {
+      /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+      workflow_id: string;
+      /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+      already_running: boolean;
+    }
+
     export interface RunFailureLogs {
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
@@ -60799,6 +60810,54 @@ export namespace Schemas {
       banner_message: string | null;
       /** The team's enforced scout run caps and current usage. */
       limits: ScoutLimits;
+    }
+
+    /**
+     * `SignalScoutNote` projection used by `notes-list` and `notes-create`.
+     */
+    export interface ScoutNote {
+      /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
+      id: string;
+      /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+      skill_name: string;
+      /** The note's prose, read verbatim by scout runs. */
+      content: string;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 expiry, or null for a note that stays active until deleted.
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * Display name of the user who left the note, or null when unavailable.
+         * @nullable
+         */
+      created_by_name: string | null;
+    }
+
+    /**
+     * Request body for `notes-create`.
+     */
+    export interface ScoutNoteCreateRequest {
+      /**
+         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+         * @maxLength 10000
+         */
+      content: string;
+      /**
+         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+         * @maxLength 200
+         */
+      skill_name?: string;
+      /**
+         * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted.
+         * @nullable
+         */
+      expires_at?: string | null;
     }
 
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
@@ -79295,6 +79354,41 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type SignalsScoutNotesListParams = {
+    /**
+     * Truncate each note's `content` to the first N characters (a preview). Omit for the full body — use this on wide scans so stacked notes can't dominate your context.
+     * @minimum 0
+     */
+    content_max_chars?: number;
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass the `created_at` of the oldest note from the prior page to walk back past the result cap.
+     */
+    date_to?: string;
+    /**
+     * Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.
+     */
+    include_expired?: boolean;
+    /**
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     */
+    include_general?: boolean;
+    /**
+     * Max rows to return (default 20, hard cap 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * @minLength 1
+     */
+    skill_name?: string;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
