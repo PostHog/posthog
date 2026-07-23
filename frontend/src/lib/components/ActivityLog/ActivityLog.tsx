@@ -193,6 +193,7 @@ export const ActivityLogRow = ({
                     )}
                     <div className="text-secondary">
                         <TZLabel time={logItem.created_at} />
+                        {logItem.client && <> · via {logItem.client === 'mcp' ? 'MCP' : logItem.client}</>}
                     </div>
                 </div>
                 {logItem.id && (
