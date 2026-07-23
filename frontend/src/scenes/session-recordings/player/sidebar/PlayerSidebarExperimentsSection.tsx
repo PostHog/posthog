@@ -250,11 +250,6 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
         }
     }, [currentExpandableId, currentMetricCount, setExperimentExpanded])
 
-    // The context takes a few seconds to resolve (several ClickHouse scans server-side). Show a
-    // loading placeholder only when we already know this session belongs to an experiment — i.e. the
-    // viewer opened it from an experiment's recordings tab (currentExperimentId set). On the generic
-    // replay page most sessions have no experiment context, so a placeholder there would flash in and
-    // vanish; gate it out and let the section appear once the context confirms there's something to show.
     if (experimentContextLoading && !hasExperimentContext) {
         if (currentExperimentId == null) {
             return null
