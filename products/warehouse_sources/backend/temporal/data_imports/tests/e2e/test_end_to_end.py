@@ -102,7 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
-    STRIPE_VERSION_ACACIA,
+    STRIPE_VERSION_ACACIA_2025,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
@@ -364,7 +364,7 @@ async def _run(
     # payloads. Pin tests to an acacia-generation version so column hints are applied and those columns
     # are materialized even when the mock data omits them.
     if source_type == "Stripe" and "stripe_api_version" not in job_inputs:
-        job_inputs = {**job_inputs, "stripe_api_version": STRIPE_VERSION_ACACIA}
+        job_inputs = {**job_inputs, "stripe_api_version": STRIPE_VERSION_ACACIA_2025}
 
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
