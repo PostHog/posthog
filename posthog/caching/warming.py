@@ -275,6 +275,18 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
 
         except CHQueryErrorTooManySimultaneousQueries:
             raise
+        except TableAccessDeniedError:
+            # Warming runs as the insight's creator. If that creator lacks warehouse access control
+            # rights for a table the query reads, there's no valid shared-cache entry to warm for them
+            # (the cache key is partitioned by the creator's access, so warming past the denial would
+            # either never be reused or leak data the creator can't see). Skip quietly instead of
+            # reporting an expected denial as an exception.
+            logger.info(
+                "Skipping cache warming: insight creator lacks warehouse access",
+                insight_id=insight.pk,
+                team_id=insight.team_id,
+                dashboard_id=dashboard_id,
+            )
         except Exception as e:
             # A revoked creator's access-denied error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.
