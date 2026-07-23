@@ -2226,22 +2226,24 @@ class TestCustomPropertyGroupScope(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_group_source_reads_require_group_read_scope(self, _flag):
-        # Same for sources feeding a group definition: hidden from list/detail/runs without group read.
+        # Sources feeding a group definition are hidden from list and detail without group read.
+        # (The runs action rejects personal API keys outright, so it isn't reachable via a token.)
         _, source_id = self._create_group_definition_and_source()
 
         account_token = self._token(["account:read"])
         listed = self.client.get(self.sources_endpoint, headers={"authorization": f"Bearer {account_token}"})
         assert listed.status_code == status.HTTP_200_OK, listed.content
         assert source_id not in [s["id"] for s in listed.json()["results"]]
-        for path in (f"{self.sources_endpoint}{source_id}/", f"{self.sources_endpoint}{source_id}/runs/"):
-            resp = self.client.get(path, headers={"authorization": f"Bearer {account_token}"})
-            assert resp.status_code == status.HTTP_404_NOT_FOUND, (path, resp.content)
+        detail = self.client.get(
+            f"{self.sources_endpoint}{source_id}/", headers={"authorization": f"Bearer {account_token}"}
+        )
+        assert detail.status_code == status.HTTP_404_NOT_FOUND, detail.content
 
         group_token = self._token(["account:read", "group:read"])
-        detail = self.client.get(
+        detail2 = self.client.get(
             f"{self.sources_endpoint}{source_id}/", headers={"authorization": f"Bearer {group_token}"}
         )
-        assert detail.status_code == status.HTTP_200_OK, detail.content
+        assert detail2.status_code == status.HTTP_200_OK, detail2.content
 
 
 class TestAccountNotesViewSet(APIBaseTest):
