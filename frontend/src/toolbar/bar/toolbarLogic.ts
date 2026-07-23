@@ -196,12 +196,12 @@ export interface toolbarLogicActions {
     } // toolbarConfigLogic
     setOAuthTokens: (
         accessToken: string,
-        refreshToken: string,
+        refreshToken: string | null,
         clientId: string
     ) => {
         accessToken: string
         clientId: string
-        refreshToken: string
+        refreshToken: string | null
     } // toolbarConfigLogic
     completeGracefulExit: () => {
         value: true
