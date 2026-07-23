@@ -21,12 +21,22 @@ class TestMergeProgressState(TestCase):
         first = merge_progress_state(
             None, [_row(1, "OK"), _row(2, "MISMATCH", "d2")], next_cursor=2, limit=2, scope="S"
         )
-        second = merge_progress_state(first, [_row(3, "ERROR", "e3"), _row(4, "OK")], next_cursor=4, limit=2, scope="S")
-        self.assertEqual(second.processed, 4)
-        self.assertEqual(second.counts, {"OK": 2, "MISMATCH": 1, "ERROR": 1, "SKIPPED": 0})
+        second = merge_progress_state(
+            first,
+            [_row(3, "ERROR", "e3"), _row(4, "OK"), _row(5, "ERROR_DWH", "e5")],
+            next_cursor=5,
+            limit=3,
+            scope="S",
+        )
+        self.assertEqual(second.processed, 5)
+        self.assertEqual(second.counts["OK"], 2)
+        self.assertEqual(second.counts["MISMATCH"], 1)
+        self.assertEqual(second.counts["ERROR"], 1)
+        self.assertEqual(second.counts["ERROR_DWH"], 1)
         self.assertEqual([m["id"] for m in second.mismatches], [2])
-        self.assertEqual([e["id"] for e in second.errors], [3])
-        self.assertEqual(second.cursor, 4)
+        # Attributed errors accumulate alongside plain ones, keeping their status in the record.
+        self.assertEqual([(e["id"], e["status"]) for e in second.errors], [(3, "ERROR"), (5, "ERROR_DWH")])
+        self.assertEqual(second.cursor, 5)
 
     def test_does_not_mutate_previous_state(self):
         first = merge_progress_state(None, [_row(1, "MISMATCH")], next_cursor=1, limit=10, scope="S")
@@ -70,9 +80,12 @@ class TestProgressStateRoundTrip(TestCase):
         self.assertEqual(ProgressState.from_dict(state.to_dict()), state)
 
     def test_from_dict_tolerates_missing_keys(self):
-        restored = ProgressState.from_dict({"cursor": 7})
+        # A state file written before the attributed ERROR_* statuses existed must still load.
+        restored = ProgressState.from_dict({"cursor": 7, "counts": {"OK": 3, "ERROR": 1}})
         self.assertEqual(restored.cursor, 7)
-        self.assertEqual(restored.counts, {"OK": 0, "MISMATCH": 0, "ERROR": 0, "SKIPPED": 0})
+        self.assertEqual(restored.counts["OK"], 3)
+        self.assertEqual(restored.counts["ERROR"], 1)
+        self.assertEqual(restored.counts["ERROR_DWH"], 0)
         self.assertEqual(restored.mismatches, [])
         self.assertFalse(restored.complete)
 
@@ -90,3 +103,9 @@ class TestScopeSignature(TestCase):
 
     def test_distinguishes_team_filter(self):
         self.assertNotEqual(scope_signature({"team_id": [1]}), scope_signature({"team_id": [2]}))
+
+    def test_distinguishes_recheck_mismatches(self):
+        # Stability-filtered and raw MISMATCH verdicts must not accumulate into one sweep.
+        self.assertNotEqual(
+            scope_signature({"recheck_mismatches": True}), scope_signature({"recheck_mismatches": False})
+        )

@@ -18,6 +18,16 @@ Correctness semantics are *identical* to the full tool — it imports and reuses
 the trailing-period exclusion that keeps live-ingest drift on the in-progress interval from showing
 up as a false mismatch. Strictly read-only.
 
+Failures are attributed per variant: each side runs under its own guard, so an insight is reported
+as ERROR_DWH (legacy succeeded, the variant failed — a regression candidate that gates rollout),
+ERROR_LEGACY (the variant fixes an insight that is broken today), or ERROR_BOTH (parity-in-failure:
+broken regardless of the toggle). Plain ERROR is reserved for failures outside the two variant runs.
+Insights whose referenced actions/cohorts were deleted are SKIPPED up front by ``classify_insight``
+instead of erroring on both sides. A first-pass mismatch is re-run once and only the differences
+that reproduce are kept (``--no-recheck-mismatches`` to disable): late-arriving events and person
+merges move *historical* buckets between the two sequential runs, so a single pass can report live
+drift as a parity bug.
+
 The variant toggle is process-global, so instead of nesting a ``patch`` per call (which would race
 across worker threads) we install one process-wide patch whose return value is read from a
 ``ContextVar`` each worker sets before it runs. Threads start with a fresh context, so the workers
@@ -78,9 +88,11 @@ from posthog.hogql_queries.insights.retention.test.retention_base_query_variant 
 )
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
+    attribute_variant_errors,
     classify_insight,
     compute_interval_context,
     diff_retention_results,
+    intersect_stable_mismatch,
 )
 
 from products.product_analytics.backend.models.insight import Insight
@@ -90,7 +102,7 @@ from products.product_analytics.backend.models.insight import Insight
 _use_dwh_var: contextvars.ContextVar[bool] = contextvars.ContextVar("retention_use_dwh", default=False)
 
 
-PROGRESS_STATUSES = ("OK", "MISMATCH", "ERROR", "SKIPPED")
+PROGRESS_STATUSES = ("OK", "MISMATCH", "ERROR", "ERROR_LEGACY", "ERROR_DWH", "ERROR_BOTH", "SKIPPED")
 
 
 @dataclasses.dataclass
@@ -99,7 +111,7 @@ class Row:
     short_id: str
     team_id: int
     url: str
-    status: str  # "OK" | "MISMATCH" | "ERROR" | "SKIPPED"
+    status: str  # one of PROGRESS_STATUSES
     detail: str = ""
 
 
@@ -140,7 +152,14 @@ class ProgressState:
 
 
 def _row_record(row: Row) -> dict[str, Any]:
-    return {"id": row.id, "short_id": row.short_id, "team_id": row.team_id, "url": row.url, "detail": row.detail}
+    return {
+        "id": row.id,
+        "short_id": row.short_id,
+        "team_id": row.team_id,
+        "url": row.url,
+        "status": row.status,
+        "detail": row.detail,
+    }
 
 
 def merge_progress_state(
@@ -166,7 +185,8 @@ def merge_progress_state(
         processed=base.processed + len(rows),
         counts=counts,
         mismatches=base.mismatches + [_row_record(r) for r in rows if r.status == "MISMATCH"],
-        errors=base.errors + [_row_record(r) for r in rows if r.status == "ERROR"],
+        # All attributed variants (ERROR_LEGACY / ERROR_DWH / ERROR_BOTH) accumulate here too.
+        errors=base.errors + [_row_record(r) for r in rows if r.status.startswith("ERROR")],
         complete=len(rows) < limit,
         scope=scope or base.scope,
     )
@@ -184,6 +204,9 @@ def scope_signature(options: dict[str, Any]) -> str:
             "insight_id": sorted(options.get("insight_id") or []),
             "short_id": sorted(options.get("short_id") or []),
             "freeze_window": bool(options.get("freeze_window")),
+            # Changes what MISMATCH means (stability-filtered vs raw), so accumulated findings
+            # from runs with different settings must not mix in one sweep.
+            "recheck_mismatches": bool(options.get("recheck_mismatches", True)),
         },
         sort_keys=True,
     )
@@ -215,7 +238,16 @@ def _run_variant(
     return response.results or []
 
 
-def _check_one(insight: Insight, url: str, freeze: bool) -> Row:
+def _try_variant(
+    insight: Insight, use_dwh: bool, modifiers: HogQLQueryModifiers, override: Optional[dict[str, Any]]
+) -> tuple[Optional[list], Optional[BaseException]]:
+    try:
+        return _run_variant(insight, use_dwh, modifiers, override), None
+    except Exception as exc:
+        return None, exc
+
+
+def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
     try:
         action, reason = classify_insight(insight)
         if action == "error":
@@ -227,33 +259,57 @@ def _check_one(insight: Insight, url: str, freeze: bool) -> Row:
         ctx = compute_interval_context(insight, modifiers, freeze=freeze)
         override = ctx.frozen_date_range
 
-        legacy = _run_variant(insight, False, modifiers, override)
-        dwh = _run_variant(insight, True, modifiers, override)
-        diff = diff_retention_results(
-            legacy,
-            dwh,
-            latest_interval_start=ctx.latest_interval_start,
-            interval_delta=ctx.trailing_delta,
-        )
+        # Per-variant guards so a failure is attributed to the side that raised it (ERROR_DWH /
+        # ERROR_LEGACY / ERROR_BOTH) instead of one opaque ERROR that hides which side broke.
+        legacy, legacy_exc = _try_variant(insight, False, modifiers, override)
+        dwh, dwh_exc = _try_variant(insight, True, modifiers, override)
+        if legacy_exc is not None or dwh_exc is not None:
+            status, _error_type, summary = attribute_variant_errors(legacy_exc, dwh_exc)
+            return Row(insight.id, insight.short_id, insight.team_id, url, status, summary)
+        assert legacy is not None and dwh is not None
+
+        diff_kwargs: dict[str, Any] = {
+            "latest_interval_start": ctx.latest_interval_start,
+            "interval_delta": ctx.trailing_delta,
+        }
+        diff = diff_retention_results(legacy, dwh, **diff_kwargs)
+
+        # Re-run a first-pass mismatch once and keep only the differences that reproduce: live
+        # ingest and person merges shift historical buckets between the sequential runs, so an
+        # unrepeated diff is drift, not a parity bug. Bounded cost — mismatches only.
+        rechecked = False
+        if recheck and diff.status == "MISMATCH":
+            legacy2, legacy2_exc = _try_variant(insight, False, modifiers, override)
+            dwh2, dwh2_exc = _try_variant(insight, True, modifiers, override)
+            if legacy2_exc is None and dwh2_exc is None:
+                assert legacy2 is not None and dwh2 is not None
+                diff = intersect_stable_mismatch(diff, diff_retention_results(legacy2, dwh2, **diff_kwargs))
+                rechecked = True
+            # On a recheck failure keep the (valid) first-pass verdict and say it's unverified.
+
         detail = ""
         if diff.status == "MISMATCH":
+            stable = "stable " if rechecked else ""
             detail = (
-                f"{len(diff.cell_diffs)} cell diff(s), rows legacy={diff.row_count_legacy} dwh={diff.row_count_dwh}"
+                f"{len(diff.cell_diffs)} {stable}cell diff(s), "
+                f"rows legacy={diff.row_count_legacy} dwh={diff.row_count_dwh}"
             )
+            if recheck and not rechecked:
+                detail += " (recheck errored — stability unverified)"
         return Row(insight.id, insight.short_id, insight.team_id, url, diff.status, detail)
     except Exception as exc:
         return Row(insight.id, insight.short_id, insight.team_id, url, "ERROR", f"{type(exc).__name__}: {exc}")
 
 
 def _check_team(
-    insights: list[Insight], urls: dict[int, str], freeze: bool, report: Callable[[Row], None]
+    insights: list[Insight], urls: dict[int, str], freeze: bool, recheck: bool, report: Callable[[Row], None]
 ) -> list[Row]:
     """One lane = one team. Its insights are checked serially so a team's data is never read
     concurrently with itself; distinct teams run in parallel across lanes."""
     rows: list[Row] = []
     try:
         for insight in insights:
-            row = _check_one(insight, urls[insight.id], freeze)
+            row = _check_one(insight, urls[insight.id], freeze, recheck)
             rows.append(row)
             report(row)
     finally:
@@ -308,6 +364,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Compare over a frozen snapshot ending at the last complete interval (drops the in-progress period)",
         )
+        parser.add_argument(
+            "--recheck-mismatches",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Re-run both variants once on a mismatch and keep only differences that reproduce (default on)",
+        )
         parser.add_argument("--fail-on-mismatch", action="store_true", help="Exit non-zero if any MISMATCH is found")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -335,7 +397,13 @@ class Command(BaseCommand):
             self._handle_empty(options, state_file, scope, prev_state, cursor)
             return
 
-        rows = self._run(insights, options["base_url"].rstrip("/"), options["freeze_window"], options["concurrency"])
+        rows = self._run(
+            insights,
+            options["base_url"].rstrip("/"),
+            options["freeze_window"],
+            options["recheck_mismatches"],
+            options["concurrency"],
+        )
         self._print_summary(rows)
 
         next_cursor = max(i.id for i in insights)
@@ -404,7 +472,9 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.WARNING("No retention insights matched the given filters."))
 
-    def _run(self, insights: list[Insight], base_url: str, freeze: bool, concurrency_opt: int) -> list[Row]:
+    def _run(
+        self, insights: list[Insight], base_url: str, freeze: bool, recheck: bool, concurrency_opt: int
+    ) -> list[Row]:
         urls = {i.id: f"{base_url}/project/{i.team_id}/insights/{i.short_id}/edit" for i in insights}
 
         # One lane per team: the team's insights run serially within the lane, distinct teams in
@@ -433,7 +503,8 @@ class Command(BaseCommand):
         with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, side_effect=lambda team: _use_dwh_var.get()):
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = [
-                    pool.submit(_check_team, team_insights, urls, freeze, report) for team_insights in teams.values()
+                    pool.submit(_check_team, team_insights, urls, freeze, recheck, report)
+                    for team_insights in teams.values()
                 ]
                 for future in as_completed(futures):
                     rows.extend(future.result())
@@ -458,23 +529,25 @@ class Command(BaseCommand):
     def _print_progress(self, done: int, total: int, row: Row) -> None:
         if row.status == "OK":
             return  # keep the stream quiet; only surface the interesting outcomes
-        style = {"MISMATCH": self.style.ERROR, "ERROR": self.style.ERROR}.get(row.status, self.style.WARNING)
+        is_bad = row.status == "MISMATCH" or row.status.startswith("ERROR")
+        style = self.style.ERROR if is_bad else self.style.WARNING
         suffix = f" — {row.detail}" if row.detail else ""
         self.stdout.write(style(f"[{done}/{total}] {row.status} {row.short_id} (team {row.team_id}){suffix}"))
 
     def _print_summary(self, rows: list[Row]) -> None:
-        counts = {
-            status: sum(1 for r in rows if r.status == status) for status in ("OK", "MISMATCH", "ERROR", "SKIPPED")
-        }
+        counts = {status: sum(1 for r in rows if r.status == status) for status in PROGRESS_STATUSES}
         self.stdout.write("")
         self.stdout.write(self.style.MIGRATE_HEADING("Summary"))
-        self.stdout.write(
-            f"OK={counts['OK']} MISMATCH={counts['MISMATCH']} ERROR={counts['ERROR']} SKIPPED={counts['SKIPPED']}"
-        )
+        self.stdout.write(" ".join(f"{status}={counts[status]}" for status in PROGRESS_STATUSES))
         mismatches = [r for r in rows if r.status == "MISMATCH"]
         if mismatches:
             self.stdout.write(self.style.ERROR("\nMismatches:"))
             for r in mismatches:
+                self.stdout.write(self.style.ERROR(f"  {r.short_id} (team {r.team_id}) {r.url} — {r.detail}"))
+        dwh_only = [r for r in rows if r.status == "ERROR_DWH"]
+        if dwh_only:
+            self.stdout.write(self.style.ERROR("\nDWH-only errors (variant regression candidates):"))
+            for r in dwh_only:
                 self.stdout.write(self.style.ERROR(f"  {r.short_id} (team {r.team_id}) {r.url} — {r.detail}"))
         sys.stdout.flush()
 
@@ -488,10 +561,8 @@ class Command(BaseCommand):
     def _print_checkpoint(self, state_file: str, state: ProgressState) -> None:
         self.stdout.write("")
         self.stdout.write(self.style.MIGRATE_HEADING("Sweep progress"))
-        self.stdout.write(
-            f"Checked {state.processed} insight(s) so far — OK={state.counts['OK']} "
-            f"MISMATCH={state.counts['MISMATCH']} ERROR={state.counts['ERROR']} SKIPPED={state.counts['SKIPPED']}"
-        )
+        counts_line = " ".join(f"{status}={state.counts.get(status, 0)}" for status in PROGRESS_STATUSES)
+        self.stdout.write(f"Checked {state.processed} insight(s) so far — {counts_line}")
         self.stdout.write(f"Checkpoint written to {state_file} (cursor at insight id {state.cursor}).")
         if state.complete:
             self.stdout.write(self.style.SUCCESS("Sweep complete — every matching insight has been checked."))
@@ -509,7 +580,9 @@ class Command(BaseCommand):
         cap = 50
         self.stdout.write(style(f"\n{heading} ({len(records)}):"))
         for rec in records[:cap]:
+            # Attribution matters within the errors list; older state files have no status field.
+            label = f"[{rec['status']}] " if rec.get("status", "").startswith("ERROR") else ""
             detail = f" — {rec['detail']}" if rec.get("detail") else ""
-            self.stdout.write(style(f"  {rec['short_id']} (team {rec['team_id']}) {rec['url']}{detail}"))
+            self.stdout.write(style(f"  {label}{rec['short_id']} (team {rec['team_id']}) {rec['url']}{detail}"))
         if len(records) > cap:
             self.stdout.write(style(f"  …and {len(records) - cap} more (see state file)"))

@@ -15,12 +15,14 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     _clickhouse_seconds,
     _frozen_date_range,
     aggregate_resource_stats,
+    attribute_variant_errors,
     build_perf_aggregate,
     classify_insight,
     compute_perf_result,
     diff_retention_results,
     intersect_stable_mismatch,
     parse_query_log_rows,
+    referenced_ids,
     summarize_samples,
 )
 
@@ -74,6 +76,107 @@ class TestClassifyInsight(TestCase):
     def test_error_classification(self, _name, query):
         action, _reason = classify_insight(_insight(query))
         self.assertEqual(action, "error")
+
+
+class TestAttributeVariantErrors(TestCase):
+    # Mislabeling here inverts the sweep's signal: a DWH-only failure read as ERROR_BOTH (or as
+    # legacy's) would hide a rollout blocker behind "broken insight anyway".
+    @parameterized.expand(
+        [
+            ("dwh_only", None, ValueError("boom"), "ERROR_DWH", "ValueError"),
+            ("legacy_only", ValueError("boom"), None, "ERROR_LEGACY", "ValueError"),
+            ("both_identical", ValueError("boom"), ValueError("boom"), "ERROR_BOTH", "ValueError"),
+            ("both_different", ValueError("a"), KeyError("b"), "ERROR_BOTH", "legacy=ValueError, dwh=KeyError"),
+        ]
+    )
+    def test_status_and_type(self, _name, legacy_exc, dwh_exc, expected_status, expected_type):
+        status, error_type, summary = attribute_variant_errors(legacy_exc, dwh_exc)
+        self.assertEqual(status, expected_status)
+        self.assertEqual(error_type, expected_type)
+        self.assertTrue(summary)
+
+    def test_identical_failure_summarized_once(self):
+        _status, _error_type, summary = attribute_variant_errors(ValueError("boom"), ValueError("boom"))
+        self.assertIn("identically", summary)
+        self.assertEqual(summary.count("boom"), 1)
+
+    def test_differing_failures_both_summarized(self):
+        _status, _error_type, summary = attribute_variant_errors(ValueError("legacy msg"), TypeError("dwh msg"))
+        self.assertIn("legacy msg", summary)
+        self.assertIn("dwh msg", summary)
+
+
+class TestReferencedIds(TestCase):
+    # A missed reference site keeps a broken insight erroring instead of skipping; over-collection
+    # (event breakdowns, "all"/0 pseudo-cohort) would wrongly skip healthy insights, silently
+    # shrinking sweep coverage.
+    @parameterized.expand(
+        [
+            (
+                "action_entities",
+                {
+                    "retentionFilter": {
+                        "targetEntity": {"type": "actions", "id": "123"},
+                        "returningEntity": {"type": "actions", "id": 456},
+                    }
+                },
+                {123, 456},
+                set(),
+            ),
+            (
+                "event_entities_have_no_refs",
+                {"retentionFilter": {"targetEntity": {"type": "events", "id": "$pageview"}}},
+                set(),
+                set(),
+            ),
+            (
+                "cohort_in_nested_property_group",
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"type": "OR", "values": [{"key": "id", "type": "cohort", "value": 27777}]}],
+                    }
+                },
+                set(),
+                {27777},
+            ),
+            (
+                "cohort_on_entity_properties",
+                {
+                    "retentionFilter": {
+                        "targetEntity": {
+                            "type": "events",
+                            "properties": [{"key": "id", "type": "cohort", "value": 18217}],
+                        }
+                    }
+                },
+                set(),
+                {18217},
+            ),
+            (
+                "cohort_breakdown_uses_property_key",
+                {"breakdownFilter": {"breakdowns": [{"type": "cohort", "property": 18217}]}},
+                set(),
+                {18217},
+            ),
+            (
+                "legacy_single_breakdown_with_all_pseudo_cohort",
+                {"breakdownFilter": {"breakdown_type": "cohort", "breakdown": [123, "all", 0]}},
+                set(),
+                {123},
+            ),
+            (
+                "event_breakdown_property_is_not_a_cohort",
+                {"breakdownFilter": {"breakdowns": [{"type": "event", "property": "42"}]}},
+                set(),
+                set(),
+            ),
+        ]
+    )
+    def test_extraction(self, _name, source, expected_actions, expected_cohorts):
+        action_ids, cohort_ids = referenced_ids({"kind": "RetentionQuery", **source})
+        self.assertEqual(action_ids, expected_actions)
+        self.assertEqual(cohort_ids, expected_cohorts)
 
 
 class TestDiffRetentionResults(TestCase):

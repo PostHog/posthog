@@ -9,9 +9,16 @@ regression can be handed to another model to fix.
 The toggle lives in
 ``posthog.hogql_queries.insights.retention.retention_base_query_fixed.retention_fixed_interval_base_query_use_dwh_variant``
 and is forced via ``unittest.mock.patch`` (the patch target is the shared
-``RETENTION_BASE_QUERY_VARIANT_PATCH_PATH`` constant). Two insight shapes are NOT affected by the
-toggle and are classified SKIPPED: data-warehouse retention (always routed to the new path) and
-the 24h rolling window mode (a different builder with no legacy/new split).
+``RETENTION_BASE_QUERY_VARIANT_PATCH_PATH`` constant). Three insight shapes are NOT affected by the
+toggle and are classified SKIPPED: data-warehouse retention (always routed to the new path), the
+24h rolling window mode (a different builder with no legacy/new split), and insights whose
+referenced actions/cohorts were deleted (both variants fail identically today, so there is no
+parity signal — only broken references to clean up).
+
+Run failures are attributed per variant: ERROR_DWH (legacy succeeded, the variant failed — a
+regression candidate that gates rollout), ERROR_LEGACY (the variant fixes an insight that is
+broken today), ERROR_BOTH (parity-in-failure), and plain ERROR for anything outside the two
+attributed correctness runs (classification, diffing, perf iterations).
 
 This command is strictly read-only: it never saves or mutates insights.
 
@@ -35,7 +42,7 @@ import argparse
 import traceback
 import statistics
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -63,6 +70,8 @@ from posthog.hogql_queries.insights.retention.test.retention_base_query_variant 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import get_query_runner
 
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.models.insight import Insight
 
 DATA_WAREHOUSE_ENTITY_TYPE = "data_warehouse"
@@ -172,7 +181,7 @@ class InsightFinding:
     team_id: int
     name: str
     url: str
-    status: str  # "OK" | "MISMATCH" | "ERROR" | "SKIPPED"
+    status: str  # "OK" | "MISMATCH" | "ERROR" | "ERROR_LEGACY" | "ERROR_DWH" | "ERROR_BOTH" | "SKIPPED"
     has_breakdown: bool = False
     skip_reason: Optional[str] = None
     error_type: Optional[str] = None
@@ -212,8 +221,89 @@ def _attr(obj: Any, name: str) -> Any:
     return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
 
 
+def _walk_dicts(node: Any) -> Iterator[dict[str, Any]]:
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk_dicts(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk_dicts(value)
+
+
+def _int_ids(value: Any) -> set[int]:
+    values = value if isinstance(value, list) else [value]
+    ids: set[int] = set()
+    for candidate in values:
+        if candidate is None or isinstance(candidate, bool):
+            continue
+        try:
+            ids.add(int(candidate))
+        except (TypeError, ValueError):
+            continue  # e.g. the "all" pseudo-cohort, or a malformed id — let the real run decide
+    return ids
+
+
+def referenced_ids(source: dict[str, Any]) -> tuple[set[int], set[int]]:
+    """(action_ids, cohort_ids) referenced anywhere in a RetentionQuery source.
+
+    Walks the raw query JSON so every reference site is covered with one rule set: action
+    entities ({"type": "actions", "id": …}), cohort property filters at any nesting depth
+    ({"type": "cohort", "value": …}), cohort breakdowns ({"type": "cohort", "property": …}),
+    and the legacy single-breakdown shape ({"breakdown_type": "cohort", "breakdown": …}).
+    The "all users" pseudo-cohort (id 0 / "all") is never a real reference.
+    """
+    action_ids: set[int] = set()
+    cohort_ids: set[int] = set()
+    for node in _walk_dicts(source):
+        node_type = node.get("type")
+        if node_type == "actions":
+            action_ids |= _int_ids(node.get("id"))
+        elif node_type == "cohort":
+            cohort_ids |= _int_ids(node.get("value")) | _int_ids(node.get("property"))
+        if node.get("breakdown_type") == "cohort":
+            cohort_ids |= _int_ids(node.get("breakdown"))
+    cohort_ids.discard(0)  # "all users"
+    return action_ids, cohort_ids
+
+
+def _missing_reference_reason(insight: Insight, source: dict[str, Any]) -> Optional[str]:
+    """A skip reason when the insight references actions/cohorts that no longer resolve, else None.
+
+    Mirrors the runtime lookups exactly, so this predicts the DoesNotExist / "Could not find
+    cohort" errors both variants raise identically today: actions resolve project-wide with no
+    deleted filter (RetentionQueryRunner.get_events_for_entity), cohorts project-wide with
+    deleted=False (the IN COHORT transform).
+    """
+    action_ids, cohort_ids = referenced_ids(source)
+    missing_parts: list[str] = []
+    if action_ids:
+        found = set(
+            Action.objects.filter(pk__in=action_ids, team__project_id=insight.team.project_id).values_list(
+                "id", flat=True
+            )
+        )
+        if action_ids - found:
+            missing_parts.append(f"action(s) {sorted(action_ids - found)}")
+    if cohort_ids:
+        found = set(
+            Cohort.objects.filter(
+                pk__in=cohort_ids, team__project_id=insight.team.project_id, deleted=False
+            ).values_list("id", flat=True)
+        )
+        if cohort_ids - found:
+            missing_parts.append(f"cohort(s) {sorted(cohort_ids - found)}")
+    if not missing_parts:
+        return None
+    return f"references missing {' and '.join(missing_parts)} — fails identically on both variants"
+
+
 def classify_insight(insight: Insight) -> tuple[str, str]:
-    """Return ("compare"|"skip"|"error", reason) without executing anything."""
+    """Return ("compare"|"skip"|"error", reason) without executing any query.
+
+    Touches Postgres (never ClickHouse) only when the insight references actions or cohorts,
+    to pre-classify dangling references as a skip instead of letting both variants error.
+    """
     query = insight.query
     if not isinstance(query, dict):
         return ("error", "insight.query is not a dict")
@@ -229,6 +319,9 @@ def classify_insight(insight: Insight) -> tuple[str, str]:
         entity = retention_filter.get(entity_key)
         if isinstance(entity, dict) and entity.get("type") == DATA_WAREHOUSE_ENTITY_TYPE:
             return ("skip", "data_warehouse (new-path only)")
+    missing_reason = _missing_reference_reason(insight, source)
+    if missing_reason is not None:
+        return ("skip", missing_reason)
     return ("compare", "")
 
 
@@ -474,6 +567,42 @@ def intersect_stable_mismatch(first: CorrectnessDiff, second: CorrectnessDiff) -
     )
 
 
+def _fmt_exception(exc: BaseException, max_chars: int = 500) -> str:
+    message = str(exc)
+    if len(message) > max_chars:
+        message = message[:max_chars] + "…"
+    return f"{type(exc).__name__}: {message}"
+
+
+def attribute_variant_errors(
+    legacy_exc: Optional[BaseException], dwh_exc: Optional[BaseException]
+) -> tuple[str, str, str]:
+    """Attribute run failure(s) to a variant: (status, error_type, summary).
+
+    The distinction is the whole signal: ERROR_DWH (legacy succeeded) is a variant regression
+    candidate that gates rollout, ERROR_LEGACY means the variant fixes an insight that is broken
+    today, and ERROR_BOTH is parity-in-failure — the insight is broken regardless of the toggle.
+    Call with at least one exception.
+    """
+    if legacy_exc is not None and dwh_exc is not None:
+        same_error = type(legacy_exc) is type(dwh_exc) and str(legacy_exc) == str(dwh_exc)
+        if same_error:
+            return (
+                "ERROR_BOTH",
+                type(legacy_exc).__name__,
+                f"both variants fail identically — {_fmt_exception(legacy_exc)}",
+            )
+        return (
+            "ERROR_BOTH",
+            f"legacy={type(legacy_exc).__name__}, dwh={type(dwh_exc).__name__}",
+            f"legacy: {_fmt_exception(legacy_exc)} | dwh: {_fmt_exception(dwh_exc)}",
+        )
+    if dwh_exc is not None:
+        return ("ERROR_DWH", type(dwh_exc).__name__, f"legacy OK, DWH variant failed — {_fmt_exception(dwh_exc)}")
+    assert legacy_exc is not None
+    return ("ERROR_LEGACY", type(legacy_exc).__name__, f"DWH variant OK, legacy failed — {_fmt_exception(legacy_exc)}")
+
+
 def _frozen_date_range(
     date_from: datetime, latest_interval_start: datetime, interval_delta: timedelta
 ) -> dict[str, Any]:
@@ -702,6 +831,35 @@ def run_variant(
     )
 
 
+def _attempt_variant(
+    insight: Insight,
+    use_dwh: bool,
+    modifiers: HogQLQueryModifiers,
+    date_range_override: Optional[dict[str, Any]],
+    *,
+    marker: Optional[str] = None,
+    capture_query_ids: bool = False,
+) -> tuple[Optional[VariantRun], Optional[BaseException]]:
+    """run_variant with the exception captured instead of raised, so failures stay attributed
+    to the variant that produced them."""
+    try:
+        run = run_variant(
+            insight,
+            use_dwh,
+            modifiers,
+            marker=marker,
+            capture_query_ids=capture_query_ids,
+            date_range_override=date_range_override,
+        )
+        return run, None
+    except Exception as exc:
+        return None, exc
+
+
+def _exception_traceback(exc: BaseException, max_chars: int = 2000) -> str:
+    return "".join(traceback.format_exception(exc))[-max_chars:]
+
+
 def compute_interval_context(insight: Insight, modifiers: HogQLQueryModifiers, *, freeze: bool) -> IntervalContext:
     """Derive the in-progress interval (and, if freezing, an explicit frozen window) for an insight.
 
@@ -891,7 +1049,10 @@ def render_markdown_report(
     out(f"| Compared | {counts['compared']} |")
     out(f"| ✅ OK | {counts['ok']} |")
     out(f"| ❌ MISMATCH | {counts['mismatch']} |")
-    out(f"| ⚠️ ERROR | {counts['error']} |")
+    out(f"| 🚨 ERROR_DWH (legacy OK — variant regression candidate) | {counts['error_dwh']} |")
+    out(f"| ♻️ ERROR_LEGACY (DWH OK — variant fixes it) | {counts['error_legacy']} |")
+    out(f"| 🪦 ERROR_BOTH (broken regardless of toggle) | {counts['error_both']} |")
+    out(f"| ⚠️ ERROR (outside the attributed variant runs) | {counts['error']} |")
     out(f"| ⏭️ SKIPPED | {counts['skipped']} |")
     out(f"| 🌀 Trailing-period drift (excluded from verdict) | {counts['trailing_drift']} |")
     out("")
@@ -910,7 +1071,7 @@ def render_markdown_report(
     _render_mismatches(out, findings, run_meta)
     _render_trailing_drift(out, findings, run_meta)
     _render_regressions(out, aggregate.regressions, run_meta)
-    _render_errors(out, [f for f in findings if f.status == "ERROR"])
+    _render_errors(out, [f for f in findings if f.status.startswith("ERROR")])
     _render_skipped(out, [f for f in findings if f.status == "SKIPPED"])
 
     return "\n".join(lines) + "\n"
@@ -1107,21 +1268,27 @@ def _render_perf_table(out: Callable[[str], None], f: InsightFinding) -> None:
     out("")
 
 
+_ERROR_STATUS_ORDER = {"ERROR_DWH": 0, "ERROR_LEGACY": 1, "ERROR_BOTH": 2, "ERROR": 3}
+
+
 def _render_errors(out: Callable[[str], None], errors: list[InsightFinding]) -> None:
     if not errors:
         return
     out("## Errors\n")
-    for f in errors:
-        _render_finding_header(out, f, "ERROR")
+    out(
+        "Ordered by rollout relevance: ERROR_DWH (legacy succeeded, the variant failed) gates the "
+        "rollout; ERROR_LEGACY means the variant fixes an insight that is broken today; ERROR_BOTH "
+        "is parity-in-failure — broken regardless of the toggle.\n"
+    )
+    for f in sorted(errors, key=lambda f: (_ERROR_STATUS_ORDER.get(f.status, 9), f.insight_id)):
+        _render_finding_header(out, f, f.status)
         out(f"- Error: `{f.error_type}`")
         if f.error_detail:
             out("```")
             out(f.error_detail)
             out("```\n")
-        if f.source_json:
-            out("```json")
-            out(f.source_json)
-            out("```\n")
+        # Includes the surviving variant's HogQL when one side succeeded — context for diagnosis.
+        _render_source_and_hogql(out, f)
 
 
 def _render_skipped(out: Callable[[str], None], skipped: list[InsightFinding]) -> None:
@@ -1303,44 +1470,78 @@ class Command(BaseCommand):
             "interval_delta": ctx.trailing_delta,
         }
 
+        # Each variant runs under its own guard so a failure is attributed to the side that raised
+        # it — ERROR_DWH vs ERROR_LEGACY vs ERROR_BOTH — instead of one opaque ERROR. A variant
+        # whose warmup failed is not re-run: the measured run would fail the same way, and for
+        # resource errors that second attempt is as expensive as the first.
+        legacy_exc: Optional[BaseException] = None
+        dwh_exc: Optional[BaseException] = None
         if options["warmup"]:
-            run_variant(insight, False, modifiers, date_range_override=override)
-            run_variant(insight, True, modifiers, date_range_override=override)
+            _, legacy_exc = _attempt_variant(insight, False, modifiers, override)
+            _, dwh_exc = _attempt_variant(insight, True, modifiers, override)
 
-        legacy_run = run_variant(
-            insight,
-            False,
-            modifiers,
-            marker=f"rcmp_{run_id}_{insight.id}_legacy" if capture else None,
-            capture_query_ids=capture,
-            date_range_override=override,
-        )
-        dwh_run = run_variant(
-            insight,
-            True,
-            modifiers,
-            marker=f"rcmp_{run_id}_{insight.id}_dwh" if capture else None,
-            capture_query_ids=capture,
-            date_range_override=override,
-        )
-        finding.legacy_hogql = _trim(legacy_run.hogql, options["max_source_json_chars"])
-        finding.dwh_hogql = _trim(dwh_run.hogql, options["max_source_json_chars"])
-        finding.legacy_query_ids = legacy_run.query_ids
-        finding.dwh_query_ids = dwh_run.query_ids
+        legacy_run: Optional[VariantRun] = None
+        dwh_run: Optional[VariantRun] = None
+        if legacy_exc is None:
+            legacy_run, legacy_exc = _attempt_variant(
+                insight,
+                False,
+                modifiers,
+                override,
+                marker=f"rcmp_{run_id}_{insight.id}_legacy" if capture else None,
+                capture_query_ids=capture,
+            )
+        if dwh_exc is None:
+            dwh_run, dwh_exc = _attempt_variant(
+                insight,
+                True,
+                modifiers,
+                override,
+                marker=f"rcmp_{run_id}_{insight.id}_dwh" if capture else None,
+                capture_query_ids=capture,
+            )
 
-        finding.correctness = diff_retention_results(legacy_run.results, dwh_run.results, **diff_kwargs)
-        finding.status = finding.correctness.status
+        # Keep whatever the surviving side produced: its HogQL (for diagnosis) and its query ids
+        # (so resource stats still show how expensive the succeeding variant was).
+        if legacy_run is not None:
+            finding.legacy_hogql = _trim(legacy_run.hogql, options["max_source_json_chars"])
+            finding.legacy_query_ids = legacy_run.query_ids
+        if dwh_run is not None:
+            finding.dwh_hogql = _trim(dwh_run.hogql, options["max_source_json_chars"])
+            finding.dwh_query_ids = dwh_run.query_ids
+
+        if legacy_exc is not None or dwh_exc is not None:
+            finding.status, finding.error_type, summary = attribute_variant_errors(legacy_exc, dwh_exc)
+            detail_parts = [summary]
+            if legacy_exc is not None:
+                detail_parts.append(f"--- legacy traceback ---\n{_exception_traceback(legacy_exc)}")
+            if dwh_exc is not None:
+                detail_parts.append(f"--- dwh traceback ---\n{_exception_traceback(dwh_exc)}")
+            finding.error_detail = "\n\n".join(detail_parts)
+            return
+
+        assert legacy_run is not None and dwh_run is not None
+        correctness = diff_retention_results(legacy_run.results, dwh_run.results, **diff_kwargs)
 
         # Re-test a residual (non-trailing) mismatch once and keep only differences that reproduce in
         # both passes: a transient diff from live ingest landing outside the trailing window drops
         # out, while a genuine systematic difference survives. Plain runs (no marker/capture) keep the
         # perf protocol and query-log stats untouched. Bounded cost — only runs on a first-pass mismatch.
-        if options["recheck_mismatches"] and finding.status == "MISMATCH":
-            recheck_legacy = run_variant(insight, False, modifiers, date_range_override=override)
-            recheck_dwh = run_variant(insight, True, modifiers, date_range_override=override)
-            diff2 = diff_retention_results(recheck_legacy.results, recheck_dwh.results, **diff_kwargs)
-            finding.correctness = intersect_stable_mismatch(finding.correctness, diff2)
-            finding.status = finding.correctness.status
+        if options["recheck_mismatches"] and correctness.status == "MISMATCH":
+            recheck_legacy, recheck_legacy_exc = _attempt_variant(insight, False, modifiers, override)
+            recheck_dwh, recheck_dwh_exc = _attempt_variant(insight, True, modifiers, override)
+            if recheck_legacy is not None and recheck_dwh is not None:
+                diff2 = diff_retention_results(recheck_legacy.results, recheck_dwh.results, **diff_kwargs)
+                correctness = intersect_stable_mismatch(correctness, diff2)
+            else:
+                # Keep the first-pass verdict rather than discarding a valid diff over a flaky re-run.
+                failed = recheck_legacy_exc or recheck_dwh_exc
+                assert failed is not None
+                correctness.notes.append(
+                    f"recheck failed ({_fmt_exception(failed)}) — mismatch is first-pass only, not stability-verified"
+                )
+        finding.correctness = correctness
+        finding.status = correctness.status
 
         if not do_perf:
             return
@@ -1391,6 +1592,9 @@ class Command(BaseCommand):
             "ok": sum(1 for f in findings if f.status == "OK"),
             "mismatch": sum(1 for f in findings if f.status == "MISMATCH"),
             "error": sum(1 for f in findings if f.status == "ERROR"),
+            "error_legacy": sum(1 for f in findings if f.status == "ERROR_LEGACY"),
+            "error_dwh": sum(1 for f in findings if f.status == "ERROR_DWH"),
+            "error_both": sum(1 for f in findings if f.status == "ERROR_BOTH"),
             "skipped": sum(1 for f in findings if f.status == "SKIPPED"),
             "trailing_drift": sum(1 for f in findings if f.correctness and f.correctness.trailing_cell_diffs),
         }
@@ -1444,18 +1648,18 @@ class Command(BaseCommand):
     def _print_progress(self, index: int, total: int, finding: InsightFinding, verbosity: int) -> None:
         if verbosity < 2 and finding.status in ("OK", "SKIPPED"):
             return
-        style = {
-            "OK": self.style.SUCCESS,
-            "MISMATCH": self.style.ERROR,
-            "ERROR": self.style.ERROR,
-            "SKIPPED": self.style.WARNING,
-        }.get(finding.status, self.style.NOTICE)
+        if finding.status == "OK":
+            style = self.style.SUCCESS
+        elif finding.status == "MISMATCH" or finding.status.startswith("ERROR"):
+            style = self.style.ERROR
+        else:
+            style = self.style.WARNING
         detail = ""
         if finding.status == "MISMATCH" and finding.correctness:
             detail = f" cells={len(finding.correctness.cell_diffs)}"
         elif finding.status == "SKIPPED":
             detail = f" ({finding.skip_reason})"
-        elif finding.status == "ERROR":
+        elif finding.status.startswith("ERROR"):
             detail = f" ({finding.error_type})"
         if finding.correctness and finding.correctness.trailing_cell_diffs:
             detail += f" trailing_drift={len(finding.correctness.trailing_cell_diffs)}"
@@ -1471,8 +1675,9 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("Summary"))
         self.stdout.write(
             f"COMPARED={counts['compared']} OK={counts['ok']} MISMATCH={counts['mismatch']} "
-            f"ERROR={counts['error']} SKIPPED={counts['skipped']} REGRESSIONS={aggregate.n_regressions} "
-            f"TRAILING_DRIFT={counts['trailing_drift']}"
+            f"ERROR_DWH={counts['error_dwh']} ERROR_LEGACY={counts['error_legacy']} "
+            f"ERROR_BOTH={counts['error_both']} ERROR={counts['error']} SKIPPED={counts['skipped']} "
+            f"REGRESSIONS={aggregate.n_regressions} TRAILING_DRIFT={counts['trailing_drift']}"
         )
         if aggregate.n_compared:
             wall_median = aggregate.wall_ratio_dist.get("median")
