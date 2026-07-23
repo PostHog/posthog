@@ -120,10 +120,6 @@ export function createMlMirrorReplayPipeline(
                                 b
                                     .teamAware((b) =>
                                         b
-                                            // Scrub sessions concurrently — a slow scrub (large full snapshot,
-                                            // image blur) must not stall the whole batch. Grouping by session
-                                            // keeps events in order within a session, which block-line appends
-                                            // require; each in-flight scrub occupies a libuv threadpool thread.
                                             .concurrentlyPerGroup(
                                                 (element) => `${element.team.teamId}:${element.headers.session_id}`,
                                                 (group) =>
