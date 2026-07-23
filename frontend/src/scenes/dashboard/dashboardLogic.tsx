@@ -561,6 +561,9 @@ export interface dashboardLogicActions {
             toDashboardName: string
         }
     }
+    openAddInsightModal: () => {
+        value: true
+    }
     overrideVariableValue: (
         variableId: string,
         value: any,
