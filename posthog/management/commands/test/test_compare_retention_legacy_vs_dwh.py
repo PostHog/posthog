@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from unittest import TestCase
@@ -11,12 +11,15 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRI
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     InsightFinding,
     ResourceStats,
+    _cell_is_trailing,
     _clickhouse_seconds,
+    _frozen_date_range,
     aggregate_resource_stats,
     build_perf_aggregate,
     classify_insight,
     compute_perf_result,
     diff_retention_results,
+    intersect_stable_mismatch,
     parse_query_log_rows,
     summarize_samples,
 )
@@ -134,6 +137,127 @@ class TestDiffRetentionResults(TestCase):
         self.assertEqual(diff.status, "MISMATCH")
         self.assertTrue(any("missing in DWH" in note for note in diff.notes))
         self.assertTrue(any("missing in legacy" in note for note in diff.notes))
+
+
+class TestTrailingClassification(TestCase):
+    def test_trailing_only_diff_is_ok(self):
+        # Cohort interval == latest interval, so every cell in the row is trailing: a count delta is
+        # live-ingest drift, not a mismatch.
+        diff = diff_retention_results(
+            _simple_series([100, 50]),
+            _simple_series([100, 40]),
+            latest_interval_start=_DT,
+            interval_delta=timedelta(days=1),
+        )
+        self.assertEqual(diff.status, "OK")
+        self.assertEqual(diff.cell_diffs, [])
+        self.assertEqual(len(diff.trailing_cell_diffs), 1)
+        self.assertEqual(diff.trailing_cell_diffs[0].value_label, "Day 1")
+
+    def test_returning_offset_routes_per_cell(self):
+        # Cohort at _DT, latest interval three periods later: the offset-3 returning bucket is trailing,
+        # the offset-0 one is not. Each cell is routed independently.
+        legacy = [_result(None, "Day 0", [_value(10, f"Day {i}") for i in range(4)])]
+        dwh = [
+            _result(None, "Day 0", [_value(5, "Day 0"), _value(10, "Day 1"), _value(10, "Day 2"), _value(7, "Day 3")])
+        ]
+        diff = diff_retention_results(
+            legacy, dwh, latest_interval_start=_DT + timedelta(days=3), interval_delta=timedelta(days=1)
+        )
+        self.assertEqual(diff.status, "MISMATCH")
+        self.assertEqual([c.value_label for c in diff.cell_diffs], ["Day 0"])
+        self.assertEqual([c.value_label for c in diff.trailing_cell_diffs], ["Day 3"])
+
+    def test_non_trailing_cell_diff_is_mismatch(self):
+        diff = diff_retention_results(
+            _simple_series([100, 50]),
+            _simple_series([100, 40]),
+            latest_interval_start=_DT + timedelta(days=2),
+            interval_delta=timedelta(days=1),
+        )
+        self.assertEqual(diff.status, "MISMATCH")
+        self.assertEqual(len(diff.cell_diffs), 1)
+        self.assertEqual(diff.trailing_cell_diffs, [])
+
+    def test_classification_disabled_by_default(self):
+        # Without the trailing params, behaviour is identical to before: everything counts.
+        diff = diff_retention_results(_simple_series([100, 50]), _simple_series([100, 40]))
+        self.assertEqual(diff.status, "MISMATCH")
+        self.assertEqual(len(diff.cell_diffs), 1)
+        self.assertEqual(diff.trailing_cell_diffs, [])
+
+    @parameterized.expand(
+        [
+            ("latest_none", _DT, 0, None, timedelta(days=1), False),
+            ("cohort_none", None, 0, _DT, timedelta(days=1), False),
+            ("cohort_equals_latest", _DT, 2, _DT, timedelta(days=1), True),
+            ("returning_equals_latest", _DT, 3, _DT + timedelta(days=3), timedelta(days=1), True),
+            ("returning_off_by_one", _DT, 2, _DT + timedelta(days=3), timedelta(days=1), False),
+            ("offset_branch_needs_delta", _DT, 3, _DT + timedelta(days=3), None, False),
+        ]
+    )
+    def test_cell_is_trailing(self, _name, cohort_date, offset, latest, delta, expected):
+        self.assertEqual(_cell_is_trailing(cohort_date, offset, latest, delta), expected)
+
+
+class TestIntersectStableMismatch(TestCase):
+    def test_transient_mismatch_dropped(self):
+        first = diff_retention_results(_simple_series([100, 50]), _simple_series([100, 40]))
+        second = diff_retention_results(_simple_series([100, 50]), _simple_series([100, 50]))
+        result = intersect_stable_mismatch(first, second)
+        self.assertEqual(result.status, "OK")
+        self.assertEqual(result.cell_diffs, [])
+
+    def test_reproduced_mismatch_kept(self):
+        first = diff_retention_results(_simple_series([100, 50]), _simple_series([100, 40]))
+        second = diff_retention_results(_simple_series([100, 50]), _simple_series([100, 40]))
+        result = intersect_stable_mismatch(first, second)
+        self.assertEqual(result.status, "MISMATCH")
+        self.assertEqual(len(result.cell_diffs), 1)
+        self.assertEqual(result.cell_diffs[0].value_label, "Day 1")
+
+    def test_reproduced_row_count_mismatch_kept(self):
+        first = diff_retention_results(_simple_series([10]), [])
+        second = diff_retention_results(_simple_series([10]), [])
+        result = intersect_stable_mismatch(first, second)
+        self.assertEqual(result.status, "MISMATCH")
+
+    def test_transient_breakdown_divergence_dropped(self):
+        first = diff_retention_results(
+            _simple_series([10], breakdown_value="chrome") + _simple_series([5], breakdown_value="firefox"),
+            _simple_series([10], breakdown_value="chrome")
+            + _simple_series([5], breakdown_value=BREAKDOWN_OTHER_STRING_LABEL),
+        )
+        self.assertEqual(first.status, "MISMATCH")
+        second = diff_retention_results(
+            _simple_series([10], breakdown_value="chrome") + _simple_series([5], breakdown_value="firefox"),
+            _simple_series([10], breakdown_value="chrome") + _simple_series([5], breakdown_value="firefox"),
+        )
+        result = intersect_stable_mismatch(first, second)
+        self.assertEqual(result.status, "OK")
+        self.assertEqual(result.breakdown_only_dwh, [])
+        self.assertFalse(result.other_bucket_changed)
+
+    def test_trailing_diffs_carried_through(self):
+        legacy = [_result(None, "Day 0", [_value(10, f"Day {i}") for i in range(4)])]
+        dwh = [
+            _result(None, "Day 0", [_value(5, "Day 0"), _value(10, "Day 1"), _value(10, "Day 2"), _value(7, "Day 3")])
+        ]
+        kwargs = {"latest_interval_start": _DT + timedelta(days=3), "interval_delta": timedelta(days=1)}
+        first = diff_retention_results(legacy, dwh, **kwargs)
+        second = diff_retention_results(legacy, dwh, **kwargs)
+        result = intersect_stable_mismatch(first, second)
+        self.assertEqual(result.status, "MISMATCH")
+        self.assertEqual(result.trailing_cell_diffs, first.trailing_cell_diffs)
+        self.assertEqual([c.value_label for c in result.trailing_cell_diffs], ["Day 3"])
+
+
+class TestFrozenDateRange(TestCase):
+    def test_excludes_current_period(self):
+        frozen = _frozen_date_range(_DT, _DT + timedelta(days=3), timedelta(days=1))
+        self.assertEqual(frozen["date_from"], _DT.isoformat())
+        self.assertEqual(frozen["date_to"], (_DT + timedelta(days=2)).isoformat())
+        self.assertTrue(frozen["explicitDate"])
 
 
 class TestClickhouseSeconds(TestCase):

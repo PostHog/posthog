@@ -38,6 +38,7 @@ import dataclasses
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from copy import deepcopy
+from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Any, Optional
 
@@ -55,6 +56,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import (
     RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG,
 )
+from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.retention.test.retention_base_query_variant import (
     RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
 )
@@ -109,6 +111,26 @@ class CorrectnessDiff:
     other_bucket_changed: bool
     cell_diffs: list[CellDiff]
     notes: list[str]
+    # Row keys present on only one side — the structural row-coverage signal that (with cell_diffs,
+    # breakdown_only_*, and row counts) drives the verdict. Stored separately from ``notes`` so the
+    # stability re-test can intersect them without parsing note strings.
+    rows_only_legacy: list[Any] = dataclasses.field(default_factory=list)
+    rows_only_dwh: list[Any] = dataclasses.field(default_factory=list)
+    # Cells whose count/aggregation differs only because they sit in the inherently-racy in-progress
+    # period (live ingest lands between the two variant runs). Reported separately, never counted
+    # toward the MISMATCH verdict.
+    trailing_cell_diffs: list[CellDiff] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class IntervalContext:
+    """Per-insight interval metadata, derived once from the query runner's own date math."""
+
+    latest_interval_start: Optional[datetime] = None
+    # ``None`` for custom-bracket retention, where value index does not map to ``offset * delta``.
+    trailing_delta: Optional[timedelta] = None
+    # Explicit, current-period-excluding date range, set only when --freeze-window is requested.
+    frozen_date_range: Optional[dict[str, Any]] = None
 
 
 @dataclasses.dataclass
@@ -250,6 +272,28 @@ def _breakdown_values_in_order(results: Sequence[Any]) -> list[Any]:
     return ordered
 
 
+def _cell_is_trailing(
+    cohort_date: Optional[datetime],
+    offset: int,
+    latest_interval_start: Optional[datetime],
+    interval_delta: Optional[timedelta],
+) -> bool:
+    """Is this cell anchored on the in-progress (current) interval, and therefore racy?
+
+    A retention cell is a (cohort interval, period offset) pair; its returning bucket is
+    ``cohort_interval + offset``. The cell is trailing if either the cohort interval or the returning
+    interval is the latest (now-containing) one. ``interval_delta`` is ``None`` when offset→date math
+    is unreliable (custom brackets), leaving only the offset-agnostic cohort check.
+    """
+    if latest_interval_start is None or cohort_date is None:
+        return False
+    if cohort_date == latest_interval_start:
+        return True
+    if interval_delta is None:
+        return False
+    return cohort_date + offset * interval_delta == latest_interval_start
+
+
 def diff_retention_results(
     legacy: Sequence[Any],
     dwh: Sequence[Any],
@@ -257,6 +301,8 @@ def diff_retention_results(
     count_tol_abs: float = 0.0,
     count_tol_rel: float = 0.0,
     agg_tol_rel: float = 1e-6,
+    latest_interval_start: Optional[datetime] = None,
+    interval_delta: Optional[timedelta] = None,
 ) -> CorrectnessDiff:
     """Diff two retention result sets, keyed by (breakdown_value, row label).
 
@@ -264,6 +310,11 @@ def diff_retention_results(
     is expected to be identical; the only legitimate differences are numeric counts/aggregation
     values. A large enough count delta, however, can change which breakdown values get ranked into
     the "Other" bucket — hence the breakdown-set and Other-bucket checks.
+
+    When ``latest_interval_start`` is given, cells anchored on the in-progress interval are split out
+    into ``trailing_cell_diffs`` and excluded from the MISMATCH verdict: events ingested between the
+    two variant runs land in that bucket, so a small count delta there is live-ingest drift, not a
+    parity bug. Passing ``None`` (the default) disables the split and preserves the original behaviour.
     """
     legacy_by_key = {(_attr(r, "breakdown_value"), _attr(r, "label")): r for r in legacy}
     dwh_by_key = {(_attr(r, "breakdown_value"), _attr(r, "label")): r for r in dwh}
@@ -276,6 +327,7 @@ def diff_retention_results(
     other_bucket_changed = (BREAKDOWN_OTHER_STRING_LABEL in set_legacy) != (BREAKDOWN_OTHER_STRING_LABEL in set_dwh)
 
     cell_diffs: list[CellDiff] = []
+    trailing_cell_diffs: list[CellDiff] = []
     notes: list[str] = []
     # Row keys should be identical between variants (format_results is shared); flag — never
     # silently drop — any that aren't, so an OK verdict can't mask differing row coverage.
@@ -291,16 +343,21 @@ def diff_retention_results(
         legacy_values = _attr(legacy_by_key[key], "values") or []
         dwh_values = _attr(dwh_by_key[key], "values") or []
         dwh_by_label = {_attr(v, "label"): v for v in dwh_values}
-        for legacy_value in legacy_values:
+        cohort_date = _attr(legacy_by_key[key], "date")
+        # The value at index ``offset`` carries period offset ``offset`` (format_results builds them
+        # in return-interval order), so its returning bucket is ``cohort_date + offset * delta``.
+        for offset, legacy_value in enumerate(legacy_values):
             value_label = _attr(legacy_value, "label")
             dwh_value = dwh_by_label.get(value_label)
             if dwh_value is None:
                 notes.append(f"value label {value_label!r} missing in DWH for {key}")
                 continue
+            is_trailing = _cell_is_trailing(cohort_date, offset, latest_interval_start, interval_delta)
+            target = trailing_cell_diffs if is_trailing else cell_diffs
             legacy_count = float(_attr(legacy_value, "count") or 0.0)
             dwh_count = float(_attr(dwh_value, "count") or 0.0)
             if not _within(legacy_count, dwh_count, count_tol_abs, count_tol_rel):
-                cell_diffs.append(
+                target.append(
                     CellDiff(
                         breakdown_value=key[0],
                         row_label=key[1],
@@ -318,7 +375,7 @@ def diff_retention_results(
                 legacy_agg_f = float(legacy_agg or 0.0)
                 dwh_agg_f = float(dwh_agg or 0.0)
                 if not _within(legacy_agg_f, dwh_agg_f, 0.0, agg_tol_rel):
-                    cell_diffs.append(
+                    target.append(
                         CellDiff(
                             breakdown_value=key[0],
                             row_label=key[1],
@@ -332,6 +389,7 @@ def diff_retention_results(
                     )
 
     cell_diffs.sort(key=lambda c: c.abs_diff, reverse=True)
+    trailing_cell_diffs.sort(key=lambda c: c.abs_diff, reverse=True)
     is_mismatch = (
         len(legacy) != len(dwh)
         or bool(only_legacy)
@@ -351,7 +409,86 @@ def diff_retention_results(
         other_bucket_changed=other_bucket_changed,
         cell_diffs=cell_diffs,
         notes=notes,
+        rows_only_legacy=rows_only_legacy,
+        rows_only_dwh=rows_only_dwh,
+        trailing_cell_diffs=trailing_cell_diffs,
     )
+
+
+def _cell_key(cell: CellDiff) -> tuple[Any, str, Optional[str], str]:
+    return (cell.breakdown_value, cell.row_label, cell.value_label, cell.field)
+
+
+def intersect_stable_mismatch(first: CorrectnessDiff, second: CorrectnessDiff) -> CorrectnessDiff:
+    """Keep only the differences present in BOTH passes, so transient drift drops out.
+
+    Re-running both variants and intersecting the two diffs distinguishes a genuine, systematic
+    mismatch (reproduces) from live-ingest noise that happened to land outside the trailing window on
+    the first pass (does not reproduce). Every MISMATCH signal is intersected, since live ingest can
+    perturb breakdown ranking and row coverage as well as raw cell counts.
+    """
+    second_keys = {_cell_key(c) for c in second.cell_diffs}
+    stable_cells = [c for c in first.cell_diffs if _cell_key(c) in second_keys]
+
+    second_only_legacy = set(second.breakdown_only_legacy)
+    second_only_dwh = set(second.breakdown_only_dwh)
+    stable_only_legacy = [b for b in first.breakdown_only_legacy if b in second_only_legacy]
+    stable_only_dwh = [b for b in first.breakdown_only_dwh if b in second_only_dwh]
+
+    second_rows_only_legacy = set(second.rows_only_legacy)
+    second_rows_only_dwh = set(second.rows_only_dwh)
+    stable_rows_only_legacy = [k for k in first.rows_only_legacy if k in second_rows_only_legacy]
+    stable_rows_only_dwh = [k for k in first.rows_only_dwh if k in second_rows_only_dwh]
+
+    second_notes = set(second.notes)
+    stable_notes = [n for n in first.notes if n in second_notes]
+
+    row_count_stable = (first.row_count_legacy != first.row_count_dwh) and (
+        second.row_count_legacy != second.row_count_dwh
+    )
+
+    # Mirror diff_retention_results' is_mismatch exactly: cells, breakdown sets, row coverage, and row
+    # counts. ``other_bucket_changed`` and ``notes`` are reported but never drive the verdict.
+    is_mismatch = bool(
+        stable_cells
+        or stable_only_legacy
+        or stable_only_dwh
+        or stable_rows_only_legacy
+        or stable_rows_only_dwh
+        or row_count_stable
+    )
+    return CorrectnessDiff(
+        status="MISMATCH" if is_mismatch else "OK",
+        row_count_legacy=first.row_count_legacy,
+        row_count_dwh=first.row_count_dwh,
+        breakdown_keys_legacy=first.breakdown_keys_legacy,
+        breakdown_keys_dwh=first.breakdown_keys_dwh,
+        breakdown_only_legacy=stable_only_legacy,
+        breakdown_only_dwh=stable_only_dwh,
+        other_bucket_changed=first.other_bucket_changed and second.other_bucket_changed,
+        cell_diffs=stable_cells,
+        notes=stable_notes,
+        rows_only_legacy=stable_rows_only_legacy,
+        rows_only_dwh=stable_rows_only_dwh,
+        trailing_cell_diffs=first.trailing_cell_diffs,
+    )
+
+
+def _frozen_date_range(
+    date_from: datetime, latest_interval_start: datetime, interval_delta: timedelta
+) -> dict[str, Any]:
+    """Explicit date range whose effective end is the start of the current period.
+
+    ``QueryDateRangeWithIntervals.date_to()`` pads by one interval then truncates, so an explicit
+    ``date_to`` of ``latest_interval_start - delta`` yields an effective ``date_to`` of
+    ``latest_interval_start`` — making the last (in-progress) cohort drop off and the final bucket be
+    the last *complete* interval. This removes drift by comparing over a frozen snapshot.
+    """
+    return {
+        "date_from": date_from.isoformat(),
+        "date_to": (latest_interval_start - interval_delta).isoformat(),
+        "explicitDate": True,
+    }
 
 
 def _percentile(sorted_values: list[float], pct: float) -> float:
@@ -516,12 +653,16 @@ def run_variant(
     *,
     marker: Optional[str] = None,
     capture_query_ids: bool = False,
+    date_range_override: Optional[dict[str, Any]] = None,
 ) -> VariantRun:
     """Execute one retention variant. Read-only: deepcopies the query, scopes the patch."""
     query = insight.query
     if not isinstance(query, dict):
         raise ValueError(f"insight {insight.id} has a non-dict query")
     source = deepcopy(query["source"])
+    if date_range_override is not None:
+        # --freeze-window: pin both variants to the same explicit, current-period-excluding window.
+        source["dateRange"] = date_range_override
     if marker:
         # The query_id ClickHouse records becomes f"{team_id}_{client_query_id}_{random}", so the
         # marker makes captured query_ids self-describing in the report. Setting client_query_id
@@ -559,6 +700,43 @@ def run_variant(
         ch_s=_clickhouse_seconds(response.timings),
         query_ids=captured,
     )
+
+
+def compute_interval_context(insight: Insight, modifiers: HogQLQueryModifiers, *, freeze: bool) -> IntervalContext:
+    """Derive the in-progress interval (and, if freezing, an explicit frozen window) for an insight.
+
+    Best-effort and read-only: it builds the runner purely to read its date math and never executes a
+    retention query. Any failure, a non-retention runner, or a window that is fully historical (no
+    in-progress period) returns an empty context, which disables trailing classification and freezing —
+    the diff then behaves exactly as before.
+
+    ``latest_interval_start`` is derived as ``date_to() - delta`` rather than from a fresh
+    ``datetime.now()``: by construction ``date_from() + intervals_between * delta == date_to()``, so
+    this is byte-identical to the last cohort row's ``date`` and immune to timezone-truncation skew.
+    """
+    try:
+        query = insight.query
+        if not isinstance(query, dict):
+            return IntervalContext()
+        runner = get_query_runner(deepcopy(query["source"]), insight.team, modifiers=deepcopy(modifiers))
+        if not isinstance(runner, RetentionQueryRunner):
+            return IntervalContext()
+        qdr = runner.query_date_range
+        interval_delta = qdr.determine_time_delta(1, qdr.interval_name)
+        date_to = qdr.date_to()
+        if qdr.now_with_timezone >= date_to:
+            # The whole window is in the past — nothing is in progress, so nothing is racy.
+            return IntervalContext()
+        latest_interval_start = date_to - interval_delta
+        trailing_delta = None if runner.is_custom_bracket_retention else interval_delta
+        frozen = _frozen_date_range(qdr.date_from(), latest_interval_start, interval_delta) if freeze else None
+        return IntervalContext(
+            latest_interval_start=latest_interval_start,
+            trailing_delta=trailing_delta,
+            frozen_date_range=frozen,
+        )
+    except Exception:
+        return IntervalContext()
 
 
 def fetch_query_log_stats(
@@ -700,6 +878,12 @@ def render_markdown_report(
         "indicative. Interleaving legacy/new and reporting median + min (not mean) cancels "
         "asymmetric cache warming and one-off spikes.\n"
     )
+    if run_meta.get("freeze_window"):
+        out(
+            "> **Frozen window.** `--freeze-window` was set: each insight's date range was rewritten to an "
+            "explicit range ending at the last complete interval, excluding the in-progress period. This "
+            "removes live-ingest drift, but means the validated window differs from the stored insight.\n"
+        )
 
     out("## Summary\n")
     out("| Result | Count |")
@@ -709,6 +893,7 @@ def render_markdown_report(
     out(f"| ❌ MISMATCH | {counts['mismatch']} |")
     out(f"| ⚠️ ERROR | {counts['error']} |")
     out(f"| ⏭️ SKIPPED | {counts['skipped']} |")
+    out(f"| 🌀 Trailing-period drift (excluded from verdict) | {counts['trailing_drift']} |")
     out("")
     if aggregate.n_compared:
         wall_median = aggregate.wall_ratio_dist.get("median")
@@ -723,6 +908,7 @@ def render_markdown_report(
 
     _render_perf_distribution(out, aggregate)
     _render_mismatches(out, findings, run_meta)
+    _render_trailing_drift(out, findings, run_meta)
     _render_regressions(out, aggregate.regressions, run_meta)
     _render_errors(out, [f for f in findings if f.status == "ERROR"])
     _render_skipped(out, [f for f in findings if f.status == "SKIPPED"])
@@ -845,6 +1031,26 @@ def _render_mismatches(out: Callable[[str], None], findings: list[InsightFinding
                 out(f"- Note: {note}")
             out("")
         _render_source_and_hogql(out, f)
+
+
+def _render_trailing_drift(
+    out: Callable[[str], None], findings: list[InsightFinding], run_meta: dict[str, Any]
+) -> None:
+    drifting = [f for f in findings if f.correctness and f.correctness.trailing_cell_diffs]
+    if not drifting:
+        return
+    out("## Trailing-period drift (excluded from MISMATCH)\n")
+    out(
+        "These cells differ only on the in-progress (current) interval. Events ingested between the "
+        "legacy and DWH runs land in that trailing bucket, so a small delta here is live-ingest drift, "
+        "not a parity bug — it does not count toward the verdict. Shown for visibility.\n"
+    )
+    for f in drifting:
+        diff = f.correctness
+        assert diff is not None
+        _render_finding_header(out, f, f"TRAILING DRIFT ({f.status})")
+        out(f"- {len(diff.trailing_cell_diffs)} trailing cell(s)\n")
+        _render_cell_diff_table(out, diff.trailing_cell_diffs, run_meta["max_cell_diffs"])
 
 
 def _render_cell_diff_table(out: Callable[[str], None], cell_diffs: list[CellDiff], max_rows: int) -> None:
@@ -983,6 +1189,20 @@ class Command(BaseCommand):
         parser.add_argument("--base-url", type=str, default="https://us.posthog.com", help="Base URL for insight links")
         parser.add_argument("--max-source-json-chars", type=int, default=6000, help="Trim embedded query JSON")
         parser.add_argument("--fail-on-mismatch", action="store_true", help="Exit non-zero if any MISMATCH is found")
+        parser.add_argument(
+            "--recheck-mismatches",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Re-run both variants once on a mismatch and keep only differences that reproduce (default on)",
+        )
+        parser.add_argument(
+            "--freeze-window",
+            "--exclude-current-period",
+            dest="freeze_window",
+            action="store_true",
+            help="Compare over a frozen snapshot ending at the last complete interval — removes live-ingest "
+            "drift entirely but CHANGES the validated window (drops the in-progress period)",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         insights = self._select_insights(options)
@@ -1073,9 +1293,19 @@ class Command(BaseCommand):
         do_perf = not options["no_perf"]
         capture = do_perf and options["clickhouse_stats"]
 
+        ctx = compute_interval_context(insight, modifiers, freeze=options["freeze_window"])
+        override = ctx.frozen_date_range
+        diff_kwargs: dict[str, Any] = {
+            "count_tol_abs": options["count_tolerance_abs"],
+            "count_tol_rel": options["count_tolerance_rel"],
+            "agg_tol_rel": options["agg_tolerance_rel"],
+            "latest_interval_start": ctx.latest_interval_start,
+            "interval_delta": ctx.trailing_delta,
+        }
+
         if options["warmup"]:
-            run_variant(insight, False, modifiers)
-            run_variant(insight, True, modifiers)
+            run_variant(insight, False, modifiers, date_range_override=override)
+            run_variant(insight, True, modifiers, date_range_override=override)
 
         legacy_run = run_variant(
             insight,
@@ -1083,6 +1313,7 @@ class Command(BaseCommand):
             modifiers,
             marker=f"rcmp_{run_id}_{insight.id}_legacy" if capture else None,
             capture_query_ids=capture,
+            date_range_override=override,
         )
         dwh_run = run_variant(
             insight,
@@ -1090,20 +1321,26 @@ class Command(BaseCommand):
             modifiers,
             marker=f"rcmp_{run_id}_{insight.id}_dwh" if capture else None,
             capture_query_ids=capture,
+            date_range_override=override,
         )
         finding.legacy_hogql = _trim(legacy_run.hogql, options["max_source_json_chars"])
         finding.dwh_hogql = _trim(dwh_run.hogql, options["max_source_json_chars"])
         finding.legacy_query_ids = legacy_run.query_ids
         finding.dwh_query_ids = dwh_run.query_ids
 
-        finding.correctness = diff_retention_results(
-            legacy_run.results,
-            dwh_run.results,
-            count_tol_abs=options["count_tolerance_abs"],
-            count_tol_rel=options["count_tolerance_rel"],
-            agg_tol_rel=options["agg_tolerance_rel"],
-        )
+        finding.correctness = diff_retention_results(legacy_run.results, dwh_run.results, **diff_kwargs)
         finding.status = finding.correctness.status
+
+        # Re-test a residual (non-trailing) mismatch once and keep only differences that reproduce in
+        # both passes: a transient diff from live ingest landing outside the trailing window drops
+        # out, while a genuine systematic difference survives. Plain runs (no marker/capture) keep the
+        # perf protocol and query-log stats untouched. Bounded cost — only runs on a first-pass mismatch.
+        if options["recheck_mismatches"] and finding.status == "MISMATCH":
+            recheck_legacy = run_variant(insight, False, modifiers, date_range_override=override)
+            recheck_dwh = run_variant(insight, True, modifiers, date_range_override=override)
+            diff2 = diff_retention_results(recheck_legacy.results, recheck_dwh.results, **diff_kwargs)
+            finding.correctness = intersect_stable_mismatch(finding.correctness, diff2)
+            finding.status = finding.correctness.status
 
         if not do_perf:
             return
@@ -1113,8 +1350,8 @@ class Command(BaseCommand):
         ch_legacy = [legacy_run.ch_s * 1000]
         ch_dwh = [dwh_run.ch_s * 1000]
         for _ in range(max(0, options["perf_iterations"] - 1)):
-            legacy_iter = run_variant(insight, False, modifiers)
-            dwh_iter = run_variant(insight, True, modifiers)
+            legacy_iter = run_variant(insight, False, modifiers, date_range_override=override)
+            dwh_iter = run_variant(insight, True, modifiers, date_range_override=override)
             wall_legacy.append(legacy_iter.wall_s * 1000)
             wall_dwh.append(dwh_iter.wall_s * 1000)
             ch_legacy.append(legacy_iter.ch_s * 1000)
@@ -1155,6 +1392,7 @@ class Command(BaseCommand):
             "mismatch": sum(1 for f in findings if f.status == "MISMATCH"),
             "error": sum(1 for f in findings if f.status == "ERROR"),
             "skipped": sum(1 for f in findings if f.status == "SKIPPED"),
+            "trailing_drift": sum(1 for f in findings if f.correctness and f.correctness.trailing_cell_diffs),
         }
         return {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S %Z"),
@@ -1163,6 +1401,7 @@ class Command(BaseCommand):
             "regression_rel": options["regression_threshold_rel"],
             "regression_ms": options["regression_threshold_ms"],
             "max_cell_diffs": DEFAULT_MAX_CELL_DIFFS,
+            "freeze_window": options["freeze_window"],
         }
 
     @staticmethod
@@ -1178,6 +1417,8 @@ class Command(BaseCommand):
             "no_perf",
             "clickhouse_stats",
             "query_log_table",
+            "recheck_mismatches",
+            "freeze_window",
         ]
         return ", ".join(f"{key}={options[key]}" for key in keys)
 
@@ -1216,6 +1457,8 @@ class Command(BaseCommand):
             detail = f" ({finding.skip_reason})"
         elif finding.status == "ERROR":
             detail = f" ({finding.error_type})"
+        if finding.correctness and finding.correctness.trailing_cell_diffs:
+            detail += f" trailing_drift={len(finding.correctness.trailing_cell_diffs)}"
         regressed = " REGRESSION" if finding.perf and finding.perf.is_regression else ""
         self.stdout.write(
             style(f"[{index}/{total}] {finding.status}{regressed} {finding.short_id} (team {finding.team_id}){detail}")
@@ -1228,7 +1471,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("Summary"))
         self.stdout.write(
             f"COMPARED={counts['compared']} OK={counts['ok']} MISMATCH={counts['mismatch']} "
-            f"ERROR={counts['error']} SKIPPED={counts['skipped']} REGRESSIONS={aggregate.n_regressions}"
+            f"ERROR={counts['error']} SKIPPED={counts['skipped']} REGRESSIONS={aggregate.n_regressions} "
+            f"TRAILING_DRIFT={counts['trailing_drift']}"
         )
         if aggregate.n_compared:
             wall_median = aggregate.wall_ratio_dist.get("median")
