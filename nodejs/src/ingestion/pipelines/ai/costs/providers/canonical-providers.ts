@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-21 20:24:39 UTC
+// Generated at: 2026-07-23 10:43:52 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -40,10 +40,10 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'crusoe-fp4'
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'decart-fp4'
+    | 'decart-fp8'
     | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
@@ -97,6 +97,7 @@ export type CanonicalProvider =
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
     | 'morph'
+    | 'morph-fp4'
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'

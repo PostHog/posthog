@@ -91,6 +91,7 @@ A read-only token with **global** scope is sufficient to sync every table.""",
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Fastly's config endpoints expose no server-side timestamp filter, so every table is full
         # refresh only. Each object carries a stable `created_at` used for partitioning.
@@ -112,7 +113,11 @@ A read-only token with **global** scope is sufficient to sync every table.""",
         return schemas
 
     def validate_credentials(
-        self, config: FastlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FastlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_fastly_credentials(config.api_key):
             return True, None

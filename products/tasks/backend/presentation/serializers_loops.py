@@ -192,16 +192,46 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
             {"repository": "Repository is not accessible via the selected GitHub integration."}
         )
 
-    events = config.get("events")
-    if not isinstance(events, list) or not events:
+    events_raw = config.get("events")
+    if not isinstance(events_raw, list) or not events_raw:
         raise serializers.ValidationError({"events": "At least one event is required."})
+    # Agents reach for GitHub Actions shorthand like `issues.opened`; fold it into the bare
+    # webhook event plus an `actions` filter instead of rejecting the trigger.
+    events: list = []
+    shorthand_actions: list[str] = []
+    has_bare_event = False
+    for item in events_raw:
+        event = item
+        if isinstance(item, str) and "." in item:
+            base, action = item.split(".", 1)
+            if base in loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS and action:
+                event = base
+                if action not in shorthand_actions:
+                    shorthand_actions.append(action)
+        else:
+            has_bare_event = True
+        if event not in events:
+            events.append(event)
     invalid_events = sorted(set(events) - set(loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS))
     if invalid_events:
         raise serializers.ValidationError(
             {
                 "events": (
                     f"Unsupported event(s): {invalid_events}. "
-                    f"Allowed: {list(loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)}."
+                    f"Allowed: {list(loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)}, "
+                    "optionally with an action suffix like 'issues.opened'."
+                )
+            }
+        )
+    # The folded `actions` filter applies to every event in the trigger, so shorthand spanning
+    # several events (or mixed with bare events) would make unrequested event/action pairs fire.
+    if shorthand_actions and (has_bare_event or len(events) > 1):
+        raise serializers.ValidationError(
+            {
+                "events": (
+                    "`event.action` shorthand supports a single event per trigger because the "
+                    "folded `actions` filter applies to every event. Use one trigger per event, "
+                    "or bare events with `filters.actions`."
                 )
             }
         )
@@ -223,6 +253,12 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
         if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
             raise serializers.ValidationError({"filters": f"Filter '{key}' must be a string or a list of strings."})
         filters[key] = values
+
+    if shorthand_actions:
+        explicit_actions = filters.get("actions", [])
+        filters["actions"] = explicit_actions + [
+            action for action in shorthand_actions if action not in explicit_actions
+        ]
 
     return {
         "github_integration_id": github_integration_id,
@@ -256,7 +292,11 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
         help_text=(
             "Trigger configuration, shape validated per `type`: schedule takes "
             "`{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes "
-            "`{github_integration_id, repository, events, filters}`; api takes no config."
+            "`{github_integration_id, repository, events, filters}` where `events` is one or more of "
+            f"{', '.join(f'`{event}`' for event in loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)} "
+            "(`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one "
+            "event per trigger) and "
+            "`filters` takes `{actions, branches, labels}`; api takes no config."
         ),
     )
 

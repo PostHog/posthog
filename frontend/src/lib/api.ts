@@ -23,8 +23,6 @@ import {
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalScoutConfig,
-    SignalScoutConfigUpdate,
     SignalScoutEmission,
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
@@ -223,6 +221,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
     WebhookInfo,
 } from '~/types'
@@ -1216,17 +1215,6 @@ export class ApiRequest {
 
     public signalScoutRun(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.signalScoutRuns(teamId).addPathComponent(id)
-    }
-
-    public signalScoutConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('signals')
-            .addPathComponent('scout')
-            .addPathComponent('configs')
-    }
-
-    public signalScoutConfig(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalScoutConfigs(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -2686,6 +2674,7 @@ const api = {
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
                     ActivityScope.EXTERNAL_DATA_SCHEMA,
+                    ActivityScope.LLM_PROMPT_LABEL,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -5225,14 +5214,14 @@ const api = {
                 .get()
             return Object.entries(response).map(([user_uuid, { name, email }]) => ({ user_uuid, name, email }))
         },
-        // PUT replaces the content of a `suggested_reviewers` artefact (only writable type).
-        // Backend: SignalReportArtefactViewSet.update.
-        async updateArtefact(
+        // PUT the report's full suggested-reviewers list (create-or-replace). Addressed by report so a
+        // report with no reviewers yet (and thus no artefact) can still be assigned one.
+        // Backend: SignalReportViewSet.reviewers.
+        async setReviewers(
             reportId: SignalReport['id'],
-            artefactId: string,
             content: Record<string, any>[]
         ): Promise<SignalReportArtefact> {
-            return await new ApiRequest().signalReportArtefact(reportId, artefactId).put({ data: { content } })
+            return await new ApiRequest().signalReport(reportId).withAction('reviewers').put({ data: { content } })
         },
     },
 
@@ -5247,8 +5236,7 @@ const api = {
         },
     },
 
-    // Scouts: scheduled agents that sweep the project and emit findings. Backend:
-    // SignalScoutRunViewSet (runs) + SignalScoutConfigViewSet (configs).
+    // Scout runs still use the legacy client. Scout configs use the generated Signals client.
     signalScout: {
         runs: {
             // Newest-first raw array (not paginated), capped at 100 server-side.
@@ -5287,18 +5275,6 @@ const api = {
                     .signalScoutRuns()
                     .withAction('emissions/reports/batch')
                     .create({ data: { run_ids: runIds } })
-            },
-        },
-        configs: {
-            // Newest-first raw array, ordered by skill_name.
-            async list(): Promise<SignalScoutConfig[]> {
-                return await new ApiRequest().signalScoutConfigs().get()
-            },
-            async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
-                return await new ApiRequest().signalScoutConfig(id).update({ data })
-            },
-            async delete(id: string): Promise<void> {
-                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },
@@ -5703,6 +5679,19 @@ const api = {
         },
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
+        },
+        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
+        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
+        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
+            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        },
+        async createFromUpload(data: {
+            upload_id: string
+            filename: string
+            file_format: string
+            table_name: string
+        }): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().withAction('create_from_upload').create({ data })
         },
     },
 

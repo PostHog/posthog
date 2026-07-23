@@ -1,4 +1,5 @@
 import functools
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     SUBSCRIPTION_PAGE_LIMIT,
@@ -388,6 +390,47 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+
+class TestInvoiceListWithAllLines:
+    def test_skips_lines_for_invoice_deleted_mid_sync(self):
+        invoices = [
+            SimpleNamespace(id="in_gone", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
+            SimpleNamespace(id="in_ok", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
+        ]
+
+        def line_items_list(invoice=None, params=None):
+            if invoice == "in_gone":
+                raise stripe_lib.InvalidRequestError(
+                    f"No such invoice: '{invoice}'", "invoice", code="resource_missing", http_status=404
+                )
+            return _list_object([{"id": "il_1"}])
+
+        client = MagicMock()
+        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.line_items.list.side_effect = line_items_list
+
+        result = list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+
+        assert [inv.id for inv in result] == ["in_gone", "in_ok"]
+        # The deleted invoice keeps its original (incomplete) lines rather than crashing the sync.
+        assert result[0].lines.has_more is True
+        # The still-existing invoice gets its lines fully expanded.
+        assert result[1].lines.has_more is False
+        assert result[1].lines.data == [{"id": "il_1"}]
+
+    def test_other_invalid_request_errors_still_raise(self):
+        invoices = [SimpleNamespace(id="in_1", lines=SimpleNamespace(has_more=True, data=[], url="orig"))]
+
+        def line_items_list(invoice=None, params=None):
+            raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
+
+        client = MagicMock()
+        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.line_items.list.side_effect = line_items_list
+
+        with pytest.raises(stripe_lib.InvalidRequestError):
+            list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
 
 
 class TestSubscriptionPageSize:

@@ -26,7 +26,6 @@ def _onboarded_team(earliest: date | None = None) -> tuple[Organization, Team]:
     [
         ("pre_2015_clamped", datetime(2010, 3, 1), date(2015, 1, 1)),
         ("post_2015_kept", datetime(2020, 6, 15), date(2020, 6, 15)),
-        ("no_events_sentinel", None, date(9999, 12, 31)),
     ]
 )
 @pytest.mark.django_db
@@ -39,9 +38,9 @@ def test_sync_task_resolves_and_dual_writes(
     mock_get_earliest: MagicMock,
     mock_update: MagicMock,
 ) -> None:
-    # The provisioning-time task must apply the same clamp + no-history sentinel the
-    # backfill sensor uses, and write the result to BOTH the Django row (the sensor's
-    # read source) and the duckgres control-plane team row.
+    # The provisioning-time task must apply the same clamp the backfill sensor uses, and
+    # write the result to BOTH the Django row (the sensor's read source) and the duckgres
+    # control-plane team row.
     org, team = _onboarded_team()
     mock_get_earliest.return_value = earliest_dt
     mock_update.return_value = Response({}, status=200)
@@ -52,6 +51,23 @@ def test_sync_task_resolves_and_dual_writes(
     mock_update.assert_called_once_with(
         org.id, team.id, require_enabled=False, earliest_event_date=expected.isoformat()
     )
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.update_team")
+@patch("posthog.ducklake.common.get_earliest_event_date_for_team")
+def test_sync_task_leaves_empty_team_unresolved(mock_get_earliest: MagicMock, mock_update: MagicMock) -> None:
+    # A just-provisioned project plausibly has no events YET. A cached date is final, so
+    # storing the no-history sentinel here would permanently exclude the team from
+    # historical backfill; the task must leave the row NULL for the sensor to resolve
+    # later, and push nothing to the control plane.
+    _, team = _onboarded_team()
+    mock_get_earliest.return_value = None
+
+    sync_team_earliest_event_date(team.id)
+
+    assert DuckgresServerTeam.objects.get(team=team).earliest_event_date is None
+    mock_update.assert_not_called()
 
 
 @pytest.mark.django_db

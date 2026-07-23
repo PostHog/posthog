@@ -54,6 +54,7 @@ import {
 } from '../../shared/components/forms/schemaGroupingUtils'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
+import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
 
@@ -3528,6 +3529,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setReturnConfig(returnUrl, returnLabel)
             } else {
                 actions.clearReturnConfig()
+            }
+
+            // File upload has no backend connector (the uploaded file becomes a self-managed table),
+            // so resolve its client-only synthetic config directly rather than from `connectors`.
+            if (kind === FILE_UPLOAD_SOURCE_NAME.toLowerCase()) {
+                if (values.selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME && values.currentStep > 1) {
+                    return
+                }
+                actions.selectConnector(FILE_UPLOAD_SOURCE_CONFIG)
+                actions.setStep(2)
+                return
             }
 
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)

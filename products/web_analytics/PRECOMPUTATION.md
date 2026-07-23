@@ -235,7 +235,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ### Eligibility gate
 
-`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, per-query opt-in not set, conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
 
 ### Observability
 
@@ -258,7 +258,7 @@ The lazy path computes on first read, but for high-traffic teams the dashboard's
 - **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
 - **Window**: trailing 28 days. The lazy precompute stores per-day buckets, so a 28-day warm naturally covers any sub-window the dashboard asks for.
 - **Matrix per team**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`).
-- **Per-query opt-in**: every warmer query sets `useWebAnalyticsPrecompute=True` so the lazy precompute path accepts it; without this the gate rejects via `PerQueryOptInNotSet` and the warming is a silent no-op.
+- **Per-query toggle**: every warmer query sets `useWebAnalyticsPrecompute=True` explicitly. Precompute now defaults on for enrolled teams (only an explicit `False` opts out), so this is redundant — kept to make the warmer's intent explicit.
 - **Freshness handoff**: each payload is dispatched via `get_query_runner(...).run(...)`. The runner routes through its family's `*_lazy_precompute.py` module, which calls `ensure_*_precomputed` — already idempotent. The DAG does not enumerate windows or inspect job state; the runner is the source of truth for what's stale.
 - **Audience**: teams belonging to organizations rolled out on the `web-analytics-precompute-toggle` feature flag — the same flag the runtime lazy read path checks. The job parses the flag's `Match organizations against id equals <uuid>` group conditions and resolves them to teams via `Team.objects.filter(organization_id__in=...)`. The flag lives on PostHog's internal dogfooding project; self-hosted instances are gated out via `is_cloud()` so a same-keyed flag on someone else's team-2 doesn't trigger anything.
 - **Audience cap**: 200 teams. A typo in the flag config fails-loudly (op returns with `skipped=N` and zero warmed) rather than silently overloading ClickHouse.

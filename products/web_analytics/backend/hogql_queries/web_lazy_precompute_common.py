@@ -1,7 +1,7 @@
 """Shared eligibility gate + helpers for web-analytics lazy precompute paths.
 
 Both the web overview lazy precompute and the web stats PATHS lazy precompute
-share the same rollout/safety gate (org feature flag + per-query opt-in,
+share the same rollout/safety gate (org feature flag + per-query opt-out,
 whole-hour timezone, no conversion goal, no sampling, no v2 UUID sessions,
 at most one `$host` exact filter, bounded date range) and the same TTL /
 session-pad / UTC-day helpers. Keeping a single source of truth avoids
@@ -138,6 +138,12 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
 # still exist).
 STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
 
+WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
+    "web_analytics_lazy_precompute_check_miss_total",
+    "User-facing reads that found no covering READY jobs, fell back to the live query, and enqueued a background warm.",
+    labelnames=["family"],
+)
+
 WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED = Counter(
     "web_analytics_lazy_precompute_stale_served_total",
     "Reads served from expired-within-grace jobs instead of recomputing inline (stale-while-revalidate).",
@@ -167,6 +173,30 @@ def is_background_warming_request() -> bool:
 # request) so two different stale families in one request each still get their refresh.
 REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 
+# The shape debounce alone does not bound DISTINCT shapes: filters and date ranges are
+# request-controlled, so a user (or runaway client) could mint arbitrarily many shapes
+# and with them arbitrarily many queued warms. Cap total enqueues per team per debounce
+# window; a full dashboard is ~8 families and a compare-period burst doubles some, so
+# the budget comfortably covers legitimate use while bounding worker-held delayed tasks
+# and background query volume alike.
+#
+# Scope: this budget only ever applies to USER-FACING requests. Both enqueue callers
+# are unreachable from warming traffic — the check-miss enqueue in
+# `web_ensure_precomputed` is gated on `not is_background_warming_request()`, and
+# `handle_stale_served` can only fire for reads that received the stale grace, which
+# warming requests never do. Dagster/celery warmers are unaffected.
+REVALIDATION_TEAM_BUDGET_PER_WINDOW = 25
+
+# Head start for the interactive burst: warms enqueued by a dashboard load run on the
+# same team/cluster query slots as the dashboard's own live queries, so firing them
+# immediately makes the background work contend with the very read it is serving.
+# Dashboard bursts finish in seconds — 20s comfortably outlasts the slowest
+# burst observed while keeping the warm (whose purpose is the NEXT visit)
+# close behind. Celery holds countdown tasks worker-side until runnable, but
+# the per-shape debounce bounds in-flight delayed tasks to at most one per
+# (team, family, shape) per debounce window — a trickle, not a backlog.
+REVALIDATION_START_DELAY_SECONDS = 20
+
 
 def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
@@ -179,15 +209,32 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     # The task module imports this module (for the trigger constant), so the reverse
     # import must stay local to avoid a cycle.
     from products.web_analytics.backend.tasks.lazy_precompute_revalidation import (  # noqa: PLC0415
+        REVALIDATION_EXPIRES_SECONDS,
         revalidate_web_analytics_precompute,
     )
 
     try:
+        client = redis.get_client()
         debounce_key = f"web_swr_reval:{team.id}:{family}:{compute_filters_eligibility_hash(query, team.timezone)[:16]}"
-        if not redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
+        if not client.set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
             return
-        revalidate_web_analytics_precompute.delay(
-            team_id=team.id, query=query.model_dump(mode="json", exclude_none=True)
+        budget_key = f"web_swr_reval_budget:{team.id}"
+        spent = client.incr(budget_key)
+        if spent == 1:
+            client.expire(budget_key, REVALIDATION_DEBOUNCE_SECONDS)
+        if spent > REVALIDATION_TEAM_BUDGET_PER_WINDOW:
+            # Release the shape's debounce claim: no task was enqueued, so leaving
+            # the key would lock the shape out of warming for the whole debounce
+            # window even after the budget resets.
+            client.delete(debounce_key)
+            logger.warning("web_precompute.swr_revalidation_budget_exhausted", team_id=team.id, family=family)
+            return
+        revalidate_web_analytics_precompute.apply_async(
+            kwargs={"team_id": team.id, "query": query.model_dump(mode="json", exclude_none=True)},
+            countdown=REVALIDATION_START_DELAY_SECONDS,
+            # `expires` is measured from publication; extend it by the countdown so
+            # the queue keeps the task's full pickup window despite the head start.
+            expires=REVALIDATION_START_DELAY_SECONDS + REVALIDATION_EXPIRES_SECONDS,
         )
     except Exception:
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED.labels(family=family).inc()
@@ -226,10 +273,20 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     and would serve stale to themselves). Callers that see `stale=True` must hand the
     result to `handle_stale_served` so the background revalidation actually happens.
     """
+    runner = kwargs.pop("runner", None)
+    family = kwargs.pop("family", None)
+    background = is_background_warming_request()
     if "stale_while_revalidate_seconds" not in kwargs:
         kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
             STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
         )
+    # User-facing requests never compute inline: they are served from covering
+    # READY jobs (fresh or within the stale grace) or told "miss" immediately so
+    # the caller falls back to the live query. Construction happens only on
+    # background triggers (warmers, the revalidation task) — a cold dashboard
+    # must not pay for its own backfill.
+    if "run_inserts" not in kwargs:
+        kwargs["run_inserts"] = background
     pinned = is_team_oom_pinned(team.id)
     if "ttl_seconds" in kwargs:
         existing = kwargs["ttl_seconds"]
@@ -248,6 +305,11 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
+    if not result.ready and not background and runner is not None and family is not None:
+        # Check-only miss: warm in the background (debounced per team/family/shape)
+        # so the next visit is served from precompute while this one goes live.
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS.labels(family=family).inc()
+        enqueue_stale_revalidation(team=team, query=runner.query, family=family)
     if result.memory_exceeded:
         pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned
         if not pinned:
@@ -344,12 +406,8 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
     pass
 
 
-class PerQueryOptInNotSet(LazyPrecomputeIneligible):
-    pass
-
-
 class PerQueryOptedOut(LazyPrecomputeIneligible):
-    """Unrestricted team where the user explicitly turned precompute off."""
+    """The user explicitly turned the "Allow precompute" toggle off."""
 
     pass
 
@@ -428,8 +486,7 @@ def is_precompute_unrestricted_for_team(team: Team) -> bool:
     """Whether a team may precompute *any* web analytics query.
 
     Unrestricted teams bypass the single-`$host`-exact filter-shape gate (any
-    property filter becomes a distinct cache key) and treat the per-query toggle
-    as opt-out rather than opt-in. Driven by the dedicated
+    property filter becomes a distinct cache key). Driven by the dedicated
     `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` env-var setting.
     """
     return team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS
@@ -485,15 +542,13 @@ def check_common_eligibility(
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
-    unrestricted = is_precompute_unrestricted_for_team(team)
+    # Precompute defaults ON for every enrolled team: an untouched toggle
+    # (`None`) takes the precompute path; only an explicit `False` (the
+    # "Allow precompute" toggle turned off) opts a query out.
+    if use_web_analytics_precompute is False:
+        raise PerQueryOptedOut()
 
-    # Unrestricted teams default to opt-out: only an explicit `False` rejects.
-    # Restricted teams keep the opt-in default (`None`/`False` both reject).
-    if unrestricted:
-        if use_web_analytics_precompute is False:
-            raise PerQueryOptedOut()
-    elif use_web_analytics_precompute is not True:
-        raise PerQueryOptInNotSet()
+    unrestricted = is_precompute_unrestricted_for_team(team)
 
     if not is_integer_timezone(team.timezone):
         raise NonIntegerTimezone()
