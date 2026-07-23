@@ -1,6 +1,8 @@
 use posthog_cli::{
     sourcemaps::{
-        content::SourceMapContent, inject::inject_pairs, plain::inject::is_javascript_file,
+        content::SourceMapContent,
+        inject::inject_pairs,
+        plain::inject::{is_javascript_file, is_stylesheet_file},
         source_pairs::SourcePair,
     },
     utils::files::FileSelection,
@@ -61,6 +63,23 @@ fn test_search_without_multiple_files() {
     )
     .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 2);
+}
+
+#[test]
+fn test_stylesheet_pair_is_discoverable_for_cleanup() {
+    let selection = FileSelection::from_roots(vec![get_case_path("stylesheet")])
+        .include(vec![])
+        .expect("Failed to select stylesheet fixture");
+    let pairs = posthog_cli::sourcemaps::source_pairs::read_pairs(
+        selection.into_iter().filter(is_stylesheet_file),
+        &None,
+    );
+
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(
+        pairs[0].source.inner.path,
+        get_case_path("stylesheet/app.css")
+    );
 }
 
 #[test]
