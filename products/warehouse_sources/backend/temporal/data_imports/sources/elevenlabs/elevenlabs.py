@@ -1,29 +1,24 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.settings import (
     ELEVENLABS_ENDPOINTS,
     ElevenLabsEndpointConfig,
 )
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
-
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class ElevenLabsRetryableError(Exception):
-    """Raised for 429 / 5xx responses so tenacity retries them; credential/4xx errors are not wrapped."""
-
-    pass
 
 
 @dataclasses.dataclass
@@ -65,7 +60,7 @@ def _build_params(
 ) -> dict[str, Any]:
     """Build the constant per-request query params (page size, sort, server-side incremental filter).
 
-    The cursor is added per page by the caller. The incremental filter is applied on every page (the
+    The cursor is added per page by the paginator. The incremental filter is applied on every page (the
     API keeps the time-window filter alongside the cursor), so pagination terminates at `has_more`
     rather than re-walking full history each incremental run.
     """
@@ -85,6 +80,56 @@ def _build_params(
     return params
 
 
+class ElevenLabsCursorPaginator(BasePaginator):
+    """Cursor pagination where the request param and response cursor key differ per endpoint.
+
+    Termination requires BOTH a truthy ``has_more`` flag AND a next cursor: some endpoints echo a
+    stale cursor (the last item id on the final page) alongside ``has_more=False``, so keying off the
+    cursor alone would issue one needless extra request.
+    """
+
+    def __init__(self, cursor_param: str, cursor_response_key: str) -> None:
+        super().__init__()
+        self.cursor_param = cursor_param
+        self.cursor_response_key = cursor_response_key
+        self._cursor_value: Optional[str] = None
+
+    def _apply_cursor(self, request: Request) -> None:
+        if self._cursor_value is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor_value
+
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume cursor to the first request.
+        self._apply_cursor(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        next_cursor = body.get(self.cursor_response_key) if isinstance(body, dict) else None
+        has_more = bool(body.get("has_more")) if isinstance(body, dict) else False
+        if has_more and next_cursor:
+            self._cursor_value = next_cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        self._apply_cursor(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor_value} if self._has_next_page and self._cursor_value is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor_value = cursor
+            self._has_next_page = True
+
+
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     """Probe the API key. 200 => valid. 401 => invalid key. 403 => valid key missing a scope.
 
@@ -98,116 +143,37 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     """
     config = ELEVENLABS_ENDPOINTS.get(schema_name) if schema_name else None
     probe_path = config.path if config else "/v1/user"
-    url = f"{ELEVENLABS_BASE_URL}{probe_path}"
-    params: dict[str, Any] = {"page_size": 1} if config else {}
+    # Bake the probe's page_size into the URL: validate_via_probe issues a bare GET with no params.
+    url = f"{ELEVENLABS_BASE_URL}{probe_path}{'?page_size=1' if config else ''}"
 
-    try:
-        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
-            url, headers=_get_headers(api_key), params=params, timeout=10
-        )
-    except Exception:
+    # Don't follow redirects: requests preserves the custom `xi-api-key` header across a cross-origin
+    # 3xx, so a redirect off the fixed API host could replay the key to another origin.
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+        url,
+        headers=_get_headers(api_key),
+    )
+
+    if status is None:
         return False, "Could not reach the ElevenLabs API. Please try again."
-
-    if response.status_code == 200:
+    if status == 200:
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid ElevenLabs API key"
-    if response.status_code == 403:
+    if status == 403:
         if schema_name is None:
             return True, None
         return False, f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`."
     # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
     # can retry, rather than saving a source that only fails on its first sync.
-    return False, f"Could not verify the ElevenLabs API key (status {response.status_code}). Please try again."
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            ElevenLabsRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-) -> dict:
-    response = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # ElevenLabs rate limiting is concurrency-based per plan; a 429 clears once in-flight requests
-    # drain, so back off and retry. 5xx are transient server faults.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise ElevenLabsRetryableError(f"ElevenLabs API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"ElevenLabs API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ElevenLabsResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = ELEVENLABS_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    # One session reused across pages so urllib3 keeps the connection alive instead of re-handshaking.
-    # Redact the key so it can't leak into captured HTTP samples or logged URLs. Don't follow redirects:
-    # requests preserves the custom `xi-api-key` header across a cross-origin 3xx, so a redirect off the
-    # fixed API host could replay the key to another origin — fail the request instead.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
-    url = f"{ELEVENLABS_BASE_URL}{config.path}"
-
-    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume.cursor if resume is not None else None
-    if cursor:
-        logger.debug(f"ElevenLabs: resuming {endpoint} from cursor")
-
-    while True:
-        page_params = dict(params)
-        if cursor:
-            page_params[config.cursor_param] = cursor
-
-        data = _fetch_page(session, url, page_params, headers, logger)
-
-        items = data.get(config.items_key) or []
-        if items:
-            # Yield the rows in the shape the API returns them; the pipeline batches and merges on the
-            # endpoint's primary key.
-            yield items
-
-        next_cursor = data.get(config.cursor_response_key)
-        has_more = bool(data.get("has_more"))
-        if not has_more or not next_cursor:
-            break
-
-        # Save state AFTER yielding so a crash re-yields the last page rather than skipping it; merge
-        # dedupes the re-pulled rows on the primary key.
-        resumable_source_manager.save_state(ElevenLabsResumeConfig(cursor=next_cursor))
-        cursor = next_cursor
+    return False, f"Could not verify the ElevenLabs API key (status {status}). Please try again."
 
 
 def elevenlabs_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[ElevenLabsResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -215,17 +181,58 @@ def elevenlabs_source(
 ) -> SourceResponse:
     config = ELEVENLABS_ENDPOINTS[endpoint]
 
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": ELEVENLABS_BASE_URL,
+            # Only the non-secret Accept header is set here; the key is injected via `auth` so it's
+            # redacted from logs and captured HTTP samples.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "xi-api-key", "location": "header"},
+            "paginator": ElevenLabsCursorPaginator(config.cursor_param, config.cursor_response_key),
+            # Redact the key and refuse redirects: requests preserves the custom `xi-api-key` header
+            # across a cross-origin 3xx, so following one could replay the key to another origin.
+            "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # Top-level array key; a 200 body missing it is a legit zero-row page (the old
+                    # code yielded nothing rather than raising), so the selector is not required.
+                    "data_selector": config.items_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes) rather than skipping it.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(ElevenLabsResumeConfig(cursor=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,  # type: ignore[arg-type]
         partition_count=1,

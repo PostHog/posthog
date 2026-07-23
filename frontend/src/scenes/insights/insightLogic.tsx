@@ -765,6 +765,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     props.dashboardId &&
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
+                    // Dashboard refreshes return a view-only query with the dashboard filters applied.
+                    // Keep that query out of the canonical insight state that the editor persists.
+                    if (sourceDashboardId != null) {
+                        const { query: _query, result: _result, ...insightWithoutDashboardOverrides } = insight
+                        return { ...state, ...insightWithoutDashboardOverrides }
+                    }
                     return { ...state, ...insight }
                 }
                 return state

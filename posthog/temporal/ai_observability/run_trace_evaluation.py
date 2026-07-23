@@ -39,8 +39,11 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     status_reason_detail_for_terminal_user_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_hog import coerce_hog_io_value, execute_hog_eval_bytecode
+from posthog.temporal.ai_observability.evaluation_hog import (
+    build_hog_event_global,
+    execute_hog_eval_bytecode,
+    hog_bytecode_references_global,
+)
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     LLM_JUDGE_RETRY_POLICY,
     call_llm_judge,
@@ -59,7 +62,6 @@ from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
-    increment_trial_usage_and_notify,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
@@ -89,18 +91,6 @@ MAX_TRACE_EVAL_EVENTS = 500
 # fill an LLM context window for summarization); a per-trace judge verdict doesn't need that
 # much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
 JUDGE_TRACE_MAX_CHARS = 150_000
-
-# Heavy payload keys are dropped from per-event `properties` in Hog globals — their content
-# is already exposed via the per-event `input`/`output` strings, and duplicating them doubles
-# HogVM memory pressure on large traces.
-HEAVY_TRACE_PROPERTY_KEYS = (
-    "$ai_input",
-    "$ai_output",
-    "$ai_output_choices",
-    "$ai_input_state",
-    "$ai_output_state",
-    "$ai_tools",
-)
 
 # Written against ai_events; query_ai_events rewrites it for the events table when ai_events
 # returns nothing. HAVING makes a zero count return no rows, which both triggers the events-table
@@ -258,32 +248,54 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     return text
 
 
-def build_trace_hog_globals(trace: LLMTrace, trace_id: str) -> dict[str, Any]:
+def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
     """Build Hog globals for a trace-level eval.
 
-    `events` carries every trace event in chronological order with stringified input/output.
-    Sources read per-event io off `events`; there is no trace-level `input`/`output` because
-    a single synthesized pair isn't meaningful across a whole trace and wouldn't match what
-    the trace view shows.
+    `events` and `trace` keep their original shapes for saved trace Hog source. New target-independent
+    source uses `evaluation_events`, which adds readable text projections, and `target`.
+
+    Existing bytecode receives the original globals. Bytecode that uses a new shared global only
+    builds the event collections it references, avoiding duplicate HogVM and worker memory cost.
     """
-    events_globals: list[dict[str, Any]] = []
-    for event in trace.events or []:
-        props = event.properties
-        input_raw, output_raw = extract_event_io(event.event, props)
-        events_globals.append(
-            {
-                "uuid": event.id,
-                "event": event.event,
-                "timestamp": event.createdAt,
-                "input": coerce_hog_io_value(input_raw),
-                "output": coerce_hog_io_value(output_raw),
-                "properties": {k: v for k, v in props.items() if k not in HEAVY_TRACE_PROPERTY_KEYS},
-            }
-        )
-    return {
-        "events": events_globals,
-        "trace": {"id": trace_id, "event_count": len(events_globals)},
+    trace_events = trace.events or []
+    references_target = bytecode is not None and hog_bytecode_references_global(bytecode, "target")
+    references_events = bytecode is not None and hog_bytecode_references_global(bytecode, "events")
+    references_evaluation_events = bytecode is not None and hog_bytecode_references_global(
+        bytecode, "evaluation_events"
+    )
+    can_skip_compatibility_events = (references_target or references_evaluation_events) and not references_events
+    globals_dict: dict[str, Any] = {
+        "trace": {"id": trace_id, "event_count": len(trace_events)},
     }
+    if bytecode is None or references_target:
+        globals_dict["target"] = {
+            "type": "trace",
+            "id": trace_id,
+            "total_cost_usd": trace.totalCost,
+            "total_latency_seconds": trace.totalLatency,
+        }
+    if bytecode is None or not can_skip_compatibility_events:
+        globals_dict["events"] = [
+            build_hog_event_global(
+                event.event,
+                event.properties,
+                event_uuid=event.id,
+                timestamp=event.createdAt,
+                include_text=False,
+            )
+            for event in trace_events
+        ]
+    if bytecode is None or references_evaluation_events:
+        globals_dict["evaluation_events"] = [
+            build_hog_event_global(
+                event.event,
+                event.properties,
+                event_uuid=event.id,
+                timestamp=event.createdAt,
+            )
+            for event in trace_events
+        ]
+    return globals_dict
 
 
 @temporalio.activity.defn
@@ -350,7 +362,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
         )
         if outcome.skip_reason or outcome.trace is None:
             return None, outcome.skip_reason or "trace_not_found"
-        globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id)
+        globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id, bytecode=bytecode)
         return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na), None
 
     result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
@@ -468,6 +480,10 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunTraceEvaluationInputs) -> WorkflowResult:
+        # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
+        # histories for one release, then delete this call (temporal-workflow-versioning rule).
+        temporalio.workflow.deprecate_patch("remove-trial-evals")
+
         window_start = temporalio.workflow.now()
 
         # Wait for the rest of the trace to arrive. Timers are server-side, so sleeping
@@ -528,14 +544,6 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
                 if handled is not None:
                     return handled
                 raise
-
-            # Replay-only; see increment_trial_usage_and_notify.
-            if (
-                not temporalio.workflow.patched("remove-trial-evals")
-                and not result.get("is_byok")
-                and not result.get("skipped")
-            ):
-                await increment_trial_usage_and_notify(evaluation)
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(

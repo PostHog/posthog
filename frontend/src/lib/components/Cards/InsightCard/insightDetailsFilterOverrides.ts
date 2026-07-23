@@ -1,5 +1,5 @@
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, InsightFilterOverrideContext, PropertyGroupFilter } from '~/types'
+import { AnyPropertyFilter, InsightFilterOverrideContext, IntervalType, PropertyGroupFilter } from '~/types'
 
 export type OverrideSource = 'dashboard' | 'tile'
 
@@ -7,6 +7,27 @@ export interface EffectiveFilterOverrides {
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
     overriddenByTile: AnyPropertyFilter[]
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
+    interval: { value: IntervalType; source: OverrideSource } | null
+    filterTestAccounts: { value: boolean; source: OverrideSource } | null
+    ignoresDashboardFilters: boolean
+}
+
+// The generated context type lags behind TileFilters until the OpenAPI types are rebuilt, so read the
+// flag through the schema type.
+function ignoresDashboardFilters(tileFilters: unknown): boolean {
+    return !!(tileFilters as TileFilters | null | undefined)?.ignoreDashboardFilters
+}
+
+// Tile beats dashboard; `!= null` (not truthiness) so a force-off `filterTestAccounts: false` still counts.
+function resolveScalarOverride<T>(
+    tileValue: T | null | undefined,
+    dashboardValue: T | null | undefined
+): { value: T; source: OverrideSource } | null {
+    return tileValue != null
+        ? { value: tileValue, source: 'tile' }
+        : dashboardValue != null
+          ? { value: dashboardValue, source: 'dashboard' }
+          : null
 }
 
 export function getEffectiveFilterOverrides(
@@ -14,8 +35,15 @@ export function getEffectiveFilterOverrides(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveFilterOverrides {
-    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
     const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileIgnoresDashboard = ignoresDashboardFilters(tileFilters)
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileIgnoresDashboard
+          ? undefined
+          : filtersOverride
     const dashboardProperties = (dashboardFilters?.properties ?? []) as AnyPropertyFilter[]
     const tileProperties = (tileFilters?.properties ?? []) as AnyPropertyFilter[]
     const overriddenByTile = (filterOverrideContext?.overridden_dashboard?.properties ?? []) as AnyPropertyFilter[]
@@ -35,7 +63,20 @@ export function getEffectiveFilterOverrides(
           ? { breakdownFilter: dashboardBreakdown, source: 'dashboard' as const }
           : null
 
-    return { propertyGroups, overriddenByTile, breakdown }
+    const interval = resolveScalarOverride(tileFilters?.interval, dashboardFilters?.interval)
+    const filterTestAccounts = resolveScalarOverride(
+        tileFilters?.filterTestAccounts,
+        dashboardFilters?.filterTestAccounts
+    )
+
+    return {
+        propertyGroups,
+        overriddenByTile,
+        breakdown,
+        interval,
+        filterTestAccounts,
+        ignoresDashboardFilters: tileIgnoresDashboard,
+    }
 }
 
 interface DateRangeSource {
@@ -68,8 +109,12 @@ export function getDateRangeOverrideDisplay(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveDateOverride | null {
-    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
     const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : ignoresDashboardFilters(tileFilters)
+          ? undefined
+          : filtersOverride
     let winner: {
         source: OverrideSource
         dateFrom: string | null | undefined

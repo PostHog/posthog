@@ -97,7 +97,31 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
-    if (logItem.activity == 'updated') {
+    if (logItem.activity == 'revision_restored') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored a past version
+                    into the staged draft of the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'draft_discarded') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> discarded the staged draft
+                    of the {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'updated' || logItem.activity == 'published') {
+        const verb = logItem.activity == 'published' ? 'published' : 'updated'
         const changes: JSX.Element[] = []
         for (const change of logItem.detail.changes ?? []) {
             switch (change.field) {
@@ -162,7 +186,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <div>
-                    <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {workflowName}
+                    <strong className="ph-no-capture">{name}</strong> {verb} the {objectNoun}: {workflowName}
                     <ul className="ml-5 list-disc">
                         {changes.map((c, i) => (
                             <li key={i}>{c}</li>

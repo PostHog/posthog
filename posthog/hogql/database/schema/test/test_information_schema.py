@@ -243,7 +243,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("person_id", "String"),
+            ("person_id", "UUID"),
             ("event_issue_id", "UUID"),
             ("issue_first_seen", "DateTime"),
             ("$virt_is_bot", "Boolean"),
@@ -272,7 +272,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         columns = {row[0]: (row[1], row[2], row[3], row[4]) for row in response.results or []}
-        assert columns["uuid"][0] == "String"
+        assert columns["uuid"][0] == "UUID"
         assert columns["timestamp"][0] == "DateTime"
         assert columns["properties"][0] == "JSON"
         # `event` is a non-nullable string column

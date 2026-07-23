@@ -18,7 +18,9 @@ from products.tasks.backend.constants import (
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-    vm_sandbox_allowed_origins,
+    get_vm_sandbox_flag_payload,
+    vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.logic.services.sandbox_config import (
@@ -124,6 +126,12 @@ class TaskProcessingContext:
     @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
+
+    @property
+    def loop_id(self) -> str | None:
+        """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
+        value = (self.state or {}).get("loop_id")
+        return value if isinstance(value, str) else None
 
     @property
     def runtime_adapter(self) -> str | None:
@@ -372,7 +380,38 @@ def _is_modal_vm_sandbox_enabled(
         )
         return False
 
-    if origin_product != Task.OriginProduct.IMAGE_BUILDER and not custom_image_available:
+    # A trusted, server-set per-run override (image builders) forces the runtime
+    # decision without consulting the flag; any non-bool value is ignored.
+    raw_state_override = (state or {}).get("use_modal_vm_sandbox")
+    state_override: bool | None = raw_state_override if isinstance(raw_state_override, bool) else None
+
+    # Resolve the flag payload once and derive both allowlists from it, skipping the
+    # fetch entirely when a bool state override is present (so image-builder runs never
+    # depend on the flag service):
+    #   - allowed_origins: origins permitted on the VM runtime (custom images are VM-only).
+    #   - default_base_origins: origins that may run on the bare VM *base* image even
+    #     without a custom image — makes the VM runtime the default for standard runs.
+    allowed_origins: set[str] = set()
+    default_base_origins: set[str] = set()
+    if state_override is None:
+        try:
+            payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+        except Exception as e:
+            log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+            return False
+        allowed_origins = vm_sandbox_allowed_origin_products(payload)
+        default_base_origins = vm_sandbox_default_base_origin_products(payload)
+
+    origin_allows_default_base = origin_product in default_base_origins
+
+    # Custom images are VM-only, so VM historically required one. image_builder always
+    # runs on VM (it builds images on that base); origins in the default-base allowlist
+    # may run on the bare VM base image with no custom image at all.
+    if (
+        origin_product != Task.OriginProduct.IMAGE_BUILDER
+        and not custom_image_available
+        and not origin_allows_default_base
+    ):
         log_with_activity_context(
             "modal_vm_sandbox_skipped_without_custom_image",
             run_id=run_id,
@@ -380,8 +419,7 @@ def _is_modal_vm_sandbox_enabled(
         )
         return False
 
-    state_override = (state or {}).get("use_modal_vm_sandbox")
-    if isinstance(state_override, bool):
+    if state_override is not None:
         log_with_activity_context(
             "modal_vm_sandbox_state_override",
             run_id=run_id,
@@ -389,20 +427,14 @@ def _is_modal_vm_sandbox_enabled(
         )
         return state_override
 
-    try:
-        allowed_origins = vm_sandbox_allowed_origins(distinct_id=distinct_id, organization_id=organization_id)
-    except Exception as e:
-        log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    origin_allowed = origin_product in allowed_origins
-    result = origin_allowed
+    result = origin_product in allowed_origins or origin_allows_default_base
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
+        default_base_origin_products=sorted(default_base_origins),
         custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
@@ -531,6 +563,19 @@ def _is_modal_directory_resume_snapshots_enabled(
         use_modal_directory_resume_snapshots=enabled,
     )
     return enabled
+
+
+def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
+    """Loop runs opt into the CI/review-comment follow-up loop when the loop's
+    snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
+    `watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
+    the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
+    already-queued run.
+    """
+    if task.origin_product != Task.OriginProduct.LOOP:
+        return False
+    behaviors = ((state or {}).get("config_snapshot") or {}).get("behaviors") or {}
+    return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
 
 
 def _is_continue_as_new_enabled(
@@ -694,6 +739,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # gets for its PRs.
     pr_loop_enabled = (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        or _loop_pr_follow_up_enabled(task, state)
         or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,

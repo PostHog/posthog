@@ -17,7 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import UserAccessControl, restricted_visible_membership_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -183,7 +183,7 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
     return {
         **cacheable,
         "inviter": _get_inviter(user, organization),
-        "team_members": _filter_self(cacheable["team_members"], user),
+        "team_members": _filter_self(_filter_visible(cacheable["team_members"], organization, user), user),
         "suggested_next_steps": _build_suggested_next_steps(user, cacheable["products_in_use"]),
         "is_organization_first_user": _is_organization_first_user(user, organization),
     }
@@ -274,6 +274,23 @@ def _get_accessible_team_ids(organization: Organization, access_control: UserAcc
         )
         return []
     return list(queryset.order_by("id").values_list("id", flat=True)[:_MAX_TEAMS_SCANNED])
+
+
+def _filter_visible(members: list[dict[str, Any]], organization: Organization, user: User) -> list[dict[str, Any]]:
+    """Drop members hidden from `user` by the org's member list visibility setting.
+
+    The cached payload is org-wide, so per-user visibility must be applied after cache retrieval."""
+    visible_membership_ids = restricted_visible_membership_ids(organization, user)
+    if visible_membership_ids is None:
+        return members
+    visible_emails = {
+        email.lower()
+        for email in OrganizationMembership.objects.filter(
+            organization=organization, id__in=visible_membership_ids
+        ).values_list("user__email", flat=True)
+        if email
+    }
+    return [m for m in members if (m.get("email") or "").lower() in visible_emails]
 
 
 def _filter_self(members: list[dict[str, Any]], user: User) -> list[dict[str, Any]]:

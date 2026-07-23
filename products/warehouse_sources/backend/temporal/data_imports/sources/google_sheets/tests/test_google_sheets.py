@@ -8,10 +8,14 @@ import gspread
 import requests
 from google.auth import exceptions as google_auth_exceptions
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
+    GoogleSheetsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
+    GOOGLE_SHEETS_API_VERSION_V4,
     _assert_unique_normalized_column_names,
     _get_worksheet,
     _retry_on_transient_api_error,
@@ -396,7 +400,9 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
         ),
         mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"),
     ):
-        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        response = google_sheets_source(
+            config, "sheet1", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
         list(cast(Iterable[Any], response.items()))
 
     assert mock_worksheet.get_all_values.call_count == 2
@@ -423,7 +429,9 @@ def test_google_sheets_source_reads_blank_cells_as_null():
             return_value=mock_worksheet,
         ),
     ):
-        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        response = google_sheets_source(
+            config, "sheet1", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
         list(cast(Iterable[Any], response.items()))
 
     mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
@@ -655,3 +663,69 @@ def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hi
         assert "try again in a moment" in (error_message or "").lower()
     else:
         assert "try again in a moment" not in (error_message or "").lower()
+
+
+@pytest.mark.parametrize(
+    "pinned_version,expected_version",
+    [
+        # No pin resolves to the source default — v4, Google's current stable Sheets REST API.
+        pytest.param(None, GOOGLE_SHEETS_API_VERSION_V4, id="unpinned_uses_default_v4"),
+        # A legacy "v1" pin is honored verbatim so sources created before the v4 label are unaffected.
+        pytest.param("v1", "v1", id="legacy_v1_pin_honored"),
+        pytest.param(GOOGLE_SHEETS_API_VERSION_V4, GOOGLE_SHEETS_API_VERSION_V4, id="v4_pin_honored"),
+    ],
+)
+def test_source_for_pipeline_threads_resolved_api_version_to_worksheet(pinned_version, expected_version):
+    """The source resolves the instance's pin (falling back to the default) and threads the result
+    down to `_get_worksheet`, where it keys the handle cache. Dropping the resolve or the threading
+    would send the wrong version — or none — to the request layer, breaking the seam every future
+    Sheets version relies on. Behaviour is unchanged today because gspread pins the v4 base URL."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    worksheet = mock.MagicMock()
+    worksheet.get_all_values.return_value = [["id"]]
+    worksheet.get_all_records.return_value = [{"id": 1}]
+
+    inputs = mock.MagicMock()
+    inputs.schema_name = "sheet1"
+    inputs.should_use_incremental_field = False
+    inputs.api_version = pinned_version
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=worksheet,
+        ) as mock_get_worksheet,
+    ):
+        response = GoogleSheetsSource().source_for_pipeline(config, inputs)
+        list(cast(Iterable[Any], response.items()))
+
+    assert mock_get_worksheet.called
+    assert all(call.args[2] == expected_version for call in mock_get_worksheet.call_args_list)
+
+
+@pytest.mark.parametrize(
+    "pin, expected",
+    [("v4", "v4"), (None, "v4"), (UNVERSIONED_API_VERSION, UNVERSIONED_API_VERSION)],
+)
+def test_get_schemas_threads_resolved_pin_into_incremental_fields(pin, expected):
+    # `_get_worksheet` memoizes on (url, worksheet_id, api_version), so discovery must pass the
+    # source's resolved pin — otherwise a pinned source reads headers under a different key.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schemas",
+            return_value=[("sheet1", 10)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.get_google_sheets_schema_incremental_fields",
+            return_value=[],
+        ) as mock_incremental,
+    ):
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        GoogleSheetsSource().get_schemas(config, team_id=1, api_version=pin)
+
+    assert mock_incremental.call_args.args[-1] == expected

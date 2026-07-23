@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "payload": {
+            "description": "Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context."
+        },
+        "trigger_type": {
+            "default": "schedule",
+            "description": "Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n* `schedule` - schedule\n* `github` - github\n* `api` - api",
+            "enum": ["schedule", "github", "api"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

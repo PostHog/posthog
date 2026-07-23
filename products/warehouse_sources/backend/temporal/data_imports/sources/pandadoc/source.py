@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PandaDocSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pandadoc import (
+    PandaDocSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.pandadoc import (
     PandaDocResumeConfig,
     pandadoc_source,
@@ -95,11 +97,16 @@ You can find your API key in the [PandaDoc developer dashboard](https://app.pand
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PandaDocSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PandaDocSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_pandadoc_credentials(config.api_key):
             return True, None
@@ -118,7 +125,8 @@ You can find your API key in the [PandaDoc developer dashboard](https://app.pand
         return pandadoc_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

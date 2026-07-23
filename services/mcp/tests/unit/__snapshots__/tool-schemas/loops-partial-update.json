@@ -1,0 +1,308 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "behaviors": {
+            "description": "PR / CI-follow-up behavior configuration.",
+            "properties": {
+                "create_prs": {
+                    "default": false,
+                    "description": "Whether the agent may push branches and open PRs. False makes this a report-only loop.",
+                    "type": "boolean"
+                },
+                "fix_review_comments": {
+                    "default": false,
+                    "description": "Whether to automatically address review comments on loop-created PRs.",
+                    "type": "boolean"
+                },
+                "max_fix_iterations": {
+                    "default": 3,
+                    "description": "Ceiling on automatic CI/review-comment fix iterations, capped at 10.",
+                    "maximum": 10,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "watch_ci": {
+                    "default": false,
+                    "description": "Whether to watch CI on loop-created PRs and report status.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "connectors": {
+            "description": "MCP connector configuration for this loop's runs.",
+            "properties": {
+                "mcp_installation_ids": {
+                    "description": "MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "posthog_mcp_scopes": {
+                    "default": "read_only",
+                    "description": "Scope of the PostHog MCP access injected into this loop's runs.\n\n* `read_only` - read_only\n* `full` - full",
+                    "enum": ["read_only", "full"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "context_target": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "folder_id": {
+                            "description": "Desktop folder id of the context this loop is attached to.",
+                            "type": "string"
+                        },
+                        "name": {
+                            "description": "Context (channel) name, used to file runs into its feed.",
+                            "maxLength": 128,
+                            "type": "string"
+                        },
+                        "outputs": {
+                            "description": "What the loop maintains in this context each run.",
+                            "properties": {
+                                "canvas_id": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Id of a canvas in this context the loop keeps up to date each run, or null to maintain none."
+                                },
+                                "post_to_feed": {
+                                    "default": false,
+                                    "description": "Whether each run is filed into the context's feed as a card (sets the run's channel).",
+                                    "type": "boolean"
+                                },
+                                "update_context": {
+                                    "default": false,
+                                    "description": "Whether each run reads and republishes the context's context.md to reflect the latest state.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["folder_id", "name"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date."
+        },
+        "description": {
+            "description": "Free-form description of what this loop does.",
+            "type": "string"
+        },
+        "enabled": {
+            "description": "Whether the loop's triggers are active. Pausing disables all triggers.",
+            "type": "boolean"
+        },
+        "id": {
+            "type": "string"
+        },
+        "instructions": {
+            "description": "The prompt delivered to the agent on every run.",
+            "type": "string"
+        },
+        "model": {
+            "description": "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Display name for the loop.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "notifications": {
+            "description": "Per-channel notification configuration.",
+            "properties": {
+                "email": {
+                    "description": "Email notification settings.",
+                    "properties": {
+                        "enabled": {
+                            "default": false,
+                            "description": "Whether this channel is active.",
+                            "type": "boolean"
+                        },
+                        "events": {
+                            "description": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.",
+                            "items": {
+                                "description": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `needs_attention` - needs_attention",
+                                "enum": ["run_completed", "run_failed", "pr_created", "needs_attention"],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "params": {
+                            "additionalProperties": {},
+                            "description": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
+                },
+                "push": {
+                    "description": "Push notification settings.",
+                    "properties": {
+                        "enabled": {
+                            "default": false,
+                            "description": "Whether this channel is active.",
+                            "type": "boolean"
+                        },
+                        "events": {
+                            "description": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.",
+                            "items": {
+                                "description": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `needs_attention` - needs_attention",
+                                "enum": ["run_completed", "run_failed", "pr_created", "needs_attention"],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "params": {
+                            "additionalProperties": {},
+                            "description": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
+                },
+                "slack": {
+                    "description": "Slack notification settings.",
+                    "properties": {
+                        "enabled": {
+                            "default": false,
+                            "description": "Whether this channel is active.",
+                            "type": "boolean"
+                        },
+                        "events": {
+                            "description": "Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.",
+                            "items": {
+                                "description": "* `run_completed` - run_completed\n* `run_failed` - run_failed\n* `pr_created` - pr_created\n* `needs_attention` - needs_attention",
+                                "enum": ["run_completed", "run_failed", "pr_created", "needs_attention"],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "params": {
+                            "additionalProperties": {},
+                            "description": "Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "overlap_policy": {
+            "description": "What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.\n\n* `skip` - skip\n* `allow` - allow\n* `cancel_previous` - cancel_previous",
+            "enum": ["skip", "allow", "cancel_previous"],
+            "type": "string"
+        },
+        "reasoning_effort": {
+            "anyOf": [
+                {
+                    "description": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max",
+                    "enum": ["low", "medium", "high", "xhigh", "max"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max"
+        },
+        "repositories": {
+            "description": "Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.",
+            "items": {
+                "properties": {
+                    "full_name": {
+                        "description": "Repository in `organization/repo` format, e.g. `posthog/posthog`.",
+                        "maxLength": 255,
+                        "type": "string"
+                    },
+                    "github_integration_id": {
+                        "description": "GitHub integration id this repository is accessed through.",
+                        "type": "number"
+                    }
+                },
+                "required": ["github_integration_id", "full_name"],
+                "type": "object"
+            },
+            "maxItems": 1,
+            "type": "array"
+        },
+        "runtime_adapter": {
+            "description": "Runtime adapter: 'claude' or 'codex'.\n\n* `claude` - claude\n* `codex` - codex",
+            "enum": ["claude", "codex"],
+            "type": "string"
+        },
+        "sandbox_environment": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Sandbox environment carrying encrypted env vars and the network allowlist into every run."
+        },
+        "take_ownership": {
+            "description": "On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.",
+            "type": "boolean"
+        },
+        "triggers": {
+            "description": "Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.",
+            "items": {
+                "properties": {
+                    "config": {
+                        "description": "Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config."
+                    },
+                    "enabled": {
+                        "default": true,
+                        "description": "Whether this trigger is active. Disabling pauses only this trigger.",
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "description": "Existing trigger id to update in place. Omit to create a new trigger.",
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).\n\n* `schedule` - schedule\n* `github` - github\n* `api` - api",
+                        "enum": ["schedule", "github", "api"],
+                        "type": "string"
+                    }
+                },
+                "required": ["type"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "visibility": {
+            "description": "`personal` (owner-only) or `team` (visible and fireable by any team member).\n\n* `personal` - personal\n* `team` - team",
+            "enum": ["personal", "team"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
