@@ -6192,8 +6192,6 @@ export interface ExternalDataSourceCreatePayload {
     access_method?: 'warehouse' | 'direct'
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
-    /** Vendor API version to pin the source to. Omitted → the source's newest supported version. */
-    api_version?: string
     payload: Record<string, any>
 }
 
