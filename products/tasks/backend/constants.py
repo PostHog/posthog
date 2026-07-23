@@ -7,6 +7,10 @@ SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
+# Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
+# Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
+AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 
 
 def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
@@ -366,6 +370,9 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "GH_TOKEN",
         "LLM_GATEWAY_URL",
         "POSTHOG_RESUME_RUN_ID",
+        "POSTHOG_AGENT_OTEL_LOGS_URL",
+        "POSTHOG_AGENT_OTEL_LOGS_TOKEN",
+        "POSTHOG_AGENT_OTEL_TRACES_URL",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "DISABLE_TELEMETRY",
         "DISABLE_ERROR_REPORTING",
