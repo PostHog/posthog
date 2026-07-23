@@ -38,12 +38,6 @@ export interface LoadPostHogJSOptions {
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     if (window.JS_POSTHOG_API_KEY) {
-        // Present on self-hosted instances only. Session replay and exception autocapture then
-        // belong to the dedicated hobby experience instance (initialized below) and are pinned
-        // off on the primary instance, so the product analytics project's remote config cannot
-        // turn them back on for third-party deployments.
-        const hobbyExperienceApiKey = window.JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY
-
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
@@ -163,8 +157,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             autocapture: {
                 capture_copied_text: true,
             },
-            disable_session_recording: !!hobbyExperienceApiKey,
-            capture_exceptions: hobbyExperienceApiKey ? false : undefined,
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 ...options.sessionRecording,
@@ -194,47 +186,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             window.POSTHOG_GLOBAL_ERRORS ||= {}
             window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
         })
-
-        if (hobbyExperienceApiKey) {
-            // Diagnostics-only sibling instance for self-hosted deployments: session replay
-            // (governed by the hobby experience project's own replay settings) and exception
-            // autocapture, nothing else — product analytics stays on the primary instance above.
-            posthog.init(
-                hobbyExperienceApiKey,
-                {
-                    api_host: window.JS_POSTHOG_HOST,
-                    ui_host: window.JS_POSTHOG_UI_HOST,
-                    defaults: SDK_DEFAULTS_DATE,
-                    persistence: 'localStorage+cookie',
-                    autocapture: false,
-                    capture_pageview: false,
-                    capture_pageleave: false,
-                    capture_performance: false,
-                    capture_heatmaps: false,
-                    capture_dead_clicks: false,
-                    capture_exceptions: true,
-                    disable_surveys: true,
-                    disable_product_tours: true,
-                    advanced_disable_feature_flags: true,
-                    opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
-                    session_recording: {
-                        maskAllInputs: true,
-                        blockSelector: '.ph-replay-block',
-                        ...options.sessionRecording,
-                    },
-                    loaded: (diagnosticsInstance) => {
-                        if (window.IMPERSONATED_SESSION) {
-                            diagnosticsInstance.opt_out_capturing()
-                        } else {
-                            // No $opt_in event — this instance should carry nothing but
-                            // replay snapshots and $exception events.
-                            diagnosticsInstance.opt_in_capturing({ captureEventName: false })
-                        }
-                    },
-                },
-                'posthog_hobby_experience'
-            )
-        }
     } else {
         posthog.init('fake_token', {
             autocapture: false,

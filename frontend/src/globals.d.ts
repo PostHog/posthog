@@ -32,9 +32,6 @@ declare global {
         JS_POSTHOG_API_KEY?: string
         JS_POSTHOG_HOST?: string
         JS_POSTHOG_UI_HOST?: string
-        // Set for self-hosted instances only: session replay + exceptions go to this project
-        // via a second posthog-js instance, keeping them out of the product analytics project.
-        JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY?: string
         JS_POSTHOG_SELF_CAPTURE?: boolean
         JS_POSTHOG_IDENTITY_DISTINCT_ID?: string
         JS_POSTHOG_IDENTITY_HASH?: string
