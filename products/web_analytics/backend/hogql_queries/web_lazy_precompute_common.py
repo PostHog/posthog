@@ -32,6 +32,7 @@ from posthog import redis
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     TtlSchedule,
@@ -526,6 +527,11 @@ class UnsupportedFilterType(LazyPrecomputeIneligible):
         super().__init__(f"type={filter_type!r}")
 
 
+class PropertyAccessControlled(LazyPrecomputeIneligible):
+    """The team has property-level access controls — userless shared precompute
+    can't honor per-user property restrictions, so the query stays on the live path."""
+
+
 class MissingDateRange(LazyPrecomputeIneligible):
     pass
 
@@ -630,6 +636,13 @@ def check_common_eligibility(
     for prop in properties:
         if get_property_type(prop) not in ("event", "person"):
             raise UnsupportedFilterType(get_property_type(prop))
+
+    # Precompute results are built userless and shared across users by a
+    # user-independent cache key, so they cannot honor per-user property
+    # restrictions. If the team has any property-level access controls, skip
+    # precompute entirely and let the live path enforce them per requesting user.
+    if team_has_property_access_rules(team_id=team.id):
+        raise PropertyAccessControlled()
 
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:

@@ -26,6 +26,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
     is_precompute_enabled_for_team,
@@ -176,6 +177,11 @@ class UnsupportedFilterType(LazyPrecomputeIneligible):
         super().__init__(f"type={filter_type!r}")
 
 
+class PropertyAccessControlled(LazyPrecomputeIneligible):
+    """The team has property-level access controls — userless shared precompute
+    can't honor per-user property restrictions, so the query stays on the live path."""
+
+
 class MissingDateRange(LazyPrecomputeIneligible):
     pass
 
@@ -282,6 +288,13 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     for prop in query.properties or []:
         if get_property_type(prop) not in ("event", "person"):
             raise UnsupportedFilterType(get_property_type(prop))
+
+    # Precompute results are built userless and shared by a user-independent cache
+    # key, so they cannot honor per-user property restrictions. If the team has any
+    # property-level access controls, skip precompute and let the live path enforce
+    # them per requesting user.
+    if team_has_property_access_rules(team_id=runner.team.id):
+        raise PropertyAccessControlled()
 
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
