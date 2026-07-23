@@ -207,6 +207,25 @@ def _get_property_type(value) -> str:
     return "str"
 
 
+def _attribute_filter_expr(log_filter: LogPropertyFilter, team: "Team") -> ast.Expr:
+    """Build the WHERE expression for a single (already type-suffixed) log-attribute filter.
+
+    Numeric values route to the `__float` map, whose lookup resolves to a `Nullable(Float64)`
+    (`has(map, key) ? map[key] : NULL`). For an `IN (...)` comparison the ClickHouse printer leaves
+    that nullable result unwrapped, so a bare `Nullable` reaches the executor — which rejects it with
+    "Cannot convert NULL to a non-nullable type" when the query runs with `transform_null_in` enabled
+    (as the facet-count runner does). Collapse it to a definite boolean: a NULL comparison reads as
+    "no match" for a positive filter and "match" for a negative one, the standard WHERE treatment.
+    Only the float map can leak a bare nullable; the string map's reads are already non-nullable, so
+    leaving them untouched keeps their skip-index usage intact.
+    """
+    filter_expr = property_to_expr(log_filter, team=team)
+    if not log_filter.key.endswith("__float"):
+        return filter_expr
+    default = 1 if operator_is_negative(log_filter.operator) else 0
+    return ast.Call(name="ifNull", args=[filter_expr, ast.Constant(value=default)])
+
+
 class LogsFilterBuilder:
     """Builds HogQL WHERE clause AST from LogsQuery filter fields.
 
@@ -334,7 +353,8 @@ class LogsFilterBuilder:
             exprs.append(self.resource_filter(existing_filters=exprs))
 
             if self.attribute_filters:
-                exprs.append(property_to_expr(self.attribute_filters, team=self.team))
+                for attribute_filter in self.attribute_filters:
+                    exprs.append(_attribute_filter_expr(attribute_filter, team=self.team))
 
             if self.log_filters:
                 for log_filter in self.log_filters:

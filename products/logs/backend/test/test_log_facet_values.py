@@ -75,6 +75,18 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             f"{other_filter_key} should re-scope {facet_field} counts",
         )
 
+    def test_facet_with_numeric_log_attribute_filter(self):
+        """A numeric log-attribute filter routes through the `__float` map, whose Nullable lookup must
+        not crash the facet count query with ClickHouse `Cannot convert NULL to a non-nullable type`."""
+        base = self._facet("service_name")
+        # Multiple numeric values compile to `IN (...)` over the __float map — the shape that regressed;
+        # the ClickHouse printer left that nullable IN unwrapped, so the facet runner blew up on it.
+        filter_group = [
+            {"key": "log.file.record_number", "type": "log_attribute", "operator": "exact", "value": [1, 2]}
+        ]
+        scoped = self._facet("service_name", filterGroup=filter_group)
+        self.assertTrue(set(scoped).issubset(set(base)))
+
     @parameterized.expand(
         [
             ("service_name", "aws"),
