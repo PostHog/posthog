@@ -126,6 +126,8 @@ describe('InstructionsFormatter prompt snapshots', () => {
                 renderUiEnabled: STATIC_CTX.renderUiEnabled,
                 metadata: STATIC_CTX.metadata,
                 groupTypes: STATIC_CTX.groupTypes,
+                requestContext: { mcpConsumer: undefined },
+                sessionContext: null,
             } as unknown as ResolvedState
             return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
         }
