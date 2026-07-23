@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -103,7 +104,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { searchParams } = useValues(router)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
+
+    // Preserve the filters/saved view carried over from the list so going back restores them.
+    const backToTicketsUrl = combineUrl(urls.supportTickets(), searchParams).url
 
     const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-general')
     const replyDisabledReason: JSX.Element | undefined = emailReplyBlockedReason
@@ -158,7 +163,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 <div className="flex items-center justify-center h-96">
                     <div className="text-center">
                         <h2 className="text-xl font-semibold mb-2">Ticket not found</h2>
-                        <LemonButton type="primary" to={urls.supportTickets()}>
+                        <LemonButton type="primary" to={backToTicketsUrl}>
                             Back to tickets
                         </LemonButton>
                     </div>
@@ -180,7 +185,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
                     name: 'Ticket list',
-                    path: urls.supportTickets(),
+                    path: backToTicketsUrl,
                     key: 'supportTickets',
                 }}
             />

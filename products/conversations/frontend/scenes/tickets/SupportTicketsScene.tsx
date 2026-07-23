@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
@@ -214,7 +214,11 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         : undefined,
             }}
             onRow={(ticket) => {
-                const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
+                // Carry the current filters/saved view along so "back to tickets" can restore them.
+                const ticketUrl = combineUrl(
+                    urls.supportTicketDetail(ticket.ticket_number),
+                    router.values.searchParams
+                ).url
                 return {
                     onClick: (e: React.MouseEvent) => {
                         if (e.metaKey || e.ctrlKey) {
