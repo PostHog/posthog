@@ -895,6 +895,10 @@ class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
     reservation inside the cloud_run view itself.
     """
 
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
+    num_requests: int
+    duration: int
+
     def allow_request(self, request: "Request", view: "APIView") -> bool:
         user = getattr(request, "user", None)
         if user is None or not user.is_authenticated:
@@ -905,7 +909,7 @@ class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
         memo = getattr(request, "_wizard_run_times_memo", None)
         if memo is None:
             memo = {}
-            request._wizard_run_times_memo = memo
+            setattr(request, "_wizard_run_times_memo", memo)  # noqa: B010 — dynamic attr the stubs don't know
         if self.duration not in memo:
             # Deferred: rate_limit is core and imports at module scope would pull the tasks
             # product into every process's import path.
