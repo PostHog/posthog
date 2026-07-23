@@ -3,7 +3,13 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.oauth import OAuthApplication
-from posthog.scopes import ALL_SCOPES, DEFAULT_CEILING_SENTINEL, PRIVILEGED_SCOPES, effective_ceiling
+from posthog.scopes import (
+    ALL_SCOPES,
+    DEFAULT_CEILING_SENTINEL,
+    OAUTH_SCOPES_HIDDEN,
+    PRIVILEGED_SCOPES,
+    effective_ceiling,
+)
 
 
 def parse_scope_list(raw: str) -> list[str]:
@@ -71,12 +77,14 @@ class Command(BaseCommand):
 
         ceiling = sorted(effective_ceiling(new_scopes))
         privileged = sorted(PRIVILEGED_SCOPES.intersection(ceiling))
+        hidden = sorted(OAUTH_SCOPES_HIDDEN.intersection(ceiling))
 
         self.stdout.write(f"Application: {app.name} (client_id={client_id})")
         self.stdout.write(f"  current scopes:        {list(app.scopes)}")
         self.stdout.write(f"  new scopes:            {new_scopes}")
         self.stdout.write(f"  effective ceiling:     {len(ceiling)} scopes grantable")
         self.stdout.write(f"  privileged in ceiling: {privileged or 'none'}")
+        self.stdout.write(f"  hidden in ceiling:     {hidden or 'none'}")
 
         if dry_run:
             self.stdout.write("Dry run: no changes written.")

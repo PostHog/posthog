@@ -37,6 +37,15 @@ class TestSeedOAuthAppScopes(BaseTest):
         assert app.scopes == ["@default", "llm_gateway:read"]
         assert "Seeded Seed test app scopes to ['@default', 'llm_gateway:read']" in output
         assert "privileged in ceiling: ['llm_gateway:read']" in output
+        assert "hidden in ceiling:     none" in output
+
+    def test_hidden_scope_surfaced_in_output(self):
+        app = self._create_app()
+        output = self._run(client_id="seed_test_client", scopes="@default,wizard_session:read")
+
+        app.refresh_from_db()
+        assert app.scopes == ["@default", "wizard_session:read"]
+        assert "hidden in ceiling:     ['wizard_session:read']" in output
 
     def test_dedupes_and_preserves_order(self):
         self._create_app()
