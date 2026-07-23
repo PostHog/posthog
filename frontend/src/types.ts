@@ -293,6 +293,7 @@ export enum AccessControlResourceType {
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Tagger = 'tagger',
+    LlmSkill = 'llm_skill',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',

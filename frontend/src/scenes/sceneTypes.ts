@@ -164,6 +164,8 @@ export enum Scene {
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
+    Skill = 'Skill',
+    Skills = 'Skills',
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
@@ -425,6 +427,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
+
+    // Skills
+    [Scene.Skill]: AccessControlResourceType.LlmSkill,
+    [Scene.Skills]: AccessControlResourceType.LlmSkill,
 
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.

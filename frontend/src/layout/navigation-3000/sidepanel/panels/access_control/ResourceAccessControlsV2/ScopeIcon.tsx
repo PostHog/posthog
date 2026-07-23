@@ -14,6 +14,7 @@ import {
     IconLive,
     IconListTree,
     IconLlmAnalytics,
+    IconLlmPromptManagement,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -70,6 +71,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconTrends />
         case 'llm_analytics':
             return <IconLlmAnalytics />
+        case 'llm_skill':
+            return <IconLlmPromptManagement />
         case 'ai_observability_clusters':
             return <IconScatter />
         case 'live_debugger':

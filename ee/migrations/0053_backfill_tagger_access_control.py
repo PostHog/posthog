@@ -31,7 +31,7 @@ def reverse_func(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ee", "0051_backfill_ai_observability_clusters_access_control"),
+        ("ee", "0052_backfill_llm_skill_access_control"),
     ]
 
     operations = [

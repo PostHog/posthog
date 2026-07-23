@@ -183,6 +183,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
                     AccessControlResourceType.Tagger,
+                    AccessControlResourceType.LlmSkill,
                     AccessControlResourceType.AiObservabilityClusters,
                     AccessControlResourceType.Metrics,
                     AccessControlResourceType.Notebook,
