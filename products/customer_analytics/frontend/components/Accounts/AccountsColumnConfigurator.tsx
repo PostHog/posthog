@@ -8,17 +8,32 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSearchableSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonSearchableSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 
+import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import {
     ACCOUNTS_NAME_COLUMN,
+    AccountColumnDisplayMode,
     AccountColumnGroup,
     AccountColumnGroupKey,
+    COLUMN_DISPLAY_WINDOW_OPTIONS,
+    DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
 
@@ -45,15 +60,9 @@ export function AccountsColumnConfigurator(): JSX.Element {
 }
 
 function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { selectColumns, accountsColumnGroups, databaseLoading } = useValues(accountsColumnConfigLogic)
-    const { moveColumn, resetColumns, setSelectColumns, unselectColumn } = useActions(accountsColumnConfigLogic)
-
-    const onEditColumn = (column: string, index: number): void => {
-        const next = window.prompt('Edit column', column)
-        if (next !== null && next !== '') {
-            setSelectColumns(selectColumns.map((c, i) => (i === index ? next : c)))
-        }
-    }
+    const { selectColumns, accountsColumnGroups, databaseLoading, editingColumn, editingColumnIndex } =
+        useValues(accountsColumnConfigLogic)
+    const { moveColumn, resetColumns, unselectColumn, setEditingColumnIndex } = useActions(accountsColumnConfigLogic)
 
     return (
         <LemonModal
@@ -98,7 +107,8 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                                             key={column}
                                             column={column}
                                             dataIndex={index}
-                                            onEdit={onEditColumn}
+                                            isEditing={index === editingColumnIndex}
+                                            onEdit={setEditingColumnIndex}
                                             onRemove={unselectColumn}
                                         />
                                     ))}
@@ -106,25 +116,163 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                             </DndContext>
                         </div>
                     </div>
-                    <div className="w-full">
-                        <h4 className="secondary uppercase text-secondary">Available columns</h4>
-                        <AvailableColumnsPicker groups={accountsColumnGroups} loading={databaseLoading} />
-                    </div>
+                    {editingColumn !== null && editingColumnIndex !== null ? (
+                        <ColumnEditSection
+                            key={editingColumnIndex}
+                            column={editingColumn}
+                            columnIndex={editingColumnIndex}
+                            onClose={() => setEditingColumnIndex(null)}
+                        />
+                    ) : (
+                        <div className="w-full">
+                            <h4 className="secondary uppercase text-secondary">Available columns</h4>
+                            <AvailableColumnsPicker groups={accountsColumnGroups} loading={databaseLoading} />
+                        </div>
+                    )}
                 </div>
             </div>
         </LemonModal>
     )
 }
 
+function ColumnEditSection({
+    column,
+    columnIndex,
+    onClose,
+}: {
+    column: string
+    columnIndex: number
+    onClose: () => void
+}): JSX.Element {
+    const { aliasToDefinition } = useValues(accountsColumnConfigLogic)
+    const definition = aliasToDefinition[extractDisplayLabel(column)]
+
+    return (
+        <div className="w-full flex flex-col gap-2 p-3 border border-border rounded" data-attr="accounts-column-edit">
+            <div className="flex items-center justify-between">
+                <h4 className="secondary uppercase text-secondary mb-0">
+                    Edit column{definition ? `: ${definition.name}` : ''}
+                </h4>
+                <LemonButton size="small" onClick={onClose} data-attr="accounts-column-edit-close">
+                    Back to available columns
+                </LemonButton>
+            </div>
+            {definition ? (
+                <CustomPropertyDisplayEditor definition={definition} />
+            ) : (
+                <ExpressionEditor column={column} columnIndex={columnIndex} />
+            )}
+        </div>
+    )
+}
+
+function CustomPropertyDisplayEditor({ definition }: { definition: CustomPropertyDefinitionApi }): JSX.Element {
+    const { columnDisplay } = useValues(accountsColumnConfigLogic)
+    const { setColumnDisplay } = useActions(accountsColumnConfigLogic)
+    const definitionId = definition.id
+    const config = columnDisplay[definitionId] ?? null
+    const isNumeric = isNumericDisplayType(definition.display_type)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-4">
+                <span className="text-sm font-medium">Display as</span>
+                <LemonSegmentedButton
+                    size="small"
+                    value={config?.mode ?? 'value'}
+                    onChange={(mode) =>
+                        setColumnDisplay(
+                            definitionId,
+                            mode === 'value'
+                                ? null
+                                : {
+                                      mode: mode as AccountColumnDisplayMode,
+                                      window_days: config?.window_days ?? DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS,
+                                  }
+                        )
+                    }
+                    options={[
+                        { value: 'value', label: 'Plain value' },
+                        {
+                            value: 'sparkline',
+                            label: 'Sparkline',
+                            disabledReason: isNumeric ? undefined : 'Only available for numeric properties',
+                        },
+                        {
+                            value: 'trend',
+                            label: 'Trend',
+                            disabledReason: isNumeric ? undefined : 'Only available for numeric properties',
+                        },
+                    ]}
+                    data-attr="accounts-column-display-mode"
+                />
+            </div>
+            {config ? (
+                <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium">Look-back window</span>
+                    <LemonSelect
+                        size="small"
+                        value={config.window_days}
+                        onChange={(window_days) =>
+                            window_days != null && setColumnDisplay(definitionId, { ...config, window_days })
+                        }
+                        options={COLUMN_DISPLAY_WINDOW_OPTIONS.map((days) => ({
+                            value: days,
+                            label: `${days} days`,
+                        }))}
+                        data-attr="accounts-column-display-window"
+                    />
+                </div>
+            ) : null}
+            <div className="text-xs text-secondary">
+                {config?.mode === 'sparkline'
+                    ? 'Shows how the value changed over the look-back window.'
+                    : config?.mode === 'trend'
+                      ? 'Shows the current value and how much it changed over the look-back window.'
+                      : 'Shows the current value.'}
+            </div>
+        </div>
+    )
+}
+
+function ExpressionEditor({ column, columnIndex }: { column: string; columnIndex: number }): JSX.Element {
+    const { updateColumnExpression } = useActions(accountsColumnConfigLogic)
+    const [expression, setExpression] = useState(column)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonInput
+                value={expression}
+                onChange={setExpression}
+                fullWidth
+                data-attr="accounts-column-edit-expression"
+            />
+            <div className="flex justify-end">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => updateColumnExpression(columnIndex, expression)}
+                    disabledReason={!expression.trim() ? 'Enter a column expression' : undefined}
+                    data-attr="accounts-column-edit-save"
+                >
+                    Save
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 function SelectedAccountColumn({
     column,
     dataIndex,
+    isEditing,
     onEdit,
     onRemove,
 }: {
     column: string
     dataIndex: number
-    onEdit: (column: string, index: number) => void
+    isEditing: boolean
+    onEdit: (index: number) => void
     onRemove: (column: string) => void
 }): JSX.Element {
     const { aliasToDefinition, aliasToRelationshipDefinition } = useValues(accountsColumnConfigLogic)
@@ -154,7 +302,7 @@ function SelectedAccountColumn({
                 <div className="flex-1" />
                 {isMandatory ? null : (
                     <Tooltip title="Edit">
-                        <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
+                        <LemonButton onClick={() => onEdit(dataIndex)} size="small" active={isEditing}>
                             <IconPencil data-attr="column-display-item-edit-icon" />
                         </LemonButton>
                     </Tooltip>
