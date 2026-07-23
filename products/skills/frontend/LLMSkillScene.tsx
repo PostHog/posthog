@@ -102,7 +102,7 @@ export function LLMSkillScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name={skill && 'name' in skill ? skill.name : 'Skill'}
-                    resourceType={{ type: 'llm_analytics' }}
+                    resourceType={{ type: 'llm_skill' }}
                     isLoading={skillLoading}
                     actions={
                         <>
