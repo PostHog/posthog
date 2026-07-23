@@ -154,7 +154,7 @@ class TestReviewerScenarios:
 
         # The API returned MariusAndra, the map stores mariusandra — one entry, top-ranked
         # (active blame author), never a stale-scored duplicate pair.
-        assert [r.login for r in reviewers][0] == "mariusandra"
+        assert reviewers[0].login == "mariusandra"
         lowered = [r.login.lower() for r in reviewers]
         assert len(lowered) == len(set(lowered))
 
