@@ -4,8 +4,8 @@ from dataclasses import dataclass, field, fields
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar
 
-from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.constants import MAX_CLONE_DEPTH, ConstantDataType
+from posthog.hogql.errors import NotImplementedError, QueryError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -71,19 +71,30 @@ class AST:
             return visit_unknown(self)
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
-    def __deepcopy__(self, memo: dict[int, Any]) -> "AST":
+    def __deepcopy__(self, memo: dict[Any, Any]) -> "AST":
         # Faster than stdlib pickle; memo-before-recurse (here + _clone_value) preserves cycles and shared subtrees.
         cls = self.__class__
         plan = _clone_plan_cache.get(cls)
         if plan is None:
             plan = tuple((f.name, f.name not in ("start", "end")) for f in fields(cls))
             _clone_plan_cache[cls] = plan
+        # Bound recursion so a deeply nested AST can't overflow the Python stack
+        # (an uncatchable RecursionError -> 500). Depth is carried on `memo` so it
+        # survives the mutual recursion with `_clone_value`; the sentinel key is an
+        # object, never colliding with the int id() keys the clone otherwise uses.
+        depth = memo.get(_CLONE_DEPTH_KEY, 0) + 1
+        if depth > MAX_CLONE_DEPTH:
+            raise QueryError("Query is too deeply nested. Try reducing the number of nested subqueries or expressions.")
+        memo[_CLONE_DEPTH_KEY] = depth
         new = cls.__new__(cls)  # bare instance, no __init__/__post_init__
         memo[id(self)] = new  # register BEFORE recursing so cycles terminate
-        for name, needs_clone in plan:
-            # Assumes every slot is set, true for any node built via the dataclass __init__ (the only path in practice).
-            value = getattr(self, name)
-            setattr(new, name, _clone_value(value, memo) if needs_clone else value)
+        try:
+            for name, needs_clone in plan:
+                # Assumes every slot is set, true for any node built via the dataclass __init__ (the only path in practice).
+                value = getattr(self, name)
+                setattr(new, name, _clone_value(value, memo) if needs_clone else value)
+        finally:
+            memo[_CLONE_DEPTH_KEY] = depth - 1
         return new
 
     def to_hogql(self):
@@ -113,6 +124,7 @@ _CLONE_ATOMIC_TYPES = frozenset({str, bytes, int, float, bool, complex, type(Non
 # Per-class clone plan: tuple of (field_name, needs_clone), built once from dataclasses.fields.
 _clone_plan_cache: dict[type, tuple[tuple[str, bool], ...]] = {}
 _NOT_CLONED = object()  # memo-miss sentinel; a real clone may itself be None/falsy
+_CLONE_DEPTH_KEY = object()  # memo key carrying live clone depth; object() so it never collides with id() keys
 
 
 def _clone_value(value: Any, memo: dict[int, Any]) -> Any:

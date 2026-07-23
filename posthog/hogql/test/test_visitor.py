@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -5,12 +6,33 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.ast import AST_CLASSES, HogQLXAttribute, HogQLXTag, UUIDType
 from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
+from posthog.hogql.constants import MAX_QUERY_DEPTH
 from posthog.hogql.errors import (
+    ExposedHogQLError,
     InternalHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
+
+
+def _nested_arithmetic(depth: int) -> ast.Expr:
+    node: ast.Expr = ast.Constant(value=0)
+    for _ in range(depth):
+        node = ast.ArithmeticOperation(left=node, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
+    return node
+
+
+def test_visit_rejects_overly_deep_ast_with_exposed_error():
+    # Without the depth guard this overflows the Python stack (an uncatchable
+    # RecursionError -> 500); the guard turns it into a clean 4xx instead.
+    deep = _nested_arithmetic(MAX_QUERY_DEPTH + 50)
+    with pytest.raises(ExposedHogQLError, match="too deeply nested"):
+        TraversingVisitor().visit(deep)
+
+
+def test_visit_walks_moderately_nested_ast():
+    TraversingVisitor().visit(_nested_arithmetic(MAX_QUERY_DEPTH // 2))
 
 
 class TestVisitor(BaseTest):

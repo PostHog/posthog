@@ -12,8 +12,10 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.constants import MAX_CLONE_DEPTH
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
@@ -403,6 +405,25 @@ def test_deepcopy_constant_value(value):
     if isinstance(value, list | dict | set):
         assert clone.value is not value
         assert clone.value == original.value
+
+
+def _nested_arithmetic(depth: int) -> ast.Expr:
+    node: ast.Expr = ast.Constant(value=0)
+    for _ in range(depth):
+        node = ast.ArithmeticOperation(left=node, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
+    return node
+
+
+def test_deepcopy_rejects_overly_deep_ast_with_exposed_error():
+    # Without the depth guard, cloning this overflows the Python stack (an
+    # uncatchable RecursionError -> 500); the guard turns it into a clean 4xx.
+    deep = _nested_arithmetic(MAX_CLONE_DEPTH + 100)
+    with pytest.raises(ExposedHogQLError, match="too deeply nested"):
+        copy.deepcopy(deep)
+
+
+def test_deepcopy_clones_moderately_nested_ast():
+    _assert_faithful_clone(_nested_arithmetic(MAX_CLONE_DEPTH // 2))
 
 
 def test_deepcopy_constant_nested_value_is_deeply_independent():
