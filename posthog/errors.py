@@ -211,6 +211,22 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     return QueryErrorCategory.ERROR
 
 
+def is_user_facing_query_error_type(exc_type: type[BaseException]) -> bool:
+    """Return True if this exception *type* is always a user-facing query error.
+
+    Type-only counterpart to `classify_query_error`, for callers that only have the exception's
+    class (module + name) and not the instance — chiefly the exception-autocapture `before_send`
+    hook. It covers the categories `classify_query_error` keys off the class alone: USER_ERROR
+    (`ExposedHogQLError` / user-safe `ExposedCHQueryError`) and RATE_LIMITED. Generic ClickHouse
+    `ServerException`s are classified by error code at runtime, so they can't be judged from the
+    type and return False here.
+    """
+    return issubclass(
+        exc_type,
+        (ExposedHogQLError, ExposedCHQueryError, ClickHouseAtCapacity, ConcurrencyLimitExceeded),
+    )
+
+
 # Specific error classes we need
 # These exist here and are not dynamically created because they are used in the codebase.
 class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
