@@ -254,7 +254,7 @@ class TestTeamLogsConfig(BaseTest):
         customized.save()
 
         backfill_module = importlib.import_module(
-            "products.logs.backend.migrations.0018_teamlogsconfig_logs_distinct_id_attribute_keys"
+            "products.logs.backend.migrations.0019_backfill_logs_distinct_id_attribute_keys"
         )
         backfill_module.backfill_distinct_id_attribute_keys(apps, None)
 

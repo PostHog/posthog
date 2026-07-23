@@ -4,16 +4,6 @@ from django.db import migrations, models
 import products.logs.backend.models
 
 
-def backfill_distinct_id_attribute_keys(apps, schema_editor):
-    TeamLogsConfig = apps.get_model("logs", "TeamLogsConfig")
-    # The ADD COLUMN default already filled every row with {posthogDistinctId}; only
-    # rows with a customized single key need their value carried into the array.
-    configs = TeamLogsConfig.objects.exclude(logs_distinct_id_attribute_key="posthogDistinctId")
-    for config in configs.iterator():
-        config.logs_distinct_id_attribute_keys = [config.logs_distinct_id_attribute_key]
-        config.save(update_fields=["logs_distinct_id_attribute_keys"])
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("logs", "0017_logsmetricrule"),
@@ -30,5 +20,4 @@ class Migration(migrations.Migration):
                 size=None,
             ),
         ),
-        migrations.RunPython(backfill_distinct_id_attribute_keys, migrations.RunPython.noop),
     ]
