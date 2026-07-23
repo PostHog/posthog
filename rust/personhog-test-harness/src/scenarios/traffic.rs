@@ -16,6 +16,13 @@
 //! dedicated team, observed as outcome metrics rather than verified — its
 //! expected behavior legitimately differs across stack versions as
 //! admission hardening lands.
+//!
+//! Every database operation — seeding, verification, cleanup — touches
+//! only the configured target table (the writer's validation table), never
+//! posthog_person; a startup sentinel round-trip proves the router serves
+//! that same table before any traffic flows. Shutdown cuts the in-flight
+//! epoch's load short and runs the normal close-out (verify what was
+//! acked, record, clean up) inside the termination grace window.
 
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,12 +31,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use metrics::{counter, gauge};
+use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPool;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{interval, MissedTickBehavior};
+use uuid::Uuid;
 
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
@@ -45,8 +54,8 @@ use crate::verify::verify_postgres;
 /// team ids, so it must be structurally unable to run against prod.
 pub const ENV_GUARD_VAR: &str = "PERSONHOG_TRAFFIC_ENV";
 
-pub async fn run(args: TrafficArgs) -> Result<()> {
-    check_env_guard(env::var(ENV_GUARD_VAR).ok().as_deref())?;
+/// Reject configurations that cannot produce the advertised coverage.
+fn validate_args(args: &TrafficArgs) -> Result<()> {
     if args.rate_min <= 0.0 || args.rate_max < args.rate_min {
         bail!(
             "invalid rate range: {}..{} (need 0 < min <= max)",
@@ -54,7 +63,23 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             args.rate_max
         );
     }
-    seed::validate_table_name(&args.pg_target_table)?;
+    if args.pool_size == 0 || args.concurrency == 0 || args.probers == 0 {
+        // Zero workers or probers would produce vacuously green epochs —
+        // worse than a crash for a verification bed — and an empty pool
+        // panics at person selection.
+        bail!(
+            "pool_size ({}), concurrency ({}), and probers ({}) must all be nonzero",
+            args.pool_size,
+            args.concurrency,
+            args.probers
+        );
+    }
+    seed::validate_table_name(&args.pg_target_table)
+}
+
+pub async fn run(args: TrafficArgs) -> Result<()> {
+    check_env_guard(env::var(ENV_GUARD_VAR).ok().as_deref())?;
+    validate_args(&args)?;
 
     traffic_metrics::spawn_server(args.metrics_port)?;
     gauge!("personhog_traffic_enabled").set(if args.enabled { 1.0 } else { 0.0 });
@@ -70,32 +95,39 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         .await
         .context("connecting to persons DB")?;
 
-    // A crashed prior run leaves rows behind; both teams belong to the
-    // harness, so boot from a clean slate.
+    // Refuse to send traffic anywhere the router provably doesn't serve
+    // this database. On failure the process exits and the Deployment's
+    // restart loop retries — which also rides out startup races where the
+    // leader hasn't claimed partitions yet.
+    sentinel_round_trip(&client, &pool, &args.pg_target_table, args.team_id).await?;
+
+    // A crashed prior run leaves rows behind (including the sentinel row
+    // just written); both teams belong to the harness, so boot from a
+    // clean slate.
     for team in [args.team_id, args.hostile_team_id] {
-        seed::cleanup_team(&pool, team).await?;
-        if args.pg_target_table != "posthog_person" {
-            seed::cleanup_target_table(&pool, &args.pg_target_table, team).await?;
-        }
+        seed::cleanup_team(&pool, &args.pg_target_table, team).await?;
     }
 
     // Hostile targets live for the process lifetime: their documents stay
     // small (fixed keys, no journal growth) and their outcomes are only
     // observed, never verified.
     let hostile_ids = if args.hostile_rate > 0.0 {
-        Arc::new(seed::seed_persons(&pool, args.hostile_team_id, 4).await?)
+        Arc::new(seed::seed_persons(&pool, &args.pg_target_table, args.hostile_team_id, 4).await?)
     } else {
         Arc::new(Vec::new())
     };
 
-    // A signal task flips the flag; the epoch loop exits at the next epoch
-    // boundary so the final epoch is still verified and cleaned up.
+    // A signal task flips the flag; the load tasks observe it and end
+    // early, and the epoch close-out below still verifies and cleans up
+    // whatever was acked before the process exits.
     let shutdown = Arc::new(AtomicBool::new(false));
     {
         let shutdown = shutdown.clone();
         tokio::spawn(async move {
             shutdown_signal().await;
-            tracing::info!("shutdown signal received; finishing the current epoch");
+            tracing::info!(
+                "shutdown signal received; cutting the epoch short to verify and clean up"
+            );
             shutdown.store(true, Ordering::SeqCst);
         });
     }
@@ -109,7 +141,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         gauge!("personhog_traffic_epoch_target_rps").set(rate);
         tracing::info!(epoch, rate = format!("{rate:.0}"), "epoch starting");
 
-        let person_ids = Arc::new(seed::seed_persons(&pool, args.team_id, args.pool_size).await?);
+        let person_ids = Arc::new(
+            seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.pool_size).await?,
+        );
         let collector = Arc::new(StatsCollector::new());
         let state = PersonState::new();
 
@@ -120,6 +154,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let state = state.clone();
             let (team_id, duration, concurrency) = (args.team_id, args.epoch, args.concurrency);
             let prefix = format!("traffic_e{epoch}_");
+            let stop = shutdown.clone();
             tokio::spawn(async move {
                 blast::run_traffic(
                     &client,
@@ -131,6 +166,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                     &prefix,
                     &collector,
                     &state,
+                    stop,
                 )
                 .await
             })
@@ -141,6 +177,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let collector = collector.clone();
             let state = state.clone();
             let (team_id, duration, prober_count) = (args.team_id, args.epoch, args.probers);
+            let stop = shutdown.clone();
             tokio::spawn(async move {
                 consistency::run_probers(
                     &client,
@@ -150,6 +187,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                     duration,
                     &collector,
                     &state,
+                    stop,
                 )
                 .await
             })
@@ -158,9 +196,10 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let client = client.clone();
             let hostile_ids = hostile_ids.clone();
             let (team_id, duration, rate) = (args.hostile_team_id, args.epoch, args.hostile_rate);
-            tokio::spawn(
-                async move { run_hostile(&client, team_id, hostile_ids, duration, rate).await },
-            )
+            let stop = shutdown.clone();
+            tokio::spawn(async move {
+                run_hostile(&client, team_id, hostile_ids, duration, rate, stop).await
+            })
         };
 
         traffic.await.context("traffic task panicked")??;
@@ -191,20 +230,14 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             "epoch closed"
         );
 
-        // Rotate the pool. Rows for this epoch's persons are deleted from
-        // both the seed table and the writer's target table.
-        seed::cleanup_team(&pool, args.team_id).await?;
-        if args.pg_target_table != "posthog_person" {
-            seed::cleanup_target_table(&pool, &args.pg_target_table, args.team_id).await?;
-        }
+        // Rotate the pool: delete this epoch's persons so the next epoch
+        // starts from fresh documents.
+        seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
 
         if shutdown.load(Ordering::SeqCst) {
             tracing::info!("cleaning up and exiting");
             for team in [args.team_id, args.hostile_team_id] {
-                seed::cleanup_team(&pool, team).await?;
-                if args.pg_target_table != "posthog_person" {
-                    seed::cleanup_target_table(&pool, &args.pg_target_table, team).await?;
-                }
+                seed::cleanup_team(&pool, &args.pg_target_table, team).await?;
             }
             return Ok(());
         }
@@ -222,6 +255,7 @@ async fn run_hostile(
     person_ids: Arc<Vec<i64>>,
     duration: Duration,
     rate_per_sec: f64,
+    stop: Arc<AtomicBool>,
 ) {
     if person_ids.is_empty() || rate_per_sec <= 0.0 {
         return;
@@ -232,7 +266,7 @@ async fn run_hostile(
     let mut rng = rand::rngs::StdRng::from_entropy();
     let mut counter: u64 = 0;
 
-    while Instant::now() < deadline {
+    while Instant::now() < deadline && !stop.load(Ordering::Relaxed) {
         ticker.tick().await;
         counter += 1;
         let person_id = person_ids[rng.gen_range(0..person_ids.len())];
@@ -281,6 +315,59 @@ fn hostile_payload(counter: u64) -> (&'static str, Value) {
     }
 }
 
+/// Prove the router serves the same database this harness seeds and
+/// verifies before any traffic flows: insert one person whose properties
+/// carry a freshly minted UUID, strong-read it back through the router,
+/// and require an exact match. The router path terminates in the leader's
+/// PG fallback, so a router pointed at any other environment cannot
+/// return a value that was generated here moments ago. The row is
+/// removed by the boot cleanup that follows.
+async fn sentinel_round_trip(
+    client: &HarnessClient,
+    pool: &PgPool,
+    table: &str,
+    team_id: i64,
+) -> Result<()> {
+    let marker = Uuid::new_v4().to_string();
+    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
+    let person_id: i64 = sqlx::query_scalar(&format!(
+        r#"
+        INSERT INTO {table} (
+            team_id, uuid, properties, properties_last_updated_at,
+            properties_last_operation, created_at, version, is_identified
+        )
+        VALUES ($1, gen_random_uuid(), $2::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, now(), 0, false)
+        RETURNING id
+        "#
+    ))
+    .bind(team)
+    .bind(json!({ "traffic_sentinel": &marker }).to_string())
+    .fetch_one(pool)
+    .await
+    .context("seeding the sentinel person")?;
+
+    let person = client
+        .get_person(team_id, person_id, ConsistencyLevel::Strong)
+        .await
+        .context("sentinel strong read through the router failed")?
+        .with_context(|| {
+            format!(
+                "sentinel person (team {team_id}, id {person_id}) not found through the \
+                 router — the router does not serve the database this harness targets"
+            )
+        })?;
+    let props: Value = serde_json::from_slice(&person.properties).unwrap_or(Value::Null);
+    if props["traffic_sentinel"] != json!(marker) {
+        bail!(
+            "sentinel mismatch: the router returned a person without the freshly minted \
+             marker (team {team_id}, id {person_id}) — the router does not serve the \
+             database this harness targets"
+        );
+    }
+    tracing::info!("sentinel round-trip verified: router and database agree");
+    Ok(())
+}
+
 fn check_env_guard(value: Option<&str>) -> Result<()> {
     match value {
         Some("dev") => Ok(()),
@@ -322,6 +409,61 @@ mod tests {
         assert!(check_env_guard(Some("prod-us")).is_err());
         assert!(check_env_guard(Some("")).is_err());
         assert!(check_env_guard(None).is_err());
+    }
+
+    #[test]
+    fn vacuous_or_panicking_configurations_are_rejected() {
+        let valid = TrafficArgs {
+            router_url: "http://localhost:1".to_string(),
+            enabled: true,
+            team_id: 900_101,
+            hostile_team_id: 900_102,
+            persons_db_url: "postgres://unused".to_string(),
+            pg_target_table: "personhog_person_tmp".to_string(),
+            pool_size: 200,
+            epoch: Duration::from_secs(300),
+            rate_min: 50.0,
+            rate_max: 500.0,
+            concurrency: 20,
+            probers: 2,
+            hostile_rate: 1.0,
+            metrics_port: 9110,
+        };
+        assert!(validate_args(&valid).is_ok());
+        // A disabled hostile lane is legal; zero traffic knobs are not.
+        assert!(validate_args(&TrafficArgs {
+            hostile_rate: 0.0,
+            ..valid.clone()
+        })
+        .is_ok());
+        for broken in [
+            TrafficArgs {
+                pool_size: 0,
+                ..valid.clone()
+            },
+            TrafficArgs {
+                concurrency: 0,
+                ..valid.clone()
+            },
+            TrafficArgs {
+                probers: 0,
+                ..valid.clone()
+            },
+            TrafficArgs {
+                rate_min: 0.0,
+                ..valid.clone()
+            },
+            TrafficArgs {
+                rate_max: 1.0,
+                ..valid.clone()
+            },
+            TrafficArgs {
+                pg_target_table: "bad; table".to_string(),
+                ..valid.clone()
+            },
+        ] {
+            assert!(validate_args(&broken).is_err());
+        }
     }
 
     #[test]

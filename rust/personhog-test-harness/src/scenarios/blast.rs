@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,6 +40,7 @@ pub async fn run(args: BlastArgs) -> Result<()> {
         &args.property_prefix,
         &collector,
         &state,
+        Arc::new(AtomicBool::new(false)),
     )
     .await?;
 
@@ -67,9 +69,11 @@ pub async fn run(args: BlastArgs) -> Result<()> {
 ///
 /// With `rate_per_sec` set, the workers collectively pace to that target
 /// (each worker ticks at rate/concurrency); unset, they run flat out.
-/// Metric emission is a no-op unless an exporter is installed (only the
-/// traffic mode installs one), so instrumenting here is free for the
-/// bounded modes.
+/// `stop` ends the run early — shutdown must not wait out the full
+/// duration, or Kubernetes kills the process before the caller can verify
+/// what was acked. Metric emission is a no-op unless an exporter is
+/// installed (only the traffic mode installs one), so instrumenting here
+/// is free for the bounded modes.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_traffic(
     client: &HarnessClient,
@@ -81,6 +85,7 @@ pub async fn run_traffic(
     property_prefix: &str,
     collector: &Arc<StatsCollector>,
     state: &PersonState,
+    stop: Arc<AtomicBool>,
 ) -> Result<()> {
     let deadline = Instant::now() + duration;
     let worker_tick = rate_per_sec.map(|rate| per_worker_tick(rate, concurrency));
@@ -92,6 +97,7 @@ pub async fn run_traffic(
         let state = state.clone();
         let person_ids = person_ids.clone();
         let prefix = property_prefix.to_string();
+        let stop = stop.clone();
 
         handles.push(tokio::spawn(async move {
             let mut counter: u64 = 0;
@@ -102,7 +108,7 @@ pub async fn run_traffic(
                 ticker
             });
 
-            while Instant::now() < deadline {
+            while Instant::now() < deadline && !stop.load(Ordering::Relaxed) {
                 if let Some(pacer) = pacer.as_mut() {
                     pacer.tick().await;
                 }
