@@ -205,8 +205,8 @@ export interface customPropertyDefinitionsLogicValues {
     selectedTableColumns: WarehouseColumn[]
     selectedTableColumnsLoading: boolean
     selectedWarehouseSchemaId: string | null
-    serializedColumnPropertyMap: Record<string, string>
     serializedColumnDescriptions: Record<string, string>
+    serializedColumnPropertyMap: Record<string, string>
     showCustomPropertyFormErrors: boolean
     targetTypeLocked: boolean
     triggeringSourceIds: string[]
@@ -327,7 +327,9 @@ export interface customPropertyDefinitionsLogicActions {
             tableId: string | null
         }
     }
-    loadWarehouseTables: (payload?: { search?: string }) => any
+    loadWarehouseTables: ({ search }?: { search?: string }) => {
+        search?: string
+    }
     loadWarehouseTablesFailure: (
         error: string,
         errorObject?: any
@@ -337,17 +339,21 @@ export interface customPropertyDefinitionsLogicActions {
     }
     loadWarehouseTablesSuccess: (
         warehouseTables: DataWarehouseTable[],
-        payload?: any
+        payload?: {
+            search?: string
+        }
     ) => {
         warehouseTables: DataWarehouseTable[]
-        payload?: any
+        payload?: {
+            search?: string
+        }
     }
     openCreateModal: (
         targetType?: CustomPropertyTargetType,
         lockTargetType?: boolean
     ) => {
-        targetType: CustomPropertyTargetType | undefined
         lockTargetType: boolean
+        targetType: CustomPropertyTargetType | undefined
     }
     openEditModal: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
