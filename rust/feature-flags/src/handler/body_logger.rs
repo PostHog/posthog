@@ -553,7 +553,10 @@ mod tests {
     fn redact_secret_tokens_replaces_multiple_occurrences() {
         let body = r#"{"api_key":"phs_one","backup":"phs_two"}"#;
         let redacted = redact_secret_tokens(body);
-        assert_eq!(redacted, r#"{"api_key":"phs_<redacted>","backup":"phs_<redacted>"}"#);
+        assert_eq!(
+            redacted,
+            r#"{"api_key":"phs_<redacted>","backup":"phs_<redacted>"}"#
+        );
     }
 
     #[test]
