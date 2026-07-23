@@ -32,7 +32,8 @@ pub enum Command {
     /// Full e2e gate: stack up, seed, traffic, quiesce, verify, cleanup.
     Gate(Box<GateArgs>),
     /// Continuous synthetic traffic with epoch-based verification, for the
-    /// dev deployment. Refuses to start unless PERSONHOG_TRAFFIC_ENV=dev.
+    /// dev deployment. Refuses to start when CLOUD_DEPLOYMENT names any
+    /// environment other than DEV (unset means a local run).
     Traffic(TrafficArgs),
 }
 

@@ -49,10 +49,12 @@ use crate::stats::StatsCollector;
 use crate::traffic_metrics;
 use crate::verify::verify_postgres;
 
-/// The environment marker that must be present (and equal to "dev") for
-/// the traffic mode to start. The mode seeds and deletes persons on its
-/// team ids, so it must be structurally unable to run against prod.
-pub const ENV_GUARD_VAR: &str = "PERSONHOG_TRAFFIC_ENV";
+/// The platform-injected deployment identity (see the golden chart's env
+/// ConfigMap; same semantics as Django's CLOUD_DEPLOYMENT / is_cloud()):
+/// unset means a local run, "DEV" is the dev cluster, and anything else is
+/// an environment this mode must never touch — it seeds and deletes
+/// persons on its team ids.
+pub const ENV_GUARD_VAR: &str = "CLOUD_DEPLOYMENT";
 
 /// Reject configurations that cannot produce the advertised coverage.
 fn validate_args(args: &TrafficArgs) -> Result<()> {
@@ -370,14 +372,14 @@ async fn sentinel_round_trip(
 
 fn check_env_guard(value: Option<&str>) -> Result<()> {
     match value {
-        Some("dev") => Ok(()),
+        // Unset means local (is_cloud() precedent); deployed pods always
+        // carry the variable via the chart's env ConfigMap.
+        None => Ok(()),
+        Some(v) if v.eq_ignore_ascii_case("dev") => Ok(()),
         Some(other) => bail!(
-            "{ENV_GUARD_VAR}={other:?} — the traffic mode only runs where {ENV_GUARD_VAR}=dev; \
-             it seeds and deletes person rows and must never target prod"
-        ),
-        None => bail!(
-            "{ENV_GUARD_VAR} is not set — the traffic mode only runs where {ENV_GUARD_VAR}=dev; \
-             it seeds and deletes person rows and must never target prod"
+            "{ENV_GUARD_VAR}={other:?} — the traffic mode only runs locally (unset) or in the \
+             dev cluster ({ENV_GUARD_VAR}=DEV); it seeds and deletes person rows and must \
+             never target prod"
         ),
     }
 }
@@ -404,11 +406,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn env_guard_only_accepts_dev() {
+    fn env_guard_accepts_only_local_and_dev() {
+        assert!(check_env_guard(None).is_ok(), "unset means a local run");
+        assert!(check_env_guard(Some("DEV")).is_ok());
         assert!(check_env_guard(Some("dev")).is_ok());
-        assert!(check_env_guard(Some("prod-us")).is_err());
-        assert!(check_env_guard(Some("")).is_err());
-        assert!(check_env_guard(None).is_err());
+        for cloud in ["US", "EU", "E2E", "prod-us", ""] {
+            assert!(
+                check_env_guard(Some(cloud)).is_err(),
+                "{cloud:?} must refuse"
+            );
+        }
     }
 
     #[test]
