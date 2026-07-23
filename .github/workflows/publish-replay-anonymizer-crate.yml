@@ -80,8 +80,10 @@ jobs:
 
     publish:
         name: Publish to crates.io
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        # Depot: ambient sccache WebDAV credentials, so the verify build's dependency
+        # compiles hit the shared cache instead of building cold under the timeout.
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
         if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
         permissions:
             contents: read
@@ -139,6 +141,22 @@ jobs:
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: steps.version.outputs.publish-needed == 'true'
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              if: steps.version.outputs.publish-needed == 'true'
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              if: steps.version.outputs.publish-needed == 'true'
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Authenticate with crates.io
               if: steps.version.outputs.publish-needed == 'true'
