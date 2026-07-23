@@ -222,6 +222,17 @@ class TestEnrichmentPromptConfigImmutability(BaseTest):
         config.refresh_from_db()
         assert config.is_active is False
 
+    def test_delete_guards_on_persisted_values_not_the_stale_instance(self):
+        config = self._config()
+        stale = EnrichmentPromptConfig.objects.get(pk=config.pk)
+        config.version = "test-v2"
+        config.save()
+        self._stamp_a_result(config)
+
+        with self.assertRaises(ValidationError):
+            stale.delete()
+        assert EnrichmentPromptConfig.objects.filter(pk=config.pk).exists()
+
     def test_editing_a_frozen_field_without_results_saves_fine(self):
         config = self._config()
 

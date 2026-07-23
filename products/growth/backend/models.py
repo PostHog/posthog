@@ -235,11 +235,13 @@ class EnrichmentPromptConfig(UUIDModel):
         if not self.pk:
             return super().delete(*args, **kwargs)
         with transaction.atomic():
-            EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
-            if self._has_results(self.name, self.version):
+            # Guard on the locked row's persisted values, not this instance's — a stale
+            # in-memory copy could otherwise pass the check against an old name/version.
+            persisted = EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
+            if persisted is not None and self._has_results(persisted.name, persisted.version):
                 raise ValidationError(
-                    f"Config {self.name} {self.version} has stored results and is part of their provenance; "
-                    "deactivate it instead of deleting."
+                    f"Config {persisted.name} {persisted.version} has stored results and is part of their "
+                    "provenance; deactivate it instead of deleting."
                 )
             return super().delete(*args, **kwargs)
 
