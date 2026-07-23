@@ -118,6 +118,10 @@ def eppo_source(
                 "location": "header",
             },
             "paginator": paginator,
+            # Pin every request (including paginator next-page links) to the Eppo origin and never
+            # follow redirects, so the `X-Eppo-Token` credential can't be replayed off-host.
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resources": [
             _get_resource(endpoint, incremental_field, should_use_incremental_field, db_incremental_field_last_value)
@@ -149,7 +153,9 @@ def eppo_source(
 def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     """Probe the experiments list endpoint to confirm the API key is genuine."""
     return validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        # `allow_redirects=False` pins the credential to the validated Eppo host, so a redirect
+        # from the probe endpoint can't replay `X-Eppo-Token` to an attacker-controlled origin.
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
         f"{BASE_URL}/experiments?limit=1",
         headers={"X-Eppo-Token": api_key},
     )

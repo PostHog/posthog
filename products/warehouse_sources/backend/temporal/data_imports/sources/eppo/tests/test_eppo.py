@@ -4,6 +4,7 @@ from typing import Any
 
 from unittest import mock
 
+import pytest
 from parameterized import parameterized
 from requests import Response
 
@@ -93,6 +94,14 @@ def _response(items: list[dict[str, Any]]) -> Response:
     return resp
 
 
+def _redirect_response(location: str) -> Response:
+    resp = Response()
+    resp.status_code = 302
+    resp.headers["Location"] = location
+    resp._content = b""
+    return resp
+
+
 def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
     """Wire a mock session and return a list that captures each request AT SEND TIME.
 
@@ -104,7 +113,11 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
+        # Carry the real URL onto the prepared request so the client's host-pinning check
+        # (allowed_hosts) sees the Eppo origin rather than a MagicMock.
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
@@ -181,6 +194,18 @@ class TestEppoSourcePagination:
         assert auth.api_key == "key"
         assert auth.name == "X-Eppo-Token"
         assert auth.location == "header"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sync_client_refuses_off_origin_redirect(self, MockSession) -> None:
+        # A 3xx from the Eppo API must not be followed — otherwise the X-Eppo-Token header would be
+        # replayed to the redirect target. The client is pinned with allow_redirects=False.
+        session = MockSession.return_value
+        _wire(session, [_redirect_response("https://evil.example/steal")])
+
+        with pytest.raises(ValueError, match="refusing to follow"):
+            _rows(_source("Experiments"))
+
+        assert session.send.call_args.kwargs["allow_redirects"] is False
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_cursor_added_to_request(self, MockSession) -> None:
@@ -286,3 +311,10 @@ class TestValidateCredentials:
         call = mock_session.return_value.get.call_args
         assert call.args[0] == f"{BASE_URL}/experiments?limit=1"
         assert call.kwargs["headers"]["X-Eppo-Token"] == "key"
+
+    @mock.patch(EPPO_SESSION_PATCH)
+    def test_probe_session_disables_redirects(self, mock_session) -> None:
+        # The probe carries the token; a redirect must not be followed off the validated Eppo host.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("key")
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
