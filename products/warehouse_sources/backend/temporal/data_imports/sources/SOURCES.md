@@ -386,6 +386,7 @@ the row lists both.
 | northpass_lms                    | HTTP                        | requests                                                        | ✅                          |
 | notion                           | HTTP                        | requests                                                        | ✅                          |
 | nuget                            | HTTP                        | requests                                                        | ✅                          |
+| omni                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | omnisend                         | HTTP                        | requests                                                        | ✅                          |
 | octopus_deploy                   | HTTP                        | requests                                                        | ✅                          |
 | oncehub                          | HTTP                        | requests                                                        | ✅                          |
@@ -1123,7 +1124,6 @@ doesn't conflict with concurrent PRs.
 - octolens
 - oecd
 - okendo
-- omni
 - onedrive
 - onehundredms
 - onelogin
