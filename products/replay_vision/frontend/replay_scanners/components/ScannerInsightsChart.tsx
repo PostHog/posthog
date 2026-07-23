@@ -203,7 +203,12 @@ export function ScannerInsightsChart({
                     onChange={(from, to) => setChartDateRange(from ?? null, to ?? null)}
                 />
             </div>
-            <VisionInsightChart query={chartQuery} insightProps={chartInsightProps} className="InsightCard h-80" />
+            <VisionInsightChart
+                query={chartQuery}
+                insightProps={chartInsightProps}
+                className="InsightCard h-80"
+                drillable
+            />
         </div>
     )
 }

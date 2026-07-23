@@ -15,6 +15,8 @@ interface VisionInsightChartProps {
     insightProps: InsightLogicProps
     /** Sizing classes for the chart container — pass the same layout the chart sat in before, the chart sizes against it. */
     className?: string
+    /** When true, clicking a data point opens the persons/recordings modal. Off by default so summary charts stay static. */
+    drillable?: boolean
 }
 
 export type ChartOverlayState = 'none' | 'loading' | 'error'
@@ -39,7 +41,12 @@ export function chartOverlayState(
  * blank box when a query is cancelled or hasn't resolved (its empty/refresh fallbacks are dashboard-only), so we
  * overlay our own spinner/retry whenever there's no response to render.
  */
-export function VisionInsightChart({ query, insightProps, className }: VisionInsightChartProps): JSX.Element {
+export function VisionInsightChart({
+    query,
+    insightProps,
+    className,
+    drillable = false,
+}: VisionInsightChartProps): JSX.Element {
     const logic = insightVizDataLogic(insightProps)
     const { insightData, insightDataLoading } = useValues(logic)
     const { loadData } = useActions(logic)
@@ -48,7 +55,7 @@ export function VisionInsightChart({ query, insightProps, className }: VisionIns
 
     return (
         <div className={clsx('relative', className)}>
-            <Query query={query} readOnly embedded inSharedMode context={{ insightProps }} />
+            <Query query={query} readOnly embedded inSharedMode={!drillable} context={{ insightProps }} />
             {overlay !== 'none' && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg-light">
                     {overlay === 'loading' ? (
