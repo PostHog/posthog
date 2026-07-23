@@ -2,7 +2,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,9 +13,11 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
+import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { McpServersSection } from '../config/McpServersSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
@@ -218,30 +219,38 @@ function CodeAccessWidget(): JSX.Element {
 }
 
 function McpServersWidget(): JSX.Element {
-    useMountedLogic(mcpStoreLogic)
-    const { installations, installationsLoading } = useValues(mcpStoreLogic)
-    const count = installations.length
+    useMountedLogic(scoutMcpServersLogic)
+    const { readyScoutServers, scoutServers, scoutServersLoading, scoutServersNeedingSetup } =
+        useValues(scoutMcpServersLogic)
+    const { openSetupModal } = useActions(agentSetupModalLogic)
+    const readyCount = readyScoutServers.length
+    const needsSetupCount = scoutServersNeedingSetup.length
+    let status = 'Share external tools'
+    if (readyCount > 0 && needsSetupCount > 0) {
+        status = `${readyCount} available · ${needsSetupCount} need setup`
+    } else if (readyCount > 0) {
+        status = `${readyCount} available to Scout`
+    } else if (needsSetupCount > 0) {
+        status = `${needsSetupCount} need setup`
+    }
     return (
         <SetupWidgetCard
             icon={<IconServer />}
             title="MCP servers"
             size="md"
-            tone={count > 0 ? 'done' : 'neutral'}
-            loading={installationsLoading && count === 0}
-            status={count > 0 ? `${count} connected` : 'Connect external tools'}
-            to={urls.settings('mcp-servers')}
+            tone={readyCount > 0 ? 'done' : needsSetupCount > 0 ? 'todo' : 'neutral'}
+            loading={scoutServersLoading && scoutServers.length === 0}
+            status={status}
+            onClick={() => openSetupModal('mcp-servers')}
         >
-            {count > 0 && (
+            {scoutServers.length > 0 && (
                 <div className="flex items-center gap-1 pt-1">
-                    {installations.slice(0, 6).map((installation) => (
-                        <ServerIcon
-                            key={installation.id}
-                            iconDomain={installation.icon_domain}
-                            serverUrl={installation.url}
-                            size={16}
-                        />
+                    {scoutServers.slice(0, 6).map((server) => (
+                        <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
                     ))}
-                    {count > 6 && <span className="text-[11px] text-muted">+{count - 6}</span>}
+                    {scoutServers.length > 6 && (
+                        <span className="text-[11px] text-muted">+{scoutServers.length - 6}</span>
+                    )}
                 </div>
             )}
         </SetupWidgetCard>
@@ -310,6 +319,12 @@ const SETUP_MODALS: Record<
         width: 560,
         body: <SlackNotificationsSection />,
     },
+    'mcp-servers': {
+        title: 'MCP servers',
+        description: 'Shared external tools available to scheduled Scouts.',
+        width: 560,
+        body: <McpServersSection />,
+    },
 }
 
 function SetupModal(): JSX.Element {
@@ -332,8 +347,8 @@ function SetupModal(): JSX.Element {
 /**
  * The agent-setup widgets, grouped into Agents / Connections. Each widget shows
  * status and nudges the user to finish that part of the setup. Signal sources and Scout troop
- * (most edited) are largest; connections medium. Code access and MCP link
- * out to settings; the rest open a management modal.
+ * (most edited) are largest; connections medium. Code access links out to settings;
+ * the rest open a management modal.
  *
  * Rendered two ways: `rail` (a column to the right of the tabs on wide viewports) and
  * `stacked` (the Configuration tab body on narrow viewports).

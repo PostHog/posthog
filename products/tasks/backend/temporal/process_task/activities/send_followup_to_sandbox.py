@@ -325,6 +325,14 @@ def _refresh_sandbox_mcp(
     up.
     """
     run_id = str(task_run.id)
+    if task_run.team_id != task_run.task.team_id:
+        logger.warning(
+            "refresh_mcp_task_team_mismatch",
+            run_id=run_id,
+            task_run_team_id=task_run.team_id,
+            task_team_id=task_run.task.team_id,
+        )
+        return False
     if actor_user is None:
         # Without a credential user the mint is guaranteed to fail; skip
         # quietly rather than warn on every message.
@@ -332,10 +340,11 @@ def _refresh_sandbox_mcp(
 
     scope = sandbox_identity_scope(run_id, state)
     bound_user_id = get_sandbox_mcp_session_user(scope)
-    if bound_user_id == actor_user.id:
+    is_built_in_agent_task = task_run.task.mcp_builtin_agent_key is not None
+    if bound_user_id == actor_user.id and not is_built_in_agent_task:
         logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
         return True
-    is_transition = bound_user_id is not None
+    is_transition = bound_user_id is not None and bound_user_id != actor_user.id
     if is_transition:
         logger.info(
             "refresh_mcp_identity_transition",
@@ -352,17 +361,20 @@ def _refresh_sandbox_mcp(
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
-        project_id=task_run.team_id,
+        project_id=task_run.task.team_id,
         scopes=scopes,
         interaction_origin=(state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,
-        team_id=task_run.team_id,
+        team_id=task_run.task.team_id,
         user_id=actor_user.id,
+        include_personal=not task_run.task.internal,
         interaction_origin=(state or {}).get("interaction_origin"),
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
+        origin_product=task_run.task.origin_product,
+        task_agent_key=task_run.task.mcp_builtin_agent_key,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs

@@ -45,6 +45,10 @@ def _make_mcp_config(name: str = "posthog", token: str = "tok") -> McpServerConf
 def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state: dict | None = None) -> MagicMock:
     task = MagicMock()
     task.created_by_id = created_by_id
+    task.team_id = team_id
+    task.internal = False
+    task.origin_product = "user_created"
+    task.mcp_builtin_agent_key = None
     if created_by_id is not None:
         task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
     else:
@@ -82,10 +86,15 @@ def _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refre
     "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
 )
 class TestRefreshSandboxMcp:
-    def test_success_path_single_call(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep):
+    def test_success_path_uses_persisted_task_agent_marker(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep
+    ):
         _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
 
-        task_run = _make_task_run_mock()
+        task_run = _make_task_run_mock(state={"mcp_builtin_agent_key": "scout"})
+        task_run.task.internal = True
+        task_run.task.origin_product = "support_reply"
+        task_run.task.mcp_builtin_agent_key = "support"
         _refresh(task_run, auth_token="jwt")
 
         mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
@@ -93,7 +102,14 @@ class TestRefreshSandboxMcp:
             token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
         )
         mock_user_configs.assert_called_once_with(
-            token="fresh-token", team_id=7, user_id=42, interaction_origin=None, allowed_installation_ids=None
+            token="fresh-token",
+            team_id=7,
+            user_id=42,
+            include_personal=False,
+            interaction_origin=None,
+            allowed_installation_ids=None,
+            origin_product="support_reply",
+            task_agent_key="support",
         )
         mock_send_refresh.assert_called_once()
         _, kwargs = mock_send_refresh.call_args
@@ -102,6 +118,26 @@ class TestRefreshSandboxMcp:
         # mcpServers payload is serialized McpServerConfig shape
         mcp_servers = mock_send_refresh.call_args.args[1]
         assert mcp_servers == [_make_mcp_config(token="fresh-token").to_dict()]
+
+    def test_team_mismatch_fails_before_resolving_configs(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep
+    ):
+        task_run = _make_task_run_mock(team_id=7)
+        task_run.task.team_id = 8
+
+        result = _refresh_sandbox_mcp(
+            task_run,
+            "read_only",
+            "jwt",
+            actor_user=task_run.task.created_by,
+            state=task_run.state,
+        )
+
+        assert result is False
+        mock_oauth.assert_not_called()
+        mock_ph_configs.assert_not_called()
+        mock_user_configs.assert_not_called()
+        mock_send_refresh.assert_not_called()
 
     def test_refresh_keeps_imported_mcp_servers(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep
@@ -264,6 +300,22 @@ class TestSessionIdentityGate:
 
         mock_oauth.assert_not_called()
         mock_send_refresh.assert_not_called()
+
+    def test_built_in_agent_same_actor_refreshes_to_pick_up_new_grants(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
+    ):
+        _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        task_run = _make_task_run_mock()
+        task_run.task.internal = True
+        task_run.task.origin_product = "support_reply"
+        task_run.task.mcp_builtin_agent_key = "support"
+        mark_sandbox_mcp_session("run-1", 42)
+
+        _refresh(task_run, actor_id=42)
+
+        mock_oauth.assert_called_once()
+        mock_user_configs.assert_called_once()
+        mock_send_refresh.assert_called_once()
 
     def test_actor_change_bypasses_freshness_window(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh

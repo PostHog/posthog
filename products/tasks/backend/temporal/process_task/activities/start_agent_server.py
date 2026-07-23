@@ -187,7 +187,8 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
-    resolved member's personal creds — they get shared team connections only.
+    resolved member's personal creds. Agent-specific grant filtering happens
+    in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
     return not task.internal
@@ -195,7 +196,7 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
     try:
-        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
+        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id, team_id=ctx.team_id)
         actor_user = get_task_run_credential_user(task, ctx.state)
         access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
@@ -214,7 +215,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     # the agent falls back to POSTHOG_API_URL (Django).
     event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
     # Fetched once; serves both the ingest token and the imported MCP servers below.
-    task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id).first()
+    task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=task.team_id).first()
     if task_run is None:
         raise SandboxExecutionError(
             "Task run not found for agent server launch",
@@ -233,7 +234,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
-        project_id=ctx.team_id,
+        project_id=task.team_id,
         scopes=scopes,
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
@@ -241,11 +242,13 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     include_personal = _include_personal_mcp_for_task(task)
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,
-        team_id=ctx.team_id,
+        team_id=task.team_id,
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+        origin_product=task.origin_product,
+        task_agent_key=task.mcp_builtin_agent_key,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs

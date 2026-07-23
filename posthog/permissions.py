@@ -30,7 +30,12 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import (
+    INTERNAL_API_SCOPE_OBJECTS,
+    MCP_BUILT_IN_AGENT_SCOPE,
+    APIScopeObject,
+    APIScopeObjectOrNotSupported,
+)
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
@@ -599,6 +604,17 @@ class APIScopePermission(ScopeBasePermission):
 
         if not required_scopes:
             self.message = "This action does not support personal API key access"
+            return False
+
+        # The provenance scope is server-only. Keep this as defense in depth so
+        # a future minting path cannot accidentally combine it with task:write,
+        # even though the current built-in-agent minter strips task:write.
+        if (
+            isinstance(authenticator, OAuthAccessTokenAuthentication)
+            and MCP_BUILT_IN_AGENT_SCOPE in key_scopes
+            and "task:write" in required_scopes
+        ):
+            self.message = "Built-in agents cannot create or control generic task runs"
             return False
 
         if is_psak:

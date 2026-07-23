@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { isPolicyStateAllowedByCeiling } from './gateway/gatewayPolicyUtils'
 import type {
     MCPServerInstallationApi,
     MCPServerInstallationToolApi,
@@ -460,19 +461,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         ),
                     }
                 },
-                setBulkApprovalState: (
-                    state: Record<string, MCPServerInstallationToolApi[]>,
-                    { installationId, approvalState }: { installationId: string; approvalState: ToolApprovalState }
-                ) => {
-                    const existing = state[installationId]
-                    if (!existing) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        [installationId]: existing.map((tool) => ({ ...tool, approval_state: approvalState })),
-                    }
-                },
             },
         ],
         sceneView: [
@@ -745,15 +733,24 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             // Optimistic update already applied in the reducer. Reload from server on failure.
             try {
                 await api.mcpServerInstallations.updateToolApproval(installationId, toolName, approvalState)
+                const installation = values.installations.find((candidate) => candidate.id === installationId)
+                if (installation?.scope === 'shared') {
+                    for (const loadedInstallationId of Object.keys(values.installationTools)) {
+                        actions.loadInstallationTools({ installationId: loadedInstallationId })
+                    }
+                }
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to update tool approval')
                 actions.loadInstallationTools({ installationId })
             }
         },
         setBulkApprovalState: async ({ installationId, approvalState }) => {
-            // Reducer already applied the bulk change optimistically. Fire one API
-            // call per tool in parallel; on any failure, reload to reconcile.
-            const tools = values.installationTools[installationId] ?? []
+            const installation = values.installations.find((candidate) => candidate.id === installationId)
+            const teamScope = installation?.scope === 'shared'
+            const tools = (values.installationTools[installationId] ?? []).filter(
+                (tool) =>
+                    teamScope || (!tool.locked && isPolicyStateAllowedByCeiling(approvalState, tool.team_state ?? null))
+            )
             try {
                 await Promise.all(
                     tools.map((tool) =>
@@ -761,6 +758,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     )
                 )
                 lemonToast.success(`Updated ${tools.length} tools`)
+                const loadedInstallationIds = teamScope ? Object.keys(values.installationTools) : [installationId]
+                for (const loadedInstallationId of loadedInstallationIds) {
+                    actions.loadInstallationTools({ installationId: loadedInstallationId })
+                }
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to update some tools')
                 actions.loadInstallationTools({ installationId })

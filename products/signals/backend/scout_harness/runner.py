@@ -509,6 +509,7 @@ async def _spawn_and_run(
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+        mcp_builtin_agent_key="scout",
         # Tag every scout $ai_generation with a coarse pipeline stage so scout spend is
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id).
         # Constant 'scout' keeps ai_stage a low-cardinality stage enum (peer of research /

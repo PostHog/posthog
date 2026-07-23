@@ -24,9 +24,11 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -216,6 +218,93 @@ class BaseTaskAPITest(TestCase):
             timezone="Europe/London",
             enabled=True,
         )
+
+
+class TestBuiltInAgentTaskOAuthRestrictions(BaseTaskAPITest):
+    def _built_in_agent_client(self) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Built-in agent sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write {MCP_BUILT_IN_AGENT_SCOPE}",
+            scoped_teams=[self.team.id],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_can_read_tasks_but_cannot_create_or_run_them(self) -> None:
+        task = self.create_task()
+        client = self._built_in_agent_client()
+
+        assert client.get("/api/projects/@current/tasks/").status_code == status.HTTP_200_OK
+        assert (
+            client.post(
+                "/api/projects/@current/tasks/",
+                {"title": "Child task", "description": "Escape agent grants"},
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert client.post(f"/api/projects/@current/tasks/{task.id}/run/").status_code == status.HTTP_403_FORBIDDEN
+        assert not Task.objects.filter(title="Child task").exists()
+        assert not TaskRun.objects.filter(task=task).exists()
+
+    def test_cannot_create_or_control_nested_runs(self) -> None:
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        client = self._built_in_agent_client()
+
+        assert (
+            client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/",
+                {"environment": TaskRun.Environment.CLOUD},
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/",
+                {"jsonrpc": "2.0", "method": "user_message", "params": {"content": "Continue"}},
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+
+    def test_cannot_create_or_run_task_automations(self) -> None:
+        automation = self.create_automation()
+        client = self._built_in_agent_client()
+
+        assert (
+            client.post(
+                "/api/projects/@current/task_automations/",
+                {
+                    "name": "Scheduled child",
+                    "prompt": "Escape agent grants later",
+                    "repository": "posthog/posthog",
+                    "cron_expression": "0 9 * * *",
+                    "timezone": "UTC",
+                },
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.post(f"/api/projects/@current/task_automations/{automation.id}/run/").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert not TaskAutomation.objects.filter(task__title="Scheduled child").exists()
 
 
 class TestTaskCreatorScoping(BaseTaskAPITest):
@@ -1263,19 +1352,37 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
+    def test_create_task_with_posthog_ai_origin_product(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New PostHog AI task",
+                "description": "Created from the PostHog AI task tracker",
+                "origin_product": Task.OriginProduct.POSTHOG_AI,
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.POSTHOG_AI)
+
     @parameterized.expand(
         [
-            ("image_builder",),
-            ("experiments",),
+            (Task.OriginProduct.IMAGE_BUILDER,),
+            (Task.OriginProduct.EXPERIMENTS,),
+            (Task.OriginProduct.SIGNALS_SCOUT,),
+            (Task.OriginProduct.SUPPORT_REPLY,),
         ]
     )
-    def test_create_task_rejects_internal_origin(self, origin: str):
+    def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": origin,
+                "origin_product": origin_product,
                 "repository": "posthog/posthog",
             },
             format="json",

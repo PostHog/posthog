@@ -356,7 +356,13 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
 
-        mock_facade.assert_called_once_with(self.TEAM_ID, user_id=self.USER_ID, include_personal=True)
+        mock_facade.assert_called_once_with(
+            self.TEAM_ID,
+            user_id=self.USER_ID,
+            include_personal=True,
+            task_origin=None,
+            task_agent_key=None,
+        )
         assert configs == [
             McpServerConfig(
                 type="http",
@@ -425,6 +431,50 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
 
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_agent_shared_config_uses_agent_proxy_auth_without_internal_task_header(
+        self, mock_facade, mock_api_url
+    ) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [
+            self._make_installation(
+                id="shared-id",
+                name="Shared",
+                proxy_path="/api/mcp_store/gateway/servers/server-id/proxy/",
+                scope="shared",
+                proxy_token="agent-token",
+            ),
+        ]
+
+        configs = get_user_mcp_server_configs(
+            self.TOKEN,
+            self.TEAM_ID,
+            self.USER_ID,
+            origin_product="support_reply",
+            task_agent_key="support",
+        )
+
+        mock_facade.assert_called_once_with(
+            self.TEAM_ID,
+            user_id=self.USER_ID,
+            include_personal=True,
+            task_origin="support_reply",
+            task_agent_key="support",
+        )
+        assert configs == [
+            McpServerConfig(
+                type="http",
+                name="Shared",
+                url=f"{self.API_BASE}/api/mcp_store/gateway/servers/server-id/proxy/",
+                headers=[
+                    {"name": "Authorization", "value": "Bearer agent-token"},
+                    {"name": "x-posthog-mcp-consumer", "value": "posthog-code"},
+                ],
+            ),
+        ]
+        assert all(header["name"] != "X-PostHog-Task-Id" for header in configs[0].headers)
+
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
@@ -434,7 +484,13 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, include_personal=include_personal)
 
-        mock_facade.assert_called_once_with(self.TEAM_ID, user_id=self.USER_ID, include_personal=include_personal)
+        mock_facade.assert_called_once_with(
+            self.TEAM_ID,
+            user_id=self.USER_ID,
+            include_personal=include_personal,
+            task_origin=None,
+            task_agent_key=None,
+        )
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)

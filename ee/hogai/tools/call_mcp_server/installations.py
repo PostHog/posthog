@@ -6,6 +6,7 @@ from posthog.models import Team, User
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
+from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
 
 
 def _is_row_ready(row: dict) -> bool:
@@ -30,6 +31,10 @@ def _get_installations(team: Team, user: User) -> list[dict]:
         dict(row)
         for row in MCPServerInstallation.objects.filter(team=team, is_enabled=True)
         .filter(Q(scope="shared") | Q(user=user))
+        # Gateway layer: servers disabled for the team, or turned off for this
+        # member by an admin, are invisible to the agent too.
+        .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
+        .exclude(gateway_server__member_revocations__user=user)
         .values(
             "id",
             "display_name",
@@ -72,9 +77,12 @@ def _get_cached_tools(installation_id: str) -> list[dict]:
     ]
 
 
-def _get_tool_approval_states(installation_id: str) -> dict[str, str]:
-    """Return a {tool_name: approval_state} map for an installation.
+def _get_tool_approval_states(installation_id: str, user: User | None = None) -> dict[str, str]:
+    """Return a {tool_name: effective_state} map for an installation.
 
+    States resolve through the gateway policy engine when the installation is
+    registered with a gateway (org rules → team default → the user's scope);
+    unregistered installations fall back to the cached per-tool approval state.
     Rows with `removed_at` set surface as `"do_not_use"` so the agent can't
     call them even if the cached approval state was previously `approved` —
     if the tool is gone upstream, it's gone. Anything not in the map is
@@ -83,7 +91,26 @@ def _get_tool_approval_states(installation_id: str) -> dict[str, str]:
     rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
         "tool_name", "approval_state", "removed_at"
     )
-    return {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
+    legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
+
+    installation = MCPServerInstallation.objects.filter(id=installation_id).select_related("gateway_server").first()
+    gateway_server = installation.gateway_server if installation else None
+    if installation is None or gateway_server is None or user is None:
+        return legacy
+
+    context = PolicyContext(
+        team_id=installation.team_id,
+        caller=GatewayCaller(kind="member", user_id=user.id),
+        gateway_server=gateway_server,
+        installation=installation,
+    )
+    resolved: dict[str, str] = {}
+    for row in rows:
+        if row["removed_at"]:
+            resolved[row["tool_name"]] = "do_not_use"
+        else:
+            resolved[row["tool_name"]] = context.resolve(row["tool_name"]).state
+    return resolved
 
 
 def _mark_needs_reauth_sync(installation_id: str) -> None:

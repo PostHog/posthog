@@ -4,9 +4,15 @@ from parameterized import parameterized
 
 from posthog.models import User
 
+from products.mcp_store.backend.agents import get_built_in_agent
 from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
+from products.mcp_store.backend.models import (
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerTemplate,
+    MCPServiceAccountServerAccess,
+)
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -160,6 +166,15 @@ class TestGetInstallationsForSandbox(BaseTest):
         defaults.update(kwargs)
         return MCPServerInstallation.objects.create(**defaults)
 
+    def _create_gateway_server(self, *, name: str, url: str, is_team_enabled: bool = True) -> MCPGatewayServer:
+        return MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name=name,
+            url=url,
+            auth_mode="shared",
+            is_team_enabled=is_team_enabled,
+        )
+
     def test_shared_always_returned(self) -> None:
         shared = self._create_installation(scope="shared", display_name="Shared Server")
 
@@ -202,6 +217,103 @@ class TestGetInstallationsForSandbox(BaseTest):
         results = get_installations_for_sandbox(self.team.id, user_id=self.user.id)
 
         assert len(results) == 1
+
+    def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"ai_suggestions_enabled": True}
+        self.team.save(update_fields=["conversations_enabled", "conversations_settings"])
+        granted_server = self._create_gateway_server(
+            name="Granted",
+            url="https://granted.example.com/mcp",
+            is_team_enabled=False,
+        )
+        ungranted_server = self._create_gateway_server(
+            name="Ungranted",
+            url="https://ungranted.example.com/mcp",
+        )
+        self._create_installation(
+            scope="shared",
+            gateway_server=granted_server,
+            url=granted_server.url,
+            display_name="Granted",
+        )
+        personal = self._create_installation(
+            scope="personal",
+            gateway_server=granted_server,
+            url=granted_server.url,
+            display_name="Personal",
+        )
+        self._create_installation(
+            scope="shared",
+            gateway_server=ungranted_server,
+            url=ungranted_server.url,
+            display_name="Ungranted",
+        )
+        account = get_built_in_agent(self.team.id, "support")
+        assert account is not None
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            service_account=account,
+            gateway_server=granted_server,
+            installation=personal,
+            granted_by=self.user,
+        )
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            task_agent_key="support",
+        )
+
+        assert [result.id for result in results] == [str(personal.id)]
+        assert results[0].proxy_path == f"/api/mcp_store/gateway/servers/{granted_server.id}/proxy/"
+        assert results[0].proxy_token is not None
+        assert results[0].proxy_token.startswith("mcp_gw_")
+
+        account.status = "paused"
+        account.save(update_fields=["status"])
+        assert (
+            get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+            )
+            == []
+        )
+
+        account.status = "active"
+        account.save(update_fields=["status"])
+        self.team.conversations_enabled = False
+        self.team.save(update_fields=["conversations_enabled"])
+        assert (
+            get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+            )
+            == []
+        )
+
+        unstamped_results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+        )
+        assert unstamped_results == []
+
+        mismatched_results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            task_agent_key="scout",
+        )
+        assert mismatched_results == []
 
     def test_other_users_personal_not_returned(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")

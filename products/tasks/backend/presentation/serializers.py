@@ -407,7 +407,10 @@ class TaskWriteSerializer(serializers.Serializer):
     origin_product = serializers.ChoiceField(
         choices=tasks_facade.TaskOriginProduct.choices,
         required=False,
-        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+        help_text=(
+            "PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). "
+            "Origins reserved for server-created agents cannot be set through this API."
+        ),
     )
     repository = serializers.CharField(
         max_length=255,
@@ -593,18 +596,14 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
-            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
-        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
-            # Experiments tasks are team-readable, so letting API callers pick this origin
-            # would let them expose an arbitrary task to the whole team. The experiments
-            # flow creates its tasks server-side through the facade, never through here.
-            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
-        if value == tasks_facade.TaskOriginProduct.SIGNALS_SCOUT:
-            # Scout tasks are created only by the signals scout harness. A forged scout origin
-            # would route the task's run logs into PostHog's internal Logs project
-            # (run_log_mirror) and inherit scout visibility semantics.
-            raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
+        reserved_origins = {
+            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
+            tasks_facade.TaskOriginProduct.EXPERIMENTS,
+            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+        }
+        if value in reserved_origins:
+            raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
     def validate_repository(self, value):

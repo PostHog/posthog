@@ -467,12 +467,17 @@ def get_user_mcp_server_configs(
     include_personal: bool = True,
     interaction_origin: str | None = None,
     allowed_installation_ids: list[str] | None = None,
+    origin_product: str | None = None,
+    task_agent_key: str | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
-    Always includes shared (team-wide) installations. When
-    ``include_personal`` is True and a ``user_id`` is provided, the user's
-    personal installations are included too.
+    Unmapped tasks include shared team installations. Built-in agent tasks only
+    include shared installations granted to that agent and never include a
+    member's personal installations. A mapped origin without its persisted
+    agent marker gets no Store installations. For unmapped tasks,
+    ``include_personal`` includes the user's personal installations when a
+    ``user_id`` is provided.
 
     ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
     loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
@@ -492,6 +497,8 @@ def get_user_mcp_server_configs(
         team_id,
         user_id=user_id,
         include_personal=include_personal,
+        task_origin=origin_product,
+        task_agent_key=task_agent_key,
     )
     if allowed_installation_ids is not None:
         allowed = {str(i) for i in allowed_installation_ids}
@@ -501,15 +508,16 @@ def get_user_mcp_server_configs(
 
     configs: list[McpServerConfig] = []
     for installation in installations:
+        headers = [
+            {"name": "Authorization", "value": f"Bearer {installation.proxy_token or token}"},
+            {"name": "x-posthog-mcp-consumer", "value": consumer},
+        ]
         configs.append(
             McpServerConfig(
                 type="http",
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
-                headers=[
-                    {"name": "Authorization", "value": f"Bearer {token}"},
-                    {"name": "x-posthog-mcp-consumer", "value": consumer},
-                ],
+                headers=headers,
             )
         )
 

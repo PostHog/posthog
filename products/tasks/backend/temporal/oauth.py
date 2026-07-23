@@ -76,12 +76,20 @@ def create_oauth_access_token(
         )
 
     effective_scopes: PosthogMcpScopes = _scopes_for_loop_fired_run(scopes) if loop_id else scopes
-    return create_oauth_access_token_for_user(
-        actor,
-        task.team_id,
-        scopes=effective_scopes,
-        application=_oauth_application_for_task(task),
-    )
+    token_options: dict[str, Any] = {
+        "scopes": effective_scopes,
+        "application": _oauth_application_for_task(task),
+    }
+    if task.origin_product in {
+        Task.OriginProduct.POSTHOG_AI,
+        Task.OriginProduct.SIGNALS_SCOUT,
+        Task.OriginProduct.SUPPORT_REPLY,
+    }:
+        # This scope only removes access to the human MCP Store surface. Add it
+        # even when a legacy task lacks trusted provenance so an old spoofed
+        # origin fails closed instead of inheriting its creator's connections.
+        token_options["include_mcp_builtin_agent_scope"] = True
+    return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
 
 def create_oauth_access_token_for_run(
@@ -157,9 +165,13 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     application: SandboxOAuthApplication = "array",
+    include_mcp_builtin_agent_scope: bool = False,
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
     try:
-        return _create_oauth_access_token_for_user(user, team_id, scopes=scopes, application=application)
+        token_options: dict[str, Any] = {"scopes": scopes, "application": application}
+        if include_mcp_builtin_agent_scope:
+            token_options["include_mcp_builtin_agent_scope"] = True
+        return _create_oauth_access_token_for_user(user, team_id, **token_options)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err
