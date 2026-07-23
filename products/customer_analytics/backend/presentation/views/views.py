@@ -26,6 +26,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
@@ -1182,6 +1183,13 @@ _EVENT_STREAM_ID_PARAM = OpenApiParameter(
 )
 
 
+class EventStreamTestMessageThrottle(UserRateThrottle):
+    """Each test message posts to Slack, so cap the rate per user regardless of auth method."""
+
+    scope = "event_stream_test_message"
+    rate = "6/minute"
+
+
 @extend_schema(tags=["customer_analytics"])
 class EventStreamViewSet(
     TeamAndOrgViewSetMixin,
@@ -1292,7 +1300,7 @@ class EventStreamViewSet(
         request=None,
         responses={200: EventStreamTestMessageSerializer},
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, throttle_classes=[EventStreamTestMessageThrottle])
     def send_test_message(self, request: Request, *args, **kwargs) -> Response:
         try:
             channel_id = event_stream_destination.send_test_slack_message(

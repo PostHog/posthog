@@ -47,7 +47,10 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     coerce_is_big_number,
     normalize_options,
 )
-from products.customer_analytics.backend.logic.event_stream_destination import archive_event_stream_destination
+from products.customer_analytics.backend.logic.event_stream_destination import (
+    archive_event_stream_destination,
+    sync_event_stream_destination,
+)
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
@@ -1439,6 +1442,11 @@ def update_account_for_view(
             _set_tags(input.tags, account, actor=user)
             if input.properties_provided:
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
+            if input.external_id_provided and account.external_id != previous.external_id:
+                # The external_id is the account's group key — every stream filtering on
+                # the old key must be rebuilt or it keeps streaming the stale key's events.
+                for stream in _event_streams_containing_account(account):
+                    sync_event_stream_destination(stream, team=account.team, user=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1479,7 +1487,15 @@ def delete_account_for_view(
         user=user,
         was_impersonated=was_impersonated,
     )
-    account.delete()
+    with transaction.atomic():
+        # Streams referencing this account must be captured before the delete cascades
+        # their membership rows away, then resynced so the account's group key doesn't
+        # linger in a Slack destination filter.
+        streams = _event_streams_containing_account(account)
+        team = account.team
+        account.delete()
+        for stream in streams:
+            sync_event_stream_destination(stream, team=team, user=user)
 
 
 def _get_account_for_detail(team_id: int, account_id: str) -> Account:
@@ -2056,6 +2072,23 @@ def delete_event_stream(*, team_id: int, stream_id: str | UUID, user: "User") ->
         archive_event_stream_destination(stream)
         stream.delete()
     return True
+
+
+def delete_event_streams_for_user(*, user_id: int, organization_id: UUID | str) -> int:
+    """Archive and delete every event stream the user owns across the organization's teams.
+    Called by core when the user's organization membership is removed — a departed member's
+    stream must stop delivering customer events to their Slack channel. Returns the number
+    of streams deleted."""
+    streams = list(EventStream.objects.unscoped().filter(created_by_id=user_id, team__organization_id=organization_id))
+    for stream in streams:
+        with transaction.atomic():
+            archive_event_stream_destination(stream)
+            stream.delete()
+    return len(streams)
+
+
+def _event_streams_containing_account(account: Account) -> list[EventStream]:
+    return list(EventStream.objects.for_team(account.team_id).filter(members__account=account))
 
 
 def set_event_stream_member(

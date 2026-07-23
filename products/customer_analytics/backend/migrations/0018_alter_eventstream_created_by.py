@@ -16,9 +16,7 @@ class Migration(migrations.Migration):
             model_name="eventstream",
             name="created_by",
             field=models.ForeignKey(
-                blank=True,
                 db_constraint=False,
-                null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 to=settings.AUTH_USER_MODEL,
             ),

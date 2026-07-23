@@ -1,13 +1,15 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.constants import AvailableFeature
-from posthog.models import Integration, Organization, Team
+from posthog.models import Integration, Organization, OrganizationMembership, Team
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.customer_analytics.backend.logic.event_stream_destination import _NO_MEMBERS_SENTINEL
@@ -20,6 +22,8 @@ from ee.models.rbac.access_control import AccessControl
 class TestEventStreamViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Throttle history lives in the process-local cache and would leak across tests.
+        cache.clear()
         sync_template_to_db(template_slack)
         TeamCustomerAnalyticsConfig.objects.update_or_create(team=self.team, defaults={"account_group_type_index": 0})
         self.integration = Integration.objects.create(
@@ -288,9 +292,61 @@ class TestEventStreamViewSet(APIBaseTest):
         stream = self._create_stream()
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other team")
-        EventStream.objects.unscoped().create(team=other_team, event_names=["foreign_event"])
+        other_owner = self._create_user("other-owner@posthog.com")
+        EventStream.objects.unscoped().create(team=other_team, created_by=other_owner, event_names=["foreign_event"])
 
         response = self.client.get(self.base_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row["id"] for row in response.json()], [stream["id"]])
+
+    def test_membership_removal_deletes_stream_and_archives_destination(self):
+        teammate = self._create_user("teammate@posthog.com")
+        self.client.force_login(teammate)
+        stream = self._create_stream()
+        function = self._destination(stream)
+
+        OrganizationMembership.objects.get(user=teammate, organization=self.organization).delete()
+
+        self.assertFalse(EventStream.objects.unscoped().filter(id=stream["id"]).exists())
+        function.refresh_from_db()
+        self.assertTrue(function.deleted)
+        self.assertFalse(function.enabled)
+
+    @patch("products.customer_analytics.backend.logic.event_stream_destination.SlackIntegration")
+    def test_send_test_message_is_rate_limited(self, mock_slack):
+        stream = self._create_stream()
+
+        for _ in range(6):
+            response = self.client.post(f"{self.base_url}{stream['id']}/send_test_message/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        response = self.client.post(f"{self.base_url}{stream['id']}/send_test_message/")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_account_deletion_resyncs_destination_filters(self):
+        stream = self._create_stream()
+        account = create_account(team_id=self.team.id, name="Acme", external_id="org-acme")
+        self.client.post(f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(account.id)}, format="json")
+        function = self._destination(stream)
+        self.assertTrue(function.enabled)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/accounts/{account.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        function.refresh_from_db()
+        self.assertFalse(function.enabled)
+        self.assertEqual(self._group_filter(function)["value"], [_NO_MEMBERS_SENTINEL])
+
+    def test_account_external_id_change_resyncs_destination_filters(self):
+        stream = self._create_stream()
+        account = create_account(team_id=self.team.id, name="Acme", external_id="org-acme")
+        self.client.post(f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(account.id)}, format="json")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/accounts/{account.id}/", {"external_id": "org-acme-2"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(self._group_filter(self._destination(stream))["value"], ["org-acme-2"])

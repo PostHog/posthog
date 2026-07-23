@@ -19,7 +19,7 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
         db_constraint=False,
         related_name="+",
     )
-    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False)
 
     enabled = models.BooleanField(default=False)
     event_names = models.JSONField(default=list)
