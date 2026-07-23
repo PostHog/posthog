@@ -4,15 +4,24 @@ The ONLY module other products are allowed to import. Keep the surface narrow:
 every function here lives behind a tach contract check, so each addition has a
 cost in cross-product coupling.
 
-Today the facade exists for one job — letting core's OAuth callback invalidate
-the per-integration auth-state cache when a Slack install is reconnected. We
-expose the helper as a stable re-export so the implementation can move around
-inside ``services/`` without breaking core.
+The facade currently serves two jobs: letting core's OAuth callback invalidate
+the per-integration auth-state cache when a Slack install is reconnected, and
+handing other products (tasks) a chat thread handler for posting task-lifecycle
+updates back into the conversation that spawned a run. Everything is a stable
+re-export so implementations can move around inside the product without
+breaking callers.
 """
 
 from __future__ import annotations
 
+from products.slack_app.backend.providers import ChatThreadHandler, thread_handler_from_context
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
+
+__all__ = [
+    "ChatThreadHandler",
+    "invalidate_slack_integration_auth_state",
+    "thread_handler_from_context",
+]
 
 
 def invalidate_slack_integration_auth_state(integration_id: int) -> None:

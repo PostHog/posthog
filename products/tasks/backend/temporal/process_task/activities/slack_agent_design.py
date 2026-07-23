@@ -61,11 +61,10 @@ class StopSlackAgentDesignStreamInput:
 def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> Optional[str]:
     """Open the stream, seeded with either a first tool-call step or a first
     markdown_text chunk (pre-first-tool-call streaming). Returns ts or None."""
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.facade.api import thread_handler_from_context
 
     try:
-        context = SlackThreadContext.from_dict(input.slack_thread_context)
-        return SlackThreadHandler(context).start_status_stream(
+        return thread_handler_from_context(input.slack_thread_context).start_status_stream(
             first_task_id=input.first_task_id,
             first_task_title=input.first_task_title,
             first_task_details=input.first_task_details,
@@ -80,11 +79,10 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 @close_db_connections
 def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> None:
     """Append plan-block step transitions and/or a markdown_text chunk."""
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.facade.api import thread_handler_from_context
 
     try:
-        context = SlackThreadContext.from_dict(input.slack_thread_context)
-        SlackThreadHandler(context).append_status_chunks(
+        thread_handler_from_context(input.slack_thread_context).append_status_chunks(
             ts=input.ts,
             task_updates=[
                 {"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in input.task_updates
@@ -99,11 +97,10 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
     """Mark the last step complete, stream the final answer, append @-mention, close."""
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.facade.api import thread_handler_from_context
 
     try:
-        context = SlackThreadContext.from_dict(input.slack_thread_context)
-        SlackThreadHandler(context).stop_status_stream(
+        thread_handler_from_context(input.slack_thread_context).stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
