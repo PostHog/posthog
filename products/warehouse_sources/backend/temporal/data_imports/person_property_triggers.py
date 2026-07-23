@@ -15,7 +15,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import trigger_schedule
 
-from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyBackfillActivityInputs,
@@ -37,6 +36,10 @@ def trigger_schema_sync(*, team_id: int, schema_id: str) -> None:
     """Trigger the underlying warehouse schema's Temporal schedule — a real, billable sync. The normal
     incremental person-property child runs off it, so this doubles as person-property "sync now".
     Honors the team's sync pause the same way the canonical reload/resync endpoints do."""
+    # Resolved lazily: the data_warehouse facade is PEP 562 lazy-loaded (heavy deps + an import cycle
+    # with warehouse_sources), so a module-top ``from`` import would eagerly pull that chain in.
+    from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused  # noqa: PLC0415
+
     if is_any_external_data_schema_paused(team_id):
         raise ExternalDataSchemaSyncPausedError(SYNC_PAUSED_MESSAGE)
     temporal = sync_connect()
