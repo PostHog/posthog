@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.filters.mixins.utils import cached_property
 
+from products.analytics_platform.backend.lazy_computation.stale_policy import clear_served_stale, was_served_stale
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
@@ -294,7 +295,11 @@ CROSS JOIN {sessions_agg} AS sessions_agg
     def get_lazy_precomputed_row(self) -> Optional[list]:
         if not can_use_lazy_precompute(self):
             return None
-        return execute_lazy_precomputed_read(self)
+        row = execute_lazy_precomputed_read(self)
+        if row is None:
+            # A failed read may have marked served-stale first — don't mislabel the fallback.
+            clear_served_stale()
+        return row
 
     def _build_response_from_row(self, row: list) -> WebOverviewQueryResponse:
         # Only called from the lazy precompute short-circuit; that path's gate
@@ -321,6 +326,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=was_served_stale() or None,
         )
 
     def _calculate(self) -> WebOverviewQueryResponse:

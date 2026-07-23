@@ -15,6 +15,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from products.analytics_platform.backend.lazy_computation.stale_policy import was_served_stale
+
 from .constants import (
     BASE_COLUMN_MAPPING,
     HIERARCHY_BASE_COLUMNS,
@@ -180,6 +182,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             timings=response.timings,
             modifiers=self.modifiers,
             error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            preComputeStale=was_served_stale() or None,
         )
 
     def calculate_without_compare(self) -> ast.SelectQuery:

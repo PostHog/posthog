@@ -13,9 +13,13 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     PropertyOperator,
+    WebGoalsQuery,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
+    WebVitalsMetric,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPercentile,
 )
 
 from posthog.hogql import ast
@@ -28,7 +32,9 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     TtlSchedule,
 )
+from products.analytics_platform.backend.lazy_computation.stale_policy import mark_served_stale, was_served_stale
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
@@ -50,6 +56,10 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
+    _build_response as build_vitals_lazy_response,
+)
 from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
@@ -670,3 +680,137 @@ class TestServeLiveWarmBehind(BaseTest):
         assert mock_ensure.call_args.kwargs["run_inserts"] is True
         # The warmer IS the refresh mechanism; a miss must not re-enqueue itself.
         mock_enqueue.assert_not_called()
+
+
+class TestServedStaleResponseStamp(BaseTest):
+    """The served-stale mark must reach the requester: every lazy response builder
+    stamps `preComputeStale` from it (that's how clients learn a background
+    revalidation is in flight), and a lazy read that fails after marking must clear
+    it so the live fallback isn't mislabeled — on the response or in query_log."""
+
+    def setUp(self):
+        super().setUp()
+        reset_query_tags()
+
+    def tearDown(self):
+        reset_query_tags()
+        super().tearDown()
+
+    def _overview_runner(self) -> WebOverviewQueryRunner:
+        return WebOverviewQueryRunner(
+            team=self.team, query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        )
+
+    def _goals_runner(self) -> WebGoalsQueryRunner:
+        return WebGoalsQueryRunner(
+            team=self.team, query=WebGoalsQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        )
+
+    def _vitals_runner(self) -> WebVitalsPathBreakdownQueryRunner:
+        return WebVitalsPathBreakdownQueryRunner(
+            team=self.team,
+            query=WebVitalsPathBreakdownQuery(
+                metric=WebVitalsMetric.LCP,
+                percentile=WebVitalsPercentile.P75,
+                thresholds=[2500.0, 4000.0],
+                dateRange=DateRange(date_from="-7d"),
+                properties=[],
+            ),
+        )
+
+    def _stats_runner(self) -> WebStatsTableQueryRunner:
+        return WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
+            ),
+        )
+
+    def _overview_response(self):
+        return self._overview_runner()._build_response_from_row([None] * 10)
+
+    def _goals_response(self):
+        return self._goals_runner()._build_response_from_lazy(
+            {"actions": [], "denominator": {"current": 0, "previous": 0}, "per_action": {}}
+        )
+
+    def _vitals_response(self):
+        return build_vitals_lazy_response(self._vitals_runner(), [])
+
+    @parameterized.expand(
+        [
+            ("overview_stale", "_overview_response", True, True),
+            ("overview_fresh", "_overview_response", False, None),
+            ("goals_stale", "_goals_response", True, True),
+            ("goals_fresh", "_goals_response", False, None),
+            ("vitals_stale", "_vitals_response", True, True),
+            ("vitals_fresh", "_vitals_response", False, None),
+        ]
+    )
+    def test_lazy_response_stamps_precompute_stale(self, _name, builder, marked, expected):
+        if marked:
+            mark_served_stale()
+        response = getattr(self, builder)()
+        assert response.preComputeStale is expected
+
+    # The stats table PATHS variant of this defense is pinned in
+    # test_web_stats_paths_lazy_precompute.py::test_failed_lazy_read_clears_stale_tag.
+    @parameterized.expand(
+        [
+            (
+                "overview",
+                "web_overview",
+                "can_use_lazy_precompute",
+                "execute_lazy_precomputed_read",
+                "_overview_runner",
+                "get_lazy_precomputed_row",
+            ),
+            (
+                "goals",
+                "web_goals",
+                "can_use_lazy_precompute",
+                "execute_lazy_precomputed_read",
+                "_goals_runner",
+                "_maybe_calculate_via_lazy_precompute",
+            ),
+            (
+                "vitals",
+                "web_vitals_path_breakdown",
+                "can_use_lazy_precompute",
+                "execute_lazy_precomputed_read",
+                "_vitals_runner",
+                "_maybe_calculate_via_lazy_precompute",
+            ),
+            (
+                "stats",
+                "stats_table",
+                "can_use_lazy_precompute",
+                "execute_lazy_precomputed_read",
+                "_stats_runner",
+                "get_lazy_precomputed_result",
+            ),
+            (
+                "frustration",
+                "stats_table",
+                "can_use_frustration_lazy_precompute",
+                "execute_frustration_lazy_precomputed_read",
+                "_stats_runner",
+                "_maybe_calculate_via_frustration_lazy_precompute",
+            ),
+        ]
+    )
+    def test_failed_lazy_read_clears_served_stale_mark(
+        self, _name, module, can_use_name, execute_name, runner_factory, method_name
+    ):
+        def mark_then_fail(*args, **kwargs):
+            mark_served_stale()
+            return None
+
+        runner = getattr(self, runner_factory)()
+        base = "products.web_analytics.backend.hogql_queries"
+        with (
+            mock.patch(f"{base}.{module}.{can_use_name}", return_value=True),
+            mock.patch(f"{base}.{module}.{execute_name}", side_effect=mark_then_fail),
+        ):
+            assert getattr(runner, method_name)() is None
+        assert was_served_stale() is False, "a failed lazy read must not leave the served-stale mark on the fallback"

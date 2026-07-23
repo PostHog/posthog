@@ -28,10 +28,10 @@ from posthog.hogql.property import (
 )
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models.filters.mixins.utils import cached_property
 
+from products.analytics_platform.backend.lazy_computation.stale_policy import clear_served_stale, was_served_stale
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
@@ -489,15 +489,19 @@ WHERE and(
         return property_to_expr(properties, team=self.team)
 
     def _lazy_precompute_stale(self) -> Optional[bool]:
-        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
-        # before executing the read; surfacing it on the response lets clients (and the
+        # The lazy modules mark serve-stale reads via `mark_served_stale()` before
+        # executing the read; surfacing it on the response lets clients (and the
         # frontend's 'query completed' telemetry) see it too. None when served fresh.
-        return True if get_query_tag_value("precompute_stale") else None
+        return was_served_stale() or None
 
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
         if not can_use_lazy_precompute(self):
             return None
-        return execute_lazy_precomputed_read(self)
+        result = execute_lazy_precomputed_read(self)
+        if result is None:
+            # A failed read may have marked served-stale first — don't mislabel the fallback.
+            clear_served_stale()
+        return result
 
     def _build_response_from_lazy(self, result: LazyStatsResult) -> WebStatsTableQueryResponse:
         """Shape the precompute read into a `WebStatsTableQueryResponse` identical
@@ -554,10 +558,10 @@ WHERE and(
             offset=offset,
         )
         if rows is None:
-            # The lazy module may have tagged precompute_stale before its read failed;
+            # The lazy module may have marked served-stale before its read failed;
             # clear it so the fallback response (and its query_log rows) are not
             # mislabeled as stale-served.
-            clear_tag("precompute_stale")
+            clear_served_stale()
             return None
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
@@ -573,6 +577,8 @@ WHERE and(
         offset = self.paginator.offset or 0
         rows = execute_frustration_lazy_precomputed_read(self, limit=limit + 1, offset=offset)
         if rows is None:
+            # A failed read may have marked served-stale first — don't mislabel the fallback.
+            clear_served_stale()
             return None
         return self._build_frustration_response_from_lazy_rows(rows, limit=limit, offset=offset)
 

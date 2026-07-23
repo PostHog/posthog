@@ -28,7 +28,6 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -39,6 +38,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.analytics_platform.backend.lazy_computation.stale_policy import (
     is_background_warming_request as shared_is_background_warming_request,
+    mark_served_stale,
     resolve_stale_while_revalidate_seconds,
 )
 
@@ -247,15 +247,15 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
 def handle_stale_served(*, runner: Any, family: str) -> None:
     """Everything a read path does when an ensure came back `stale=True`.
 
-    Counts the stale-served read, tags the upcoming read query so query_log can split
-    stale-served vs fresh reads, and enqueues the background revalidation. The enqueue
-    is debounced per (team, family, query shape) in Redis — a compare-period ensure
-    coming back stale after the current-period one collapses to one task (one re-run
-    covers both periods), while a *different* stale family in the same request still
-    gets its own refresh.
+    Counts the stale-served read, marks the request as served-stale (which tags the
+    upcoming read query for query_log and stamps `preComputeStale` on the response),
+    and enqueues the background revalidation. The enqueue is debounced per (team,
+    family, query shape) in Redis — a compare-period ensure coming back stale after
+    the current-period one collapses to one task (one re-run covers both periods),
+    while a *different* stale family in the same request still gets its own refresh.
     """
     WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED.labels(family=family).inc()
-    tag_queries(precompute_stale=True)
+    mark_served_stale()
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
 
 

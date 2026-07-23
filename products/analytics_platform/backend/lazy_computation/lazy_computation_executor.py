@@ -96,13 +96,19 @@ PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
 
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
-# (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
-# countable in Prometheus without log-based aggregation.
+# (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`, plus
+# the serve-stale pair `stale_hit` / `check_miss`) are countable in Prometheus
+# without log-based aggregation.
 #
 # `cache_state` values:
 #   - `hit`         → the request did no new work (no jobs created, no waits).
+#                     A `stale_hit` outcome always lands here: serving expired
+#                     rows is by definition doing no new work.
 #   - `partial_hit` → the request had to do work but found pre-existing READY data.
 #   - `miss`        → the request had to do work and found no pre-existing data.
+#   For `check_miss` (check-only mode found no servable coverage), "work" never
+#   happens — cache_state instead records whether any fresh READY data existed
+#   (`partial_hit`) or none did (`miss`).
 #
 # See README.md § Observability for example PromQL queries.
 LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(

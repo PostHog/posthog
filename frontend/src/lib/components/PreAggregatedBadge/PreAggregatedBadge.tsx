@@ -20,6 +20,9 @@ interface PreAggregatedBadgeProps {
     // Optional opt-out wired by the host (the web analytics page). Keeps this component scene-agnostic:
     // when omitted, the tooltip just drops the "always query live data" shortcut.
     onDisable?: () => void
+    // The response was served from stale pre-computed data (`preComputeStale`) while a fresh version
+    // is computed in the background. Only meaningful for the 'precomputed' variant.
+    stale?: boolean
 }
 
 const POSITION_CLASS: Record<PreAggregatedBadgePosition, string> = {
@@ -35,9 +38,12 @@ function PreAggregatedTooltip(): JSX.Element {
     )
 }
 
-function PrecomputedTooltip({ onDisable }: { onDisable?: () => void }): JSX.Element {
+function PrecomputedTooltip({ onDisable, stale }: { onDisable?: () => void; stale?: boolean }): JSX.Element {
     return (
         <div className="flex flex-col gap-1 max-w-xs">
+            {stale && (
+                <span>This data is being refreshed in the background. Refresh in a moment to see the latest.</span>
+            )}
             <span>Loaded from a pre-computed state instead of running a live query against all events.</span>
             <span>It should be very close to live data, but isn't guaranteed to be exact.</span>
             <span>
@@ -57,9 +63,11 @@ export function PreAggregatedBadge({
     variant = 'preagg',
     position = 'top-right',
     onDisable,
+    stale,
 }: PreAggregatedBadgeProps = {}): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const isPrecomputed = variant === 'precomputed'
+    const isRefreshing = isPrecomputed && !!stale
 
     // The precompute kill switch only governs the pre-computed roll-up indicator. The pre-aggregated
     // ("new query engine") badge is controlled upstream by its own settings flag and must stay visible.
@@ -73,10 +81,16 @@ export function PreAggregatedBadge({
     return (
         <Tooltip
             interactive
-            title={isPrecomputed ? <PrecomputedTooltip onDisable={onDisable} /> : <PreAggregatedTooltip />}
+            title={
+                isPrecomputed ? (
+                    <PrecomputedTooltip onDisable={onDisable} stale={isRefreshing} />
+                ) : (
+                    <PreAggregatedTooltip />
+                )
+            }
         >
             <div className={clsx('absolute z-10', POSITION_CLASS[position])}>
-                <Icon className={iconClassName} />
+                <Icon className={clsx(iconClassName, isRefreshing && 'animate-pulse')} />
             </div>
         </Tooltip>
     )

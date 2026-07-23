@@ -3114,3 +3114,78 @@ class TestCheckOnlyMode(BaseTest):
         result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
         assert result.ready is False
         assert time_mod.monotonic() - started < 5, "check-only must not block on pending jobs"
+
+
+class TestServeStaleExecutionMetrics(BaseTest):
+    """`lazy_computation_executions_total` is the SLO surface for the serve-stale
+    rollout: dashboards slice the `stale_hit` / `check_miss` outcomes against the
+    total to judge whether user reads are actually shielded from inline recomputes.
+    `_log_execution` derives cache_state from side signals (jobs created, waits,
+    pre-existing READY data), so a refactor can silently reclassify these outcomes
+    — a check-only miss would read as a plain `hit` without its special case."""
+
+    TABLE = LazyComputationTable.PREAGGREGATION_RESULTS
+
+    def _query_info(self) -> QueryInfo:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        return QueryInfo(query=query, table=self.TABLE, timezone="UTC")
+
+    def _seed_ready_job(
+        self,
+        start: datetime,
+        end: datetime,
+        expired_hours_ago: int | None = None,
+        created_hours_ago: int | None = None,
+    ) -> PreaggregationJob:
+        now = django_timezone.now()
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(self._query_info()),
+            time_range_start=start,
+            time_range_end=end,
+            status=PreaggregationJob.Status.READY,
+            computed_at=now,
+            expires_at=now - timedelta(hours=expired_hours_ago) if expired_hours_ago else now + timedelta(hours=6),
+        )
+        if created_hours_ago:
+            PreaggregationJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=created_hours_ago))
+        return job
+
+    @parameterized.expand(
+        [
+            # Serving expired-within-grace rows is by definition doing no new work.
+            ("stale_hit_lands_on_cache_state_hit", "expired_within_grace", "stale_hit", "hit"),
+            ("check_miss_with_no_fresh_data", None, "check_miss", "miss"),
+            # The special-cased branch: without it, "no jobs created, no waits"
+            # would classify this check-only miss as a cache hit.
+            ("check_miss_with_partial_fresh_coverage", "fresh_partial", "check_miss", "partial_hit"),
+        ]
+    )
+    def test_serve_stale_outcomes_label_executions_counter(self, _name, seed, outcome, cache_state):
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_EXECUTIONS_TOTAL,
+        )
+
+        start, end = datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC)
+        if seed == "expired_within_grace":
+            self._seed_ready_job(start, end, expired_hours_ago=1, created_hours_ago=3)
+        elif seed == "fresh_partial":
+            self._seed_ready_job(start, datetime(2024, 1, 2, tzinfo=UTC))
+
+        labels = {"outcome": outcome, "cache_state": cache_state, "table": str(self.TABLE)}
+        before = LAZY_COMPUTATION_EXECUTIONS_TOTAL.labels(**labels)._value.get()
+
+        LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60),
+            stale_while_revalidate_seconds=6 * 60 * 60,
+            run_inserts=False,
+        ).execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=start,
+            end=end,
+            run_insert=lambda t, j: None,
+        )
+
+        assert LAZY_COMPUTATION_EXECUTIONS_TOTAL.labels(**labels)._value.get() - before == 1.0

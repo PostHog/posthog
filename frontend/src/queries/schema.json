@@ -9773,6 +9773,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -9888,6 +9892,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeStale": {
+                    "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -13587,6 +13595,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -13806,6 +13818,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -14036,7 +14052,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "preComputeStale": {
-                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
                     "type": "boolean"
                 },
                 "preComputeStrategy": {
@@ -14146,6 +14162,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -16043,6 +16063,10 @@
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
@@ -16128,7 +16152,7 @@
                                     "$ref": "#/definitions/integer"
                                 },
                                 "preComputeStale": {
-                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
                                     "type": "boolean"
                                 },
                                 "preComputeStrategy": {
@@ -16300,6 +16324,10 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
@@ -16372,6 +16400,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                                    "type": "boolean"
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -17109,6 +17141,10 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                                    "type": "boolean"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -17183,6 +17219,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "preComputeStale": {
+                                    "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                                    "type": "boolean"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -31884,6 +31924,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "preComputeStale": {
+                    "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -32275,6 +32319,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeStale": {
+                    "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -38288,6 +38336,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -38373,7 +38425,7 @@
                             "$ref": "#/definitions/integer"
                         },
                         "preComputeStale": {
-                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
                             "type": "boolean"
                         },
                         "preComputeStrategy": {
@@ -38545,6 +38597,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -38617,6 +38673,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -39199,6 +39259,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -39273,6 +39337,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeStale": {
+                            "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -39810,6 +39878,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -39895,7 +39967,7 @@
                             "$ref": "#/definitions/integer"
                         },
                         "preComputeStale": {
-                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
                             "type": "boolean"
                         },
                         "preComputeStrategy": {
@@ -40067,6 +40139,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -40139,6 +40215,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -40876,6 +40956,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -40950,6 +41034,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeStale": {
+                            "description": "Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -53261,6 +53349,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -53654,6 +53746,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -54054,7 +54150,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "preComputeStale": {
-                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
                     "type": "boolean"
                 },
                 "preComputeStrategy": {
@@ -54278,6 +54374,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results.",
+                    "type": "boolean"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
