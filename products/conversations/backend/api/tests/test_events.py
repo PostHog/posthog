@@ -1098,6 +1098,7 @@ class TestConversationEvents(BaseTest):
             widget_session_id="",
             distinct_id="cust@acme.com",
             channel_source="slack",
+            identity_verified=True,
             anonymous_traits={"name": "Biz", "email": "cust@acme.com"},
         )
 
@@ -1109,6 +1110,45 @@ class TestConversationEvents(BaseTest):
         ticket.refresh_from_db()
         assert ticket.organization_id == "org-eu-123"
         assert ticket.organization_id_source == OrganizationIdSource.PERSON
+
+    @parameterized.expand(
+        [
+            # A forged From that failed SPF is assessed as False; a caller-supplied
+            # distinct_id on an API-created ticket is never assessed (None). Neither is
+            # server-attested, so neither may resolve an org from event $groups.
+            ("unverified_identity", False),
+            ("unassessed_identity", None),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("products.conversations.backend.events.get_group_types_for_project")
+    @patch("products.conversations.backend.person_lookup._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_requester_events_require_attested_identity(
+        self, _name, identity_verified, mock_get_persons, mock_get_by_email, mock_group_types, mock_hogql, mock_capture
+    ):
+        mock_get_persons.return_value = []
+        mock_get_by_email.return_value = {}
+        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
+        mock_hogql.return_value.results = [["victim-org", ""]]
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id="victim@bigcorp.com",
+            channel_source="email",
+            identity_verified=identity_verified,
+            anonymous_traits={"name": "Attacker", "email": "victim@bigcorp.com"},
+        )
+
+        capture_ticket_created(ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+        ticket.refresh_from_db()
+        assert ticket.organization_id is None
 
     @parameterized.expand(
         [

@@ -336,9 +336,11 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, 
     # channel email) or fail transiently even when the requester's own sessions stamped
     # org groups onto this project's events. Those events are keyed by the ticket's own
     # distinct_id — the exact evidence the person path's analytics fallback trusts — so
-    # read them directly before falling back to channel-level attribution. Restricted to
-    # channels with a provider-verified identity, like the email fallback.
-    if ticket.distinct_id and ticket.channel_source in _EMAIL_FALLBACK_CHANNELS:
+    # read them directly before falling back to channel-level attribution. The channel
+    # gate alone is not enough: email tickets can carry an unverified identity (forged
+    # From that failed SPF, or an API-supplied distinct_id assessed as None), so require
+    # the server-attested identity_verified=True on top of it.
+    if ticket.distinct_id and ticket.channel_source in _EMAIL_FALLBACK_CHANNELS and ticket.identity_verified is True:
         try:
             groups = _resolve_groups_from_analytics(team, [ticket.distinct_id])
         except Exception:
