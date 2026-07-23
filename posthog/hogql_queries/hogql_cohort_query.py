@@ -275,6 +275,7 @@ class HogQLCohortQuery:
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
             settings=HogQLGlobalSettings(),
+            bypass_warehouse_access_control=True,
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:

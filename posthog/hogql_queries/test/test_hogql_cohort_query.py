@@ -701,6 +701,32 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should have condition hash filter
         self.assertIn("condition", query_str)
 
+    def test_query_executor_bypasses_warehouse_access_control(self) -> None:
+        # Cohort recalculation runs userless; the executor must bypass warehouse access control so a
+        # cohort referencing a data warehouse table doesn't fail closed when the team has the
+        # hogql-warehouse-access-control flag on.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test bypass",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        executor = HogQLCohortQuery(cohort=cohort).get_query_executor()
+
+        self.assertTrue(executor.bypass_warehouse_access_control)
+
     def test_behavioral_performed_event_pageview(self) -> None:
         """
         Test that a simple behavioral performed_event filter works with conditionHash.
