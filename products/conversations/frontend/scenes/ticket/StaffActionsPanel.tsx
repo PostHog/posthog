@@ -18,8 +18,8 @@ export function StaffActionsPanel(): JSX.Element {
                     header: 'Staff actions',
                     content: (
                         <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs text-muted-alt">
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted-alt break-all">
                                     {ticketContext?.email ? (
                                         <>
                                             Customer: <span className="text-success">{ticketContext.email}</span>

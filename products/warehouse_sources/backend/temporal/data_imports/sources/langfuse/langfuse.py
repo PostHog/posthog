@@ -328,7 +328,11 @@ def get_rows(
             url, params=params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
         )
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # Langfuse maps a ClickHouse resource limit (memory/timeout) to 422 with an "Request timed
+        # out" body; genuine request-validation failures come back as 400. Deep offset pagination on
+        # the traces endpoint can trip that resource limit, so 422 is a transient upstream error —
+        # retry it through the backoff/resume machinery rather than crashing the sync.
+        if response.status_code in (422, 429) or response.status_code >= 500:
             retry_after = _parse_retry_after(response) if response.status_code == 429 else None
             raise LangfuseRetryableError(
                 f"Langfuse API error (retryable): status={response.status_code}, endpoint={endpoint}",

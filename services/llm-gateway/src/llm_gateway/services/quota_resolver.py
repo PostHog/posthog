@@ -59,10 +59,30 @@ _RETRY_DELAYS_SECONDS: tuple[float, ...] = (
 )
 
 
+# Credit buckets are denominated in billing credits priced at one cent each
+# (the billing product config for AI credits and `posthog_code_usage`).
+_USD_PER_CREDIT = 0.01
+
+
 @dataclass
 class QuotaResourceStatus:
     limited: bool
     code_usage_billing_active: bool = False
+    # The org's bucket spend and limit this billing period, from billing's
+    # synced numbers. None means unknown (unsynced org, fail-open) — never $0.
+    used_usd: float | None = None
+    limit_usd: float | None = None
+
+
+def _optional_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _credits_to_usd(credits: object) -> float | None:
+    value = _optional_number(credits)
+    return None if value is None else round(value * _USD_PER_CREDIT, 2)
 
 
 class _TransientUpstreamError(Exception):
@@ -187,6 +207,8 @@ class QuotaResolver:
         return QuotaResourceStatus(
             limited=bool(resource.get("limited")),
             code_usage_billing_active=bool(data.get("code_usage_billing_active")),
+            used_usd=_credits_to_usd(resource.get("usage")),
+            limit_usd=_credits_to_usd(resource.get("limit")),
         ), self._cache_ttl
 
     async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
@@ -202,6 +224,8 @@ class QuotaResolver:
                 # Entries written before this field existed read as False (capped)
                 # until the TTL turns them over.
                 code_usage_billing_active=bool(payload.get("code_usage_billing_active")),
+                used_usd=_optional_number(payload.get("used_usd")),
+                limit_usd=_optional_number(payload.get("limit_usd")),
             )
         except Exception:
             logger.debug("quota_cache_read_failed", resource=resource_key, team_id=team_id)
@@ -212,7 +236,12 @@ class QuotaResolver:
             return
         try:
             payload = json.dumps(
-                {"limited": status.limited, "code_usage_billing_active": status.code_usage_billing_active}
+                {
+                    "limited": status.limited,
+                    "code_usage_billing_active": status.code_usage_billing_active,
+                    "used_usd": status.used_usd,
+                    "limit_usd": status.limit_usd,
+                }
             )
             await self._redis.set(_redis_key(resource_key, team_id), payload, ex=ttl)
         except Exception:

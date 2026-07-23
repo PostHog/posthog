@@ -37,6 +37,13 @@ SandboxOAuthApplication = Literal["array", "posthog_ai"]
 INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
+    # Provenance marker: proves a token was minted here (server-side), not obtained by a
+    # user via the consent flow or a personal API key. `internal_run` is an internal scope,
+    # so it's rejected by every user-facing scope validator and can't be forged. The LLM
+    # gateway requires it on the internal products that share the PostHog Code OAuth app
+    # (background_agents, signals, slack_app, conversations) so a user's own OAuth token
+    # can't route around the posthog_code free-tier model gate through those.
+    "internal_run:read",
 ]
 
 
@@ -105,7 +112,11 @@ PosthogMcpScopes = McpScopePreset | list[str]
 MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports")
 
 
-def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
+def resolve_scopes(
+    scopes: PosthogMcpScopes = "read_only",
+    *,
+    include_internal_scopes: bool = True,
+) -> list[str]:
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":

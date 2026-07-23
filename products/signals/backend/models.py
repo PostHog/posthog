@@ -23,6 +23,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     Dismissal,
     LogArtefactContent,
+    RelatedTo,
     SignalFinding,
     StatusArtefactContent,
     TaskRunArtefact,
@@ -59,6 +60,10 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
+        ANOMALY_INVESTIGATION = "anomaly_investigation", "Anomaly investigation"
+        CI_FLAKY_CHECK = "ci_flaky_check", "CI flaky check"
+        CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch", "CI broken default branch"
+        CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
@@ -274,9 +279,11 @@ class SignalReport(UUIDModel):
         match (self.status, new_status):
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
-            # - READY | RESOLVED -> CANDIDATE when new matching signals reopen the report for
-            #   summary / agentic research (READY: every signal; resolved: recurrence of the issue)
-            case (S.POTENTIAL | S.READY | S.RESOLVED, S.CANDIDATE):
+            # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
+            #   research. RESOLVED is terminal and never reopens: a recurring issue starts a fresh
+            #   report, linked to the resolved one via related_to artefacts (see
+            #   assign_and_emit_signal_activity).
+            case (S.POTENTIAL | S.READY, S.CANDIDATE):
                 self.promoted_at = timezone.now()
                 updated_fields.add("promoted_at")
 
@@ -707,6 +714,7 @@ class SignalReportArtefact(UUIDModel):
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
+        RELATED_TO = "related_to"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -737,6 +745,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
+            ArtefactType.RELATED_TO,
         }
     )
 
@@ -873,10 +882,24 @@ class SignalReportArtefact(UUIDModel):
         """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
 
         Log artefacts accumulate — each call creates a new row.
+
+        `related_to` links are symmetric: writing A→B here also records B→A on the other report, so
+        the link is maintained on the common write path and stays discoverable from either side. The
+        reverse row goes through `_create` (not `add_log`) so it doesn't recurse.
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
-        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+        if isinstance(content, RelatedTo):
+            # Same team_id: reports link only within a team (grouping is per-team), so the reverse
+            # row belongs to the same tenant.
+            cls._create(
+                team_id=team_id,
+                report_id=content.report_id,
+                content=RelatedTo(report_id=str(report_id)),
+                attribution=attribution,
+            )
+        return artefact
 
     @classmethod
     def append(
@@ -896,6 +919,9 @@ class SignalReportArtefact(UUIDModel):
         an agent can append a new status version just like the pipeline, and the newest row of a
         status type is the report's canonical status. (The HTTP write API additionally refuses
         legacy read-only types such as `video_segment` — see `NON_WRITABLE_ARTEFACT_TYPES`.)
+
+        Log types route through `add_log` (not straight to `_create`) so its side effects — e.g. the
+        symmetric `related_to` back-link — are maintained no matter which write path is used.
         """
         artefact_type = artefact_type_for(content)
         if artefact_type in cls.STATUS_ARTEFACT_TYPES:
@@ -905,6 +931,10 @@ class SignalReportArtefact(UUIDModel):
                 content=cast(StatusArtefactContent, content),
                 attribution=attribution,
                 reevaluate_autostart=reevaluate_autostart,
+            )
+        if artefact_type in cls.LOG_ARTEFACT_TYPES:
+            return cls.add_log(
+                team_id=team_id, report_id=report_id, content=cast(LogArtefactContent, content), attribution=attribution
             )
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
@@ -1080,9 +1110,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
     emit = models.BooleanField(default=True, db_default=True)
-    # Minutes between runs. The coordinator dispatches this scout when
+    # Minutes between runs. Without a cron schedule, the coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
-    # no sampling. Floor of 30 keeps one scout from monopolising the worker pool and matches the
+    # no sampling. Floor of 30 keeps one scout from monopolizing the worker pool and matches the
     # tightest cadence the UI offers (RUN_INTERVAL_OPTIONS); default
     # 1440 = every 24 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
     # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
@@ -1096,6 +1126,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
+    # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
+    # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
+    # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
+    # daylight-saving changes without storing a second timezone on every scout config.
+    # Serializer-validated (croniter + a 30-minute minimum gap between occurrences, matching
+    # the interval floor) — this field is only written through the config API.
+    run_cron_schedule = models.CharField(max_length=100, null=True, blank=True)
+    # Stamped by the config serializers only when a schedule field (`run_interval_minutes`,
+    # `run_cron_schedule`) actually changes. The coordinator anchors the cron due-check on this
+    # (not `updated_at`, which every save bumps) so an unrelated emit/enabled toggle can never
+    # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
+    # `created_at` anchors those.
+    schedule_changed_at = models.DateTimeField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -1210,6 +1253,14 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # Scout-owned per-run context stamped once at run creation — the native home for run
+    # dimensions that matter operationally but don't each warrant a dedicated column. Known keys
+    # today: `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on
+    # when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default;
+    # empty for default-model runs. Write-once at creation, not a mutable grab-bag — new keys
+    # (e.g. a future config-level model) should also be stamped by the runner at run start.
+    # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
+    metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

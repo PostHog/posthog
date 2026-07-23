@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class SalesflareEndpointConfig:
@@ -24,4 +26,4 @@ SALESFLARE_ENDPOINTS: dict[str, SalesflareEndpointConfig] = {
 
 ENDPOINTS = tuple(SALESFLARE_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

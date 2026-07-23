@@ -105,4 +105,34 @@ describe('inboxUsageLogic', () => {
 
         expect(logic.values.usedPrs).toBe(4)
     })
+
+    // The org-keyed refunds flag resolves late on the client, so the client can fire the summary
+    // request while the server (re-checking the same flag) still returns 404. That mismatch must
+    // degrade to a null summary — falling back to billing's own usage — not bubble up as an
+    // uncaught error into error tracking.
+    it('degrades to null when the server returns 404 for the refund summary', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    { products: [{ type: 'inbox', display_divisor: CREDITS_PER_PR, current_usage: 1500 }] },
+                ],
+                '/api/projects/:team_id/signals/reports/refund-summary/': () => [
+                    404,
+                    { detail: 'PR refunds are not enabled for this organization.' },
+                ],
+            },
+        })
+        featureFlagLogic.mount()
+        setRefundsFlag()
+        logic = inboxUsageLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess']).toFinishAllListeners()
+        expect(logic.values.refundSummary).toBeNull()
+        // Widget still renders from billing's recorded usage rather than tearing down. Billing loads
+        // via afterMount independently of the refund summary, so wait for all loaders above before
+        // reading usedPrs, which depends on both.
+        expect(logic.values.usedPrs).toBe(1)
+    })
 })

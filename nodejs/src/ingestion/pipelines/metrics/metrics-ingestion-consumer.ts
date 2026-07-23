@@ -14,6 +14,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { MetricsIngestionConsumerConfig } from './config'
+import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT, MetricsDlqOutput, MetricsOutput } from './outputs/outputs'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsIngestionMessage } from './types'
@@ -304,6 +305,9 @@ export class MetricsIngestionConsumer {
                             },
                         },
                     ])
+                    // Only after the ClickHouse-bound produce resolves — messages that
+                    // fail and route to the DLQ must not count as ingested.
+                    recordMetricsIngested(message.teamId, message.bytesUncompressed, message.recordCount)
                 } catch (error) {
                     await this.produceToDlq(message, error)
                     throw error

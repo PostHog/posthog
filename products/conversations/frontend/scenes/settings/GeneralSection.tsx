@@ -11,6 +11,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { AuthorizedDomains } from './AuthorizedDomains'
 import { ChannelsSection } from './ChannelsSection'
+import { DraftModeSection } from './DraftModeSection'
 import { SecretApiKeySection } from './SecretApiKeySection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
@@ -170,6 +171,7 @@ export function GeneralSection(): JSX.Element {
                         </LemonCard>
                     </SceneSection>
                     <SecretApiKeySection />
+                    <DraftModeSection />
                 </>
             )}
         </>

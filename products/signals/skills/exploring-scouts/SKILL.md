@@ -195,6 +195,7 @@ Each entry's `key` carries a category prefix that tells you _what kind_ of learn
 | `not-in-use:` | A product/surface this team doesn't use (close-out memo)                               |
 | `mcp-gap:`    | A tooling gap a scout noticed worth raising later                                      |
 | `improve:`    | A custom scout's suggested change to its own skill body, awaiting owner review         |
+| `reported:`   | A canonical scout's record of a skill gap already fed back upstream to PostHog         |
 | `report:`     | A report a scout authored — stores the `report_id` so later runs edit/dedup against it |
 | `reviewer:`   | A resolved owner (GitHub login) for an area, cached for `suggested_reviewers` routing  |
 
@@ -211,6 +212,7 @@ When assessing a custom scout, search `{"text": "improve:"}` and surface these t
 A report-authoring custom scout escalates a recurring suggestion as an inbox report tagged `self-improvement`, so those may also surface via `inbox-reports-list` — the scratchpad entry stays the ledger behind the report.
 Reviewing and applying them is a write operation — hand off to the `authoring-scouts` skill.
 Canonical scouts never write `improve:` entries (their skill bodies are synced from PostHog's fleet), so an `improve:` entry under a canonical scout's domain is itself worth flagging.
+Instead, a canonical scout routes skill-content gaps upstream to the PostHog team via the `agent-feedback` MCP tool (`feedback_type: "scout"`), generalized so no project data travels, and keeps a `reported:<skill-name>:<topic>` entry as its local record of what it already submitted — so a `reported:` entry tells you a gap has been raised with PostHog, not with this team.
 
 ## Workflow: see what scouts have written
 

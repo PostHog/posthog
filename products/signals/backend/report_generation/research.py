@@ -147,11 +147,11 @@ class ReportResearchOutput(BaseModel):
 
 
 class SignalFindingUpdate(BaseModel):
-    """Re-research response for a signal that already has a finding: confirm it or replace it."""
+    """Stable per-signal response envelope for both new research and re-research."""
 
     previous_finding_correct: bool = Field(
-        description="True when the previous finding is still accurate as-is. It will be kept unchanged "
-        "and no new finding recorded."
+        description="True when the previous finding is still accurate as-is. Set false when there is no previous "
+        "finding or when it needs replacing."
     )
     finding: SignalFinding | None = Field(
         default=None,
@@ -216,6 +216,27 @@ def _render_existing_report_context(previous_report_id: str | None) -> str:
         "If a signal already has previous findings, validate them lightly first and reuse them if they still hold. "
         "Only re-research deeply when the old evidence looks stale or no longer matches the codebase.\n"
     )
+
+
+def _render_resolved_report_context(resolved_title: str | None, resolved_summary: str | None) -> str:
+    if not resolved_title and not resolved_summary:
+        return ""
+
+    parts = [
+        "\n---\n\n## Previously resolved report",
+        "",
+        "A very similar issue was covered by an earlier report that has already been **resolved** — its fix was "
+        "shipped. This signal is a recurrence, so it's a fresh report rather than a reopening of that one. Take the "
+        "prior resolution into account: figure out whether this is a regression of that fix, a new dimension of the "
+        "same underlying issue, or a genuinely distinct problem, and say which in your findings.",
+        "",
+        "The resolved report was:",
+    ]
+    if resolved_title:
+        parts.append(f"- **Title:** {resolved_title}")
+    if resolved_summary:
+        parts.append(f"- **Summary:** {resolved_summary}")
+    return "\n".join(parts) + "\n"
 
 
 def _render_previous_finding_context(previous_finding: SignalFinding | None) -> str:
@@ -393,13 +414,12 @@ def build_initial_research_prompt(
     previous_report_id: str | None = None,
     previous_finding: SignalFinding | None = None,
     has_business_knowledge: bool = False,
+    resolved_report_title: str | None = None,
+    resolved_report_summary: str | None = None,
 ) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
     signal_block = _render_signal_for_research(first_signal, 1, total_signals)
-    # With a previous finding the agent answers with the update wrapper, so it can confirm the
-    # existing finding instead of regenerating it.
-    finding_model = SignalFindingUpdate if previous_finding else SignalFinding
-    finding_schema = json.dumps(finding_model.model_json_schema(), indent=2)
+    finding_schema = json.dumps(SignalFindingUpdate.model_json_schema(), indent=2)
 
     report_context = ""
     if title or summary:
@@ -410,15 +430,17 @@ def build_initial_research_prompt(
             report_context += f"**Summary:** {summary}\n\n"
 
     existing_report_context = _render_existing_report_context(previous_report_id)
+    resolved_report_context = _render_resolved_report_context(resolved_report_title, resolved_report_summary)
     previous_finding_context = _render_previous_finding_context(previous_finding)
     investigation_instruction = (
         "You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a separate "
         "message. For signals with previous findings, validate them lightly first and reuse them if they still "
-        "hold. Investigate genuinely new or stale signals thoroughly, then respond with a `SignalFinding` JSON "
-        "object."
+        "hold. Investigate genuinely new or stale signals thoroughly, then respond with the finding response "
+        "envelope described below."
         if previous_report_id or previous_finding
         else "You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a "
-        "separate message. For each one, investigate it thoroughly then respond with a `SignalFinding` JSON object."
+        "separate message. For each one, investigate it thoroughly then respond with the finding response envelope "
+        "described below."
     )
 
     bk_block = f"\n{_BUSINESS_KNOWLEDGE_BLOCK}\n" if has_business_knowledge else ""
@@ -428,6 +450,7 @@ def build_initial_research_prompt(
 {investigation_instruction.format(total_signals=total_signals)}
 {report_context}
 {existing_report_context}
+{resolved_report_context}
 ---
 
 {_RESEARCH_PROTOCOL}
@@ -438,6 +461,8 @@ def build_initial_research_prompt(
 
 {signal_block}
 {previous_finding_context}
+
+{"There is no previous finding for this signal. Set `previous_finding_correct` to `false` and put the new result in `finding`." if previous_finding is None else "Use the previous-finding instructions above to confirm or replace it."}
 
 ---
 
@@ -459,14 +484,15 @@ def build_signal_investigation_prompt(
 ) -> str:
     """Build a follow-up prompt for signal N (2..total)."""
     signal_block = _render_signal_for_research(signal, index, total)
-    finding_model = SignalFindingUpdate if previous_finding else SignalFinding
-    finding_schema = json.dumps(finding_model.model_json_schema(), indent=2)
+    finding_schema = json.dumps(SignalFindingUpdate.model_json_schema(), indent=2)
     previous_finding_context = _render_previous_finding_context(previous_finding)
 
     return f"""## Signal {index} of {total}
 
 {signal_block}
 {previous_finding_context}
+
+{"There is no previous finding for this signal. Set `previous_finding_correct` to `false` and put the new result in `finding`." if previous_finding is None else "Use the previous-finding instructions above to confirm or replace it."}
 
 ---
 
@@ -639,6 +665,8 @@ async def run_multi_turn_research(
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
     has_business_knowledge: bool = False,
+    resolved_report_title: str | None = None,
+    resolved_report_summary: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.facade import api as tasks_facade
@@ -670,14 +698,13 @@ async def run_multi_turn_research(
         previous_report_id=previous_report_id,
         previous_finding=first_previous,
         has_business_knowledge=has_business_knowledge,
-    )
-    first_schema: type[SignalFinding] | type[SignalFindingUpdate] = (
-        SignalFindingUpdate if first_previous else SignalFinding
+        resolved_report_title=resolved_report_title,
+        resolved_report_summary=resolved_report_summary,
     )
     session, first_response = await MultiTurnSession.start(
         prompt=initial_prompt,
         context=context,
-        model=first_schema,
+        model=SignalFindingUpdate,
         branch=branch,
         step_name="report_research",
         verbose=verbose,
@@ -733,12 +760,9 @@ async def run_multi_turn_research(
                 total,
                 previous_finding=previous_finding,
             )
-            followup_schema: type[SignalFinding] | type[SignalFindingUpdate] = (
-                SignalFindingUpdate if previous_finding else SignalFinding
-            )
             response = await session.send_followup(
                 followup_prompt,
-                followup_schema,
+                SignalFindingUpdate,
                 label=f"signal_{i}_of_{total}",
             )
             finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)

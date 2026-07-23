@@ -29,12 +29,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.copper.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CopperSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.copper import CopperSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.copper.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -61,6 +65,7 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -77,7 +82,11 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: CopperSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CopperSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_copper_credentials(config.api_key, config.user_email)
 
@@ -94,7 +103,8 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
             api_key=config.api_key,
             user_email=config.user_email,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

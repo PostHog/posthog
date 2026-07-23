@@ -40,6 +40,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
 
 GITHUB_BASE_URL = "https://api.github.com"
 
+# GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
+# the only version-dependent part for the endpoints we sync — response shapes are compatible across
+# these versions. Every caller — sync, credential validation, webhook management — passes the
+# source's resolved pin; this constant is only the fallback for callers outside a source instance.
+GITHUB_DEFAULT_API_VERSION = "2022-11-28"
+
 # Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, or the
 # "Repository webhooks: read and write" permission on a fine-grained token. Name both so
 # the error/setup guidance doesn't mislead whichever token type the user connected.
@@ -184,11 +190,13 @@ def _resolve_sort_mode(
     return "asc"
 
 
-def _get_headers(access_token: str, endpoint: str = "") -> dict[str, str]:
+def _get_headers(
+    access_token: str, endpoint: str = "", api_version: str = GITHUB_DEFAULT_API_VERSION
+) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        "X-GitHub-Api-Version": api_version,
     }
     # Stargazers needs this Accept header to include the starred_at timestamp.
     if endpoint == "stargazers":
@@ -264,14 +272,12 @@ def _should_stop_desc(
     return any(_is_older_than_cutoff(item.get(incremental_field), cutoff) for item in data if item)
 
 
-def validate_credentials(personal_access_token: str, repository: str) -> tuple[bool, str | None]:
+def validate_credentials(
+    personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
+) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
-    headers = {
-        "Authorization": f"Bearer {personal_access_token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    headers = _get_headers(personal_access_token, api_version=api_version)
 
     try:
         response = make_tracked_session().get(url, headers=headers, timeout=10)
@@ -286,13 +292,21 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
             return False, f"Repository '{repository}' not found or not accessible"
 
         try:
-            error_data = response.json()
-            message = error_data.get("message", response.text)
+            body = response.json()
+            message = body.get("message") if isinstance(body, dict) else None
+        except ValueError:
+            message = None
+        if message:
             return False, message
-        except Exception:
-            pass
 
-        return False, response.text
+        # A non-JSON body means GitHub returned an HTML error page (e.g. its 5xx "Unicorn!" page) —
+        # never surface that raw markup to the user.
+        if response.status_code >= 500:
+            return False, "GitHub is temporarily unavailable. Please try again in a few minutes."
+        return (
+            False,
+            f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -310,7 +324,10 @@ _ORG_PERMISSION_REASON = (
 
 
 def check_org_endpoint_permission(
-    personal_access_token: str, repository: str, egress_identity: GithubEgressIdentity | None = None
+    personal_access_token: str,
+    repository: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> str | None:
     """Probe the org teams endpoint once. Returns None when reachable, or a short reason when the
     org grant is missing. Only a real denial (401/403/404) is a missing scope; rate limits, 5xx,
@@ -328,7 +345,7 @@ def check_org_endpoint_permission(
             "GET",
             url,
             source="warehouse",
-            headers=_get_headers(personal_access_token),
+            headers=_get_headers(personal_access_token, api_version=api_version),
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=10,
@@ -621,6 +638,7 @@ def _fan_out_get_rows(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -646,7 +664,7 @@ def _fan_out_get_rows(
     # org). Skip only that parent walk — a 404 on a specific team's members is not this benign case
     # and should still surface.
     parent_org_scoped = child_config.fan_out_parent in ORG_SCOPED_ENDPOINTS
-    headers = _get_headers(personal_access_token, endpoint)
+    headers = _get_headers(personal_access_token, endpoint, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     # A parent with no incremental fields (teams) has no cursor to bound on, so walk it whole.
@@ -748,6 +766,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -760,10 +779,11 @@ def get_rows(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             egress_identity=egress_identity,
+            api_version=api_version,
         )
         return
 
-    headers = _get_headers(personal_access_token, endpoint)
+    headers = _get_headers(personal_access_token, endpoint, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     actual_sort_mode = _resolve_sort_mode(
@@ -902,6 +922,8 @@ def github_source(
     incremental_field: str | None = None,
     webhook_source_manager: Optional[WebhookSourceManager] = None,
     egress_identity: GithubEgressIdentity | None = None,
+    response_name: str | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -984,10 +1006,13 @@ def github_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
             egress_identity=egress_identity,
+            api_version=api_version,
         )
 
     return SourceResponse(
-        name=endpoint,
+        # The storage identity (Delta subdir / queryable folder). Repo-qualified schemas pass a
+        # normalized `owner_repo_endpoint`; legacy bare schemas default to the endpoint, today's value.
+        name=response_name or endpoint,
         items=items,
         primary_keys=_normalize_primary_key(endpoint_config.primary_key),
         sort_mode=actual_sort_mode,
@@ -1008,14 +1033,19 @@ def _is_repo_hook_permission_error(response: requests.Response) -> bool:
 
 
 def create_repo_webhook(
-    token: str, repo: str, webhook_url: str, events: list[str], secret: str
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    secret: str,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> WebhookCreationResult:
     """Create a repo webhook via POST /repos/{repo}/hooks.
 
     Returns a failed (not raised) result when the token lacks admin:repo_hook so
     the caller can surface a manual-setup caption instead of hard-failing.
     """
-    headers = _get_headers(token)
+    headers = _get_headers(token, api_version=api_version)
     payload = {
         "name": "web",
         "active": True,
@@ -1054,8 +1084,83 @@ def create_repo_webhook(
     )
 
 
+def ensure_repo_webhook(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    secret: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> WebhookCreationResult:
+    """Idempotently ensure a repo webhook pointing at ``webhook_url`` exists with ``secret``.
+
+    A hook already matching the URL is PATCHed (secret re-pinned, events unioned) instead of
+    re-created — a bare POST would 422 with "Hook already exists on this repository", which
+    matters both for retried creates and for reconciling a multi-repo source where some repos
+    already carry the hook. No match falls through to the plain create."""
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
+    if error == "permission":
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+    if error is not None:
+        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error}")
+
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    if hook is None:
+        return create_repo_webhook(token, repo, webhook_url, events, secret=secret, api_version=api_version)
+
+    merged_events = sorted(set(hook.get("events") or []) | set(events))
+    try:
+        response = github_request(
+            "PATCH",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
+            source="warehouse",
+            headers=_get_headers(token, api_version=api_version),
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+            json={
+                "active": True,
+                "events": merged_events,
+                "config": {"url": webhook_url, "content_type": "json", "secret": secret},
+            },
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookCreationResult(
+            success=False,
+            error="GitHub rate limit reached while updating the repository webhook; please retry shortly.",
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookCreationResult(success=False, error=f"Failed to update webhook automatically: {e}")
+
+    if response.ok:
+        return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
+    if _is_repo_hook_permission_error(response):
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+    return WebhookCreationResult(
+        success=False, error=f"Failed to update webhook automatically: {response.status_code} {response.text}"
+    )
+
+
 def _list_repo_hooks(
-    token: str, repo: str, egress_identity: GithubEgressIdentity | None = None
+    token: str,
+    repo: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> tuple[list[dict[str, Any]] | None, str | None]:
     """List repo webhooks via GET /repos/{repo}/hooks. Returns (hooks, error); error is
     ``"permission"`` when the token lacks admin:repo_hook so callers can fall back to manual setup.
@@ -1071,7 +1176,7 @@ def _list_repo_hooks(
             "GET",
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks?per_page=100",
             source="warehouse",
-            headers=_get_headers(token),
+            headers=_get_headers(token, api_version=api_version),
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=30,
@@ -1103,10 +1208,14 @@ def _match_hook_by_url(hooks: list[dict[str, Any]], webhook_url: str) -> dict[st
 
 
 def _find_repo_hook_id(
-    token: str, repo: str, webhook_url: str, egress_identity: GithubEgressIdentity | None = None
+    token: str,
+    repo: str,
+    webhook_url: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> tuple[int | None, str | None]:
     """Return (hook_id, error). Matches on config.url == webhook_url."""
-    hooks, error = _list_repo_hooks(token, repo, egress_identity)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
     if error is not None:
         return None, error
     hook = _match_hook_by_url(hooks or [], webhook_url)
@@ -1114,10 +1223,14 @@ def _find_repo_hook_id(
 
 
 def delete_repo_webhook(
-    token: str, repo: str, webhook_url: str, egress_identity: GithubEgressIdentity | None = None
+    token: str,
+    repo: str,
+    webhook_url: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> WebhookDeletionResult:
     """Find the repo webhook matching webhook_url and DELETE /repos/{repo}/hooks/{id}."""
-    hook_id, error = _find_repo_hook_id(token, repo, webhook_url, egress_identity)
+    hook_id, error = _find_repo_hook_id(token, repo, webhook_url, egress_identity, api_version=api_version)
     if error == "permission":
         return WebhookDeletionResult(
             success=False,
@@ -1129,7 +1242,7 @@ def delete_repo_webhook(
         # Nothing to delete — treat as success, same as Stripe's no-match path.
         return WebhookDeletionResult(success=True)
 
-    headers = _get_headers(token)
+    headers = _get_headers(token, api_version=api_version)
     try:
         response = make_tracked_session().delete(
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}", headers=headers, timeout=30
@@ -1163,7 +1276,12 @@ def _webhook_update_permission_result(events: list[str]) -> WebhookSyncResult:
 
 
 def update_repo_webhook(
-    token: str, repo: str, webhook_url: str, events: list[str], egress_identity: GithubEgressIdentity | None = None
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> WebhookSyncResult:
     """Add ``events`` to the repo webhook matching ``webhook_url``, writing only on drift.
 
@@ -1173,7 +1291,7 @@ def update_repo_webhook(
     if not events:
         return WebhookSyncResult(success=True)
 
-    hooks, error = _list_repo_hooks(token, repo, egress_identity)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
     if error == "permission":
         return _webhook_update_permission_result(events)
     if error is not None:
@@ -1199,7 +1317,7 @@ def update_repo_webhook(
             "PATCH",
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
             source="warehouse",
-            headers=_get_headers(token),
+            headers=_get_headers(token, api_version=api_version),
             installation_id=egress_identity.installation_id if egress_identity is not None else None,
             priority=Priority.NORMAL,
             timeout=30,
@@ -1225,10 +1343,14 @@ def update_repo_webhook(
 
 
 def get_repo_webhook_info(
-    token: str, repo: str, webhook_url: str, egress_identity: GithubEgressIdentity | None = None
+    token: str,
+    repo: str,
+    webhook_url: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> ExternalWebhookInfo:
     """List repo webhooks via GET /repos/{repo}/hooks and match config.url == webhook_url."""
-    hooks, error = _list_repo_hooks(token, repo, egress_identity)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
     if error == "permission":
         return ExternalWebhookInfo(
             exists=False,

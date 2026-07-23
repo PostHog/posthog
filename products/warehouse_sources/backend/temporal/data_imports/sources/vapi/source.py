@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VapiSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vapi import VapiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
+    api_docs_url = "https://docs.vapi.ai/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -94,6 +96,7 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = VAPI_ENDPOINTS[endpoint]
@@ -113,7 +116,7 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
         return schemas
 
     def validate_credentials(
-        self, config: VapiSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: VapiSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_vapi_credentials(config.api_key):
             return True, None

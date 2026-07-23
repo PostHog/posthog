@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SavvyCalSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
+    SavvyCalSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal import (
     SavvyCalResumeConfig,
     savvycal_source,
@@ -36,6 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SavvyCalSource(ResumableSource[SavvyCalSourceConfig, SavvyCalResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.savvycal.com"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -91,25 +99,18 @@ You can create a token under [Developer Settings](https://savvycal.com/developer
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only events expose a server-side cursor (`from` bound on start date); every other stream
         # has no updated-after filter, so it's full refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=endpoint in INCREMENTAL_FIELDS,
-                supports_append=endpoint in INCREMENTAL_FIELDS,
-                incremental_fields=list(INCREMENTAL_FIELDS.get(endpoint, [])),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SavvyCalSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SavvyCalSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Personal access tokens carry the account's full read access, so a single probe validates
         # access to every schema.
@@ -130,7 +131,8 @@ You can create a token under [Developer Settings](https://savvycal.com/developer
         return savvycal_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
