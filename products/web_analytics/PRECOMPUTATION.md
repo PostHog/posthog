@@ -80,6 +80,7 @@ The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effecti
 - `query.conversionGoal` is set
 - `query.sampling.enabled` is True
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
+- The team has any property-level access controls (`team_has_property_access_rules`) — precompute results are built userless and shared by a user-independent cache key, so they can't honor per-user property restrictions; the query falls through to the live path, which enforces them per requesting user
 - Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
 - Either date_from or date_to is None
 

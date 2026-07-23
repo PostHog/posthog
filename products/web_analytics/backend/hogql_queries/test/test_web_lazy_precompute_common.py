@@ -40,6 +40,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     STALE_WHILE_REVALIDATE_SECONDS,
     TEAM_SHAPE_SET_TTL_SECONDS,
     PerQueryOptedOut,
+    PropertyAccessControlled,
     UnsupportedFilterType,
     _oom_pin_key,
     _team_shape_set_key,
@@ -149,6 +150,14 @@ class TestCheckCommonEligibility(BaseTest):
         prop = PersonPropertyFilter(key="email", value="a@b.com", operator=PropertyOperator.EXACT)
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None, properties=[prop])
+
+    @mock.patch(f"{_COMMON}.team_has_property_access_rules", return_value=True)
+    def test_team_with_property_access_controls_falls_through_to_live(self, _mock) -> None:
+        # Userless shared precompute can't honor per-user property restrictions, so a team
+        # with property access controls must not precompute — the live path enforces them.
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            with self.assertRaises(PropertyAccessControlled):
+                self._check(use_precompute=None)
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):
