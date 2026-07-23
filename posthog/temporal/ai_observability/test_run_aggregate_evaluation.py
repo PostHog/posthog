@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -33,9 +34,14 @@ def setup_data():
     return {"organization": organization, "team": team}
 
 
-def _insert_ai_event(*, team: Team, event: str, trace_id: str, arrival: datetime) -> None:
+def _insert_ai_event(
+    *, team: Team, event: str, trace_id: str, arrival: datetime, event_timestamp: datetime | None = None
+) -> None:
     """Insert a minimal ai_events row with `_timestamp` (arrival) set independently of
     `timestamp` — the settle-poll activity judges liveness on `_timestamp`, not `timestamp`.
+
+    `event_timestamp` controls the client-set `timestamp` column; it defaults to "now" so
+    callers that don't care about it get the old behavior of a fresh, unremarkable event.
 
     `bulk_create_ai_events` (posthog/models/ai_events/test_util.py) can't do this: it derives
     `_timestamp` from the same `timestamp` value it inserts, so tests that need to simulate
@@ -55,7 +61,7 @@ def _insert_ai_event(*, team: Team, event: str, trace_id: str, arrival: datetime
         {
             "uuid": str(uuid.uuid4()),
             "event": event,
-            "timestamp": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "timestamp": (event_timestamp or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "team_id": team.id,
             "distinct_id": "test-user",
             "person_id": str(uuid.uuid4()),
@@ -275,6 +281,7 @@ class TestRunAggregateEvaluationWorkflow:
         assert elapsed < timedelta(seconds=600)
 
 
+@freeze_time("2026-07-23T12:00:00Z")
 class TestCheckTraceSettledActivity:
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
@@ -327,3 +334,23 @@ class TestCheckTraceSettledActivity:
             )
             is not None
         )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_backdated_client_timestamp_still_counts_as_activity(self, setup_data):
+        team = setup_data["team"]
+        trace_id = f"t-backdated-{uuid.uuid4()}"
+        _insert_ai_event(
+            team=team,
+            event="$ai_generation",
+            trace_id=trace_id,
+            arrival=datetime.now(UTC) - timedelta(seconds=5),
+            event_timestamp=datetime.now(UTC) - timedelta(days=3),
+        )
+        with pytest.raises(ApplicationError) as err:
+            check_trace_settled_activity(
+                CheckTraceSettledInputs(team_id=team.id, trace_id=trace_id, quiet_period_seconds=30)
+            )
+        # Must be the "seen recently" not-settled path, not the "nothing visible" NULL path —
+        # a client timestamp outside the lookback window used to make the row invisible to the poll.
+        assert err.value.type == "trace_not_settled"
+        assert "trace active" in err.value.message

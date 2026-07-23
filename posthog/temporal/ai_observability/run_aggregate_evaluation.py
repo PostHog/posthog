@@ -77,12 +77,17 @@ _LIVENESS_EVENTS = ("$ai_generation", "$ai_span", "$ai_embedding", "$ai_trace")
 # teams, and the fallback's events-table scan is orders of magnitude more expensive. The query
 # must also stay ungrouped: an ungrouped aggregate always returns exactly one row, so
 # query_ai_events's empty-result probe (which triggers the fallback) never fires.
+#
+# The date_from guard bounds by ARRIVAL time (_timestamp), not the client-set `timestamp`, so a
+# backdated event (clock skew, historical backfill) can't hide activity from the poll by landing
+# outside a timestamp-based window while still arriving now. The (team_id, trace_id) sort-key
+# prefix still does the pruning; _timestamp only filters in-scan within the trace's granules.
 _SETTLE_POLL_SQL = """
 SELECT maxOrNull(_timestamp) AS last_seen
 FROM posthog.ai_events AS ai_events
 WHERE event IN {liveness_events}
   AND trace_id = {trace_id}
-  AND timestamp >= {date_from}
+  AND _timestamp >= {date_from}
 """
 
 
