@@ -17,6 +17,14 @@ any selector error. Over-selection silently drops coverage, so the only safe
 default is "run everything". A selection miss that slips through is caught by
 the post-merge full run on master (the backstop).
 
+The one carve-out is the map's `ignore` section: paths that provably cannot
+affect the app under test (docs, agent instructions, lint rules, workflows for
+other suites) contribute nothing to selection instead of forcing a full run.
+`force_full` outranks `ignore`, and a diff where EVERY file is ignored still
+falls closed to a full run (category `all_ignored`) — running nothing is a
+trust-model change this selector deliberately doesn't make; the category exists
+to measure how much a skip mode would save before anyone builds it.
+
 Emits a single JSON object to stdout:
 
     {
@@ -161,6 +169,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
         return full(f"{len(changed_files)} changed files exceed the {MAX_CHANGED_FILES} ceiling", "over_ceiling")
 
     force_full = [(p, _compile_glob(p)) for p in area_map.get("force_full", [])]
+    ignore = [_compile_glob(p) for p in area_map.get("ignore", [])]
     products = area_map.get("products", {})
     scenes = area_map.get("scenes", {})
     explicit = [(p, _compile_glob(p), targets) for p, targets in area_map.get("explicit", {}).items()]
@@ -174,13 +183,21 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
         return False
 
     selected: set[str] = set()
+    ignored_count = 0
     for f in changed_files:
-        # 1. Shared infra / backend / unattributable code -> full (highest priority).
+        # 1. Shared infra / backend / unattributable code -> full (highest priority,
+        #    deliberately above `ignore` so an ignore glob can never swallow a
+        #    force-full path like the playwright workflow file itself).
         for pat, rx in force_full:
             if rx.match(f):
                 return full(f"{f} matches force-full pattern '{pat}'", "force_full", pat)
 
-        # 2. Product-owned frontend -> that product's specs (or an explicit rule for
+        # 2. Provably inert paths contribute nothing (and don't force full).
+        if any(rx.match(f) for rx in ignore):
+            ignored_count += 1
+            continue
+
+        # 3. Product-owned frontend -> that product's specs (or an explicit rule for
         #    products whose behavior is exercised by top-level specs).
         pm = _PRODUCT_FRONTEND_RE.match(f)
         if pm:
@@ -193,7 +210,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 continue
             return full(f"{f}: product '{name}' has no spec mapping", "unmapped_product", name)
 
-        # 3. Frontend scene -> mapped specs.
+        # 4. Frontend scene -> mapped specs.
         sm = _SCENE_RE.match(f)
         if sm:
             area = sm.group(1)
@@ -203,22 +220,27 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 continue
             return full(f"{f}: scene '{area}' has no spec mapping", "unmapped_scene", area)
 
-        # 4. Explicit path rules.
+        # 5. Explicit path rules.
         if explicit_match(f, selected):
             continue
 
-        # 5. A directly-edited spec runs itself.
+        # 6. A directly-edited spec runs itself.
         if f in all_specs:
             selected.add(f)
             continue
 
-        # 6. Anything unrecognized -> full (fail closed).
+        # 7. Anything unrecognized -> full (fail closed).
         return full(f"{f}: unmapped path", "unmapped_path", _dir_prefix(f))
 
     # Belt-and-suspenders: a directly-edited spec always runs even if its area also mapped.
     selected |= {f for f in changed_files if f in all_specs}
 
     if not selected:
+        if ignored_count == len(changed_files):
+            return full(
+                f"all {ignored_count} changed files are ignore-listed (full run until a skip mode exists)",
+                "all_ignored",
+            )
         return full("no specs selected (defensive full run)", "no_specs")
     return _result("selected", sorted(selected), [], changed_files, total)
 

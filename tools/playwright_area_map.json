@@ -10,7 +10,22 @@
         "A target ending in `/` is a directory prefix (all specs beneath it); otherwise it's an exact file.",
         "Every spec must be reachable by some target OR listed in `full_suite_only` — the test enforces",
         "this, so adding a spec forces a conscious choice: map it, or accept it only runs in full suites",
-        "(and when directly edited)."
+        "(and when directly edited).",
+        "`ignore` lists paths that provably CANNOT affect the app under test (docs, agent instructions,",
+        "lint rules, workflows for other suites): they contribute nothing to selection instead of forcing",
+        "a full run. `force_full` outranks `ignore`, no ignore pattern may match a spec (test-enforced),",
+        "and an all-ignored diff still runs the full suite (category `all_ignored`) until telemetry",
+        "justifies a skip mode. Only add entries that cannot reach the app bundle, the backend, or the",
+        "e2e stack config."
+    ],
+    "ignore": [
+        "*.md",
+        "**/*.md",
+        "docs/**",
+        ".agents/**",
+        ".semgrep/**",
+        ".github/workflows/**",
+        "common/storybook/**"
     ],
     "force_full": [
         "playwright/utils/**",

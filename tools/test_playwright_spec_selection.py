@@ -33,6 +33,7 @@ FAKE_SPECS = {
 }
 FAKE_MAP = {
     "force_full": ["posthog/**", "pnpm-lock.yaml", "playwright/*.ts"],
+    "ignore": ["docs/**", "**/*.md"],
     "products": {"surveys": ["products/surveys/frontend/e2e/"]},
     "scenes": {
         "billing": ["playwright/e2e/billing/"],
@@ -110,6 +111,26 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 {"playwright/e2e/billing/billing.spec.ts"},
             ),
             ("empty diff defaults to full", [], "full", ("empty_diff", "")),
+            # Ignore-listed paths must not force full (that's the feature) and must not
+            # outrank force_full (that would let an ignore glob swallow a critical path).
+            (
+                "ignored file contributes nothing alongside a mapped file",
+                ["docs/handbook/page.txt", "products/surveys/frontend/logic.ts"],
+                "selected",
+                {"products/surveys/frontend/e2e/crud.spec.ts"},
+            ),
+            (
+                "all-ignored diff falls closed to full with its own category",
+                ["docs/handbook/page.txt", "some/notes.md"],
+                "full",
+                ("all_ignored", ""),
+            ),
+            (
+                "force-full wins over ignore for the same file",
+                ["posthog/README.md"],
+                "full",
+                ("force_full", "posthog/**"),
+            ),
         ]
         for name, changed, mode, expected in cases:
             with self.subTest(name):
@@ -151,6 +172,18 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                         spec.startswith("playwright/e2e/") or "/frontend/e2e/" in spec,
                         msg=f"{target} -> {spec} is outside the spec roots",
                     )
+
+    def test_ignore_patterns_never_match_specs(self) -> None:
+        # An over-broad ignore entry (e.g. "playwright/**") would make a directly-edited
+        # spec contribute nothing — the one selection miss the master backstop can't
+        # attribute. Lock ignore to non-spec paths.
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+        for pattern in area_map.get("ignore", []):
+            with self.subTest(pattern):
+                rx = selection._compile_glob(pattern)
+                matched = sorted(s for s in all_specs if rx.match(s))
+                self.assertEqual(matched, [], msg=f"ignore pattern {pattern!r} matches spec files")
 
     def test_git_failure_tags_git_diff_failed_and_keeps_known_totals(self) -> None:
         # A git environment failure (e.g. a missing binary) surfaces as OSError, not
