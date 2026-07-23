@@ -34,6 +34,7 @@ import type {
     ReplayScannerApi,
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
+    RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
     ScannerStatsResponseApi,
@@ -171,6 +172,26 @@ export const visionActionsDestroy = async (projectId: string, id: string, option
     return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getVisionActionsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/run/`
+}
+
+/**
+ * Run this summary now, without waiting for its schedule — synthesizes a group summary over the
+ * observations since the last summary (or the last 24h). The recurring schedule is untouched: the
+ * engine advances next_run_at only at scheduled claim time, never in the run itself.
+ */
+export const visionActionsRunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RunActionResponseApi> => {
+    return apiMutator<RunActionResponseApi>(getVisionActionsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -319,7 +340,7 @@ export const getVisionObservationsLabelCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionObservationsLabelCreate = async (
     projectId: string,
@@ -340,7 +361,7 @@ export const getVisionObservationsLabelDestroyUrl = (projectId: string, id: stri
 }
 
 /**
- * Remove the observation's shared label. Requires session recording edit access.
+ * Remove the observation's shared label. Requires editor access to the scanner.
  */
 export const visionObservationsLabelDestroy = async (
     projectId: string,
@@ -692,7 +713,7 @@ export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, s
 }
 
 /**
- * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelCreate = async (
     projectId: string,
@@ -717,7 +738,7 @@ export const getVisionScannersObservationsLabelDestroyUrl = (projectId: string, 
 }
 
 /**
- * Remove the observation's shared label. Requires session recording edit access.
+ * Remove the observation's shared label. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelDestroy = async (
     projectId: string,
@@ -860,7 +881,7 @@ export const getVisionScannersPromptSuggestionsDismissCreateUrl = (
 }
 
 /**
- * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires session recording edit access.
+ * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires editor access to the scanner.
  */
 export const visionScannersPromptSuggestionsDismissCreate = async (
     projectId: string,
@@ -932,7 +953,7 @@ export const getVisionScannersPromptSuggestionsGenerateCreateUrl = (projectId: s
 }
 
 /**
- * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and session recording edit access.
+ * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and editor access to the scanner.
  */
 export const visionScannersPromptSuggestionsGenerateCreate = async (
     projectId: string,

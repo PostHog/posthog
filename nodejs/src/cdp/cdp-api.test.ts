@@ -915,7 +915,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
-                countInFlightJobs: jest.fn().mockResolvedValue(0),
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
@@ -1003,7 +1003,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
-                countInFlightJobs: jest.fn().mockResolvedValue(0),
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
@@ -1065,7 +1065,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
-                countInFlightJobs: jest.fn().mockResolvedValue(0),
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
@@ -1180,7 +1180,9 @@ describe('CDP API', () => {
         let mockCountInFlightJobs: jest.Mock
 
         beforeEach(async () => {
-            mockCountInFlightJobs = jest.fn().mockResolvedValue(3)
+            mockCountInFlightJobs = jest
+                .fn()
+                .mockResolvedValue({ count: 3, byAction: { delay_1: 2 }, positionUnknown: 1 })
             api['batchResolverProducer'] = {
                 createJob: jest.fn(),
                 disconnect: jest.fn(),
@@ -1213,7 +1215,7 @@ describe('CDP API', () => {
             )
 
             expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ count: 3 })
+            expect(res.body).toEqual({ count: 3, by_action: { delay_1: 2 }, position_unknown: 1 })
             expect(mockCountInFlightJobs).toHaveBeenCalledWith(countHogFlow.team_id, countHogFlow.id)
         })
 

@@ -93,6 +93,7 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export KAFKA_TOPIC=ai_events_ingestion
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     export CAPTURE_MODE=events

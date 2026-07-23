@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.ai_observability.backend.activity_logging import prompt_activity_item_id
 from products.ai_observability.backend.models.llm_prompt import (
     LLMPrompt,
     LLMPromptLabel,
@@ -238,6 +239,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     first_version_created_at = serializers.SerializerMethodField()
     outline = serializers.SerializerMethodField()
     labels = serializers.SerializerMethodField()
+    activity_item_id = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMPrompt
@@ -257,6 +259,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "first_version_created_at",
             "outline",
             "labels",
+            "activity_item_id",
         ]
         read_only_fields = [
             "id",
@@ -271,6 +274,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "first_version_created_at",
             "outline",
             "labels",
+            "activity_item_id",
         ]
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
@@ -283,6 +287,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     @extend_schema_field(LLMPromptOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMPrompt) -> list[dict[str, Any]]:
         return get_prompt_outline(instance.prompt)
+
+    @extend_schema_field(
+        serializers.CharField(
+            help_text="Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters."
+        )
+    )
+    def get_activity_item_id(self, instance: LLMPrompt) -> str:
+        return prompt_activity_item_id(instance.name)
 
     @extend_schema_field(
         serializers.ListField(

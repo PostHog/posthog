@@ -10,10 +10,13 @@ from requests import Request, Response, Session
 from requests.auth import AuthBase
 from requests.exceptions import (
     ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
     HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
+
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -32,12 +35,17 @@ class RESTClientRetryableError(Exception):
         self.retry_after = retry_after
 
 
-class RESTClientNonRetryableError(Exception):
+class RESTClientNonRetryableError(NonReportableError):
     """A response that retrying can never turn into usable data.
 
     Not a subclass of RESTClientRetryableError so the tenacity retry — which only
     reissues RESTClientRetryableError — stops immediately instead of re-fetching a
     deterministic failure.
+
+    Raised only for a 2xx response whose body is not JSON (an auth/login page, an HTML
+    error page, plain text) — always a customer/upstream condition, never a PostHog defect.
+    Subclasses NonReportableError so the activity interceptor stops it from becoming
+    error-tracking noise while the job still fails with the message.
     """
 
 
@@ -340,11 +348,26 @@ class RESTClient:
         # retryable-error type so it propagates immediately rather than being retried.
         self._check_allowed_host(prepared.url)
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
-        # surfaces here as ChunkedEncodingError. Reissue it like a truncated/partial body below.
+        # surfaces here as ChunkedEncodingError. A connection that never got established at all —
+        # egress proxy refusing/resetting the connection, a connect timeout — surfaces as
+        # ConnectionError (already retried a few times inside urllib3's own adapter-level policy,
+        # but that budget is short). Both are transient network failures, so reissue them like a
+        # truncated/partial body below rather than letting them skip this retry loop and fail the
+        # whole sync on one bad connection attempt.
         try:
             response = self.session.send(prepared, allow_redirects=self._allow_redirects)
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
+        except RequestsConnectionError as e:
+            # Unlike ChunkedEncodingError, a ConnectionError's message (e.g. urllib3's "Max
+            # retries exceeded with url: ...") embeds the full request URL including the query
+            # string. `_redact` only replaces a secret's raw value, not the percent-encoded form
+            # a query-param API key takes there — so build the message from `_safe_url` (scheme/
+            # host/path only) rather than the raw exception text, the same way the 5xx path below
+            # avoids leaking an encoded credential into the persisted `latest_error`.
+            raise RESTClientRetryableError(
+                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
         # through to JSON parsing; reject it explicitly so a redirect can't smuggle the request

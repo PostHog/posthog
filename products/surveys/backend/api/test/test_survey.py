@@ -1473,7 +1473,7 @@ class TestSurvey(APIBaseTest):
         assert survey_with_targeting.json() == {
             "type": "validation_error",
             "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort2' with filters on events cannot be used in surveys.",
+            "detail": "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys.",
             "attr": None,
         }
 

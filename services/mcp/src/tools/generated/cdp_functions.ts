@@ -1,40 +1,14 @@
 // AUTO-GENERATED from products/cdp/mcp/cdp_functions.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    HogFunctionsCreateBody,
-    HogFunctionsDestroyParams,
-    HogFunctionsInvocationsCreateBody,
-    HogFunctionsInvocationsCreateParams,
-    HogFunctionsListQueryParams,
-    HogFunctionsLogsRetrieveParams,
-    HogFunctionsLogsRetrieveQueryParams,
-    HogFunctionsMetricsRetrieveParams,
-    HogFunctionsMetricsRetrieveQueryParams,
-    HogFunctionsPartialUpdateBody,
-    HogFunctionsPartialUpdateParams,
-    HogFunctionsRearrangePartialUpdateBody,
-    HogFunctionsRetrieveParams,
-} from '@/generated/cdp_functions/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 
-const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
-    type: HogFunctionsCreateBody.shape['type'].describe(
-        'Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'
-    ),
-    template_id: HogFunctionsCreateBody.shape['template_id'].describe(
-        'ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'
-    ),
-    hog: HogFunctionsCreateBody.shape['hog'].describe(
-        'Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'
-    ),
-    enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the function is active and processing events.'),
-    execution_order: HogFunctionsCreateBody.shape['execution_order'].describe(
-        'Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.'
-    ),
-})
+import type { Schemas } from '@/api/generated'
+
+import { HogFunctionsCreateBody, HogFunctionsDestroyParams, HogFunctionsInvocationsCreateBody, HogFunctionsInvocationsCreateParams, HogFunctionsListQueryParams, HogFunctionsLogsRetrieveParams, HogFunctionsLogsRetrieveQueryParams, HogFunctionsMetricsRetrieveParams, HogFunctionsMetricsRetrieveQueryParams, HogFunctionsPartialUpdateBody, HogFunctionsPartialUpdateParams, HogFunctionsRearrangePartialUpdateBody, HogFunctionsRetrieveParams } from '@/generated/cdp_functions/api'
+
+const CdpFunctionsCreateSchema = (HogFunctionsCreateBody).extend({ type: HogFunctionsCreateBody.shape['type'].describe('Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'), template_id: HogFunctionsCreateBody.shape['template_id'].describe('ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'), hog: HogFunctionsCreateBody.shape['hog'].describe('Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'), enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the function is active and processing events.'), execution_order: HogFunctionsCreateBody.shape['execution_order'].describe('Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.') })
 
 const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-create',
@@ -42,51 +16,26 @@ const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.hog !== undefined) {
-            body['hog'] = params.hog
-        }
-        if (params.inputs_schema !== undefined) {
-            body['inputs_schema'] = params.inputs_schema
-        }
-        if (params.inputs !== undefined) {
-            body['inputs'] = params.inputs
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
-        if (params.masking !== undefined) {
-            body['masking'] = params.masking
-        }
-        if (params.mappings !== undefined) {
-            body['mappings'] = params.mappings
-        }
-        if (params.icon_url !== undefined) {
-            body['icon_url'] = params.icon_url
-        }
-        if (params.template_id !== undefined) {
-            body['template_id'] = params.template_id
-        }
-        if (params.execution_order !== undefined) {
-            body['execution_order'] = params.execution_order
-        }
+        if (params.type !== undefined) body["type"] = params.type
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.hog !== undefined) body["hog"] = params.hog
+        if (params.inputs_schema !== undefined) body["inputs_schema"] = params.inputs_schema
+        if (params.inputs !== undefined) body["inputs"] = params.inputs
+        if (params.filters !== undefined) body["filters"] = params.filters
+        if (params.masking !== undefined) body["masking"] = params.masking
+        if (params.mappings !== undefined) body["mappings"] = params.mappings
+        if (params.icon_url !== undefined) body["icon_url"] = params.icon_url
+        if (params.template_id !== undefined) body["template_id"] = params.template_id
+        if (params.execution_order !== undefined) body["execution_order"] = params.execution_order
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, ['inputs.*.value', 'mappings.*.inputs.*.value']) as typeof result
+        return filtered
     },
 })
 
@@ -106,34 +55,19 @@ const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas
     },
 })
 
-const CdpFunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
-    HogFunctionsInvocationsCreateBody.shape
-)
+const CdpFunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(HogFunctionsInvocationsCreateBody.shape)
 
-const cdpFunctionsInvocationsCreate = (): ToolBase<
-    typeof CdpFunctionsInvocationsCreateSchema,
-    Schemas.HogFunctionInvocation
-> => ({
+const cdpFunctionsInvocationsCreate = (): ToolBase<typeof CdpFunctionsInvocationsCreateSchema, Schemas.HogFunctionInvocation> => ({
     name: 'cdp-functions-invocations-create',
     schema: CdpFunctionsInvocationsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsInvocationsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.configuration !== undefined) {
-            body['configuration'] = params.configuration
-        }
-        if (params.globals !== undefined) {
-            body['globals'] = params.globals
-        }
-        if (params.clickhouse_event !== undefined) {
-            body['clickhouse_event'] = params.clickhouse_event
-        }
-        if (params.mock_async_functions !== undefined) {
-            body['mock_async_functions'] = params.mock_async_functions
-        }
-        if (params.invocation_id !== undefined) {
-            body['invocation_id'] = params.invocation_id
-        }
+        if (params.configuration !== undefined) body["configuration"] = params.configuration
+        if (params.globals !== undefined) body["globals"] = params.globals
+        if (params.clickhouse_event !== undefined) body["clickhouse_event"] = params.clickhouse_event
+        if (params.mock_async_functions !== undefined) body["mock_async_functions"] = params.mock_async_functions
+        if (params.invocation_id !== undefined) body["invocation_id"] = params.invocation_id
         const result = await context.api.request<Schemas.HogFunctionInvocation>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/invocations/`,
@@ -145,10 +79,7 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
 
 const CdpFunctionsListSchema = HogFunctionsListQueryParams
 
-const cdpFunctionsList = (): ToolBase<
-    typeof CdpFunctionsListSchema,
-    WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>
-> => ({
+const cdpFunctionsList = (): ToolBase<typeof CdpFunctionsListSchema, WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>> => ({
     name: 'cdp-functions-list',
     schema: CdpFunctionsListSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsListSchema>) => {
@@ -167,33 +98,12 @@ const cdpFunctionsList = (): ToolBase<
                 updated_at: params.updated_at,
             },
         })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'type',
-                    'name',
-                    'description',
-                    'enabled',
-                    'execution_order',
-                    'icon_url',
-                    'template.id',
-                    'status',
-                    'created_at',
-                    'updated_at',
-                    'created_by',
-                    'filters',
-                ])
-            ),
-        } as typeof result
+        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'type', 'name', 'description', 'enabled', 'execution_order', 'icon_url', 'template.id', 'status', 'created_at', 'updated_at', 'created_by', 'filters'])) } as typeof result
         return await withPostHogUrl(context, filtered, '/pipeline')
     },
 })
 
-const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsRetrieveParams.omit({ project_id: true }).extend(
-    HogFunctionsLogsRetrieveQueryParams.shape
-)
+const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsRetrieveParams.omit({ project_id: true }).extend(HogFunctionsLogsRetrieveQueryParams.shape)
 
 const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSchema, unknown> => ({
     name: 'cdp-functions-logs-retrieve',
@@ -216,14 +126,9 @@ const cdpFunctionsLogsRetrieve = (): ToolBase<typeof CdpFunctionsLogsRetrieveSch
     },
 })
 
-const CdpFunctionsMetricsRetrieveSchema = HogFunctionsMetricsRetrieveParams.omit({ project_id: true }).extend(
-    HogFunctionsMetricsRetrieveQueryParams.shape
-)
+const CdpFunctionsMetricsRetrieveSchema = HogFunctionsMetricsRetrieveParams.omit({ project_id: true }).extend(HogFunctionsMetricsRetrieveQueryParams.shape)
 
-const cdpFunctionsMetricsRetrieve = (): ToolBase<
-    typeof CdpFunctionsMetricsRetrieveSchema,
-    Schemas.AppMetricsResponse
-> => ({
+const cdpFunctionsMetricsRetrieve = (): ToolBase<typeof CdpFunctionsMetricsRetrieveSchema, Schemas.AppMetricsResponse> => ({
     name: 'cdp-functions-metrics-retrieve',
     schema: CdpFunctionsMetricsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsMetricsRetrieveSchema>) => {
@@ -245,13 +150,7 @@ const cdpFunctionsMetricsRetrieve = (): ToolBase<
     },
 })
 
-const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true })
-    .extend(HogFunctionsPartialUpdateBody.shape)
-    .extend({
-        enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
-            'Set to true to activate or false to deactivate the function.'
-        ),
-    })
+const CdpFunctionsPartialUpdateSchema = (HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(HogFunctionsPartialUpdateBody.shape)).extend({ enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe('Set to true to activate or false to deactivate the function.') })
 
 const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-partial-update',
@@ -259,68 +158,38 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.hog !== undefined) {
-            body['hog'] = params.hog
-        }
-        if (params.inputs_schema !== undefined) {
-            body['inputs_schema'] = params.inputs_schema
-        }
-        if (params.inputs !== undefined) {
-            body['inputs'] = params.inputs
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
-        if (params.masking !== undefined) {
-            body['masking'] = params.masking
-        }
-        if (params.mappings !== undefined) {
-            body['mappings'] = params.mappings
-        }
-        if (params.icon_url !== undefined) {
-            body['icon_url'] = params.icon_url
-        }
-        if (params.template_id !== undefined) {
-            body['template_id'] = params.template_id
-        }
-        if (params.execution_order !== undefined) {
-            body['execution_order'] = params.execution_order
-        }
+        if (params.type !== undefined) body["type"] = params.type
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.hog !== undefined) body["hog"] = params.hog
+        if (params.inputs_schema !== undefined) body["inputs_schema"] = params.inputs_schema
+        if (params.inputs !== undefined) body["inputs"] = params.inputs
+        if (params.filters !== undefined) body["filters"] = params.filters
+        if (params.masking !== undefined) body["masking"] = params.masking
+        if (params.mappings !== undefined) body["mappings"] = params.mappings
+        if (params.icon_url !== undefined) body["icon_url"] = params.icon_url
+        if (params.template_id !== undefined) body["template_id"] = params.template_id
+        if (params.execution_order !== undefined) body["execution_order"] = params.execution_order
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, ['inputs.*.value', 'mappings.*.inputs.*.value']) as typeof result
+        return filtered
     },
 })
 
 const CdpFunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpdateBody
 
-const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
-    typeof CdpFunctionsRearrangePartialUpdateSchema,
-    Schemas.HogFunction[]
-> => ({
+const cdpFunctionsRearrangePartialUpdate = (): ToolBase<typeof CdpFunctionsRearrangePartialUpdateSchema, Schemas.HogFunction[]> => ({
     name: 'cdp-functions-rearrange-partial-update',
     schema: CdpFunctionsRearrangePartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsRearrangePartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.orders !== undefined) {
-            body['orders'] = params.orders
-        }
+        if (params.orders !== undefined) body["orders"] = params.orders
         const result = await context.api.request<Schemas.HogFunction[]>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/rearrange/`,

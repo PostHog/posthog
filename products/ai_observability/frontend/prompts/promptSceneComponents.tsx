@@ -162,7 +162,9 @@ export function PromptViewDetails(): JSX.Element {
 // One line under the page title carrying every fact the page used to repeat:
 // version, freshness, and provenance.
 export function PromptHeaderMeta(): JSX.Element | null {
-    const { prompt } = useValues(llmPromptLogic)
+    const { prompt, promptLabels } = useValues(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     if (!isPrompt(prompt)) {
         return null
@@ -185,6 +187,15 @@ export function PromptHeaderMeta(): JSX.Element | null {
                     Historical
                 </LemonTag>
             )}
+            {labelsEnabled
+                ? promptLabels.map((label) => (
+                      <PromptLabelChip
+                          key={label.name}
+                          label={`${label.name} → v${label.version}`}
+                          data-attr={`llma-prompt-header-label-${label.name}`}
+                      />
+                  ))
+                : null}
             {prompt.version_description ? (
                 <span className="italic" data-attr="llma-prompt-version-description">
                     “{prompt.version_description}”
@@ -205,13 +216,23 @@ export function PromptHeaderMeta(): JSX.Element | null {
 export function PublishReviewModal(): JSX.Element | null {
     const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting, versionDescription } =
         useValues(llmPromptLogic)
+    const { promptLabels } = useValues(llmPromptLogic)
     const { closePublishReview, submitPromptForm, setVersionDescription } = useActions(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     if (!isPrompt(prompt)) {
         return null
     }
 
     const publishLabel = nextVersion ? `Publish v${nextVersion}` : 'Publish version'
+    // Publishing no longer means shipping once labels are in use; say so at the moment it matters.
+    const labelsNote =
+        labelsEnabled && promptLabels.length > 0
+            ? ` Publishing does not move labels: ${promptLabels
+                  .map((label) => `${label.name} stays on v${label.version}`)
+                  .join(', ')}.`
+            : ''
 
     return (
         <LemonModal
@@ -220,7 +241,7 @@ export function PublishReviewModal(): JSX.Element | null {
             title="Review changes"
             description={`Comparing v${prompt.version} with your edits. Publishing creates ${
                 nextVersion ? `v${nextVersion}` : 'a new version'
-            } — previous versions stay unchanged.`}
+            } — previous versions stay unchanged.${labelsNote}`}
             width={880}
             footer={
                 <>
@@ -410,10 +431,17 @@ function extractPromptVariables(promptText: string): string[] {
     return matches ? [...new Set(matches.map((match) => match.slice(2, -2).trim()))] : []
 }
 
-function buildPythonSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+function buildPythonSnippet(
+    promptName: string,
+    host: string,
+    projectApiKey: string,
+    variables: string[],
+    labelName?: string
+): string {
     const compileLines = variables.length
         ? `\nsystem_prompt = prompts.compile(result.prompt, {${variables.map((v) => `${JSON.stringify(v)}: '...'`).join(', ')}})`
         : ''
+    const labelArg = labelName ? `label=${JSON.stringify(labelName)}, ` : ''
     return `from posthog import Posthog
 from posthog.ai.prompts import Prompts
 
@@ -424,14 +452,21 @@ posthog = Posthog(
 )
 prompts = Prompts(posthog)
 
-result = prompts.get(${JSON.stringify(promptName)}, with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
+result = prompts.get(${JSON.stringify(promptName)}, ${labelArg}with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
 # result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
-function buildNodeSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
+function buildNodeSnippet(
+    promptName: string,
+    host: string,
+    projectApiKey: string,
+    variables: string[],
+    labelName?: string
+): string {
     const compileLines = variables.length
         ? `\nconst systemPrompt = prompts.compile(result.prompt, {${variables.map((v) => ` ${JSON.stringify(v)}: '...'`).join(',')} })`
         : ''
+    const labelArg = labelName ? `label: '${labelName}', ` : ''
     return `import { Prompts } from '@posthog/ai'
 import { PostHog } from 'posthog-node'
 
@@ -441,18 +476,24 @@ const posthog = new PostHog('${projectApiKey}', {
 })
 const prompts = new Prompts({ posthog })
 
-const result = await prompts.get(${JSON.stringify(promptName)}, { fallback: 'You are a helpful assistant.' })${compileLines}
+const result = await prompts.get(${JSON.stringify(promptName)}, { ${labelArg}fallback: 'You are a helpful assistant.' })${compileLines}
 // result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
 export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Element {
-    const { snippetLanguage } = useValues(llmPromptLogic)
+    const { snippetLanguage, promptLabels } = useValues(llmPromptLogic)
     const { setSnippetLanguage } = useActions(llmPromptLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     const host = window.location.origin
     const projectApiKey = currentTeam?.api_token ?? '<project_api_key>'
     const variables = extractPromptVariables(prompt.prompt)
+    // Teach the recommended pattern the moment it applies: once a label exists, fetch by it.
+    const snippetLabel = labelsEnabled
+        ? (promptLabels.find((label) => label.name === 'production') ?? promptLabels[0])?.name
+        : undefined
 
     return (
         <div className="mb-6" data-attr="llma-prompt-code-snippets">
@@ -460,7 +501,9 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                 <div>
                     <b>Use this prompt in your code</b>
                     <div className="text-secondary text-sm">
-                        Fetch the latest version at runtime — publish new versions without deploying.
+                        {snippetLabel
+                            ? `Fetch the version the ${snippetLabel} label points at. Move the label to release, without deploying.`
+                            : 'Fetch the latest version at runtime — publish new versions without deploying.'}
                     </div>
                 </div>
                 <LemonButton
@@ -483,7 +526,7 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                         label: 'Python',
                         content: (
                             <CodeSnippet language={Language.Python}>
-                                {buildPythonSnippet(prompt.name, host, projectApiKey, variables)}
+                                {buildPythonSnippet(prompt.name, host, projectApiKey, variables, snippetLabel)}
                             </CodeSnippet>
                         ),
                     },
@@ -492,7 +535,7 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
                         label: 'Node.js',
                         content: (
                             <CodeSnippet language={Language.JavaScript}>
-                                {buildNodeSnippet(prompt.name, host, projectApiKey, variables)}
+                                {buildNodeSnippet(prompt.name, host, projectApiKey, variables, snippetLabel)}
                             </CodeSnippet>
                         ),
                     },

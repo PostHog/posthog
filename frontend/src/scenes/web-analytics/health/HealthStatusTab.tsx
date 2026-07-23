@@ -8,7 +8,8 @@ import { HealthCheck } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
-    const { overallHealthStatus, checksByCategory, healthIssuesLoading } = useValues(webAnalyticsHealthLogic)
+    const { overallHealthStatus, checksByCategory, healthIssuesLoading, refreshDisabledReason } =
+        useValues(webAnalyticsHealthLogic)
     const { refreshHealthChecks, trackSectionToggled } = useActions(webAnalyticsHealthLogic)
 
     return (
@@ -20,6 +21,7 @@ export function HealthStatusTab(): JSX.Element {
                 totalCount={overallHealthStatus.totalCount}
                 onRefresh={refreshHealthChecks}
                 loading={healthIssuesLoading}
+                refreshDisabledReason={refreshDisabledReason}
             />
 
             <div className="space-y-3">
@@ -55,6 +57,7 @@ interface OverallHealthBannerProps {
     totalCount: number
     onRefresh: () => void
     loading: boolean
+    refreshDisabledReason: string | null
 }
 
 function OverallHealthBanner({
@@ -64,6 +67,7 @@ function OverallHealthBanner({
     totalCount,
     onRefresh,
     loading,
+    refreshDisabledReason,
 }: OverallHealthBannerProps): JSX.Element {
     if (status === 'loading') {
         return (
@@ -91,6 +95,7 @@ function OverallHealthBanner({
                     icon={<IconRefresh />}
                     onClick={() => onRefresh()}
                     loading={loading}
+                    disabledReason={loading ? undefined : refreshDisabledReason}
                 >
                     Refresh
                 </LemonButton>

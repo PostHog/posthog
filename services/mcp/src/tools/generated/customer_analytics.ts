@@ -1,73 +1,25 @@
 // AUTO-GENERATED from products/customer_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    AccountRelationshipDefinitionsCreateBody,
-    AccountRelationshipDefinitionsDestroyParams,
-    AccountRelationshipDefinitionsListQueryParams,
-    AccountRelationshipDefinitionsPartialUpdateBody,
-    AccountRelationshipDefinitionsPartialUpdateParams,
-    AccountRelationshipDefinitionsRetrieveParams,
-    AccountsCreateBody,
-    AccountsCustomPropertyValuesCreateBody,
-    AccountsCustomPropertyValuesCreateParams,
-    AccountsCustomPropertyValuesListParams,
-    AccountsDestroyParams,
-    AccountsListQueryParams,
-    AccountsNotebooksCreateBody,
-    AccountsNotebooksCreateParams,
-    AccountsNotebooksDestroyParams,
-    AccountsNotebooksListParams,
-    AccountsNotebooksListQueryParams,
-    AccountsNotebooksRetrieveParams,
-    AccountsPartialUpdateBody,
-    AccountsPartialUpdateParams,
-    AccountsRelationshipsCreateBody,
-    AccountsRelationshipsCreateParams,
-    AccountsRelationshipsEndCreateParams,
-    AccountsRelationshipsListParams,
-    AccountsRelationshipsListQueryParams,
-    AccountsRetrieveParams,
-    CustomPropertyDefinitionsCreateBody,
-    CustomPropertyDefinitionsDestroyParams,
-    CustomPropertyDefinitionsListQueryParams,
-    CustomPropertyDefinitionsPartialUpdateBody,
-    CustomPropertyDefinitionsPartialUpdateParams,
-    CustomPropertyDefinitionsRetrieveParams,
-    GroupsTypesMetricsCreateBody,
-    GroupsTypesMetricsCreateParams,
-    GroupsTypesMetricsDestroyParams,
-    GroupsTypesMetricsListParams,
-    GroupsTypesMetricsListQueryParams,
-    GroupsTypesMetricsPartialUpdateBody,
-    GroupsTypesMetricsPartialUpdateParams,
-    GroupsTypesMetricsRetrieveParams,
-} from '@/generated/customer_analytics/api'
-import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
+import type { Schemas } from '@/api/generated'
+import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
+
+import { AccountRelationshipDefinitionsCreateBody, AccountRelationshipDefinitionsDestroyParams, AccountRelationshipDefinitionsListQueryParams, AccountRelationshipDefinitionsPartialUpdateBody, AccountRelationshipDefinitionsPartialUpdateParams, AccountRelationshipDefinitionsRetrieveParams, AccountsCreateBody, AccountsCustomPropertyValuesCreateBody, AccountsCustomPropertyValuesCreateParams, AccountsCustomPropertyValuesListParams, AccountsDestroyParams, AccountsListQueryParams, AccountsNotebooksCreateBody, AccountsNotebooksCreateParams, AccountsNotebooksDestroyParams, AccountsNotebooksListParams, AccountsNotebooksListQueryParams, AccountsNotebooksRetrieveParams, AccountsPartialUpdateBody, AccountsPartialUpdateParams, AccountsRelationshipsCreateBody, AccountsRelationshipsCreateParams, AccountsRelationshipsEndCreateParams, AccountsRelationshipsListParams, AccountsRelationshipsListQueryParams, AccountsRetrieveParams, CustomPropertyDefinitionsCreateBody, CustomPropertyDefinitionsDestroyParams, CustomPropertyDefinitionsListQueryParams, CustomPropertyDefinitionsPartialUpdateBody, CustomPropertyDefinitionsPartialUpdateParams, CustomPropertyDefinitionsRetrieveParams, CustomPropertySourcesBackfillParams, CustomPropertySourcesCreateBody, CustomPropertySourcesDestroyParams, CustomPropertySourcesListQueryParams, CustomPropertySourcesPartialUpdateBody, CustomPropertySourcesPartialUpdateParams, CustomPropertySourcesRetrieveParams, CustomPropertySourcesRunsListParams, CustomPropertySourcesRunsListQueryParams, CustomPropertySourcesSyncParams, GroupsTypesMetricsCreateBody, GroupsTypesMetricsCreateParams, GroupsTypesMetricsDestroyParams, GroupsTypesMetricsListParams, GroupsTypesMetricsListQueryParams, GroupsTypesMetricsPartialUpdateBody, GroupsTypesMetricsPartialUpdateParams, GroupsTypesMetricsRetrieveParams } from '@/generated/customer_analytics/api'
 
 const AccountRelationshipDefinitionsCreateSchema = AccountRelationshipDefinitionsCreateBody
 
-const accountRelationshipDefinitionsCreate = (): ToolBase<
-    typeof AccountRelationshipDefinitionsCreateSchema,
-    Schemas.AccountRelationshipDefinition
-> => ({
+const accountRelationshipDefinitionsCreate = (): ToolBase<typeof AccountRelationshipDefinitionsCreateSchema, Schemas.AccountRelationshipDefinition> => ({
     name: 'account-relationship-definitions-create',
     schema: AccountRelationshipDefinitionsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.is_single_holder !== undefined) {
-            body['is_single_holder'] = params.is_single_holder
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.is_single_holder !== undefined) body["is_single_holder"] = params.is_single_holder
         const result = await context.api.request<Schemas.AccountRelationshipDefinition>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/account_relationship_definitions/`,
@@ -77,14 +29,9 @@ const accountRelationshipDefinitionsCreate = (): ToolBase<
     },
 })
 
-const AccountRelationshipDefinitionsDestroySchema = AccountRelationshipDefinitionsDestroyParams.omit({
-    project_id: true,
-})
+const AccountRelationshipDefinitionsDestroySchema = AccountRelationshipDefinitionsDestroyParams.omit({ project_id: true })
 
-const accountRelationshipDefinitionsDestroy = (): ToolBase<
-    typeof AccountRelationshipDefinitionsDestroySchema,
-    unknown
-> => ({
+const accountRelationshipDefinitionsDestroy = (): ToolBase<typeof AccountRelationshipDefinitionsDestroySchema, unknown> => ({
     name: 'account-relationship-definitions-destroy',
     schema: AccountRelationshipDefinitionsDestroySchema,
     handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsDestroySchema>) => {
@@ -99,10 +46,7 @@ const accountRelationshipDefinitionsDestroy = (): ToolBase<
 
 const AccountRelationshipDefinitionsListSchema = AccountRelationshipDefinitionsListQueryParams
 
-const accountRelationshipDefinitionsList = (): ToolBase<
-    typeof AccountRelationshipDefinitionsListSchema,
-    WithPostHogUrl<Schemas.PaginatedAccountRelationshipDefinitionList>
-> => ({
+const accountRelationshipDefinitionsList = (): ToolBase<typeof AccountRelationshipDefinitionsListSchema, WithPostHogUrl<Schemas.PaginatedAccountRelationshipDefinitionList>> => ({
     name: 'account-relationship-definitions-list',
     schema: AccountRelationshipDefinitionsListSchema,
     handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsListSchema>) => {
@@ -119,28 +63,17 @@ const accountRelationshipDefinitionsList = (): ToolBase<
     },
 })
 
-const AccountRelationshipDefinitionsPartialUpdateSchema = AccountRelationshipDefinitionsPartialUpdateParams.omit({
-    project_id: true,
-}).extend(AccountRelationshipDefinitionsPartialUpdateBody.shape)
+const AccountRelationshipDefinitionsPartialUpdateSchema = AccountRelationshipDefinitionsPartialUpdateParams.omit({ project_id: true }).extend(AccountRelationshipDefinitionsPartialUpdateBody.shape)
 
-const accountRelationshipDefinitionsPartialUpdate = (): ToolBase<
-    typeof AccountRelationshipDefinitionsPartialUpdateSchema,
-    Schemas.AccountRelationshipDefinition
-> => ({
+const accountRelationshipDefinitionsPartialUpdate = (): ToolBase<typeof AccountRelationshipDefinitionsPartialUpdateSchema, Schemas.AccountRelationshipDefinition> => ({
     name: 'account-relationship-definitions-partial-update',
     schema: AccountRelationshipDefinitionsPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.is_single_holder !== undefined) {
-            body['is_single_holder'] = params.is_single_holder
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.is_single_holder !== undefined) body["is_single_holder"] = params.is_single_holder
         const result = await context.api.request<Schemas.AccountRelationshipDefinition>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/account_relationship_definitions/${encodeURIComponent(String(params.id))}/`,
@@ -150,14 +83,9 @@ const accountRelationshipDefinitionsPartialUpdate = (): ToolBase<
     },
 })
 
-const AccountRelationshipDefinitionsRetrieveSchema = AccountRelationshipDefinitionsRetrieveParams.omit({
-    project_id: true,
-})
+const AccountRelationshipDefinitionsRetrieveSchema = AccountRelationshipDefinitionsRetrieveParams.omit({ project_id: true })
 
-const accountRelationshipDefinitionsRetrieve = (): ToolBase<
-    typeof AccountRelationshipDefinitionsRetrieveSchema,
-    Schemas.AccountRelationshipDefinition
-> => ({
+const accountRelationshipDefinitionsRetrieve = (): ToolBase<typeof AccountRelationshipDefinitionsRetrieveSchema, Schemas.AccountRelationshipDefinition> => ({
     name: 'account-relationship-definitions-retrieve',
     schema: AccountRelationshipDefinitionsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof AccountRelationshipDefinitionsRetrieveSchema>) => {
@@ -170,14 +98,7 @@ const accountRelationshipDefinitionsRetrieve = (): ToolBase<
     },
 })
 
-const AccountsCreateSchema = AccountsCreateBody.extend({
-    properties: AccountsCreateBody.shape['properties'].describe(
-        'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
-    ),
-    tags: AccountsCreateBody.shape['tags'].describe(
-        'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
-    ),
-})
+const AccountsCreateSchema = (AccountsCreateBody).extend({ properties: AccountsCreateBody.shape['properties'].describe('Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'), tags: AccountsCreateBody.shape['tags'].describe('Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.') })
 
 const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account> => ({
     name: 'accounts-create',
@@ -185,18 +106,10 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
     handler: async (context: Context, params: z.infer<typeof AccountsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.external_id !== undefined) {
-            body['external_id'] = params.external_id
-        }
-        if (params.properties !== undefined) {
-            body['properties'] = params.properties
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.external_id !== undefined) body["external_id"] = params.external_id
+        if (params.properties !== undefined) body["properties"] = params.properties
+        if (params.tags !== undefined) body["tags"] = params.tags
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
@@ -206,25 +119,16 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
     },
 })
 
-const AccountsCustomPropertyValuesCreateSchema = AccountsCustomPropertyValuesCreateParams.omit({
-    project_id: true,
-}).extend(AccountsCustomPropertyValuesCreateBody.shape)
+const AccountsCustomPropertyValuesCreateSchema = AccountsCustomPropertyValuesCreateParams.omit({ project_id: true }).extend(AccountsCustomPropertyValuesCreateBody.shape)
 
-const accountsCustomPropertyValuesCreate = (): ToolBase<
-    typeof AccountsCustomPropertyValuesCreateSchema,
-    Schemas.CustomPropertyValue
-> => ({
+const accountsCustomPropertyValuesCreate = (): ToolBase<typeof AccountsCustomPropertyValuesCreateSchema, Schemas.CustomPropertyValue> => ({
     name: 'accounts-custom-property-values-create',
     schema: AccountsCustomPropertyValuesCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AccountsCustomPropertyValuesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.definition !== undefined) {
-            body['definition'] = params.definition
-        }
-        if (params.value !== undefined) {
-            body['value'] = params.value
-        }
+        if (params.definition !== undefined) body["definition"] = params.definition
+        if (params.value !== undefined) body["value"] = params.value
         const result = await context.api.request<Schemas.CustomPropertyValue>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/custom_property_values/`,
@@ -236,10 +140,7 @@ const accountsCustomPropertyValuesCreate = (): ToolBase<
 
 const AccountsCustomPropertyValuesListSchema = AccountsCustomPropertyValuesListParams.omit({ project_id: true })
 
-const accountsCustomPropertyValuesList = (): ToolBase<
-    typeof AccountsCustomPropertyValuesListSchema,
-    WithPostHogUrl<Schemas.CustomPropertyValue[]>
-> => ({
+const accountsCustomPropertyValuesList = (): ToolBase<typeof AccountsCustomPropertyValuesListSchema, WithPostHogUrl<Schemas.CustomPropertyValue[]>> => ({
     name: 'accounts-custom-property-values-list',
     schema: AccountsCustomPropertyValuesListSchema,
     handler: async (context: Context, params: z.infer<typeof AccountsCustomPropertyValuesListSchema>) => {
@@ -267,11 +168,7 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
     },
 })
 
-const AccountsListSchema = AccountsListQueryParams.extend({
-    tags: AccountsListQueryParams.shape['tags'].describe(
-        'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
-    ),
-})
+const AccountsListSchema = (AccountsListQueryParams).extend({ tags: AccountsListQueryParams.shape['tags'].describe('JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.') })
 
 const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Schemas.PaginatedAccountList>> => ({
     name: 'accounts-list',
@@ -297,9 +194,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
     },
 })
 
-const AccountsNotebooksCreateSchema = AccountsNotebooksCreateParams.omit({ project_id: true }).extend(
-    AccountsNotebooksCreateBody.shape
-)
+const AccountsNotebooksCreateSchema = AccountsNotebooksCreateParams.omit({ project_id: true }).extend(AccountsNotebooksCreateBody.shape)
 
 const accountsNotebooksCreate = (): ToolBase<typeof AccountsNotebooksCreateSchema, Schemas.AccountNotebook> => ({
     name: 'accounts-notebooks-create',
@@ -307,15 +202,9 @@ const accountsNotebooksCreate = (): ToolBase<typeof AccountsNotebooksCreateSchem
     handler: async (context: Context, params: z.infer<typeof AccountsNotebooksCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.text_content !== undefined) {
-            body['text_content'] = params.text_content
-        }
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.content !== undefined) body["content"] = params.content
+        if (params.text_content !== undefined) body["text_content"] = params.text_content
         const result = await context.api.request<Schemas.AccountNotebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
@@ -340,14 +229,9 @@ const accountsNotebooksDestroy = (): ToolBase<typeof AccountsNotebooksDestroySch
     },
 })
 
-const AccountsNotebooksListSchema = AccountsNotebooksListParams.omit({ project_id: true }).extend(
-    AccountsNotebooksListQueryParams.shape
-)
+const AccountsNotebooksListSchema = AccountsNotebooksListParams.omit({ project_id: true }).extend(AccountsNotebooksListQueryParams.shape)
 
-const accountsNotebooksList = (): ToolBase<
-    typeof AccountsNotebooksListSchema,
-    WithPostHogUrl<Schemas.PaginatedAccountNotebookList>
-> => ({
+const accountsNotebooksList = (): ToolBase<typeof AccountsNotebooksListSchema, WithPostHogUrl<Schemas.PaginatedAccountNotebookList>> => ({
     name: 'accounts-notebooks-list',
     schema: AccountsNotebooksListSchema,
     handler: async (context: Context, params: z.infer<typeof AccountsNotebooksListSchema>) => {
@@ -381,16 +265,7 @@ const accountsNotebooksRetrieve = (): ToolBase<typeof AccountsNotebooksRetrieveS
     },
 })
 
-const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_id: true })
-    .extend(AccountsPartialUpdateBody.shape)
-    .extend({
-        properties: AccountsPartialUpdateBody.shape['properties'].describe(
-            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner` (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).'
-        ),
-        tags: AccountsPartialUpdateBody.shape['tags'].describe(
-            'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'
-        ),
-    })
+const AccountsPartialUpdateSchema = (AccountsPartialUpdateParams.omit({ project_id: true }).extend(AccountsPartialUpdateBody.shape)).extend({ properties: AccountsPartialUpdateBody.shape['properties'].describe('Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner` (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).'), tags: AccountsPartialUpdateBody.shape['tags'].describe('Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.') })
 
 const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, Schemas.Account> => ({
     name: 'accounts-partial-update',
@@ -398,18 +273,10 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
     handler: async (context: Context, params: z.infer<typeof AccountsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.external_id !== undefined) {
-            body['external_id'] = params.external_id
-        }
-        if (params.properties !== undefined) {
-            body['properties'] = params.properties
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.external_id !== undefined) body["external_id"] = params.external_id
+        if (params.properties !== undefined) body["properties"] = params.properties
+        if (params.tags !== undefined) body["tags"] = params.tags
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
@@ -419,25 +286,16 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
     },
 })
 
-const AccountsRelationshipsCreateSchema = AccountsRelationshipsCreateParams.omit({ project_id: true }).extend(
-    AccountsRelationshipsCreateBody.shape
-)
+const AccountsRelationshipsCreateSchema = AccountsRelationshipsCreateParams.omit({ project_id: true }).extend(AccountsRelationshipsCreateBody.shape)
 
-const accountsRelationshipsCreate = (): ToolBase<
-    typeof AccountsRelationshipsCreateSchema,
-    Schemas.AccountRelationship
-> => ({
+const accountsRelationshipsCreate = (): ToolBase<typeof AccountsRelationshipsCreateSchema, Schemas.AccountRelationship> => ({
     name: 'accounts-relationships-create',
     schema: AccountsRelationshipsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AccountsRelationshipsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.definition !== undefined) {
-            body['definition'] = params.definition
-        }
-        if (params.user !== undefined) {
-            body['user'] = params.user
-        }
+        if (params.definition !== undefined) body["definition"] = params.definition
+        if (params.user !== undefined) body["user"] = params.user
         const result = await context.api.request<Schemas.AccountRelationship>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/relationships/`,
@@ -449,10 +307,7 @@ const accountsRelationshipsCreate = (): ToolBase<
 
 const AccountsRelationshipsEndCreateSchema = AccountsRelationshipsEndCreateParams.omit({ project_id: true })
 
-const accountsRelationshipsEndCreate = (): ToolBase<
-    typeof AccountsRelationshipsEndCreateSchema,
-    Schemas.AccountRelationship
-> => ({
+const accountsRelationshipsEndCreate = (): ToolBase<typeof AccountsRelationshipsEndCreateSchema, Schemas.AccountRelationship> => ({
     name: 'accounts-relationships-end-create',
     schema: AccountsRelationshipsEndCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AccountsRelationshipsEndCreateSchema>) => {
@@ -465,14 +320,9 @@ const accountsRelationshipsEndCreate = (): ToolBase<
     },
 })
 
-const AccountsRelationshipsListSchema = AccountsRelationshipsListParams.omit({ project_id: true }).extend(
-    AccountsRelationshipsListQueryParams.shape
-)
+const AccountsRelationshipsListSchema = AccountsRelationshipsListParams.omit({ project_id: true }).extend(AccountsRelationshipsListQueryParams.shape)
 
-const accountsRelationshipsList = (): ToolBase<
-    typeof AccountsRelationshipsListSchema,
-    WithPostHogUrl<Schemas.AccountRelationship[]>
-> => ({
+const accountsRelationshipsList = (): ToolBase<typeof AccountsRelationshipsListSchema, WithPostHogUrl<Schemas.AccountRelationship[]>> => ({
     name: 'accounts-relationships-list',
     schema: AccountsRelationshipsListSchema,
     handler: async (context: Context, params: z.infer<typeof AccountsRelationshipsListSchema>) => {
@@ -505,33 +355,19 @@ const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Acc
 
 const CustomPropertyDefinitionsCreateSchema = CustomPropertyDefinitionsCreateBody
 
-const customPropertyDefinitionsCreate = (): ToolBase<
-    typeof CustomPropertyDefinitionsCreateSchema,
-    Schemas.CustomPropertyDefinition
-> => ({
+const customPropertyDefinitionsCreate = (): ToolBase<typeof CustomPropertyDefinitionsCreateSchema, Schemas.CustomPropertyDefinition> => ({
     name: 'custom-property-definitions-create',
     schema: CustomPropertyDefinitionsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.display_type !== undefined) {
-            body['display_type'] = params.display_type
-        }
-        if (params.target_type !== undefined) {
-            body['target_type'] = params.target_type
-        }
-        if (params.is_big_number !== undefined) {
-            body['is_big_number'] = params.is_big_number
-        }
-        if (params.options !== undefined) {
-            body['options'] = params.options
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.display_type !== undefined) body["display_type"] = params.display_type
+        if (params.target_type !== undefined) body["target_type"] = params.target_type
+        if (params.group_type_index !== undefined) body["group_type_index"] = params.group_type_index
+        if (params.is_big_number !== undefined) body["is_big_number"] = params.is_big_number
+        if (params.options !== undefined) body["options"] = params.options
         const result = await context.api.request<Schemas.CustomPropertyDefinition>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/`,
@@ -558,10 +394,7 @@ const customPropertyDefinitionsDestroy = (): ToolBase<typeof CustomPropertyDefin
 
 const CustomPropertyDefinitionsListSchema = CustomPropertyDefinitionsListQueryParams
 
-const customPropertyDefinitionsList = (): ToolBase<
-    typeof CustomPropertyDefinitionsListSchema,
-    WithPostHogUrl<Schemas.PaginatedCustomPropertyDefinitionList>
-> => ({
+const customPropertyDefinitionsList = (): ToolBase<typeof CustomPropertyDefinitionsListSchema, WithPostHogUrl<Schemas.PaginatedCustomPropertyDefinitionList>> => ({
     name: 'custom-property-definitions-list',
     schema: CustomPropertyDefinitionsListSchema,
     handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsListSchema>) => {
@@ -578,37 +411,21 @@ const customPropertyDefinitionsList = (): ToolBase<
     },
 })
 
-const CustomPropertyDefinitionsPartialUpdateSchema = CustomPropertyDefinitionsPartialUpdateParams.omit({
-    project_id: true,
-}).extend(CustomPropertyDefinitionsPartialUpdateBody.shape)
+const CustomPropertyDefinitionsPartialUpdateSchema = CustomPropertyDefinitionsPartialUpdateParams.omit({ project_id: true }).extend(CustomPropertyDefinitionsPartialUpdateBody.shape)
 
-const customPropertyDefinitionsPartialUpdate = (): ToolBase<
-    typeof CustomPropertyDefinitionsPartialUpdateSchema,
-    Schemas.CustomPropertyDefinition
-> => ({
+const customPropertyDefinitionsPartialUpdate = (): ToolBase<typeof CustomPropertyDefinitionsPartialUpdateSchema, Schemas.CustomPropertyDefinition> => ({
     name: 'custom-property-definitions-partial-update',
     schema: CustomPropertyDefinitionsPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.display_type !== undefined) {
-            body['display_type'] = params.display_type
-        }
-        if (params.target_type !== undefined) {
-            body['target_type'] = params.target_type
-        }
-        if (params.is_big_number !== undefined) {
-            body['is_big_number'] = params.is_big_number
-        }
-        if (params.options !== undefined) {
-            body['options'] = params.options
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.display_type !== undefined) body["display_type"] = params.display_type
+        if (params.target_type !== undefined) body["target_type"] = params.target_type
+        if (params.group_type_index !== undefined) body["group_type_index"] = params.group_type_index
+        if (params.is_big_number !== undefined) body["is_big_number"] = params.is_big_number
+        if (params.options !== undefined) body["options"] = params.options
         const result = await context.api.request<Schemas.CustomPropertyDefinition>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_definitions/${encodeURIComponent(String(params.id))}/`,
@@ -620,10 +437,7 @@ const customPropertyDefinitionsPartialUpdate = (): ToolBase<
 
 const CustomPropertyDefinitionsRetrieveSchema = CustomPropertyDefinitionsRetrieveParams.omit({ project_id: true })
 
-const customPropertyDefinitionsRetrieve = (): ToolBase<
-    typeof CustomPropertyDefinitionsRetrieveSchema,
-    Schemas.CustomPropertyDefinition
-> => ({
+const customPropertyDefinitionsRetrieve = (): ToolBase<typeof CustomPropertyDefinitionsRetrieveSchema, Schemas.CustomPropertyDefinition> => ({
     name: 'custom-property-definitions-retrieve',
     schema: CustomPropertyDefinitionsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof CustomPropertyDefinitionsRetrieveSchema>) => {
@@ -636,17 +450,149 @@ const customPropertyDefinitionsRetrieve = (): ToolBase<
     },
 })
 
-const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_id: true })
-    .extend(GroupsTypesMetricsCreateBody.shape)
-    .extend({
-        group_type_index: GroupsTypesMetricsCreateParams.shape['group_type_index'].describe(
-            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
-        ),
-        filters: UsageMetricFiltersSchema,
-        math_property: GroupsTypesMetricsCreateBody.shape['math_property'].describe(
-            'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
-        ),
-    })
+const CustomPropertySourcesBackfillSchema = CustomPropertySourcesBackfillParams.omit({ project_id: true })
+
+const customPropertySourcesBackfill = (): ToolBase<typeof CustomPropertySourcesBackfillSchema, unknown> => ({
+    name: 'custom-property-sources-backfill',
+    schema: CustomPropertySourcesBackfillSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesBackfillSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/backfill/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesCreateSchema = CustomPropertySourcesCreateBody
+
+const customPropertySourcesCreate = (): ToolBase<typeof CustomPropertySourcesCreateSchema, Schemas.CustomPropertySource> => ({
+    name: 'custom-property-sources-create',
+    schema: CustomPropertySourcesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.definition !== undefined) body["definition"] = params.definition
+        if (params.saved_query !== undefined) body["saved_query"] = params.saved_query
+        if (params.external_data_schema !== undefined) body["external_data_schema"] = params.external_data_schema
+        if (params.source_column !== undefined) body["source_column"] = params.source_column
+        if (params.column_property_map !== undefined) body["column_property_map"] = params.column_property_map
+        if (params.key_column !== undefined) body["key_column"] = params.key_column
+        if (params.is_enabled !== undefined) body["is_enabled"] = params.is_enabled
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesDestroySchema = CustomPropertySourcesDestroyParams.omit({ project_id: true })
+
+const customPropertySourcesDestroy = (): ToolBase<typeof CustomPropertySourcesDestroySchema, unknown> => ({
+    name: 'custom-property-sources-destroy',
+    schema: CustomPropertySourcesDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesListSchema = CustomPropertySourcesListQueryParams
+
+const customPropertySourcesList = (): ToolBase<typeof CustomPropertySourcesListSchema, WithPostHogUrl<Schemas.PaginatedCustomPropertySourceList>> => ({
+    name: 'custom-property-sources-list',
+    schema: CustomPropertySourcesListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomPropertySourceList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomPropertySourcesPartialUpdateSchema = CustomPropertySourcesPartialUpdateParams.omit({ project_id: true }).extend(CustomPropertySourcesPartialUpdateBody.shape)
+
+const customPropertySourcesPartialUpdate = (): ToolBase<typeof CustomPropertySourcesPartialUpdateSchema, Schemas.CustomPropertySource> => ({
+    name: 'custom-property-sources-partial-update',
+    schema: CustomPropertySourcesPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_column !== undefined) body["source_column"] = params.source_column
+        if (params.key_column !== undefined) body["key_column"] = params.key_column
+        if (params.is_enabled !== undefined) body["is_enabled"] = params.is_enabled
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesRetrieveSchema = CustomPropertySourcesRetrieveParams.omit({ project_id: true })
+
+const customPropertySourcesRetrieve = (): ToolBase<typeof CustomPropertySourcesRetrieveSchema, Schemas.CustomPropertySource> => ({
+    name: 'custom-property-sources-retrieve',
+    schema: CustomPropertySourcesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomPropertySource>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const CustomPropertySourcesRunsListSchema = CustomPropertySourcesRunsListParams.omit({ project_id: true }).extend(CustomPropertySourcesRunsListQueryParams.shape)
+
+const customPropertySourcesRunsList = (): ToolBase<typeof CustomPropertySourcesRunsListSchema, WithPostHogUrl<Schemas.PaginatedCustomPropertySyncRunList>> => ({
+    name: 'custom-property-sources-runs-list',
+    schema: CustomPropertySourcesRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesRunsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedCustomPropertySyncRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const CustomPropertySourcesSyncSchema = CustomPropertySourcesSyncParams.omit({ project_id: true })
+
+const customPropertySourcesSync = (): ToolBase<typeof CustomPropertySourcesSyncSchema, unknown> => ({
+    name: 'custom-property-sources-sync',
+    schema: CustomPropertySourcesSyncSchema,
+    handler: async (context: Context, params: z.infer<typeof CustomPropertySourcesSyncSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/custom_property_sources/${encodeURIComponent(String(params.id))}/sync/`,
+        })
+        return result
+    },
+})
+
+const UsageMetricsCreateSchema = (GroupsTypesMetricsCreateParams.omit({ project_id: true }).extend(GroupsTypesMetricsCreateBody.shape)).extend({ group_type_index: GroupsTypesMetricsCreateParams.shape['group_type_index'].describe('Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'), filters: UsageMetricFiltersSchema, math_property: GroupsTypesMetricsCreateBody.shape['math_property'].describe('Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.') })
 
 const usageMetricsCreate = (): ToolBase<typeof UsageMetricsCreateSchema, Schemas.GroupUsageMetric> => ({
     name: 'usage-metrics-create',
@@ -654,27 +600,13 @@ const usageMetricsCreate = (): ToolBase<typeof UsageMetricsCreateSchema, Schemas
     handler: async (context: Context, params: z.infer<typeof UsageMetricsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.format !== undefined) {
-            body['format'] = params.format
-        }
-        if (params.interval !== undefined) {
-            body['interval'] = params.interval
-        }
-        if (params.display !== undefined) {
-            body['display'] = params.display
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
-        if (params.math !== undefined) {
-            body['math'] = params.math
-        }
-        if (params.math_property !== undefined) {
-            body['math_property'] = params.math_property
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.format !== undefined) body["format"] = params.format
+        if (params.interval !== undefined) body["interval"] = params.interval
+        if (params.display !== undefined) body["display"] = params.display
+        if (params.filters !== undefined) body["filters"] = params.filters
+        if (params.math !== undefined) body["math"] = params.math
+        if (params.math_property !== undefined) body["math_property"] = params.math_property
         const result = await context.api.request<Schemas.GroupUsageMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/groups_types/${encodeURIComponent(String(params.group_type_index))}/metrics/`,
@@ -684,11 +616,7 @@ const usageMetricsCreate = (): ToolBase<typeof UsageMetricsCreateSchema, Schemas
     },
 })
 
-const UsageMetricsDestroySchema = GroupsTypesMetricsDestroyParams.omit({ project_id: true }).extend({
-    group_type_index: GroupsTypesMetricsDestroyParams.shape['group_type_index'].describe(
-        'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
-    ),
-})
+const UsageMetricsDestroySchema = (GroupsTypesMetricsDestroyParams.omit({ project_id: true })).extend({ group_type_index: GroupsTypesMetricsDestroyParams.shape['group_type_index'].describe('Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.') })
 
 const usageMetricsDestroy = (): ToolBase<typeof UsageMetricsDestroySchema, unknown> => ({
     name: 'usage-metrics-destroy',
@@ -703,18 +631,9 @@ const usageMetricsDestroy = (): ToolBase<typeof UsageMetricsDestroySchema, unkno
     },
 })
 
-const UsageMetricsListSchema = GroupsTypesMetricsListParams.omit({ project_id: true })
-    .extend(GroupsTypesMetricsListQueryParams.shape)
-    .extend({
-        group_type_index: GroupsTypesMetricsListParams.shape['group_type_index'].describe(
-            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
-        ),
-    })
+const UsageMetricsListSchema = (GroupsTypesMetricsListParams.omit({ project_id: true }).extend(GroupsTypesMetricsListQueryParams.shape)).extend({ group_type_index: GroupsTypesMetricsListParams.shape['group_type_index'].describe('Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.') })
 
-const usageMetricsList = (): ToolBase<
-    typeof UsageMetricsListSchema,
-    WithPostHogUrl<Schemas.PaginatedGroupUsageMetricList>
-> => ({
+const usageMetricsList = (): ToolBase<typeof UsageMetricsListSchema, WithPostHogUrl<Schemas.PaginatedGroupUsageMetricList>> => ({
     name: 'usage-metrics-list',
     schema: UsageMetricsListSchema,
     handler: async (context: Context, params: z.infer<typeof UsageMetricsListSchema>) => {
@@ -731,17 +650,7 @@ const usageMetricsList = (): ToolBase<
     },
 })
 
-const UsageMetricsPartialUpdateSchema = GroupsTypesMetricsPartialUpdateParams.omit({ project_id: true })
-    .extend(GroupsTypesMetricsPartialUpdateBody.shape)
-    .extend({
-        group_type_index: GroupsTypesMetricsPartialUpdateParams.shape['group_type_index'].describe(
-            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
-        ),
-        filters: UsageMetricFiltersSchema.optional(),
-        math_property: GroupsTypesMetricsPartialUpdateBody.shape['math_property'].describe(
-            'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
-        ),
-    })
+const UsageMetricsPartialUpdateSchema = (GroupsTypesMetricsPartialUpdateParams.omit({ project_id: true }).extend(GroupsTypesMetricsPartialUpdateBody.shape)).extend({ group_type_index: GroupsTypesMetricsPartialUpdateParams.shape['group_type_index'].describe('Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'), filters: UsageMetricFiltersSchema.optional(), math_property: GroupsTypesMetricsPartialUpdateBody.shape['math_property'].describe('Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.') })
 
 const usageMetricsPartialUpdate = (): ToolBase<typeof UsageMetricsPartialUpdateSchema, Schemas.GroupUsageMetric> => ({
     name: 'usage-metrics-partial-update',
@@ -749,27 +658,13 @@ const usageMetricsPartialUpdate = (): ToolBase<typeof UsageMetricsPartialUpdateS
     handler: async (context: Context, params: z.infer<typeof UsageMetricsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.format !== undefined) {
-            body['format'] = params.format
-        }
-        if (params.interval !== undefined) {
-            body['interval'] = params.interval
-        }
-        if (params.display !== undefined) {
-            body['display'] = params.display
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
-        if (params.math !== undefined) {
-            body['math'] = params.math
-        }
-        if (params.math_property !== undefined) {
-            body['math_property'] = params.math_property
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.format !== undefined) body["format"] = params.format
+        if (params.interval !== undefined) body["interval"] = params.interval
+        if (params.display !== undefined) body["display"] = params.display
+        if (params.filters !== undefined) body["filters"] = params.filters
+        if (params.math !== undefined) body["math"] = params.math
+        if (params.math_property !== undefined) body["math_property"] = params.math_property
         const result = await context.api.request<Schemas.GroupUsageMetric>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/groups_types/${encodeURIComponent(String(params.group_type_index))}/metrics/${encodeURIComponent(String(params.id))}/`,
@@ -779,11 +674,7 @@ const usageMetricsPartialUpdate = (): ToolBase<typeof UsageMetricsPartialUpdateS
     },
 })
 
-const UsageMetricsRetrieveSchema = GroupsTypesMetricsRetrieveParams.omit({ project_id: true }).extend({
-    group_type_index: GroupsTypesMetricsRetrieveParams.shape['group_type_index'].describe(
-        'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
-    ),
-})
+const UsageMetricsRetrieveSchema = (GroupsTypesMetricsRetrieveParams.omit({ project_id: true })).extend({ group_type_index: GroupsTypesMetricsRetrieveParams.shape['group_type_index'].describe('Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.') })
 
 const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Schemas.GroupUsageMetric> => ({
     name: 'usage-metrics-retrieve',
@@ -823,6 +714,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'custom-property-definitions-list': customPropertyDefinitionsList,
     'custom-property-definitions-partial-update': customPropertyDefinitionsPartialUpdate,
     'custom-property-definitions-retrieve': customPropertyDefinitionsRetrieve,
+    'custom-property-sources-backfill': customPropertySourcesBackfill,
+    'custom-property-sources-create': customPropertySourcesCreate,
+    'custom-property-sources-destroy': customPropertySourcesDestroy,
+    'custom-property-sources-list': customPropertySourcesList,
+    'custom-property-sources-partial-update': customPropertySourcesPartialUpdate,
+    'custom-property-sources-retrieve': customPropertySourcesRetrieve,
+    'custom-property-sources-runs-list': customPropertySourcesRunsList,
+    'custom-property-sources-sync': customPropertySourcesSync,
     'usage-metrics-create': usageMetricsCreate,
     'usage-metrics-destroy': usageMetricsDestroy,
     'usage-metrics-list': usageMetricsList,

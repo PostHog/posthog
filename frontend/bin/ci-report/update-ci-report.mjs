@@ -16,6 +16,7 @@ export const MARKER = '<!-- posthog-ci-report -->'
 export const SECTIONS = [
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
+    { id: 'toolbar-size', title: 'Toolbar bundle' },
     { id: 'dist-size', title: 'Dist folder size' },
     { id: 'mcp-ui-apps', title: 'MCP UI apps size' },
     { id: 'playwright', title: 'Playwright' },

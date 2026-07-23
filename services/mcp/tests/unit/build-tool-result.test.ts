@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { EXEC_BUILT_PAYLOAD, markExecPayload, buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 // Simulates a `query-trends` handler return value: a UI-resource tool that
 // carries both the raw `results` object and a pre-formatted pipe-delimited table
@@ -268,5 +269,46 @@ describe('isToolCallPayload — nominal brand', () => {
         expect(isToolCallPayload(null)).toBe(false)
         expect(isToolCallPayload('string-result')).toBe(false)
         expect(isToolCallPayload(42)).toBe(false)
+    })
+})
+
+describe('buildToolResultPayload — confirmed-action prepare results', () => {
+    const prepareResult = {
+        confirmation_hash: 'signed-token-abc',
+        confirmation_word: 'confirm',
+        action: 'create loop',
+        message: "About to create the loop 'Open PR Summary'. Reply 'confirm' to create it.",
+        next_steps: 'Surface the message above to the user.',
+    }
+
+    it('carries the prepare payload on _meta so UI apps can read the hash', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: prepareResult,
+            toolMeta: undefined,
+            toolName: 'loops-create-prepare',
+            params: { name: 'Open PR Summary' },
+        })
+
+        expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({
+            confirmation_hash: 'signed-token-abc',
+            confirmation_word: 'confirm',
+        })
+        expect(payload).not.toHaveProperty('structuredContent')
+        expect(payload.content[0]!.text).toContain('signed-token-abc')
+    })
+
+    it.each([
+        ['non-prepare object result', { results: [{ id: 1 }] }],
+        ['confirmation_hash without the confirm word', { confirmation_hash: 'abc', confirmation_word: 'yes' }],
+        ['non-string confirmation_hash', { confirmation_hash: 42, confirmation_word: 'confirm' }],
+    ])('does not attach _meta for %s', (_label, handlerResult) => {
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolMeta: undefined,
+            toolName: 'whatever',
+            params: {},
+        })
+
+        expect(payload).not.toHaveProperty('_meta')
     })
 })

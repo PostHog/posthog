@@ -1,6 +1,7 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { AccessControlLevel } from '~/types'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type {
@@ -133,7 +134,7 @@ export function ineligibleKindDescription(kind: IneligibleKind): string {
 }
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini36Flash
+export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
@@ -144,11 +145,13 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 // the picker needs a price per model before anything is saved, so it can't come from a per-instance response.
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 2,
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
     [ScannerModelEnumApi.Gemini36Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash (preview)',
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
@@ -238,18 +241,18 @@ export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
     {
         value: 'focused',
-        label: 'Focused',
-        description: 'Only the most eventful sessions. Skips routine ones.',
+        label: 'Highest activity only',
+        description: 'Only scans the recordings with the most going on.',
     },
     {
         value: 'balanced',
-        label: 'Balanced',
-        description: 'Skips the quietest sessions, keeps a broad mix.',
+        label: 'Skip lowest activity',
+        description: 'Skips the lowest-activity recordings, scans everything else.',
     },
     {
         value: 'comprehensive',
-        label: 'Comprehensive',
-        description: 'Every session that matches your filters.',
+        label: 'All recordings',
+        description: 'Scans every recording that matches your filters, regardless of activity.',
     },
 ]
 
@@ -257,11 +260,15 @@ export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; descri
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
 // Derived from the generated schema so serializer changes fail typecheck; write-optional fields carry defaults.
-export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner_config' | 'query' | 'created_by'> &
+export type BaseReplayScanner = Omit<
+    ReplayScannerApi,
+    'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
+> &
     Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
         sampling_mode: SamplingMode
+        user_access_level: AccessControlLevel | null
     }
 
 export interface MonitorScanner extends BaseReplayScanner {

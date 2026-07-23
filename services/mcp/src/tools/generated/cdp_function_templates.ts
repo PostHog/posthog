@@ -1,20 +1,16 @@
 // AUTO-GENERATED from products/cdp/mcp/cdp_function_templates.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    HogFunctionTemplatesListQueryParams,
-    HogFunctionTemplatesRetrieveParams,
-} from '@/generated/cdp_function_templates/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
+import type { Schemas } from '@/api/generated'
+
+import { HogFunctionTemplatesListQueryParams, HogFunctionTemplatesRetrieveParams } from '@/generated/cdp_function_templates/api'
 
 const CdpFunctionTemplatesListSchema = HogFunctionTemplatesListQueryParams
 
-const cdpFunctionTemplatesList = (): ToolBase<
-    typeof CdpFunctionTemplatesListSchema,
-    WithPostHogUrl<Schemas.PaginatedHogFunctionTemplateList>
-> => ({
+const cdpFunctionTemplatesList = (): ToolBase<typeof CdpFunctionTemplatesListSchema, WithPostHogUrl<Schemas.PaginatedHogFunctionTemplateList>> => ({
     name: 'cdp-function-templates-list',
     schema: CdpFunctionTemplatesListSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionTemplatesListSchema>) => {
@@ -30,32 +26,14 @@ const cdpFunctionTemplatesList = (): ToolBase<
                 types: params.types,
             },
         })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'name',
-                    'description',
-                    'type',
-                    'status',
-                    'category',
-                    'free',
-                    'icon_url',
-                    'code_language',
-                ])
-            ),
-        } as typeof result
+        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'name', 'description', 'type', 'status', 'category', 'free', 'icon_url', 'code_language'])) } as typeof result
         return await withPostHogUrl(context, filtered, '/pipeline/templates')
     },
 })
 
 const CdpFunctionTemplatesRetrieveSchema = HogFunctionTemplatesRetrieveParams.omit({ project_id: true })
 
-const cdpFunctionTemplatesRetrieve = (): ToolBase<
-    typeof CdpFunctionTemplatesRetrieveSchema,
-    Schemas.HogFunctionTemplate
-> => ({
+const cdpFunctionTemplatesRetrieve = (): ToolBase<typeof CdpFunctionTemplatesRetrieveSchema, Schemas.HogFunctionTemplate> => ({
     name: 'cdp-function-templates-retrieve',
     schema: CdpFunctionTemplatesRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionTemplatesRetrieveSchema>) => {

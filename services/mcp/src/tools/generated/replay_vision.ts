@@ -1,61 +1,92 @@
 // AUTO-GENERATED from products/replay_vision/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    VisionObservationsLabelCreateBody,
-    VisionObservationsLabelCreateParams,
-    VisionObservationsLabelDestroyParams,
-    VisionObservationsListQueryParams,
-    VisionObservationsRetrieveParams,
-    VisionObservationsRetrieveQueryParams,
-    VisionScannersAffectedCohortCreateBody,
-    VisionScannersAffectedCohortCreateParams,
-    VisionScannersCreateBody,
-    VisionScannersDestroyParams,
-    VisionScannersEstimateCreateBody,
-    VisionScannersImpactRetrieveParams,
-    VisionScannersImpactRetrieveQueryParams,
-    VisionScannersListQueryParams,
-    VisionScannersObservationsListParams,
-    VisionScannersObservationsListQueryParams,
-    VisionScannersObservationsRetrieveParams,
-    VisionScannersObservationsRetrieveQueryParams,
-    VisionScannersObservationsStatsRetrieveParams,
-    VisionScannersObservationsStatsRetrieveQueryParams,
-    VisionScannersObserveCreateBody,
-    VisionScannersObserveCreateParams,
-    VisionScannersPartialUpdateBody,
-    VisionScannersPartialUpdateParams,
-    VisionScannersPromptSuggestionsApplyCreateBody,
-    VisionScannersPromptSuggestionsApplyCreateParams,
-    VisionScannersPromptSuggestionsCurrentRetrieveParams,
-    VisionScannersPromptSuggestionsDismissCreateParams,
-    VisionScannersPromptSuggestionsGenerateCreateParams,
-    VisionScannersRetrieveParams,
-} from '@/generated/replay_vision/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 
-const VisionObservationsLabelCreateSchema = VisionObservationsLabelCreateParams.omit({ project_id: true }).extend(
-    VisionObservationsLabelCreateBody.shape
-)
+import type { Schemas } from '@/api/generated'
 
-const visionObservationsLabelCreate = (): ToolBase<
-    typeof VisionObservationsLabelCreateSchema,
-    Schemas.ReplayObservationLabel
-> => ({
+import { VisionActionsListQueryParams, VisionActionsRetrieveParams, VisionActionsRunsListParams, VisionActionsRunsListQueryParams, VisionActionsRunsRetrieveParams, VisionObservationsLabelCreateBody, VisionObservationsLabelCreateParams, VisionObservationsLabelDestroyParams, VisionObservationsListQueryParams, VisionObservationsRetrieveParams, VisionObservationsRetrieveQueryParams, VisionScannersAffectedCohortCreateBody, VisionScannersAffectedCohortCreateParams, VisionScannersCreateBody, VisionScannersDestroyParams, VisionScannersEstimateCreateBody, VisionScannersImpactRetrieveParams, VisionScannersImpactRetrieveQueryParams, VisionScannersListQueryParams, VisionScannersObservationsListParams, VisionScannersObservationsListQueryParams, VisionScannersObservationsRetrieveParams, VisionScannersObservationsRetrieveQueryParams, VisionScannersObservationsStatsRetrieveParams, VisionScannersObservationsStatsRetrieveQueryParams, VisionScannersObserveCreateBody, VisionScannersObserveCreateParams, VisionScannersPartialUpdateBody, VisionScannersPartialUpdateParams, VisionScannersPromptSuggestionsApplyCreateBody, VisionScannersPromptSuggestionsApplyCreateParams, VisionScannersPromptSuggestionsCurrentRetrieveParams, VisionScannersPromptSuggestionsDismissCreateParams, VisionScannersPromptSuggestionsGenerateCreateParams, VisionScannersRetrieveParams } from '@/generated/replay_vision/api'
+
+const VisionActionsListSchema = VisionActionsListQueryParams
+
+const visionActionsList = (): ToolBase<typeof VisionActionsListSchema, WithPostHogUrl<Schemas.PaginatedVisionActionList>> => ({
+    name: 'vision-actions-list',
+    schema: VisionActionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedVisionActionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                scanner: params.scanner,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay-vision')
+    },
+})
+
+const VisionActionsRetrieveSchema = VisionActionsRetrieveParams.omit({ project_id: true })
+
+const visionActionsRetrieve = (): ToolBase<typeof VisionActionsRetrieveSchema, Schemas.VisionAction> => ({
+    name: 'vision-actions-retrieve',
+    schema: VisionActionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.VisionAction>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const VisionActionsRunsListSchema = VisionActionsRunsListParams.omit({ project_id: true }).extend(VisionActionsRunsListQueryParams.shape)
+
+const visionActionsRunsList = (): ToolBase<typeof VisionActionsRunsListSchema, WithPostHogUrl<Schemas.PaginatedVisionActionRunListList>> => ({
+    name: 'vision-actions-runs-list',
+    schema: VisionActionsRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsRunsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedVisionActionRunListList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.vision_action_id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay-vision')
+    },
+})
+
+const VisionActionsRunsRetrieveSchema = VisionActionsRunsRetrieveParams.omit({ project_id: true })
+
+const visionActionsRunsRetrieve = (): ToolBase<typeof VisionActionsRunsRetrieveSchema, Schemas.VisionActionRun> => ({
+    name: 'vision-actions-runs-retrieve',
+    schema: VisionActionsRunsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsRunsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.VisionActionRun>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.vision_action_id))}/runs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const VisionObservationsLabelCreateSchema = VisionObservationsLabelCreateParams.omit({ project_id: true }).extend(VisionObservationsLabelCreateBody.shape)
+
+const visionObservationsLabelCreate = (): ToolBase<typeof VisionObservationsLabelCreateSchema, Schemas.ReplayObservationLabel> => ({
     name: 'vision-observations-label-create',
     schema: VisionObservationsLabelCreateSchema,
     handler: async (context: Context, params: z.infer<typeof VisionObservationsLabelCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.is_correct !== undefined) {
-            body['is_correct'] = params.is_correct
-        }
-        if (params.feedback !== undefined) {
-            body['feedback'] = params.feedback
-        }
+        if (params.is_correct !== undefined) body["is_correct"] = params.is_correct
+        if (params.feedback !== undefined) body["feedback"] = params.feedback
         const result = await context.api.request<Schemas.ReplayObservationLabel>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/label/`,
@@ -82,10 +113,7 @@ const visionObservationsLabelDestroy = (): ToolBase<typeof VisionObservationsLab
 
 const VisionObservationsListSchema = VisionObservationsListQueryParams
 
-const visionObservationsList = (): ToolBase<
-    typeof VisionObservationsListSchema,
-    WithPostHogUrl<Schemas.PaginatedReplayObservationList>
-> => ({
+const visionObservationsList = (): ToolBase<typeof VisionObservationsListSchema, WithPostHogUrl<Schemas.PaginatedReplayObservationList>> => ({
     name: 'vision-observations-list',
     schema: VisionObservationsListSchema,
     handler: async (context: Context, params: z.infer<typeof VisionObservationsListSchema>) => {
@@ -104,14 +132,9 @@ const visionObservationsList = (): ToolBase<
     },
 })
 
-const VisionObservationsRetrieveSchema = VisionObservationsRetrieveParams.omit({ project_id: true }).extend(
-    VisionObservationsRetrieveQueryParams.shape
-)
+const VisionObservationsRetrieveSchema = VisionObservationsRetrieveParams.omit({ project_id: true }).extend(VisionObservationsRetrieveQueryParams.shape)
 
-const visionObservationsRetrieve = (): ToolBase<
-    typeof VisionObservationsRetrieveSchema,
-    Schemas.ReplayObservation
-> => ({
+const visionObservationsRetrieve = (): ToolBase<typeof VisionObservationsRetrieveSchema, Schemas.ReplayObservation> => ({
     name: 'vision-observations-retrieve',
     schema: VisionObservationsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof VisionObservationsRetrieveSchema>) => {
@@ -142,7 +165,7 @@ const visionQuotaRetrieve = (): ToolBase<typeof VisionQuotaRetrieveSchema, Schem
     name: 'vision-quota-retrieve',
     schema: VisionQuotaRetrieveSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof VisionQuotaRetrieveSchema>) => {
+handler: async (context: Context, params: z.infer<typeof VisionQuotaRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.VisionQuota>({
             method: 'GET',
@@ -152,31 +175,18 @@ const visionQuotaRetrieve = (): ToolBase<typeof VisionQuotaRetrieveSchema, Schem
     },
 })
 
-const VisionScannersAffectedCohortCreateSchema = VisionScannersAffectedCohortCreateParams.omit({
-    project_id: true,
-}).extend(VisionScannersAffectedCohortCreateBody.shape)
+const VisionScannersAffectedCohortCreateSchema = VisionScannersAffectedCohortCreateParams.omit({ project_id: true }).extend(VisionScannersAffectedCohortCreateBody.shape)
 
-const visionScannersAffectedCohortCreate = (): ToolBase<
-    typeof VisionScannersAffectedCohortCreateSchema,
-    Schemas.AffectedCohortResponse
-> => ({
+const visionScannersAffectedCohortCreate = (): ToolBase<typeof VisionScannersAffectedCohortCreateSchema, Schemas.AffectedCohortResponse> => ({
     name: 'vision-scanners-affected-cohort-create',
     schema: VisionScannersAffectedCohortCreateSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersAffectedCohortCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.window_days !== undefined) {
-            body['window_days'] = params.window_days
-        }
-        if (params.tag !== undefined) {
-            body['tag'] = params.tag
-        }
-        if (params.min_score !== undefined) {
-            body['min_score'] = params.min_score
-        }
-        if (params.max_score !== undefined) {
-            body['max_score'] = params.max_score
-        }
+        if (params.window_days !== undefined) body["window_days"] = params.window_days
+        if (params.tag !== undefined) body["tag"] = params.tag
+        if (params.min_score !== undefined) body["min_score"] = params.min_score
+        if (params.max_score !== undefined) body["max_score"] = params.max_score
         const result = await context.api.request<Schemas.AffectedCohortResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/affected_cohort/`,
@@ -194,39 +204,17 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
     handler: async (context: Context, params: z.infer<typeof VisionScannersCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.scanner_type !== undefined) {
-            body['scanner_type'] = params.scanner_type
-        }
-        if (params.scanner_config !== undefined) {
-            body['scanner_config'] = params.scanner_config
-        }
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        if (params.sampling_rate !== undefined) {
-            body['sampling_rate'] = params.sampling_rate
-        }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
-        }
-        if (params.provider !== undefined) {
-            body['provider'] = params.provider
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.emits_signals !== undefined) {
-            body['emits_signals'] = params.emits_signals
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.scanner_type !== undefined) body["scanner_type"] = params.scanner_type
+        if (params.scanner_config !== undefined) body["scanner_config"] = params.scanner_config
+        if (params.query !== undefined) body["query"] = params.query
+        if (params.sampling_rate !== undefined) body["sampling_rate"] = params.sampling_rate
+        if (params.sampling_mode !== undefined) body["sampling_mode"] = params.sampling_mode
+        if (params.provider !== undefined) body["provider"] = params.provider
+        if (params.model !== undefined) body["model"] = params.model
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.emits_signals !== undefined) body["emits_signals"] = params.emits_signals
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
@@ -253,30 +241,17 @@ const visionScannersDelete = (): ToolBase<typeof VisionScannersDeleteSchema, unk
 
 const VisionScannersEstimateCreateSchema = VisionScannersEstimateCreateBody
 
-const visionScannersEstimateCreate = (): ToolBase<
-    typeof VisionScannersEstimateCreateSchema,
-    Schemas.EstimateResponse
-> => ({
+const visionScannersEstimateCreate = (): ToolBase<typeof VisionScannersEstimateCreateSchema, Schemas.EstimateResponse> => ({
     name: 'vision-scanners-estimate-create',
     schema: VisionScannersEstimateCreateSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersEstimateCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        if (params.sampling_rate !== undefined) {
-            body['sampling_rate'] = params.sampling_rate
-        }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
-        }
-        if (params.scanner_id !== undefined) {
-            body['scanner_id'] = params.scanner_id
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
+        if (params.query !== undefined) body["query"] = params.query
+        if (params.sampling_rate !== undefined) body["sampling_rate"] = params.sampling_rate
+        if (params.sampling_mode !== undefined) body["sampling_mode"] = params.sampling_mode
+        if (params.scanner_id !== undefined) body["scanner_id"] = params.scanner_id
+        if (params.model !== undefined) body["model"] = params.model
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,
@@ -301,14 +276,9 @@ const visionScannersGet = (): ToolBase<typeof VisionScannersGetSchema, Schemas.R
     },
 })
 
-const VisionScannersImpactRetrieveSchema = VisionScannersImpactRetrieveParams.omit({ project_id: true }).extend(
-    VisionScannersImpactRetrieveQueryParams.shape
-)
+const VisionScannersImpactRetrieveSchema = VisionScannersImpactRetrieveParams.omit({ project_id: true }).extend(VisionScannersImpactRetrieveQueryParams.shape)
 
-const visionScannersImpactRetrieve = (): ToolBase<
-    typeof VisionScannersImpactRetrieveSchema,
-    Schemas.ScannerImpact
-> => ({
+const visionScannersImpactRetrieve = (): ToolBase<typeof VisionScannersImpactRetrieveSchema, Schemas.ScannerImpact> => ({
     name: 'vision-scanners-impact-retrieve',
     schema: VisionScannersImpactRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersImpactRetrieveSchema>) => {
@@ -329,10 +299,7 @@ const visionScannersImpactRetrieve = (): ToolBase<
 
 const VisionScannersListSchema = VisionScannersListQueryParams
 
-const visionScannersList = (): ToolBase<
-    typeof VisionScannersListSchema,
-    WithPostHogUrl<Schemas.PaginatedReplayScannerList>
-> => ({
+const visionScannersList = (): ToolBase<typeof VisionScannersListSchema, WithPostHogUrl<Schemas.PaginatedReplayScannerList>> => ({
     name: 'vision-scanners-list',
     schema: VisionScannersListSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersListSchema>) => {
@@ -355,14 +322,9 @@ const visionScannersList = (): ToolBase<
     },
 })
 
-const VisionScannersObservationsGetSchema = VisionScannersObservationsRetrieveParams.omit({ project_id: true }).extend(
-    VisionScannersObservationsRetrieveQueryParams.shape
-)
+const VisionScannersObservationsGetSchema = VisionScannersObservationsRetrieveParams.omit({ project_id: true }).extend(VisionScannersObservationsRetrieveQueryParams.shape)
 
-const visionScannersObservationsGet = (): ToolBase<
-    typeof VisionScannersObservationsGetSchema,
-    Schemas.ReplayObservation
-> => ({
+const visionScannersObservationsGet = (): ToolBase<typeof VisionScannersObservationsGetSchema, Schemas.ReplayObservation> => ({
     name: 'vision-scanners-observations-get',
     schema: VisionScannersObservationsGetSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersObservationsGetSchema>) => {
@@ -387,14 +349,9 @@ const visionScannersObservationsGet = (): ToolBase<
     },
 })
 
-const VisionScannersObservationsListSchema = VisionScannersObservationsListParams.omit({ project_id: true }).extend(
-    VisionScannersObservationsListQueryParams.shape
-)
+const VisionScannersObservationsListSchema = VisionScannersObservationsListParams.omit({ project_id: true }).extend(VisionScannersObservationsListQueryParams.shape)
 
-const visionScannersObservationsList = (): ToolBase<
-    typeof VisionScannersObservationsListSchema,
-    WithPostHogUrl<Schemas.PaginatedReplayObservationList>
-> => ({
+const visionScannersObservationsList = (): ToolBase<typeof VisionScannersObservationsListSchema, WithPostHogUrl<Schemas.PaginatedReplayObservationList>> => ({
     name: 'vision-scanners-observations-list',
     schema: VisionScannersObservationsListSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersObservationsListSchema>) => {
@@ -421,14 +378,9 @@ const visionScannersObservationsList = (): ToolBase<
     },
 })
 
-const VisionScannersObservationsStatsSchema = VisionScannersObservationsStatsRetrieveParams.omit({
-    project_id: true,
-}).extend(VisionScannersObservationsStatsRetrieveQueryParams.shape)
+const VisionScannersObservationsStatsSchema = VisionScannersObservationsStatsRetrieveParams.omit({ project_id: true }).extend(VisionScannersObservationsStatsRetrieveQueryParams.shape)
 
-const visionScannersObservationsStats = (): ToolBase<
-    typeof VisionScannersObservationsStatsSchema,
-    Schemas.ObservationStats
-> => ({
+const visionScannersObservationsStats = (): ToolBase<typeof VisionScannersObservationsStatsSchema, Schemas.ObservationStats> => ({
     name: 'vision-scanners-observations-stats',
     schema: VisionScannersObservationsStatsSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersObservationsStatsSchema>) => {
@@ -453,22 +405,15 @@ const visionScannersObservationsStats = (): ToolBase<
     },
 })
 
-const VisionScannersPromptSuggestionsApplySchema = VisionScannersPromptSuggestionsApplyCreateParams.omit({
-    project_id: true,
-}).extend(VisionScannersPromptSuggestionsApplyCreateBody.shape)
+const VisionScannersPromptSuggestionsApplySchema = VisionScannersPromptSuggestionsApplyCreateParams.omit({ project_id: true }).extend(VisionScannersPromptSuggestionsApplyCreateBody.shape)
 
-const visionScannersPromptSuggestionsApply = (): ToolBase<
-    typeof VisionScannersPromptSuggestionsApplySchema,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
+const visionScannersPromptSuggestionsApply = (): ToolBase<typeof VisionScannersPromptSuggestionsApplySchema, Schemas.ReplayScannerPromptSuggestion> => ({
     name: 'vision-scanners-prompt-suggestions-apply',
     schema: VisionScannersPromptSuggestionsApplySchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersPromptSuggestionsApplySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
+        if (params.config !== undefined) body["config"] = params.config
         const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/${encodeURIComponent(String(params.id))}/apply/`,
@@ -478,14 +423,9 @@ const visionScannersPromptSuggestionsApply = (): ToolBase<
     },
 })
 
-const VisionScannersPromptSuggestionsCurrentSchema = VisionScannersPromptSuggestionsCurrentRetrieveParams.omit({
-    project_id: true,
-})
+const VisionScannersPromptSuggestionsCurrentSchema = VisionScannersPromptSuggestionsCurrentRetrieveParams.omit({ project_id: true })
 
-const visionScannersPromptSuggestionsCurrent = (): ToolBase<
-    typeof VisionScannersPromptSuggestionsCurrentSchema,
-    Schemas.CurrentPromptSuggestion
-> => ({
+const visionScannersPromptSuggestionsCurrent = (): ToolBase<typeof VisionScannersPromptSuggestionsCurrentSchema, Schemas.CurrentPromptSuggestion> => ({
     name: 'vision-scanners-prompt-suggestions-current',
     schema: VisionScannersPromptSuggestionsCurrentSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersPromptSuggestionsCurrentSchema>) => {
@@ -498,14 +438,9 @@ const visionScannersPromptSuggestionsCurrent = (): ToolBase<
     },
 })
 
-const VisionScannersPromptSuggestionsDismissSchema = VisionScannersPromptSuggestionsDismissCreateParams.omit({
-    project_id: true,
-})
+const VisionScannersPromptSuggestionsDismissSchema = VisionScannersPromptSuggestionsDismissCreateParams.omit({ project_id: true })
 
-const visionScannersPromptSuggestionsDismiss = (): ToolBase<
-    typeof VisionScannersPromptSuggestionsDismissSchema,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
+const visionScannersPromptSuggestionsDismiss = (): ToolBase<typeof VisionScannersPromptSuggestionsDismissSchema, Schemas.ReplayScannerPromptSuggestion> => ({
     name: 'vision-scanners-prompt-suggestions-dismiss',
     schema: VisionScannersPromptSuggestionsDismissSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersPromptSuggestionsDismissSchema>) => {
@@ -518,14 +453,9 @@ const visionScannersPromptSuggestionsDismiss = (): ToolBase<
     },
 })
 
-const VisionScannersPromptSuggestionsGenerateSchema = VisionScannersPromptSuggestionsGenerateCreateParams.omit({
-    project_id: true,
-})
+const VisionScannersPromptSuggestionsGenerateSchema = VisionScannersPromptSuggestionsGenerateCreateParams.omit({ project_id: true })
 
-const visionScannersPromptSuggestionsGenerate = (): ToolBase<
-    typeof VisionScannersPromptSuggestionsGenerateSchema,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
+const visionScannersPromptSuggestionsGenerate = (): ToolBase<typeof VisionScannersPromptSuggestionsGenerateSchema, Schemas.ReplayScannerPromptSuggestion> => ({
     name: 'vision-scanners-prompt-suggestions-generate',
     schema: VisionScannersPromptSuggestionsGenerateSchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersPromptSuggestionsGenerateSchema>) => {
@@ -538,9 +468,7 @@ const visionScannersPromptSuggestionsGenerate = (): ToolBase<
     },
 })
 
-const VisionScannersScanSessionSchema = VisionScannersObserveCreateParams.omit({ project_id: true }).extend(
-    VisionScannersObserveCreateBody.shape
-)
+const VisionScannersScanSessionSchema = VisionScannersObserveCreateParams.omit({ project_id: true }).extend(VisionScannersObserveCreateBody.shape)
 
 const visionScannersScanSession = (): ToolBase<typeof VisionScannersScanSessionSchema, unknown> => ({
     name: 'vision-scanners-scan-session',
@@ -548,9 +476,7 @@ const visionScannersScanSession = (): ToolBase<typeof VisionScannersScanSessionS
     handler: async (context: Context, params: z.infer<typeof VisionScannersScanSessionSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.session_id !== undefined) {
-            body['session_id'] = params.session_id
-        }
+        if (params.session_id !== undefined) body["session_id"] = params.session_id
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/observe/`,
@@ -560,9 +486,7 @@ const visionScannersScanSession = (): ToolBase<typeof VisionScannersScanSessionS
     },
 })
 
-const VisionScannersUpdateSchema = VisionScannersPartialUpdateParams.omit({ project_id: true }).extend(
-    VisionScannersPartialUpdateBody.shape
-)
+const VisionScannersUpdateSchema = VisionScannersPartialUpdateParams.omit({ project_id: true }).extend(VisionScannersPartialUpdateBody.shape)
 
 const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Schemas.ReplayScanner> => ({
     name: 'vision-scanners-update',
@@ -570,39 +494,17 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
     handler: async (context: Context, params: z.infer<typeof VisionScannersUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.scanner_type !== undefined) {
-            body['scanner_type'] = params.scanner_type
-        }
-        if (params.scanner_config !== undefined) {
-            body['scanner_config'] = params.scanner_config
-        }
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        if (params.sampling_rate !== undefined) {
-            body['sampling_rate'] = params.sampling_rate
-        }
-        if (params.sampling_mode !== undefined) {
-            body['sampling_mode'] = params.sampling_mode
-        }
-        if (params.provider !== undefined) {
-            body['provider'] = params.provider
-        }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.emits_signals !== undefined) {
-            body['emits_signals'] = params.emits_signals
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.scanner_type !== undefined) body["scanner_type"] = params.scanner_type
+        if (params.scanner_config !== undefined) body["scanner_config"] = params.scanner_config
+        if (params.query !== undefined) body["query"] = params.query
+        if (params.sampling_rate !== undefined) body["sampling_rate"] = params.sampling_rate
+        if (params.sampling_mode !== undefined) body["sampling_mode"] = params.sampling_mode
+        if (params.provider !== undefined) body["provider"] = params.provider
+        if (params.model !== undefined) body["model"] = params.model
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.emits_signals !== undefined) body["emits_signals"] = params.emits_signals
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
@@ -613,6 +515,10 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'vision-actions-list': visionActionsList,
+    'vision-actions-retrieve': visionActionsRetrieve,
+    'vision-actions-runs-list': visionActionsRunsList,
+    'vision-actions-runs-retrieve': visionActionsRunsRetrieve,
     'vision-observations-label-create': visionObservationsLabelCreate,
     'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,
