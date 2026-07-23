@@ -78,7 +78,9 @@ def mirroring_enabled(origin_product: str) -> bool:
 
 
 def mirror_entries(
-    entries: list[dict],
+    # list[Any], not list[dict]: entries arrive from a semi-trusted request payload,
+    # so the non-dict guard below is load-bearing.
+    entries: list[Any],
     *,
     team_id: int,
     task_id: str,

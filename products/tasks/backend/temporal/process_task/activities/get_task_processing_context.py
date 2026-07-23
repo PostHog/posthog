@@ -257,7 +257,6 @@ def _is_agent_proxy_keep_stream_open_enabled(
     try:
         enabled = bool(
             posthoganalytics.feature_enabled(
-                AGENT_OTEL_TELEMETRY_STATE_KEY,
                 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
