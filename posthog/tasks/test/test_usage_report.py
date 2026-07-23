@@ -1441,6 +1441,7 @@ class TestQueryUsageReportSQL:
         assert params["end"] == end
         assert params["event_time_end"] == end + timedelta(hours=6)
 
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report._execute_split_query")
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 4)])
     @patch("posthog.tasks.usage_report.get_property_string_expr")
@@ -1449,6 +1450,7 @@ class TestQueryUsageReportSQL:
         mock_get_property_string_expr: MagicMock,
         mock_sync_execute: MagicMock,
         mock_execute_split_query: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
     ) -> None:
         mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
         # 1st _execute_split_query call is the main per-$lib scan (node_events over-counts every
