@@ -21,7 +21,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import connection, connections, transaction
+from django.db import OperationalError, connection, connections, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -1554,16 +1554,21 @@ class BaseTestMigrations(QueryMatchingTest):
     apps: Optional[Any] = None
     assert_snapshots = False
 
-    @classmethod
-    def setUpClass(cls) -> None:
+    @staticmethod
+    def _reset_dead_connections() -> None:
         # An earlier test in the same process can leave a connection's underlying psycopg
-        # connection closed (e.g. dropped server-side) without Django noticing. Every
-        # migration test in the class then fails with "the connection is closed", and
-        # in-process reruns reuse the same dead wrapper, so they can never recover.
-        # Reset unusable connections before the class transaction machinery starts.
+        # connection closed (e.g. dropped server-side, or a lingering worker thread from a
+        # transaction=True test) without Django noticing. Every migration test then fails with
+        # "the connection is closed", and in-process reruns reuse the same dead wrapper, so they
+        # can never recover. Closing an unusable wrapper makes Django reconnect on next use.
         for conn in connections.all():
             if conn.connection is not None and not conn.is_usable():
                 conn.close()
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Reset unusable connections before the class transaction machinery starts.
+        cls._reset_dead_connections()
         # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
         super().setUpClass()  # type: ignore[misc]
 
@@ -1571,6 +1576,23 @@ class BaseTestMigrations(QueryMatchingTest):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
         )
+        # A background thread from a preceding transaction=True/async_to_sync test can close the
+        # connection out from under us — even mid-setup, racing MigrationExecutor's own queries, so
+        # a single reset can't reliably win. The close settles once, so reset and retry: the next
+        # attempt reconnects cleanly. Only "connection is closed" is retried; real errors propagate.
+        last_error: Optional[OperationalError] = None
+        for _attempt in range(3):
+            self._reset_dead_connections()
+            try:
+                return self._run_migration_setup()
+            except OperationalError as e:
+                if "connection is closed" not in str(e):
+                    raise
+                last_error = e
+        assert last_error is not None
+        raise last_error
+
+    def _run_migration_setup(self) -> None:
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
