@@ -1821,10 +1821,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
+    # warehouse_source_webhook is intentionally omitted: it's excluded from the viewset queryset
+    # entirely (see test_warehouse_source_webhook_excluded), so its rerun endpoint 404s before the
+    # rerunnable-type guard is ever reached — it can't exercise the 400 this test asserts.
     @parameterized.expand(
         [
             ("source_webhook",),
-            ("warehouse_source_webhook",),
             ("transformation",),
             ("site_app",),
             ("site_destination",),
