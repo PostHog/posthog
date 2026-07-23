@@ -20,7 +20,7 @@ use napi::Result as NapiResult;
 use napi_derive::napi;
 use serde_json::Value;
 
-pub use exec::{run_batch, HogExecResult};
+pub use exec::{build_program, run_batch, run_batch_program, HogExecResult};
 
 #[napi(object)]
 pub struct InitOptions {
@@ -64,4 +64,75 @@ pub fn execute_sync(
         .into_iter()
         .next()
         .expect("run_batch returns one result per event")
+}
+
+// Programs registered once by `registerProgram` — validated and token-decoded at registration,
+// executed by handle. Skips the per-invocation JS→Rust marshal + copy + decode of the token
+// array. PROTOTYPE for benchmarking a program cache.
+static REGISTERED_PROGRAMS: std::sync::RwLock<Vec<Result<hogvm::Program, String>>> =
+    std::sync::RwLock::new(Vec::new());
+
+/// Register a program's bytecode once; returns a handle for `executeRegisteredSync`. Invalid
+/// bytecode still gets a handle — executions through it report the validation error.
+#[napi]
+pub fn register_program(program: Value) -> u32 {
+    let tokens = match program {
+        Value::Array(tokens) => tokens,
+        _ => Vec::new(),
+    };
+    let mut programs = REGISTERED_PROGRAMS.write().expect("registry poisoned");
+    programs.push(exec::build_program(tokens));
+    (programs.len() - 1) as u32
+}
+
+// A registered Program clone is two Arc bumps; cloning out keeps the lock scope minimal.
+fn get_registered(handle: u32) -> Result<hogvm::Program, String> {
+    REGISTERED_PROGRAMS
+        .read()
+        .expect("registry poisoned")
+        .get(handle as usize)
+        .cloned()
+        .unwrap_or_else(|| Err(format!("unknown program handle {handle}")))
+}
+
+fn error_results(error: &str, count: usize) -> Vec<HogExecResult> {
+    (0..count)
+        .map(|_| HogExecResult {
+            result: None,
+            error: Some(error.to_string()),
+            duration_us: 0.0,
+            logs: Vec::new(),
+            logs_truncated: false,
+        })
+        .collect()
+}
+
+/// `executeSync` against a program registered with `registerProgram`.
+#[napi]
+pub fn execute_registered_sync(
+    handle: u32,
+    globals: Value,
+    options: Option<ExecuteSyncOptions>,
+) -> HogExecResult {
+    let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
+    let results = match get_registered(handle) {
+        Ok(program) => exec::run_batch_program(&program, std::slice::from_ref(&globals), max_steps),
+        Err(e) => error_results(&e, 1),
+    };
+    results.into_iter().next().expect("one result per event")
+}
+
+/// Batch variant: one napi crossing for many events. PROTOTYPE for benchmarking amortized
+/// marshalling.
+#[napi]
+pub fn execute_registered_batch_sync(
+    handle: u32,
+    events: Vec<Value>,
+    options: Option<ExecuteSyncOptions>,
+) -> Vec<HogExecResult> {
+    let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
+    match get_registered(handle) {
+        Ok(program) => exec::run_batch_program(&program, &events, max_steps),
+        Err(e) => error_results(&e, events.len()),
+    }
 }

@@ -25,33 +25,40 @@ pub struct HogExecResult {
     pub logs_truncated: bool,
 }
 
+/// Build a `Program` (validating + pre-decoding the token stream once) from a raw bytecode
+/// array. The `Err` string is in the shape the per-event results carry.
+pub fn build_program(tokens: Vec<Value>) -> Result<Program, String> {
+    if tokens.is_empty() {
+        return Err("invalid program: bytecode must be a non-empty array".to_string());
+    }
+    Program::new(tokens).map_err(|e| format!("invalid program: {e}"))
+}
+
 pub fn run_batch(
     tokens: &[Value],
     events: &[Value],
     max_steps: Option<usize>,
 ) -> Vec<HogExecResult> {
-    if tokens.is_empty() {
-        return events
-            .iter()
-            .map(|_| error_result("invalid program: bytecode must be a non-empty array", 0.0))
-            .collect();
+    match build_program(tokens.to_vec()) {
+        Ok(program) => run_chunk(&program, events, max_steps),
+        Err(e) => events.iter().map(|_| error_result(&e, 0.0)).collect(),
     }
+}
 
-    run_chunk(tokens, events, max_steps)
+/// Like `run_batch` but from an already-built `Program` — no per-call copy, validation, or
+/// token decode. This is the registered-program path.
+pub fn run_batch_program(
+    program: &Program,
+    events: &[Value],
+    max_steps: Option<usize>,
+) -> Vec<HogExecResult> {
+    run_chunk(program, events, max_steps)
 }
 
 // Run the events through one reused ExecutionContext (STL and ext fns built once, globals
 // swapped per event), sequentially on the calling thread.
-fn run_chunk(tokens: &[Value], chunk: &[Value], max_steps: Option<usize>) -> Vec<HogExecResult> {
-    let program = match Program::new(tokens.to_vec()) {
-        Ok(p) => p,
-        Err(e) => {
-            return chunk
-                .iter()
-                .map(|_| error_result(&format!("invalid program: {e}"), 0.0))
-                .collect();
-        }
-    };
+fn run_chunk(program: &Program, chunk: &[Value], max_steps: Option<usize>) -> Vec<HogExecResult> {
+    let program = program.clone();
 
     // Coercing comparisons are the TS reference's semantics (unifyComparisonTypes): ordering
     // coerces across number/string/boolean/null instead of erroring.
