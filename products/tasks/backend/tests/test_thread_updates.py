@@ -1,15 +1,19 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.scoping import team_scope
 
-from products.tasks.backend.facade.api import post_canvas_created_thread_update, post_turn_complete_thread_update
-from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage, TaskThreadMessageMention
-from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import _track_final_message
+from products.tasks.backend.facade.api import (
+    list_thread_messages,
+    post_canvas_created_thread_update,
+    post_pr_created_thread_update,
+)
+from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
 _FLAG_TARGET = "products.tasks.backend.facade.api.posthoganalytics.feature_enabled"
 
@@ -40,50 +44,47 @@ class TestAgentThreadUpdates(TestCase):
     def _messages(self, task: Task) -> list[TaskThreadMessage]:
         return list(TaskThreadMessage.objects.for_team(self.team.id).filter(task=task).order_by("created_at"))
 
-    @parameterized.expand(
-        [
-            (
-                "relays_final_message",
-                "Shipped the canvas with three charts.",
-                "@[Casey Creator](creator@example.com) Shipped the canvas with three charts.",
-            ),
-            ("falls_back_without_message", None, "@[Casey Creator](creator@example.com) Turn complete."),
-        ]
-    )
     @patch(_FLAG_TARGET, return_value=True)
-    def test_turn_complete_posts_authorless_message_mentioning_creator(self, _name, message, expected, _flag) -> None:
-        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id, message=message)
+    def test_pr_created_posts_authorless_artifact_message(self, _flag) -> None:
+        post_pr_created_thread_update(self.task_run, "https://github.com/posthog/posthog/pull/123")
 
         messages = self._messages(self.task)
         self.assertEqual(len(messages), 1)
         self.assertIsNone(messages[0].author_id)
         self.assertEqual(messages[0].author_kind, TaskThreadMessage.AuthorKind.AGENT)
-        self.assertEqual(messages[0].event, "turn_complete")
-        # run_id is the client's key for deduping this durable row against
-        # live session-derived agent turns.
-        self.assertEqual(messages[0].payload, {"run_id": str(self.task_run.id)})
-        self.assertEqual(messages[0].content, expected)
-        # The creator's mention is indexed so it lands in their mentions feed.
-        self.assertTrue(
-            TaskThreadMessageMention.objects.for_team(self.team.id)
-            .filter(message=messages[0], mentioned_user=self.user)
-            .exists()
+        self.assertEqual(messages[0].event, "pr_created")
+        self.assertEqual(messages[0].payload, {"pr_url": "https://github.com/posthog/posthog/pull/123"})
+        self.assertEqual(
+            messages[0].content,
+            "[posthog/posthog#123](https://github.com/posthog/posthog/pull/123) has been opened",
         )
 
     @patch(_FLAG_TARGET, return_value=True)
-    def test_turn_complete_truncates_oversized_message(self, _flag) -> None:
-        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id, message="x" * 5000)
+    def test_pr_created_falls_back_to_url_label_for_non_github_urls(self, _flag) -> None:
+        post_pr_created_thread_update(self.task_run, "https://example.com/pr/9")
 
-        content = self._messages(self.task)[0].content
-        self.assertTrue(content.endswith("…"))
-        self.assertLess(len(content), 4100)
+        messages = self._messages(self.task)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(
+            messages[0].content,
+            "[https://example.com/pr/9](https://example.com/pr/9) has been opened",
+        )
 
     @patch(_FLAG_TARGET, return_value=True)
-    def test_turn_complete_cooldown_collapses_duplicate_end_of_turn_events(self, _flag) -> None:
-        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id)
-        post_turn_complete_thread_update(str(self.task_run.id), str(self.task.id), self.team.id)
+    def test_pr_created_dedupes_per_pr_url(self, _flag) -> None:
+        # Both the agent-output path and the GitHub webhook backstop can announce
+        # the same PR; only one artifact row must land in the thread.
+        post_pr_created_thread_update(self.task_run, "https://github.com/posthog/posthog/pull/123")
+        post_pr_created_thread_update(self.task_run, "https://github.com/posthog/posthog/pull/123")
 
         self.assertEqual(len(self._messages(self.task)), 1)
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_pr_created_posts_separate_messages_for_distinct_prs(self, _flag) -> None:
+        post_pr_created_thread_update(self.task_run, "https://github.com/posthog/posthog/pull/1")
+        post_pr_created_thread_update(self.task_run, "https://github.com/posthog/posthog/pull/2")
+
+        self.assertEqual(len(self._messages(self.task)), 2)
 
     @parameterized.expand(
         [
@@ -93,7 +94,7 @@ class TestAgentThreadUpdates(TestCase):
         ]
     )
     @patch(_FLAG_TARGET)
-    def test_turn_complete_skips(self, _name, flag_on, has_channel, has_creator, flag_mock) -> None:
+    def test_pr_created_skips(self, _name, flag_on, has_channel, has_creator, flag_mock) -> None:
         flag_mock.return_value = flag_on
         task = Task.objects.create(
             team=self.team,
@@ -105,7 +106,7 @@ class TestAgentThreadUpdates(TestCase):
         )
         run = TaskRun.objects.create(task=task, team=self.team)
 
-        post_turn_complete_thread_update(str(run.id), str(task.id), self.team.id)
+        post_pr_created_thread_update(run, "https://github.com/posthog/posthog/pull/123")
 
         self.assertEqual(self._messages(task), [])
 
@@ -157,33 +158,32 @@ class TestAgentThreadUpdates(TestCase):
 
         self.assertEqual(self._messages(self.task), [])
 
+    def test_list_thread_messages_excludes_legacy_turn_complete_rows(self) -> None:
+        # The thread is human-to-human plus artifacts: rows written back when the
+        # agent finished a turn (before that writeback was removed) must not
+        # resurface in the listing.
+        TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team, task=self.task, author=self.user, content="Kicking this off"
+        )
+        TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            author_kind=TaskThreadMessage.AuthorKind.AGENT,
+            event="turn_complete",
+            payload={"run_id": str(self.task_run.id)},
+            content="@[Casey Creator](creator@example.com) Turn complete.",
+        )
+        TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            author_kind=TaskThreadMessage.AuthorKind.AGENT,
+            event="canvas_created",
+            payload={"canvas_name": "Signups", "canvas_url": None},
+            content="Signups has been created",
+        )
 
-def _session_update(update: dict) -> dict:
-    return {"type": "notification", "notification": {"method": "session/update", "params": {"update": update}}}
+        with team_scope(self.team.id):
+            messages = list_thread_messages(self.task.id, self.team.id, self.user.id)
 
-
-def _chunk(text: str) -> dict:
-    return _session_update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
-
-
-class TestTrackFinalMessage(SimpleTestCase):
-    def test_holds_only_prose_after_last_tool_call(self) -> None:
-        parts: list[str] = []
-        for event in [
-            _chunk("Let me look at the data first. "),
-            _session_update({"sessionUpdate": "tool_call", "toolCallId": "t1"}),
-            _session_update({"sessionUpdate": "tool_call_update", "toolCallId": "t1"}),
-            _chunk("Done. The canvas "),
-            _chunk("shows signups by week."),
-        ]:
-            _track_final_message(event, parts)
-
-        self.assertEqual("".join(parts), "Done. The canvas shows signups by week.")
-
-    @parameterized.expand([("user_message",), ("user_message_chunk",), ("tool_call",)])
-    def test_resets_on(self, session_update: str) -> None:
-        parts = ["stale narration"]
-
-        _track_final_message(_session_update({"sessionUpdate": session_update}), parts)
-
-        self.assertEqual(parts, [])
+        assert messages is not None
+        self.assertEqual([message.event for message in messages], ["", "canvas_created"])

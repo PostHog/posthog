@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import IntegrityError, close_old_connections, transaction
+from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
@@ -49,7 +49,7 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
-from products.tasks.backend.mentions import format_mention_token, resolve_mentioned_user_ids
+from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
     ChannelFeedMessage,
@@ -2112,6 +2112,7 @@ def update_task_run(
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
         _send_wizard_pr_ready_email_for_pr(run)
+        post_pr_created_thread_update(run, new_pr_url)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
         # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
@@ -2162,6 +2163,8 @@ def set_task_run_output(
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
     _send_wizard_pr_ready_email_for_pr(run)
+    if merged.get("pr_url"):
+        post_pr_created_thread_update(run, merged["pr_url"])
     return _task_run_detail_to_dto(run)
 
 
@@ -5109,6 +5112,9 @@ def list_thread_messages(
         return None
     messages = (
         TaskThreadMessage.objects.filter(task_id=task_id, team_id=team_id)
+        # The thread is human-to-human plus artifact announcements; rows written
+        # back when the agent finished a turn (a since-removed behavior) stay out.
+        .exclude(event="turn_complete")
         .select_related("author", "forwarded_by")
         .order_by("created_at", "id")
     )
@@ -5248,13 +5254,6 @@ def forward_thread_message(
 # updates are gated on the same flag — evaluated for the task creator.
 AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
 
-# One turn-complete post per run within the window, so an SSE relay reconnect
-# replaying the tail of the stream can't double-post the same end-of-turn.
-_TURN_COMPLETE_COOLDOWN_SECONDS = 30
-
-# Cap the relayed final message so one agent essay can't dwarf the thread.
-_TURN_MESSAGE_MAX_CHARS = 4000
-
 
 def _create_agent_thread_message(task: Task, content: str, *, event: str, payload: dict | None = None) -> None:
     """Write an agent-authored thread message and index its mentions.
@@ -5326,42 +5325,45 @@ def post_canvas_created_thread_update(
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
 
 
-def post_turn_complete_thread_update(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, message: str | None = None
-) -> None:
-    """Post the agent's final turn message into the task's thread, @-mentioning the task creator.
+_GITHUB_PR_URL_PATTERN = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", re.IGNORECASE)
 
-    Fires from the sandbox event relay on every end-of-turn of a channel task's
-    background run, so the update lands even with no client open. ``message`` is
-    the agent's closing prose for the turn; when the relay captured none, a plain
-    "Turn complete." stands in. Best-effort and never raises — a failed post must
-    not disturb the relay.
+
+def _pr_display_label(pr_url: str) -> str:
+    match = _GITHUB_PR_URL_PATTERN.search(pr_url)
+    if match:
+        owner, repo, number = match.groups()
+        return f"{owner}/{repo}#{number}"
+    return pr_url
+
+
+def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
+    """Announce a run's freshly opened pull request in its task's thread.
+
+    Posts "[owner/repo#N](url) has been opened" as an agent artifact message
+    (``event="pr_created"``). Both the agent-output path and the GitHub webhook
+    backstop can observe the same PR, so the announcement dedupes on the task's
+    existing ``pr_created`` rows for this URL. Best-effort and never raises —
+    recording the PR must not fail because its announcement couldn't be written.
     """
     try:
-        if not settings.TEST:
-            close_old_connections()
-        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
         # Threads hang off a task's channel feed; a channel-less task has no audience.
         if task is None or task.channel_id is None:
             return
-        creator = task.created_by
-        if creator is None or not _agent_thread_updates_enabled(creator):
+        if task.created_by is None or not _agent_thread_updates_enabled(task.created_by):
             return
-        from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
-
-        if not get_tasks_cache().add(f"thread_update:{run_id}:turn_complete", True, _TURN_COMPLETE_COOLDOWN_SECONDS):
+        if (
+            TaskThreadMessage.objects.for_team(task.team_id)
+            .filter(task_id=task.id, event="pr_created", payload__pr_url=pr_url)
+            .exists()
+        ):
             return
-        body = (message or "").strip() or "Turn complete."
-        if len(body) > _TURN_MESSAGE_MAX_CHARS:
-            body = body[: _TURN_MESSAGE_MAX_CHARS - 1] + "…"
-        mention = format_mention_token(creator.get_full_name() or creator.email, creator.email)
-        # payload.run_id is the dedupe key: a client already rendering this run's
-        # live agent turns can suppress the durable row (or vice versa).
+        label = _pr_display_label(pr_url)
         _create_agent_thread_message(
             task,
-            f"{mention} {body}",
-            event="turn_complete",
-            payload={"run_id": str(run_id)},
+            f"[{label}]({pr_url}) has been opened",
+            event="pr_created",
+            payload={"pr_url": pr_url},
         )
     except Exception:
-        logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
+        logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})

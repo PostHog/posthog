@@ -15,7 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
-from products.tasks.backend.facade.api import signal_workflow_completion
+from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
@@ -218,6 +218,7 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     """
     if not _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed"):
         return
+    post_pr_created_thread_update(task_run, pr_url)
     # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
