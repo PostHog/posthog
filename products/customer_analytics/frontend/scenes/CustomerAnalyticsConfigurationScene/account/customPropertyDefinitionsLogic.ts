@@ -924,17 +924,20 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             if (!pollSourceIds || pollSourceIds.size === 0) {
                 return
             }
-            for (const sourceId of [...pollSourceIds]) {
+            // Build the next round rather than mutating the set while iterating it.
+            const stillPolling = new Set<string>()
+            pollSourceIds.forEach((sourceId) => {
                 const definition = values.definitions.find((d) => d.source?.id === sourceId)
                 const stillRunning = definition?.source?.latest_run?.status === 'running'
                 const attempts = (cache.pollAttempts[sourceId] ?? 0) + 1
                 cache.pollAttempts[sourceId] = attempts
                 actions.loadRuns({ sourceId })
-                if (!stillRunning || attempts >= RUNS_POLL_MAX_ATTEMPTS) {
-                    pollSourceIds.delete(sourceId)
+                if (stillRunning && attempts < RUNS_POLL_MAX_ATTEMPTS) {
+                    stillPolling.add(sourceId)
                 }
-            }
-            if (pollSourceIds.size === 0) {
+            })
+            cache.pollSourceIds = stillPolling
+            if (stillPolling.size === 0) {
                 cache.disposables.dispose('runsPoll')
                 return
             }
