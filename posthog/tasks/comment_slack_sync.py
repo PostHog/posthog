@@ -1,4 +1,5 @@
 import time
+from typing import Any, cast
 
 import structlog
 import posthoganalytics
@@ -84,6 +85,20 @@ def _log_backfill_reply_failure(comment_slack_thread_id: str, reply: Comment) ->
     )
 
 
+def _neutralize_rich_content_images(node: dict[str, Any] | list[Any] | object) -> None:
+    """Escape markdown image syntax in every text node of an inbound reply's rich content."""
+    if isinstance(node, dict):
+        typed_node = cast(dict[str, Any], node)
+        text = typed_node.get("text")
+        if typed_node.get("type") == "text" and isinstance(text, str):
+            typed_node["text"] = text.replace("![", "!\\[")
+        for value in typed_node.values():
+            _neutralize_rich_content_images(value)
+    elif isinstance(node, list):
+        for item in node:
+            _neutralize_rich_content_images(item)
+
+
 def _mark_reply_synced(reply: Comment, ts: object) -> None:
     item_context = dict(reply.item_context) if isinstance(reply.item_context, dict) else {}
     item_context[SLACK_SYNCED_TS_KEY] = ts if isinstance(ts, str) else ""
@@ -150,8 +165,9 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit  # Comment is on RootTeamManager; queries pin the team via the mirror's integration
 def ingest_slack_discussion_reply(
-    self,
+    self: Task,
     comment_slack_thread_id: str,
     slack_user_id: str,
     text: str,
@@ -191,8 +207,11 @@ def ingest_slack_discussion_reply(
     if not content and not rich_content:
         return
     # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
-    # external participant's reply from making the discussion UI load remote images.
+    # external participant's reply from making the discussion UI load remote images. The UI
+    # prefers rich_content (flattened back to markdown), so its text nodes need the same
+    # treatment or the escape would be sidestepped whenever the message carries blocks.
     content = content.replace("![", "!\\[")
+    _neutralize_rich_content_images(rich_content)
 
     try:
         client = SlackIntegration(mirror.integration).client

@@ -21,6 +21,7 @@
     'posthog.tasks.calculate_cohort.trigger_cohort_backfill_task',
     'posthog.tasks.calculate_cohort.trigger_cohort_events_backfill_task',
     'posthog.tasks.comment_slack_sync.backfill_comment_slack_thread',
+    'posthog.tasks.comment_slack_sync.ingest_slack_discussion_reply',
     'posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack',
     'posthog.tasks.demo_create_data.create_data_for_demo_team',
     'posthog.tasks.early_access_feature.create_waitlist_survey_for_concept_feature',

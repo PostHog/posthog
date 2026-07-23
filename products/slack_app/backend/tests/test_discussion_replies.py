@@ -51,6 +51,7 @@ class TestIngestDiscussionReply(APIBaseTest):
 
         assert handled is True
         reply = Comment.objects.get(source_comment=self.root)
+        assert reply.item_context is not None
         assert reply.content == "hi from slack"
         assert (reply.scope, reply.item_id) == ("Insight", "42")
         assert reply.created_by_id is None  # stranger isn't an org member
@@ -79,8 +80,28 @@ class TestIngestDiscussionReply(APIBaseTest):
         self._ingest(self._event())
 
         reply = Comment.objects.get(source_comment=self.root)
+        assert reply.item_context is not None
         assert reply.created_by_id is None
         assert reply.item_context["slack_author_name"] == "Imposter"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_image_markdown_neutralized_in_content_and_rich_content(self, _resolve):
+        # The discussion UI renders rich_content (preferred) or content as markdown without
+        # disabling images — inbound Slack text must never carry live image syntax.
+        payload = "look ![x](https://attacker.example/pixel)"
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": payload}]}],
+            }
+        ]
+        self._ingest(self._event(text=payload, blocks=blocks))
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.rich_content is not None
+        assert "![" not in (reply.content or "")
+        text_node = reply.rich_content["content"][0]["content"][0]["text"]
+        assert text_node == "look !\\[x](https://attacker.example/pixel)"
 
     @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
     def test_duplicate_event_delivery_creates_one_comment(self, _resolve):
