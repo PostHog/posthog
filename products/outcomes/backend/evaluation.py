@@ -39,10 +39,10 @@ def try_latch(
     evaluations cannot double-emit, and `reached_at` is immutable once written.
     """
     latch, created = OutcomeLatch.objects.get_or_create(
+        team_id=outcome.team_id,
         outcome=outcome,
         person_id=person_id,
         defaults={
-            "team_id": outcome.team_id,
             "distinct_id": distinct_id,
             "reached_at": reached_at,
             "event_count": event_count,

@@ -21,7 +21,7 @@ def schedule_outcome_calculations() -> None:
 @with_team_scope()
 def calculate_outcome(outcome_id: str, team_id: int) -> None:
     """Evaluate a single outcome against its team's events, latching and emitting new facts."""
-    outcome = Outcome.objects.filter(id=outcome_id).first()
+    outcome = Outcome.objects.filter(id=outcome_id, team_id=team_id).first()
     if outcome is None:
         return
     evaluate_outcome(outcome)
