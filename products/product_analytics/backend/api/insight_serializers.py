@@ -188,10 +188,10 @@ class FunnelStepsResultSerializer(serializers.Serializer):
         help_text="Median conversion time of person or groups between steps. `null` for the first step."
     )
     converted_people_url = serializers.CharField(
-        help_text="Path of a URL to get a list of people that converted after this step. In this format: `/api/person/funnel?...`"
+        help_text="Deprecated. No longer populated; the legacy persons funnel endpoint it pointed to has been removed."
     )
     dropped_people_url = serializers.CharField(
-        help_text="Path of a URL to get a list of people that dropped after this step. In this format: `/api/person/funnel?...`"
+        help_text="Deprecated. No longer populated; the legacy persons funnel endpoint it pointed to has been removed."
     )
     order = serializers.CharField(
         help_text="Order of this step in the funnel. The API should return the steps in order anyway."
