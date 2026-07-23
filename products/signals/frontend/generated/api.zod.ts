@@ -48,6 +48,76 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
+ * @summary Post an inline review comment on a report's implementation PR
+ */
+export const signalsReportPrReviewCommentsCreateBodyBodyMax = 65536
+
+export const signalsReportPrReviewCommentsCreateBodyInReplyToRegExp = new RegExp('^[0-9]+$')
+
+export const SignalsReportPrReviewCommentsCreateBody = /* @__PURE__ */ zod
+    .object({
+        body: zod
+            .string()
+            .max(signalsReportPrReviewCommentsCreateBodyBodyMax)
+            .describe('Comment body (GitHub-flavored markdown).'),
+        in_reply_to: zod
+            .string()
+            .regex(signalsReportPrReviewCommentsCreateBodyInReplyToRegExp)
+            .nullish()
+            .describe('Numeric id of the thread root comment to reply to. When set, path\/line\/side are ignored.'),
+        path: zod
+            .string()
+            .nullish()
+            .describe('File path to anchor a new comment thread to (required when starting a new thread).'),
+        line: zod
+            .number()
+            .min(1)
+            .nullish()
+            .describe('Diff line to anchor a new comment thread to (required when starting a new thread).'),
+        side: zod
+            .union([zod.enum(['LEFT', 'RIGHT']).describe('\* `LEFT` - LEFT\n\* `RIGHT` - RIGHT'), zod.null()])
+            .optional()
+            .describe(
+                "Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.\n\n\* `LEFT` - LEFT\n\* `RIGHT` - RIGHT"
+            ),
+    })
+    .describe(
+        'Request body for posting an inline PR review comment as the requesting user.\n\nTwo shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new\nthread on a diff line (`body` + `path` + `line`, optionally `side`).'
+    )
+
+/**
+ * @summary Edit one of the requesting user's own review comments
+ */
+export const signalsReportPrReviewCommentUpdateBodyBodyMax = 65536
+
+export const SignalsReportPrReviewCommentUpdateBody = /* @__PURE__ */ zod
+    .object({
+        body: zod
+            .string()
+            .max(signalsReportPrReviewCommentUpdateBodyBodyMax)
+            .optional()
+            .describe('New comment body (GitHub-flavored markdown).'),
+    })
+    .describe("Request body for editing a review comment's markdown body.")
+
+/**
+ * @summary React to a review comment as the requesting user
+ */
+export const SignalsReportPrReviewCommentReactionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .enum(['+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'])
+            .describe(
+                '\* `+1` - +1\n\* `-1` - -1\n\* `laugh` - laugh\n\* `hooray` - hooray\n\* `confused` - confused\n\* `heart` - heart\n\* `rocket` - rocket\n\* `eyes` - eyes'
+            )
+            .describe(
+                "Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.\n\n\* `+1` - +1\n\* `-1` - -1\n\* `laugh` - laugh\n\* `hooray` - hooray\n\* `confused` - confused\n\* `heart` - heart\n\* `rocket` - rocket\n\* `eyes` - eyes"
+            ),
+    })
+    .describe('Request body for adding an emoji reaction to a review comment.')
+
+/**
  * Refund the flat charge for this report's implementation PR and archive the report. Refunds auto-approve: the charge is either excluded from usage before it is ever reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe customer-balance credit on the next invoice. A refunded PR does not count toward the free monthly PR allowance. One refund per report, ever — repeat calls return the existing refund with already_refunded=true. The report is archived as part of the refund (a resolved report stays resolved) and can't be restored afterwards.
  * @summary Refund a report's implementation PR
  */
