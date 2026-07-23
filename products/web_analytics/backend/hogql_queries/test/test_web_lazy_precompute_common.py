@@ -495,6 +495,12 @@ class TestStaleRevalidationEnqueue(BaseTest):
 
     def tearDown(self):
         reset_query_tags()
+        # Debounce/budget keys persist in the shared test Redis; scrub so tests
+        # stay order-independent.
+        client = redis.get_client()
+        keys = client.keys(f"web_swr_reval*{self.team.pk}*")
+        if keys:
+            client.delete(*keys)
         super().tearDown()
 
     def _delay_patch(self):
@@ -538,6 +544,25 @@ class TestStaleRevalidationEnqueue(BaseTest):
             handle_stale_served(runner=overview_runner, family="web_overview")
             handle_stale_served(runner=stats_runner, family="web_stats")
         assert delay.call_count == 2
+
+    def test_per_team_budget_bounds_distinct_shape_enqueues(self):
+        # Filters/dates are request-controlled, so distinct shapes are unbounded;
+        # the per-team budget must cap total enqueues per window regardless.
+        from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+            REVALIDATION_TEAM_BUDGET_PER_WINDOW,
+        )
+
+        with self._delay_patch() as delay:
+            for i in range(REVALIDATION_TEAM_BUDGET_PER_WINDOW + 10):
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from=f"2024-01-{(i % 27) + 1:02d}", date_to="2024-06-01"),
+                    properties=[
+                        EventPropertyFilter(key="$host", value=f"h{i}.example.com", operator=PropertyOperator.EXACT)
+                    ],
+                )
+                runner = WebOverviewQueryRunner(team=self.team, query=query)
+                handle_stale_served(runner=runner, family="web_overview")
+        assert delay.call_count == REVALIDATION_TEAM_BUDGET_PER_WINDOW
 
     def test_broker_failure_does_not_break_the_stale_read_path(self):
         # handle_stale_served runs inside the families' read try/except before the stale

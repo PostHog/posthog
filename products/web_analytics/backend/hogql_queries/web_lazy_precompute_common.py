@@ -173,6 +173,14 @@ def is_background_warming_request() -> bool:
 # request) so two different stale families in one request each still get their refresh.
 REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 
+# The shape debounce alone does not bound DISTINCT shapes: filters and date ranges are
+# request-controlled, so a user (or runaway client) could mint arbitrarily many shapes
+# and with them arbitrarily many queued warms. Cap total enqueues per team per debounce
+# window; a full dashboard is ~8 families and a compare-period burst doubles some, so
+# the budget comfortably covers legitimate use while bounding worker-held delayed tasks
+# and background query volume alike.
+REVALIDATION_TEAM_BUDGET_PER_WINDOW = 25
+
 # Head start for the interactive burst: warms enqueued by a dashboard load run on the
 # same team/cluster query slots as the dashboard's own live queries, so firing them
 # immediately makes the background work contend with the very read it is serving.
@@ -200,8 +208,16 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     )
 
     try:
+        client = redis.get_client()
         debounce_key = f"web_swr_reval:{team.id}:{family}:{compute_filters_eligibility_hash(query, team.timezone)[:16]}"
-        if not redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
+        if not client.set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
+            return
+        budget_key = f"web_swr_reval_budget:{team.id}"
+        spent = client.incr(budget_key)
+        if spent == 1:
+            client.expire(budget_key, REVALIDATION_DEBOUNCE_SECONDS)
+        if spent > REVALIDATION_TEAM_BUDGET_PER_WINDOW:
+            logger.warning("web_precompute.swr_revalidation_budget_exhausted", team_id=team.id, family=family)
             return
         revalidate_web_analytics_precompute.apply_async(
             kwargs={"team_id": team.id, "query": query.model_dump(mode="json", exclude_none=True)},
