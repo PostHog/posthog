@@ -5,6 +5,8 @@ from collections.abc import Sequence
 import pytest
 from unittest.mock import MagicMock
 
+from django.conf import settings
+
 import temporalio.worker
 import temporalio.converter
 from temporalio import activity as temporal_activity
@@ -239,6 +241,47 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
     assert metadata.ducklake_schema_name == f"posthog_data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name == "postgres_customers"
     assert metadata.source_partition_column == "created_at"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "schema_name,s3_folder_name,expected_leaf",
+    [
+        ("orders", None, "orders"),
+        # Folder-pinned source: the loader wrote the Delta table under the resolved folder
+        # ("users"), not the schema's normalized name ("public_users"). Reading normalized_name
+        # points at a prefix with no _delta_log -> "No files in log segment".
+        ("public.users", "users", "users"),
+    ],
+)
+async def test_prepare_resolves_source_table_uri_from_written_folder(
+    ateam, monkeypatch, schema_name, s3_folder_name, expected_leaf
+):
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: [])
+
+    source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam,
+        source_id="test_source",
+        connection_id="test_connection",
+        source_type="Postgres",
+        status="Running",
+    )
+    schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+        team=ateam,
+        name=schema_name,
+        source=source,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        s3_folder_name=s3_folder_name,
+    )
+
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-uri", schema_ids=[schema.id])
+
+    result = await prepare_data_imports_ducklake_metadata_activity(inputs)
+
+    assert len(result) == 1
+    folder_path = await database_sync_to_async(schema.folder_path)()
+    assert result[0].source_table_uri == f"{settings.BUCKET_URL}/{folder_path}/{expected_leaf}"
 
 
 @pytest.mark.asyncio
