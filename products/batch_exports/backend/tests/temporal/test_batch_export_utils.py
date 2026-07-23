@@ -5,12 +5,14 @@ import pytest
 
 import pyarrow as pa
 import pytest_asyncio
+from psycopg import errors as psycopg_errors
 
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
@@ -165,6 +167,31 @@ async def test_make_retryable_with_exponential_backoff_raises_if_not_retryable()
         await make_retryable_with_exponential_backoff(raise_value_error, retryable_exceptions=(TypeError,))()
 
     assert counter == 1
+
+
+async def test_handle_non_retryable_errors_keeps_transient_db_error_retryable():
+    """A transient connection drop stays retryable even when a broad ancestor like
+    ``OperationalError``, or the leaf class itself, is listed as non-retryable, so Temporal
+    retries instead of the activity failing the export permanently."""
+
+    @handle_non_retryable_errors(("OperationalError", "AdminShutdown"))
+    async def activity_raising_admin_shutdown():
+        raise psycopg_errors.AdminShutdown("terminating connection due to administrator command")
+
+    with pytest.raises(psycopg_errors.AdminShutdown):
+        await activity_raising_admin_shutdown()
+
+
+async def test_handle_non_retryable_errors_returns_result_for_non_retryable():
+    """A genuinely non-retryable error is caught and returned as a failed result, not re-raised."""
+
+    @handle_non_retryable_errors(("NotNullViolation",))
+    async def activity_raising_not_null_violation():
+        raise psycopg_errors.NotNullViolation("null value in a not-null column")
+
+    result = await activity_raising_not_null_violation()
+
+    assert result.error is not None
 
 
 @pytest.mark.parametrize(
