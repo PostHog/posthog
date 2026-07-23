@@ -373,6 +373,10 @@ export const sdksLogic = kea<sdksLogicType>([
                 values.sdkTagOverrides,
                 values.sdkDocsLinkOverrides
             )
+            const selectedSDK = availableSDKs.find((sdk) => sdk.key === values.selectedSDK?.key)
+            if (selectedSDK) {
+                actions.setSelectedSDK(selectedSDK)
+            }
 
             const filteredSDks = values.sourceFilter
                 ? availableSDKs.filter((sdk) => sdk.tags?.includes(values.sourceFilter as SDKTag))
@@ -431,9 +435,14 @@ export const sdksLogic = kea<sdksLogicType>([
     afterMount(({ actions }) => {
         actions.loadSnippetEvents()
     }),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': (_productKey, { sdk }) => {
-            const matchedSDK = ALL_SDKS.find((s) => s.key === sdk)
+            const matchedSDK =
+                getAvailableSDKs(
+                    values.availableSDKInstructionsMap,
+                    values.sdkTagOverrides,
+                    values.sdkDocsLinkOverrides
+                ).find((candidate) => candidate.key === sdk) ?? ALL_SDKS.find((candidate) => candidate.key === sdk)
             if (matchedSDK) {
                 actions.setSelectedSDK(matchedSDK)
             }
