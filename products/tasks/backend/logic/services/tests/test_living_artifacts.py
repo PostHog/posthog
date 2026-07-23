@@ -638,6 +638,12 @@ class TestLivingArtifactsTelegramRuns(TestCase):
     """Telegram-mapped runs have no artifact delivery adapter, so creation must be
     refused up front instead of succeeding and crashing at Slack-only delivery."""
 
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="TG Org")

@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional, Protocol
 
 from django.conf import settings
 from django.db import transaction
@@ -30,12 +30,19 @@ from products.tasks.backend.temporal.constants import (
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
-if TYPE_CHECKING:
-    from products.slack_app.backend.slack_thread import SlackThreadContext
-
 logger = logging.getLogger(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
+
+
+class ChatThreadContextLike(Protocol):
+    """Any provider's serializable thread context (Slack, Telegram, ...).
+
+    The serialized dict's optional ``provider`` key drives handler dispatch in the
+    slack_app facade's ``thread_handler_from_context``.
+    """
+
+    def to_dict(self) -> dict[str, Any]: ...
 
 
 def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
@@ -257,7 +264,7 @@ def execute_task_processing_workflow(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional["SlackThreadContext"] = None,
+    slack_thread_context: Optional[ChatThreadContextLike] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
