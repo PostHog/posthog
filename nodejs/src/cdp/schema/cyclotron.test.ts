@@ -8,7 +8,7 @@ describe('cyclotron schema', () => {
             expect(HogFunctionInvocationGlobalsSchema.safeParse(globals).success).toBe(true)
         })
 
-        it.each([['project'], ['event']] as const)('rejects globals missing %s (the poison-pill shape)', (field) => {
+        it.each([['project'], ['event']] as const)('rejects globals missing %s (poison-pill shape)', (field) => {
             const globals = createHogExecutionGlobals({}) as any
             delete globals[field]
             expect(HogFunctionInvocationGlobalsSchema.safeParse(globals).success).toBe(false)
