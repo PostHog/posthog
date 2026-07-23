@@ -80,7 +80,7 @@ class TestTelegramEventHandler(TestCase):
         )
 
     def _post(self, update: dict[str, Any], *, secret: str | None = SECRET) -> Any:
-        headers = {}
+        headers: dict[str, Any] = {}
         if secret is not None:
             headers["HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN"] = secret
         with override_instance_config("TELEGRAM_APP_WEBHOOK_SECRET", SECRET):

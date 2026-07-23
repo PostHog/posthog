@@ -6,6 +6,8 @@ or as a command to paste into a group (``/connect <code>``). Redemption happens 
 the webhook when the bot receives the command.
 """
 
+from typing import cast
+
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.html import escape
 from django.views.decorators.http import require_GET
@@ -14,6 +16,7 @@ import structlog
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.views import login_required
 
 from products.slack_app.backend.services.telegram_api import TelegramApiError, get_bot_identity
@@ -28,10 +31,11 @@ def _resolve_team_for_member(request: HttpRequest) -> Team | HttpResponse:
     except ValueError:
         return HttpResponse("Missing or invalid team_id.", status=400)
     team = Team.objects.filter(id=team_id).select_related("organization").first()
+    posthog_user = cast(User, request.user)
     if (
         team is None
         or not OrganizationMembership.objects.filter(
-            user_id=request.user.id, organization_id=team.organization_id
+            user_id=posthog_user.id, organization_id=team.organization_id
         ).exists()
     ):
         # One answer for "no such team" and "not your team": don't leak which
@@ -50,7 +54,7 @@ def telegram_link_start(request: HttpRequest) -> HttpResponse:
         bot_username = get_bot_identity().get("username")
     except TelegramApiError:
         return HttpResponse("Telegram isn't configured on this PostHog instance.", status=503)
-    code = mint_link_code(purpose="link", posthog_user_id=request.user.id, team_id=team.id)
+    code = mint_link_code(purpose="link", posthog_user_id=cast(User, request.user).id, team_id=team.id)
     return HttpResponseRedirect(f"https://t.me/{bot_username}?start={code}")
 
 
@@ -64,7 +68,7 @@ def telegram_connect_start(request: HttpRequest) -> HttpResponse:
         get_bot_identity()
     except TelegramApiError:
         return HttpResponse("Telegram isn't configured on this PostHog instance.", status=503)
-    code = mint_link_code(purpose="connect", posthog_user_id=request.user.id, team_id=team.id)
+    code = mint_link_code(purpose="connect", posthog_user_id=cast(User, request.user).id, team_id=team.id)
     minutes = LINK_CODE_TTL_SECONDS // 60
     return HttpResponse(
         "<html><body>"
