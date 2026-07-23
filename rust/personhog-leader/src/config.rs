@@ -196,6 +196,14 @@ pub struct Config {
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
+    /// Table the fallback reads. Must be the table the writer maintains
+    /// (its PG_TARGET_TABLE): the dirty index treats an unmarked person's
+    /// PG row as current, which is only true of the writer's own target.
+    /// Prod pairs posthog_person on both sides; the dev validation stack
+    /// pairs personhog_person_tmp on both — flip them together at cutover.
+    #[envconfig(default = "posthog_person")]
+    pub fallback_table: String,
+
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,
 
