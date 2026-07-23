@@ -8,6 +8,7 @@ from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 INLINE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
@@ -22,7 +23,13 @@ class AIBlobViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"], url_path=r"v1/sha256/(?P<hash>[0-9a-f]{64})")
     def serve(self, request: Request, hash: str, **kwargs) -> HttpResponse:
         key = f"{settings.AI_BLOB_S3_PREFIX}{self.team_id}/sha256/{hash}"
-        result = object_storage.read_object(key, bucket=settings.AI_BLOB_S3_BUCKET, missing_ok=True)
+        try:
+            result = object_storage.read_object(key, bucket=settings.AI_BLOB_S3_BUCKET, missing_ok=True)
+        except ObjectStorageError:
+            # Storage is unreachable (e.g. missing credentials) or the read failed. read_object
+            # already captured the exception, so degrade to a 503 rather than bubbling a 500 —
+            # the blob may well exist, so a 404 would be misleading.
+            return HttpResponse(status=503)
         if result is None:
             return HttpResponse(status=404)
         body, content_type = result

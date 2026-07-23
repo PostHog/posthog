@@ -1,7 +1,10 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
+
+from posthog.storage.object_storage import ObjectStorageError, ObjectStorageUnavailableError
 
 HASH = "a" * 64
 
@@ -35,6 +38,17 @@ class TestAIBlobEndpoint(APIBaseTest):
     def test_missing_object_is_404(self, mock_read) -> None:
         mock_read.return_value = None
         assert self.client.get(self._url()).status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("generic_read_failure", ObjectStorageError("read failed")),
+            ("credentials_unavailable", ObjectStorageUnavailableError("credentials unavailable")),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.ai_blob.object_storage.read_object")
+    def test_storage_failure_degrades_to_503(self, _name, error, mock_read) -> None:
+        mock_read.side_effect = error
+        assert self.client.get(self._url()).status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_bad_hash_is_404_via_routing(self) -> None:
         assert self.client.get(self._url(hash="zz" * 32)).status_code == status.HTTP_404_NOT_FOUND
