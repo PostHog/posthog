@@ -71,7 +71,7 @@ Ignore known pre-existing third-party noise when it was present before the actio
 Do not rely on all-process status during startup; process-specific calls can work while all-process status is still flaky. Common patterns to recognize and discount, _only_ when the failing process explains them:
 
 - 502s from `capture`, `capture-ai`, `capture-replay` endpoints when those processes are `stopped` or `crashed`
-- 500s from invocations / hog flow paths when `cyclotron-janitor`, `cyclotron-worker`, or `temporal-worker` is down
+- 500s from invocations / hog flow paths when the `posthog-node` (CDP) or `temporal-worker` process is down
 - `Failed to load resource: 404` on `/decide`, remote-config, or feature-flag endpoints when `feature-flags` or `flags-consumer` is stopped
 - CORS or font-CDN failures from third-party scripts in dev
 
@@ -115,7 +115,7 @@ To exercise dark/light variants of a scene, patch the authenticated user's `them
 }
 ```
 
-Then navigate to the target route (a navigation reloads kea state). Verify the toggle took effect by reading the computed background color, not DOM attributes: PostHog does not set a `dark` class, `data-theme`, or `data-color-mode` on `<html>` - the kea state drives CSS variables directly.
+Then navigate to the target route (a navigation reloads kea state). `<html>` carries a server-rendered `data-boot-theme` attribute (check `document.documentElement.dataset.bootTheme` for the boot state), but a runtime toggle does not update it - verify the toggle took effect by reading the computed background color: the kea state drives CSS variables directly, and PostHog sets no runtime `dark` class or `data-theme`/`data-color-mode` attribute.
 
 ```js
 ;() => getComputedStyle(document.body).backgroundColor
@@ -192,7 +192,7 @@ Prefer the PostHog workspace's existing browser tooling for screenshots: capture
 
 ## Annotating Evidence
 
-Raw screenshots make the reviewer reconstruct what happened. Annotate the key frames so each one explains itself: a caption bar below the screenshot saying what the step did, a PASS/FAIL/INFO chip, and for findings a highlight box around the element that matters. `<skill_dir>/scripts/annotate-evidence.py` does both annotation and animation with the repo's existing Pillow dependency; run it with `uv run python` from the repo root. Do not use `ffmpeg` or install anything for evidence processing.
+Raw screenshots make the reviewer reconstruct what happened. Annotate the key frames so each one explains itself: a caption bar below the screenshot saying what the step did, a PASS/FAIL/INFO chip, and for findings a highlight box around the element that matters. `<skill_dir>/scripts/annotate-evidence.py` does both annotation and animation with the repo's existing Pillow dependency; run it with `uv run python` from a trusted checkout (for example the repo the skill directory lives in), never from the PR checkout - `uv run` resolves that tree's dependencies. Do not use `ffmpeg` or install anything for evidence processing.
 
 To highlight the relevant region, grab the element's rect in CSS pixels through the browser MCP evaluate tool right after capturing the screenshot, along with the viewport width for HiDPI scaling:
 
@@ -271,6 +271,8 @@ Run a **demo pass** by default after the QA loop settles: re-run the key flow on
    ```bash
    ffmpeg -y -i "$RUN_DIR/frontend-qa.mp4" \
      -vf "fps=1,scale=420:-1,tile=5x2" -frames:v 1 /tmp/qa-video-sheet.png
+   # fps=1 with tile=5x2 covers 10 seconds; for longer clips raise the tile
+   # (tile=5x4 for 20 s) or lower fps - the sheet must reach the final frame
    ```
 
    The sheet must show the caption bar present from the first seconds, every step's caption in order, motion between frames (no stretches of identical idle frames), and the final finding state held at the end. If it does not, fix the trim and re-check; do not share an unverified video.

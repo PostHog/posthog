@@ -18,8 +18,8 @@ In PR mode, prefer a stack where the PR's code executes away from the developer'
 When `.agents/skills/run-posthog/SKILL.md` is present in the repo, read it and use its current readiness checks, phrocs process guidance, and `setup_test`/login recipe as the source of truth. This skill only adds the QA-specific constraints: reuse the user's stack when it is already usable, ask before starting or restarting PostHog, and stop only the stack the agent started.
 
 ```bash
-curl -sf "$BASE_URL/_health"
-curl -sf -o /dev/null -w '%{http_code}' "$BASE_URL/"
+curl -sf --max-time 5 "$BASE_URL/_health"
+curl -sf --max-time 10 -o /dev/null -w '%{http_code}' "$BASE_URL/"
 ```
 
 If those checks show the app is reachable, continue. Do not start, restart, replace, or wait on another stack when the existing `BASE_URL` is already usable. If they fail, use available local health checks, for example process-specific phrocs MCP checks when phrocs is already running:
@@ -63,7 +63,7 @@ LOGIN_USERNAME="${LOGIN_USERNAME:-test@posthog.com}"
 LOGIN_PASSWORD="${LOGIN_PASSWORD:-12345678}"
 ```
 
-This gives three sources of credentials, in precedence order: chat flag -> env var (if `LOGIN_USERNAME` / `LOGIN_PASSWORD` are already exported in the shell) -> seed default. No `_OVERRIDE` / `_EFFECTIVE` indirection needed.
+This gives three sources of credentials, in precedence order: chat flag -> env var (if `LOGIN_USERNAME` / `LOGIN_PASSWORD` are already exported in the shell) -> seed default. Fork-rule runs ignore this precedence entirely: they use throwaway credentials only, per `safety-rules.md`. No `_OVERRIDE` / `_EFFECTIVE` indirection needed.
 
 Never print the password. Refer to chat-provided credentials only as "login override provided" in user-facing output.
 

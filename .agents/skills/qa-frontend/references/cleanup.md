@@ -6,7 +6,7 @@ It also applies to every early exit. If the run aborts at any point after a chec
 
 ## Checkout
 
-PR mode always attempts to restore the original branch:
+Before switching branches, remove agent-generated local config hunks (see Generated Local Files below): a modified tracked file carries across `git checkout` and would silently land on the developer's own branch. Then PR mode always attempts to restore the original branch:
 
 ```bash
 git checkout "$original_branch"
@@ -14,7 +14,7 @@ git checkout "$original_branch"
 
 If the run started from a detached HEAD, `$original_branch` is the SHA recorded at preflight; never run `git checkout` with an empty argument.
 
-Leave `.qa-frontend/runs/<run-id>/` in place for debugging unless the user asked for cleanup. Confirm `git status --porcelain` is clean except for intentional local fix commits that could not be pushed because the push was rejected or connectivity failed.
+Keep the run directory for debugging, but mind the branch: where `.qa-frontend/` is not gitignored (any branch cut before this skill merged), an in-repo run directory dirties the tree and blocks the next PR-mode run's clean-tree gate - move it out of the repo (for example `$TMPDIR/qa-frontend-runs/`) and tell the user where it went. Confirm `git status --porcelain` is clean. Unpushed local fix commits never show in status; list them with `git log <pr-branch> --not origin/<pr-branch>` and mention them in the report if the push was rejected or skipped.
 
 Local mode did not check out a PR branch, so there is nothing to restore. Leave the run directory in place.
 

@@ -118,7 +118,9 @@ Before touching the PR branch:
 
 ```bash
 git status --porcelain
-gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,authorAssociation,title,body
+gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,title,body
+PR_NUMBER=$(gh pr view "$PR_REF" --json number --jq '.number')
+gh api 'repos/{owner}/{repo}/pulls/'$PR_NUMBER --jq '.author_association'
 ```
 
 Abort with no side effects if the working tree is dirty. Do not stash, reset, or commit the user's existing work.
@@ -129,7 +131,7 @@ Record:
 - PR head branch: `headRefName`
 - PR base branch: `baseRefName`
 - Fork mode: `isCrossRepository`
-- Author standing: `authorAssociation` - `MEMBER`/`OWNER` proceed; anything else follows the fork rules in `references/safety-rules.md` even for a same-repo branch
+- Author standing: `author_association` from the `gh api` call - `MEMBER`/`OWNER` proceed; anything else follows the fork rules in `references/safety-rules.md` even for a same-repo branch
 - Original PR file list: the only files an autonomous fix may touch
 
 If the PR is a fork (`isCrossRepository == true`), do not check it out or run frontend QA by default. Use static review/comment-only output unless the user explicitly approves fork frontend QA with throwaway credentials and a disposable stack after seeing `references/safety-rules.md`. Never push to a fork PR.
@@ -186,7 +188,7 @@ Local mode skips this section entirely.
 PR mode - gather diff material after checkout:
 
 ```bash
-gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,authorAssociation,title,body
+gh pr view "$PR_REF" --json files,headRefName,baseRefName,isCrossRepository,title,body
 gh pr diff "$PR_REF"
 ```
 
@@ -237,7 +239,7 @@ For each test case:
 
 Evidence files live under `.qa-frontend/runs/<run-id>/` and stay uncommitted. Use filenames like `001-dashboard-load.png`, `002-save-click.png`, and `console-errors.json`.
 
-Annotate the key screenshots so a reviewer can read the run without replaying it: each frame gets a caption bar stating what is happening plus a PASS/FAIL/INFO chip, and findings get a highlight box around the element that matters. Then assemble 2-5 annotated key frames into a slow animated WebP demo reel named `.qa-frontend/runs/<run-id>/frontend-qa.webp`. Both steps use `<skill_dir>/scripts/annotate-evidence.py` through `uv run python` - it needs only the repo's existing Pillow dependency, so do not install packages or use `ffmpeg` for this. Use the recipes and the highlight-rect capture pattern in `references/browser-mcp-patterns.md`. Aim for about 1.5-2 seconds per frame, slightly longer on frames that show a finding. Before uploading or embedding the reel, inspect it. If text is fuzzy or the sequence is less useful than the stills, fall back to the annotated PNGs as primary evidence.
+Annotate the key screenshots so a reviewer can read the run without replaying it: each frame gets a caption bar stating what is happening plus a PASS/FAIL/INFO chip, and findings get a highlight box around the element that matters. Then assemble 2-5 annotated key frames into a slow animated WebP demo reel named `.qa-frontend/runs/<run-id>/frontend-qa.webp`. Both steps use `<skill_dir>/scripts/annotate-evidence.py` through `uv run python`, run from a trusted checkout rather than the PR checkout (`uv run` resolves that tree's dependencies) - it needs only the repo's existing Pillow dependency, so do not install packages or use `ffmpeg` for this. Use the recipes and the highlight-rect capture pattern in `references/browser-mcp-patterns.md`. Aim for about 1.5-2 seconds per frame, slightly longer on frames that show a finding. Before uploading or embedding the reel, inspect it. If text is fuzzy or the sequence is less useful than the stills, fall back to the annotated PNGs as primary evidence.
 
 After the QA loop settles, run the recorded demo pass from `references/browser-mcp-patterns.md` by default: re-run the key flow once with the browser tool's recording on and the `scripts/cursor-overlay.js` visible cursor injected, then transcode to H.264 MP4. Skip it only when `NO_VIDEO` was set, the browser tool cannot record video, or `ffmpeg` is missing - and record the skip and its reason in run notes and the report's Setup section. The MP4 is linked from the local report; in PR mode it may join the approved upload set through `hogli pr:upload-video`, which yields a download link in the comment - an inline player still requires the developer to drag the file into the comment editor by hand.
 

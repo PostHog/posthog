@@ -337,4 +337,6 @@ Before posting, scrub console excerpts for:
 
 Never include GitHub tokens or raw upload response bodies. If you copy any `hogli pr:upload-image` output into the comment, take only the `![alt](url)` markdown lines from stdout.
 
+UI-sourced strings from the tested app (question titles, labels, error text) get interpolated into the report's code fences: strip backtick runs and control characters from them and truncate anything absurdly long, so a malicious or unlucky string cannot close its fence and inject markdown into the comment.
+
 Screenshots from local stacks should be embedded only when small and safe. Never use em dashes (`—`) in any output; use a plain hyphen (`-`) or rewrite the sentence.

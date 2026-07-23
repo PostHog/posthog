@@ -249,8 +249,10 @@ def animate(args: argparse.Namespace) -> int:
     padded: list[Image.Image] = []
     for img in resized:
         if img.width != target_w or img.height != max_h:
+            # anchor at the bottom so every frame's caption bar sits at the same
+            # place; the padding goes above the screenshot, not below it
             canvas = Image.new("RGB", (target_w, max_h), BAR_BG)
-            canvas.paste(img, ((target_w - img.width) // 2, 0))
+            canvas.paste(img, ((target_w - img.width) // 2, max_h - img.height))
             img = canvas
         padded.append(img)
 
