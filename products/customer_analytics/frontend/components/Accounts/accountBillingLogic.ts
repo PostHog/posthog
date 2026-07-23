@@ -54,13 +54,11 @@ function withBillingQueryTags(insight: QueryBasedInsightModel): QueryBasedInsigh
         return insight
     }
     const dataViz = query as DataVisualizationNode
-    return {
-        ...insight,
-        query: {
-            ...dataViz,
-            source: { ...dataViz.source, tags: { ...BILLING_QUERY_TAGS, ...dataViz.source.tags } },
-        },
+    const taggedQuery: DataVisualizationNode = {
+        ...dataViz,
+        source: { ...dataViz.source, tags: { ...BILLING_QUERY_TAGS, ...dataViz.source.tags } },
     }
+    return { ...insight, query: taggedQuery as QueryBasedInsightModel['query'] }
 }
 
 export interface BillingDateRange {
