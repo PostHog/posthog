@@ -11,7 +11,6 @@ All three converge to create_or_update_slack_ticket().
 
 import re
 import json
-from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -23,9 +22,14 @@ import structlog
 import posthoganalytics
 from slack_sdk import WebClient
 
+from posthog.comment.formatting import (
+    extract_slack_user_ids,
+    slack_to_content_and_rich_content,
+    strip_slack_user_mentions,
+)
 from posthog.event_usage import groups, report_team_action
+from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.models.comment import Comment
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
@@ -33,16 +37,11 @@ from posthog.ph_client import ph_scoped_capture
 from .cache import (
     NUDGE_COOLDOWN_TTL,
     get_cached_bot_user_id,
-    get_cached_slack_avatar,
-    get_cached_slack_user,
     is_nudge_suppressed,
     set_cached_bot_user_id,
-    set_cached_slack_avatar,
-    set_cached_slack_user,
     slack_ticket_create_lock,
     suppress_nudge,
 )
-from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content, strip_slack_user_mentions
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .services.attachments import (
@@ -139,91 +138,6 @@ def get_slack_client(team: Team) -> WebClient:
     if bot_token:
         return WebClient(token=bot_token)
     raise ValueError("Support Slack bot token is not configured")
-
-
-_UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None})
-
-
-def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
-    """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes."""
-    if not slack_user_id:
-        logger.warning("slack_support_user_resolve_empty_id")
-        return dict(_UNKNOWN_USER)
-
-    cached = get_cached_slack_user(slack_user_id)
-    if cached is not None:
-        return cached
-
-    try:
-        response = client.users_info(user=slack_user_id)
-        raw_data = response.data if hasattr(response, "data") else None
-        data: dict = raw_data if isinstance(raw_data, dict) else {}
-
-        if not data.get("ok"):
-            logger.warning(
-                "slack_support_user_resolve_not_ok",
-                slack_user_id=slack_user_id,
-                error=data.get("error"),
-            )
-            return dict(_UNKNOWN_USER)
-
-        user_data = data.get("user") or {}
-        profile = user_data.get("profile") or {}
-        name = profile.get("display_name") or profile.get("real_name") or "Unknown"
-        result = {
-            "name": name,
-            "email": profile.get("email"),
-            "avatar": profile.get("image_72"),
-        }
-        set_cached_slack_user(slack_user_id, result)
-        return result
-    except Exception as e:
-        logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
-        return dict(_UNKNOWN_USER)
-
-
-def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
-    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
-    if not email:
-        return None
-
-    cached = get_cached_slack_avatar(email)
-    if cached is not None:
-        return cached or None  # empty string = negative cache
-
-    try:
-        response = client.users_lookupByEmail(email=email)
-        raw_data = response.data if hasattr(response, "data") else None
-        data: dict = raw_data if isinstance(raw_data, dict) else {}
-
-        if not data.get("ok"):
-            set_cached_slack_avatar(email, "")
-            return None
-
-        profile = (data.get("user") or {}).get("profile") or {}
-        avatar = profile.get("image_72") or ""
-        set_cached_slack_avatar(email, avatar)
-        return avatar or None
-    except Exception:
-        # Don't negative-cache on transient errors (rate limits, network)
-        # so the next reply retries the lookup.
-        logger.warning("slack_avatar_lookup_failed", email=email)
-        return None
-
-
-def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:
-    """Match a Slack user's email to a PostHog user within the team's organization."""
-    if not email:
-        return None
-    membership = (
-        OrganizationMembership.objects.filter(
-            organization_id=team.organization_id,
-            user__email=email,
-        )
-        .select_related("user")
-        .first()
-    )
-    return membership.user if membership else None
 
 
 def get_bot_user_id(client: WebClient) -> str | None:
@@ -431,7 +345,7 @@ def create_or_update_slack_ticket(
     images, file_attachments = split_slack_attachments(extract_slack_files(files, team, client))
 
     # Resolve Slack user info for this message author
-    user_info = resolve_slack_user(client, slack_user_id)
+    user_info = resolve_slack_user(client, slack_user_id, workspace=slack_team_id or "")
 
     # Check if this Slack user is a PostHog team member
     posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
@@ -444,7 +358,7 @@ def create_or_update_slack_ticket(
         if uid == slack_user_id and user_info["name"] != "Unknown":
             user_names[uid] = user_info["name"]
         elif uid not in user_names:
-            info = resolve_slack_user(client, uid)
+            info = resolve_slack_user(client, uid, workspace=slack_team_id or "")
             if info["name"] != "Unknown":
                 user_names[uid] = info["name"]
 
@@ -702,7 +616,9 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         # click "Open ticket" (handled by the interactivity endpoint). Heuristics
         # keep us from pestering the whole channel.
         if settings_dict.get("slack_nudge_enabled", True):
-            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files, message_ts or "")
+            decision = _should_send_nudge(
+                team, channel, slack_user_id, text, blocks, files, message_ts or "", slack_team_id
+            )
             if decision.send:
                 post_ticket_confirmation_prompt(
                     team=team,
@@ -913,6 +829,7 @@ def _should_send_nudge(
     blocks: list[dict] | None,
     files: list[dict] | None,
     message_ts: str,
+    slack_team_id: str,
 ) -> NudgeDecision:
     """Heuristics to avoid pestering the channel: nudge only external users on substantive
     messages, skipping anyone recently nudged/dismissed or who @mentioned the bot (which
@@ -936,7 +853,7 @@ def _should_send_nudge(
     # External users only — internal teammates don't need nudging. Skipped in local
     # dev, where the tester's own account is the only org member and would never nudge.
     if not settings.DEBUG:
-        user_info = resolve_slack_user(client, slack_user_id)
+        user_info = resolve_slack_user(client, slack_user_id, workspace=slack_team_id)
         if resolve_posthog_user_for_slack(user_info.get("email"), team):
             return NudgeDecision(send=False, classifier_verdict="skipped")
 
@@ -1065,7 +982,9 @@ def _create_ticket_and_backfill(
         post_confirmation=post_confirmation,
     )
     if ticket:
-        _backfill_thread_replies(client, team, ticket, slack_channel_id, thread_ts, after_ts=after_ts)
+        _backfill_thread_replies(
+            client, team, ticket, slack_channel_id, thread_ts, slack_team_id=slack_team_id, after_ts=after_ts
+        )
     return ticket
 
 
@@ -1235,6 +1154,8 @@ def _backfill_thread_replies(
     ticket: Ticket,
     channel: str,
     thread_ts: str,
+    *,
+    slack_team_id: str | None,
     after_ts: str | None = None,
 ) -> None:
     """Fetch existing thread replies and add them as comments on the ticket.
@@ -1292,7 +1213,7 @@ def _backfill_thread_replies(
         images, file_attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
 
         if reply_user not in user_cache:
-            user_cache[reply_user] = resolve_slack_user(client, reply_user)
+            user_cache[reply_user] = resolve_slack_user(client, reply_user, workspace=slack_team_id or "")
         user_info = user_cache[reply_user]
 
         if reply_user not in posthog_user_cache:
@@ -1305,7 +1226,7 @@ def _backfill_thread_replies(
         reply_user_names: dict[str, str] = {}
         for uid in mentioned_ids:
             if uid not in user_cache:
-                user_cache[uid] = resolve_slack_user(client, uid)
+                user_cache[uid] = resolve_slack_user(client, uid, workspace=slack_team_id or "")
             if user_cache[uid]["name"] != "Unknown":
                 reply_user_names[uid] = user_cache[uid]["name"]
 
@@ -1516,6 +1437,7 @@ def _handle_member_event(
     team: Team,
     *,
     joined: bool,
+    slack_team_id: str,
     client: WebClient | None = None,
     own_bot_user_id: str | None = None,
 ) -> None:
@@ -1565,7 +1487,7 @@ def _handle_member_event(
 
     # Members of the team's own organization are internal teammates, not the external
     # participants these alerts surface — skip them.
-    slack_user = resolve_slack_user(client, user)
+    slack_user = resolve_slack_user(client, user, workspace=slack_team_id)
     if resolve_posthog_user_for_slack(slack_user.get("email"), team):
         return
 
@@ -1599,9 +1521,11 @@ def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) ->
     client = get_slack_client(team)
     own_bot_user_id = get_bot_user_id_cached(team, client)
     _track_bot_joined_channel(event, team, slack_team_id, own_bot_user_id=own_bot_user_id)
-    _handle_member_event(event, team, joined=True, client=client, own_bot_user_id=own_bot_user_id)
+    _handle_member_event(
+        event, team, joined=True, slack_team_id=slack_team_id, client=client, own_bot_user_id=own_bot_user_id
+    )
 
 
 def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:
     """Handle a Slack 'member_left_channel' event by alerting the configured channel."""
-    _handle_member_event(event, team, joined=False)
+    _handle_member_event(event, team, joined=False, slack_team_id=slack_team_id)
