@@ -30,6 +30,8 @@ import structlog
 
 from posthog.security.outbound_proxy import internal_requests
 
+from products.tasks.backend.metrics import RUN_LOG_MIRROR_ENTRIES_TOTAL, RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL
+
 logger = structlog.get_logger(__name__)
 
 # The collector truncates whole log lines at 100 KB (`max_log_size`); cap the body well
@@ -126,6 +128,8 @@ def mirror_entries(
         getattr(logger, _LOG_METHOD_NAMES[severity])(_LOG_EVENT_NAME, **fields)
         records.append((severity, fields))
 
+    if records:
+        RUN_LOG_MIRROR_ENTRIES_TOTAL.labels(origin_product=origin_product).inc(len(records))
     _post_otlp(records, run_id=run_id)
 
 
@@ -182,7 +186,9 @@ def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> Non
             timeout=_OTLP_TIMEOUT,
         )
         response.raise_for_status()
+        RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL.labels(outcome="sent").inc()
     except Exception as e:
+        RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL.labels(outcome="failed").inc()
         logger.warning("task_run_log_mirror_otlp_failed", task_run_id=run_id, error=str(e))
 
 

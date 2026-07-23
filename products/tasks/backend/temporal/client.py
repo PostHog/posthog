@@ -18,7 +18,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
-from products.tasks.backend.metrics import observe_task_run_workflow_start
+from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.constants import (
@@ -165,6 +165,10 @@ def _capture_run_feature_flags(run_id: str) -> None:
             latest_state[AGENT_OTEL_TELEMETRY_STATE_KEY] = otel_telemetry_enabled
 
     captured_state = TaskRun.mutate_state_atomic(task_run.id, _stamp_flags)
+    if need_otel_telemetry:
+        AGENT_OTEL_TELEMETRY_STAMPED_TOTAL.labels(
+            enabled=str(bool(captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY))).lower()
+        ).inc()
     logger.info(
         "run_feature_flags_captured",
         extra={
