@@ -11307,6 +11307,7 @@ export namespace Schemas {
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
+     * * `hogql` - Hogql
      */
     export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
 
@@ -11315,6 +11316,7 @@ export namespace Schemas {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -11695,7 +11697,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
@@ -12542,7 +12545,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination: BatchExportDestinationRequest;
@@ -46752,7 +46756,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination?: BatchExportDestinationRequest;
