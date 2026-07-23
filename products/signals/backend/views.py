@@ -1086,6 +1086,15 @@ class SignalReportViewSet(
                 ),
                 to_attr="prefetched_dismissal_artefacts",
             ),
+            Prefetch(
+                "artefacts",
+                # created_by filter: feedback is a human verdict — never surface task/system-attributed
+                # rows as the report's feedback (the create API rejects them; this covers any other writer).
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.FEEDBACK, created_by__isnull=False
+                ).order_by("-created_at"),
+                to_attr="prefetched_feedback_artefacts",
+            ),
         )
 
     def _annotate_is_suggested_reviewer(self, queryset):
@@ -2533,6 +2542,14 @@ class SignalReportArtefactViewSet(
             )
         content = request.validated_data["content"]
         attribution = resolve_request_attribution(request, self.team.id)
+        if artefact_type == SignalReportArtefact.ArtefactType.FEEDBACK and attribution.kind != "user":
+            # Feedback records a human reader's verdict and scouts are told to learn from it —
+            # an agent-authored row would be indistinguishable from a real reader's, so only
+            # user-attributed writes are accepted.
+            return Response(
+                {"error": "feedback artefacts record a human verdict and cannot be attributed to a task."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if artefact_type == SignalReportArtefact.ArtefactType.TASK_RUN:
             # task_run artefacts are the task↔report association itself, so they get
             # associate-me ergonomics: content.task_id defaults to the calling agent's task
