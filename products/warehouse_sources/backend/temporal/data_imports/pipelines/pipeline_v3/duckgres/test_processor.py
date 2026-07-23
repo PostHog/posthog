@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _process_backfill_batch,
     _process_batch,
     _session_cache,
+    _table_exists,
     process_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -730,3 +731,49 @@ class TestLiveSessionReuse:
             process_batch(_make_batch(batch_index=1))
 
         assert self.mock_team.objects.only.return_value.get.call_count == 1
+
+
+def _existence_conn(exists: bool):
+    """A mock connection whose information_schema probe reports table existence."""
+    conn = MagicMock()
+    cur = MagicMock()
+    cur.fetchone.return_value = (1,) if exists else None
+    conn.execute.return_value = cur
+    return conn
+
+
+class TestTableExistsCache:
+    """`information_schema.tables` forces duckgres to materialize its whole-catalog
+    compat view — tens of seconds under concurrent snapshot commits on a large
+    DuckLake catalog (prod, 2026-07). Cache the answer per connection so it is
+    paid at most once per connection, not once per batch."""
+
+    def test_second_check_on_same_connection_skips_the_catalog_query(self):
+        conn = _existence_conn(True)
+        assert _table_exists(conn, "posthog_data_imports_team_1", "customers") is True
+        assert _table_exists(conn, "posthog_data_imports_team_1", "customers") is True
+        # information_schema queried exactly once despite two existence checks.
+        assert conn.execute.call_count == 1
+
+    def test_distinct_tables_each_check_once(self):
+        conn = _existence_conn(True)
+        _table_exists(conn, "s", "a")
+        _table_exists(conn, "s", "b")
+        _table_exists(conn, "s", "a")
+        assert conn.execute.call_count == 2
+
+    def test_separate_connections_do_not_share_the_cache(self):
+        c1, c2 = _existence_conn(True), _existence_conn(True)
+        _table_exists(c1, "s", "t")
+        _table_exists(c2, "s", "t")
+        assert c1.execute.call_count == 1
+        assert c2.execute.call_count == 1
+
+    def test_absent_table_is_not_cached(self):
+        # A negative must be re-checked: the table may be created between batches
+        # (the create path), so caching "does not exist" would wrongly skip a
+        # later insert/merge onto the now-existing table.
+        conn = _existence_conn(False)
+        assert _table_exists(conn, "s", "t") is False
+        assert _table_exists(conn, "s", "t") is False
+        assert conn.execute.call_count == 2

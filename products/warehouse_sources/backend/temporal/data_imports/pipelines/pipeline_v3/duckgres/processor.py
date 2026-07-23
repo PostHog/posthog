@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from time import sleep as _real_sleep  # captured before any test patches this module's `time`
 from typing import Any, Literal
+from weakref import WeakKeyDictionary
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -648,7 +649,17 @@ def _plan_batch_operation(
     raise PermanentBatchApplyError(f"Unsupported Duckgres sync type: {batch.sync_type}")
 
 
+# Per-connection cache of tables confirmed to exist: the information_schema
+# probe below is expensive on a large, high-churn DuckLake catalog and the sink
+# runs it every non-first batch. Only positive results are cached (a table may
+# be created between batches); GC'd with the connection, so reuse re-checks.
+_existing_tables: WeakKeyDictionary[psycopg.Connection[Any], set[tuple[str, str]]] = WeakKeyDictionary()
+
+
 def _table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str) -> bool:
+    known = _existing_tables.setdefault(conn, set())
+    if (duckgres_schema, duckgres_table) in known:
+        return True
     cursor = conn.execute(
         """
         SELECT 1
@@ -659,7 +670,10 @@ def _table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_
         """,
         [duckgres_schema, duckgres_table],
     )
-    return cursor.fetchone() is not None
+    exists = cursor.fetchone() is not None
+    if exists:
+        known.add((duckgres_schema, duckgres_table))
+    return exists
 
 
 def _replace_table(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, paths: list[str]) -> None:
