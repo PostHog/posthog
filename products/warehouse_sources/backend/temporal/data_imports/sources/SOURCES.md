@@ -528,6 +528,7 @@ the row lists both.
 | squadcast                        | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
 | squarespace                      | HTTP                        | requests                                                        | ✅                          |
+| stack_overflow_for_teams         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | statuscake                       | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
@@ -1292,7 +1293,6 @@ doesn't conflict with concurrent PRs.
 - sprig
 - sprinklr
 - sprout_social
-- stack_overflow_for_teams
 - statsig
 - stockx
 - strava
