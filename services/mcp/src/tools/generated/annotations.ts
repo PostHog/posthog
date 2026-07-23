@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/annotations/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { castStringToInt } from '@/tools/cast-helpers'
-
 import {
     AnnotationsCreateBody,
     AnnotationsDestroyParams,
@@ -15,6 +10,9 @@ import {
     AnnotationsPartialUpdateParams,
     AnnotationsRetrieveParams,
 } from '@/generated/annotations/api'
+import { castStringToInt } from '@/tools/cast-helpers'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AnnotationCreateSchema = AnnotationsCreateBody.omit({
     creation_type: true,
