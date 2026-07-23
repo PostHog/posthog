@@ -55,7 +55,7 @@ async function request(url, options, label) {
     return parsed
 }
 
-async function withRetry(label, fn) {
+async function withRetry(fn) {
     for (let attempt = 1; ; attempt++) {
         try {
             return await fn()
@@ -85,13 +85,13 @@ function endpointUrl(action, params = {}) {
 const AUTH_HEADERS = { Authorization: `Bearer ${API_KEY}` }
 
 function fetchFlakyTests() {
-    return withRetry('flaky_tests', () =>
+    return withRetry(() =>
         request(endpointUrl('flaky_tests', { date_from: '-7d', limit: 100 }), { headers: AUTH_HEADERS }, 'flaky_tests')
     )
 }
 
 function hogql(query) {
-    return withRetry('query', () =>
+    return withRetry(() =>
         request(
             `${HOST}/api/projects/${PROJECT_ID}/query/`,
             {
@@ -104,9 +104,14 @@ function hogql(query) {
     )
 }
 
-// One bad merge is breakage, not flakiness; keep it off the table.
+// One bad merge is breakage, not flakiness; keep it off the table. The endpoint's
+// classification does not separate master bursts yet, so this stays client-side.
 function isMasterBurst(item) {
-    return item.failed_count > 0 && item.master_failed_count / item.failed_count >= 0.5 && item.branch_count <= 3
+    return (
+        item.failed_run_count > 0 &&
+        item.master_failed_run_count / item.failed_run_count >= 0.5 &&
+        item.failed_pr_count <= 3
+    )
 }
 
 // Product suites run from their product dir, so a selector path may be repo- or
@@ -248,9 +253,9 @@ function collapseClusters(items) {
             collapsed.push({
                 selector: file,
                 cluster_size: group.length,
-                failed_count: group.reduce((sum, item) => sum + item.failed_count, 0),
+                failed_run_count: group.reduce((sum, item) => sum + item.failed_run_count, 0),
                 failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),
-                xfailed_count: 0,
+                quarantined_failed_run_count: 0,
             })
         } else {
             collapsed.push(...group)
@@ -280,7 +285,7 @@ function tableRows(items, ownerFor, extrasFor) {
         const testCell = repoPath
             ? mrkdwnCell(`<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}|${name}>`)
             : cell(name)
-        const quarantined = item.xfailed_count > 0 ? ' (quarantined)' : ''
+        const quarantined = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0 ? ' (quarantined)' : ''
         const logs = evidence
             .map(({ runId, jobId }, i) => {
                 const url = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`
@@ -291,7 +296,7 @@ function tableRows(items, ownerFor, extrasFor) {
             testCell,
             cell(owner.replace(/^team-/, '') + quarantined),
             cell(runsRescued == null ? '-' : String(runsRescued)),
-            cell(String(item.failed_count)),
+            cell(String(item.failed_run_count)),
             logs ? mrkdwnCell(logs) : cell('-'),
         ]
     })
@@ -361,7 +366,7 @@ async function main() {
     const extrasFor = await enrich(pool.filter((item) => !item.cluster_size))
     // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
     const flaky = pool
-        .sort((a, b) => (extrasFor(b).runsRescued ?? 0) - (extrasFor(a).runsRescued ?? 0) || b.failed_count - a.failed_count)
+        .sort((a, b) => (extrasFor(b).runsRescued ?? 0) - (extrasFor(a).runsRescued ?? 0) || b.failed_run_count - a.failed_run_count)
         .slice(0, TOP_N)
     if (flaky.length === 0) {
         console.info('No qualifying flaky tests this week.')
