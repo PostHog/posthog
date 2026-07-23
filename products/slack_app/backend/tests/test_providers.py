@@ -7,6 +7,7 @@ from products.slack_app.backend.providers import (
     thread_handler_from_context,
 )
 from products.slack_app.backend.slack_thread import SlackThreadHandler
+from products.slack_app.backend.telegram_thread import TelegramThreadHandler
 
 
 def test_registry_resolves_slack_provider():
@@ -23,6 +24,13 @@ def test_thread_handler_context_without_provider_key_dispatches_to_slack():
     # rely on this default staying in place when they start stamping their own key.
     handler = thread_handler_from_context({"integration_id": 1, "channel": "C1", "thread_ts": "1.0"})
     assert isinstance(handler, SlackThreadHandler)
+
+
+def test_thread_handler_dispatches_telegram_contexts():
+    handler = thread_handler_from_context(
+        {"provider": "telegram", "integration_id": 1, "chat_id": "-100555", "root_message_id": "42"}
+    )
+    assert isinstance(handler, TelegramThreadHandler)
 
 
 def test_thread_handler_unknown_provider_raises():
