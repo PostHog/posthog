@@ -12,6 +12,7 @@ import hashlib
 
 from django.http import HttpRequest
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import SlackIntegration, sign_slack_request
 
 REGION_SIGNATURE_HEADER = "X-PostHog-Region-Signature"
@@ -59,4 +60,6 @@ def region_claims_secret(provider: str) -> str:
     """The shared US/EU secret used to sign cross-region claims probes for a provider."""
     if provider == "slack":
         return str(SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"])
+    if provider == "telegram":
+        return str(get_instance_setting("TELEGRAM_APP_WEBHOOK_SECRET"))
     raise RegionAuthError(f"Unknown chat provider: {provider}")

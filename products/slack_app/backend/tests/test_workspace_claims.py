@@ -10,6 +10,7 @@ from django.test import RequestFactory, TestCase, override_settings
 import requests
 from rest_framework.test import APIClient
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -377,3 +378,59 @@ class TestChatWorkspaceClaimsView(TestCase):
             content_type="application/json",
         )
         assert response.status_code == 404
+
+
+class TestTelegramWorkspaceClaims(TestCase):
+    """Telegram claims probes: signed with the shared webhook secret via the neutral
+    region headers. There is no legacy-header fallback for telegram — that shim is
+    Slack-only, and removing that asymmetry would quietly widen the accepted auth
+    surface of a public endpoint.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.secret = "telegram-claims-test-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def _post(self, payload: dict, *, secret: str | None = None) -> Any:
+        body = json.dumps(payload).encode()
+        signature, ts = sign_region_request(body, secret or self.secret)
+        return self.client.post(
+            "/chat/telegram/workspace/claims/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_POSTHOG_REGION_SIGNATURE=signature,
+            HTTP_X_POSTHOG_REGION_TIMESTAMP=ts,
+        )
+
+    def test_signed_probe_reports_bound_chat(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="telegram",
+            integration_id="-100999",
+            config={"chat_type": "supergroup"},
+        )
+        with override_instance_config("TELEGRAM_APP_WEBHOOK_SECRET", self.secret):
+            response = self._post({"workspace_id": "-100999", "kinds": ["telegram"]})
+        assert response.status_code == 200
+        assert response.json() == {"claimed": True}
+
+    def test_wrong_secret_returns_403(self):
+        with override_instance_config("TELEGRAM_APP_WEBHOOK_SECRET", self.secret):
+            response = self._post({"workspace_id": "-100999", "kinds": ["telegram"]}, secret="different")
+        assert response.status_code == 403
+
+    def test_slack_style_headers_rejected_for_telegram(self):
+        # The legacy Slack-header fallback must stay scoped to provider=slack.
+        body = json.dumps({"workspace_id": "-100999", "kinds": ["telegram"]}).encode()
+        signature, ts = sign_slack_request(body, self.secret)
+        with override_instance_config("TELEGRAM_APP_WEBHOOK_SECRET", self.secret):
+            response = self.client.post(
+                "/chat/telegram/workspace/claims/",
+                data=body,
+                content_type="application/json",
+                HTTP_X_SLACK_SIGNATURE=signature,
+                HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            )
+        assert response.status_code == 403

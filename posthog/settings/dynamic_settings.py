@@ -182,6 +182,16 @@ CONSTANCE_CONFIG = {
         "Used to validate incoming webhook events for the Support Slack bot.",
         str,
     ),
+    "TELEGRAM_APP_BOT_TOKEN": (
+        get_from_env("TELEGRAM_APP_BOT_TOKEN", default=""),
+        "Bot token for the PostHog Telegram bot. Empty disables the Telegram chat surface.",
+        str,
+    ),
+    "TELEGRAM_APP_WEBHOOK_SECRET": (
+        get_from_env("TELEGRAM_APP_WEBHOOK_SECRET", default=""),
+        "Secret Telegram echoes in the webhook header; also signs cross-region claims probes.",
+        str,
+    ),
     "SUPPORT_TEAMS_APP_ID": (
         get_from_env("SUPPORT_TEAMS_APP_ID", default=""),
         "Azure AD Application (client) ID for the SupportHog Teams bot. Shared across all tenants.",
@@ -343,6 +353,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
+    "TELEGRAM_APP_BOT_TOKEN",
+    "TELEGRAM_APP_WEBHOOK_SECRET",
     "SUPPORT_TEAMS_APP_ID",
     "SUPPORT_TEAMS_APP_SECRET",
     "SUPPORT_TEAMS_APP_TENANT_ID",

@@ -356,6 +356,7 @@ class Integration(models.Model):
         SNAPCHAT = "snapchat"
         SNOWFLAKE = "snowflake"
         STRIPE = "stripe"
+        TELEGRAM = "telegram"
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
         VERCEL = "vercel"

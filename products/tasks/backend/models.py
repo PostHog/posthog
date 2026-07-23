@@ -122,6 +122,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         USER_CREATED = "user_created", "User Created"
         AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
+        TELEGRAM = "telegram", "Telegram"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"
@@ -600,7 +601,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if origin_product == Task.OriginProduct.SIGNAL_REPORT:
             extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
             extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
-        elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK):
+        elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK, Task.OriginProduct.TELEGRAM):
             extra_state["pr_authorship_mode"] = (
                 PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
             )
