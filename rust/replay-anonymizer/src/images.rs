@@ -8,8 +8,8 @@
 //! the same result. Fail-safe matches the inline path: a failed or panicked job patches to the
 //! occurrence's fallback (blank pixel or media placeholder), carried in the token.
 //!
-//! Tokens are plain base64-alphabet text (`xph<nonce><id><fallback>`), optionally wrapped as a
-//! `data:image/png;base64,…` URI, so they survive JSON serialization byte-for-byte; the nonce is
+//! Tokens are plain base64-alphabet text (`xph<marker><id><fallback>`), optionally wrapped as a
+//! `data:image/png;base64,…` URI, so they survive JSON serialization byte-for-byte; the marker is
 //! random per process, so real payload bytes cannot collide with a live token.
 
 use std::cell::{Cell, RefCell};
@@ -47,7 +47,7 @@ const DATA_URI_PREFIX: &[u8] = b"data:image/png;base64,";
 const ID_HEX_LEN: usize = 8;
 
 /// Random per process: payload bytes can't be crafted to collide with a live token.
-static NONCE: LazyLock<String> = LazyLock::new(|| {
+static TOKEN_MARKER: LazyLock<String> = LazyLock::new(|| {
     let mut h = RandomState::new().build_hasher();
     h.write_u32(std::process::id());
     format!("xph{:016x}", h.finish())
@@ -153,7 +153,7 @@ impl ImageQueue {
             ImageFallback::Blank => 'b',
             ImageFallback::Placeholder => 'p',
         };
-        let core = format!("{}{id:08x}{fb}", &*NONCE);
+        let core = format!("{}{id:08x}{fb}", &*TOKEN_MARKER);
         if wrapped {
             format!(
                 "{}{core}",
@@ -208,7 +208,7 @@ impl ImageQueue {
         if !self.has_pending() {
             return buf;
         }
-        let needle = NONCE.as_bytes();
+        let needle = TOKEN_MARKER.as_bytes();
         let token_len = needle.len() + ID_HEX_LEN + 1;
         let mut out: Option<Vec<u8>> = None;
         let mut copied_to = 0usize;
@@ -233,7 +233,7 @@ impl ImageQueue {
                 }
             };
             if !self.jobs.borrow().contains_key(&id) {
-                // Nonce collision with real payload bytes; astronomically unlikely — leave as-is.
+                // Marker collision with real payload bytes; astronomically unlikely — leave as-is.
                 search_from = start + needle.len();
                 continue;
             }
