@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    align_incoming_decimals_to_delta,
     conditional_lru_cache_async,
     normalize_column_name,
     pyarrow_schema_from_arrow_exportable,
@@ -429,6 +430,11 @@ class DeltaTableHelper:
         if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
+
+            # The merge casts every source column to its stored column type; a scale-heavy decimal
+            # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
+            # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
+            data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
             existing_delta_table = delta_table
 
