@@ -160,7 +160,7 @@ the row lists both.
 | copper                           | HTTP                        | requests                                                        | ✅                          |
 | coralogix                        | HTTP                        | requests                                                        | ✅                          |
 | coupa                            | HTTP                        | requests                                                        | ✅                          |
-| courier                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
+| courier                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
 | crates_io                        | HTTP                        | requests                                                        | ✅                          |
 | cronitor                         | HTTP                        | requests                                                        | ✅                          |
