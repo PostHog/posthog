@@ -149,10 +149,7 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
                 const latestRun = definition.source.latest_run
                 const affected = latestRun?.status === 'completed' ? latestRun.existing : undefined
                 const tooltipTitle =
-                    [
-                        status.tooltip,
-                        affected != null ? `${affected} people affected on the last run` : null,
-                    ]
+                    [status.tooltip, affected != null ? `${affected} people affected on the last run` : null]
                         .filter(Boolean)
                         .join(' — ') || undefined
                 return (

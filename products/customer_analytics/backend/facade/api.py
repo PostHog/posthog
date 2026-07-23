@@ -1194,13 +1194,17 @@ def _schema_schedule(schema: Any) -> tuple[float | None, datetime | None]:
 
 # Sentinel so a caller can pass a prefetched (schema, latest_run) pair — including ``(None, None)``
 # for a person source the caller can't see — distinct from "resolve inline" (the detail path).
-_RESOLVE_ENRICHMENT_INLINE: Any = object()
+class _ResolveEnrichmentInline:
+    pass
+
+
+_RESOLVE_ENRICHMENT_INLINE = _ResolveEnrichmentInline()
 
 
 def _to_custom_property_source_view(
     source: CustomPropertySource,
     user_access_control: "UserAccessControl | None" = None,
-    enrichment: "tuple[Any, CustomPropertySyncRun | None]" = _RESOLVE_ENRICHMENT_INLINE,
+    enrichment: "tuple[Any, CustomPropertySyncRun | None] | _ResolveEnrichmentInline" = _RESOLVE_ENRICHMENT_INLINE,
 ) -> contracts.CustomPropertySourceView:
     # Schedule + latest-run enrichment applies only to person sources; account sources leave it None.
     # A person source is exactly the one bound to a warehouse schema (the facade enforces one binding),
@@ -1212,7 +1216,7 @@ def _to_custom_property_source_view(
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: contracts.CustomPropertySyncRunView | None = None
-    if enrichment is _RESOLVE_ENRICHMENT_INLINE:
+    if isinstance(enrichment, _ResolveEnrichmentInline):
         schema = _resolve_person_source_schema(source, user_access_control)
         latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
     else:
