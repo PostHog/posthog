@@ -3,6 +3,7 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
+import { pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -28,7 +29,7 @@ const recordingsUrlForPerson = (distinctId: string): string =>
     `${urls.personByDistinctId(distinctId)}#activeTab=${PersonsTabType.SESSION_RECORDINGS}`
 
 export const LivePersonDrillDownRow = ({ person, recordingCount }: LivePersonDrillDownRowProps): JSX.Element => {
-    const distinctId = person.distinct_ids?.[0]
+    const distinctId = pickBestPersonDistinctId(person.distinct_ids)
     const secondary = pickSecondaryProperty(person)
     const href = distinctId ? urls.personByDistinctId(distinctId) : undefined
 

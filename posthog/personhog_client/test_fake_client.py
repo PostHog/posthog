@@ -60,6 +60,22 @@ class TestFakePersonHogClientPersons:
         assert resp.person_distinct_ids[0].person_id == 10
         assert len(resp.person_distinct_ids[0].distinct_ids) == 2
 
+    def test_limited_fetch_orders_identified_first(self):
+        # Mirrors personhog-replica: the anonymous-shaped id is seeded first, but a limited
+        # fetch must order identified ids first so they survive the limit.
+        anon = "0190f8e1-1234-7abc-89de-f0123456789a"
+        self.client.add_person(team_id=1, person_id=30, uuid="ghi-789", distinct_ids=[anon, "id@example.com"])
+
+        single = self.client.get_distinct_ids_for_person(
+            person_pb2.GetDistinctIdsForPersonRequest(team_id=1, person_id=30, limit=1)
+        )
+        bulk = self.client.get_distinct_ids_for_persons(
+            person_pb2.GetDistinctIdsForPersonsRequest(team_id=1, person_ids=[30], limit_per_person=1)
+        )
+
+        assert [d.distinct_id for d in single.distinct_ids] == ["id@example.com"]
+        assert [d.distinct_id for d in bulk.person_distinct_ids[0].distinct_ids] == ["id@example.com"]
+
     def test_get_persons_by_distinct_ids_in_team(self):
         resp = self.client.get_persons_by_distinct_ids_in_team(
             person_pb2.GetPersonsByDistinctIdsInTeamRequest(

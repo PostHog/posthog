@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT capped.distinct_id, capped.version\n                    FROM (\n                        SELECT distinct_id, version, id\n                        FROM posthog_persondistinctid\n                        WHERE team_id = $1 AND person_id = $2\n                        LIMIT 2500\n                    ) capped\n                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id\n                    LIMIT $3\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "7d3846e685cae3ab6bffbe9aaca15662603efc3abf27ae0347c1b6fd1220b908"
+}
