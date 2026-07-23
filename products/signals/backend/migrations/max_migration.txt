@@ -1,1 +1,1 @@
-0069_signalrepositoryareaactivity
+0070_signalscoutconfig_output_destinations
