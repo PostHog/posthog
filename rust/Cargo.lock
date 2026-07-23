@@ -7661,19 +7661,23 @@ name = "personhog-common"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "chrono",
  "flate2",
  "futures",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
  "metrics",
+ "personhog-proto",
  "pin-project",
  "rstest",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -7763,7 +7767,6 @@ dependencies = [
  "rstest",
  "serde_json",
  "sqlx",
- "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
