@@ -252,6 +252,25 @@ repositories.
 
 > **Note:** This only works with `SANDBOX_PROVIDER=docker`.
 
+### Task-run log mirroring to PostHog Logs (dogfooding)
+
+Task-run log entries (the JSONL appended to object storage via `TaskRun.append_log`) are also mirrored into the PostHog Logs product,
+so runs can be browsed and sampled in the Logs UI instead of fetching S3 blobs.
+
+There is no transport of its own: entries are emitted as structured stdout log lines (`event=task_run_log`),
+and the per-cluster OTel collector that already ships all container stdout into the region's internal PostHog project picks them up
+(locally, `otel-collector-config.dev.yaml` does the same into your dev logs project).
+The collector parses each JSON key into a queryable attribute and turns the emitted `request_id` (the run uuid) into a trace id,
+so one run groups as a trace and can be pulled up with an attribute filter on `task_run_id`.
+
+```bash
+# Which task origins to mirror (comma-separated). Defaults to signals scouts only.
+# Set empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
+```
+
+Mirroring failures are logged and never break the run's log write.
+
 ### How `MODAL_DOCKER` works
 
 When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` are set:
