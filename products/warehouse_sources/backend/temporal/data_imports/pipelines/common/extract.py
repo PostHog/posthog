@@ -603,35 +603,13 @@ def should_check_shutdown(
 
     Descending-sort incremental syncs commit their watermark only at completion (walking
     newest->oldest), so bailing early loses the whole run — hence the `sort_mode != "desc"` guard.
-    A full reset would likewise restart from 0 rows. Those cases don't bail promptly; they ride the
-    drain and only exit near the forced-shutdown deadline (see `within_forced_shutdown_margin`).
+    A full reset would likewise restart from 0 rows. Those cases don't bail on shutdown; they ride
+    the drain to completion or are cancelled when the worker's graceful-shutdown timeout elapses.
     """
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
     return incremental_sync_raise_during_shutdown or source_is_resumable
-
-
-def within_forced_shutdown_margin(
-    shutdown_first_seen_at: float | None,
-    now: float,
-    forced_shutdown_after_seconds: float | None,
-    margin_seconds: float,
-) -> bool:
-    """True once we're within `margin_seconds` of the worker force-cancelling activities.
-
-    `shutdown_first_seen_at` and `now` are `time.monotonic()` readings; `forced_shutdown_after_seconds`
-    is how long after shutdown begins the worker cancels still-running activities
-    (`GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS`). Non-resumable sources ride the drain — bouncing them on
-    every deploy would restart a long backfill from zero — and only bail this close to the deadline,
-    exiting right after a committed chunk so the in-flight delta merge isn't cut mid-write.
-
-    Returns False when the deadline is unknown (`forced_shutdown_after_seconds is None`) or shutdown
-    hasn't been observed yet, so callers keep working.
-    """
-    if shutdown_first_seen_at is None or forced_shutdown_after_seconds is None:
-        return False
-    return (now - shutdown_first_seen_at) >= (forced_shutdown_after_seconds - margin_seconds)
 
 
 async def finalize_desc_sort_incremental_value(

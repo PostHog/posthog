@@ -70,15 +70,6 @@ DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_
     "DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES", None, optional=True, type_cast=int
 )
 
-# How close to the worker's forced-shutdown deadline (GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS after
-# draining begins) a non-resumable import may keep running before it bails out cooperatively.
-# Resumable / ascending-incremental syncs bail the moment the worker drains; everything else would
-# restart from zero, so it rides the drain and only exits within this margin — leaving enough
-# headroom to finish the current chunk's delta merge and exit cleanly before Temporal cancels it.
-DATA_WAREHOUSE_SHUTDOWN_YIELD_MARGIN_SECONDS = get_from_env(
-    "DATA_WAREHOUSE_SHUTDOWN_YIELD_MARGIN_SECONDS", 600, type_cast=int
-)
-
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")

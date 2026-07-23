@@ -2,8 +2,6 @@ import time
 import asyncio
 from typing import Any, Generic
 
-from django.conf import settings
-
 import pyarrow as pa
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
@@ -45,7 +43,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
-    within_forced_shutdown_margin,
     write_chunk_for_cdp_producer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -241,11 +238,6 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._accumulated_pa_schema = None
         self._shutdown_monitor = shutdown_monitor
-        # Monotonic time we first observed the worker draining, so non-resumable sources can ride the
-        # drain and only bail near the forced-shutdown deadline. See `_should_bail_near_deadline`.
-        self._shutdown_first_seen_at: float | None = None
-        self._shutdown_forced_after_seconds = settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
-        self._shutdown_yield_margin_seconds = settings.DATA_WAREHOUSE_SHUTDOWN_YIELD_MARGIN_SECONDS
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
             schema.incremental_field_earliest_value, schema.incremental_field_type
@@ -377,18 +369,13 @@ class PipelineV3(Generic[ResumableData]):
     ) -> int:
         """Pull rows from the source, batch them, and write each chunk. Returns rows synced.
 
-        On worker shutdown the sync hands off to a live pod cooperatively, and *how* it hands off
-        depends on whether it can resume cheaply:
-
-        - Resumable / ascending-incremental (`_should_bail_now`): the moment the worker drains, flush
-          the partial buffer — committing it so our written progress catches up to the source's saved
-          checkpoint, which can otherwise sit ahead of what we've persisted — then raise so the
-          activity reschedules and resumes from that checkpoint. No rows are skipped or duplicated.
-        - Everything else (`_should_bail_near_deadline`): restarts from zero, so it rides the drain
-          and only bails within the forced-shutdown margin, per chunk and always after a committed
-          chunk so the delta merge is never cut mid-write.
-
-        `raise_if_is_worker_shutdown` raises the retryable `WorkerShuttingDownError`.
+        When the worker drains and the sync can resume cheaply (`_should_bail_now`: a resumable source
+        with its own checkpoint, or an ascending incremental persisting its watermark per chunk), it
+        flushes the partial buffer — committing it so our written progress catches up to the source's
+        saved checkpoint, which can otherwise sit ahead of what we've persisted — then raises the
+        retryable `WorkerShuttingDownError` so the activity reschedules and resumes from that
+        checkpoint. No rows are skipped or duplicated. Sources that can't resume don't bail; they ride
+        the drain to completion or are cancelled when the worker's graceful-shutdown timeout elapses.
         """
         row_count = 0
         chunk_index = 0
@@ -408,9 +395,6 @@ class PipelineV3(Generic[ResumableData]):
                 chunk_index += 1
                 cleanup_memory(pa_memory_pool, py_table)
                 py_table = None
-
-                if self._should_bail_near_deadline():
-                    self._shutdown_monitor.raise_if_is_worker_shutdown()
 
         try:
             async for item in async_iterate(self._resource.items()):
@@ -441,38 +425,17 @@ class PipelineV3(Generic[ResumableData]):
         return row_count
 
     def _should_bail_now(self) -> bool:
-        """Whether a resumable / ascending-incremental sync should hand off to a live pod immediately.
+        """Whether the sync should hand off to a live pod when the worker drains.
 
         True once the worker is draining and the source can resume cheaply (`should_check_shutdown`
         — a resumable source with its own checkpoint, or an ascending incremental persisting its
-        watermark per chunk). The caller flushes the partial buffer, then raises.
+        watermark per chunk). The caller flushes the partial buffer, then raises. Non-resumable
+        sources return False and ride the drain (bailing would just restart them from zero).
         """
         if not self._shutdown_monitor.is_worker_shutdown():
             return False
         source_is_resumable = self._resumable_source_manager is not None
         return should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable)
-
-    def _should_bail_near_deadline(self) -> bool:
-        """Whether a non-resumable sync should hand off — only once close to the force-kill deadline.
-
-        Non-resumable sources restart from zero, so bouncing them on every deploy (dozens a day)
-        would starve a long backfill. They ride the drain and only bail within the configured margin
-        of the worker force-cancelling activities. Checked per chunk (a single item can be huge) and
-        always right after a committed chunk. Returns False for sources handled by `_should_bail_now`.
-        """
-        if not self._shutdown_monitor.is_worker_shutdown():
-            return False
-        source_is_resumable = self._resumable_source_manager is not None
-        if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
-            return False
-        if self._shutdown_first_seen_at is None:
-            self._shutdown_first_seen_at = time.monotonic()
-        return within_forced_shutdown_margin(
-            self._shutdown_first_seen_at,
-            time.monotonic(),
-            self._shutdown_forced_after_seconds,
-            self._shutdown_yield_margin_seconds,
-        )
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
