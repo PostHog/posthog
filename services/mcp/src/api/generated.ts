@@ -16449,13 +16449,15 @@ export namespace Schemas {
     /**
      * * `account` - account
      * * `person` - person
+     * * `group` - group
      */
-    export type CustomPropertyDefinitionTargetType = typeof CustomPropertyDefinitionTargetType[keyof typeof CustomPropertyDefinitionTargetType];
+    export type CustomPropertyDefinitionTargetTypeEnum = typeof CustomPropertyDefinitionTargetTypeEnum[keyof typeof CustomPropertyDefinitionTargetTypeEnum];
 
 
-    export const CustomPropertyDefinitionTargetType = {
+    export const CustomPropertyDefinitionTargetTypeEnum = {
       Account: 'account',
       Person: 'person',
+      Group: 'group',
     } as const;
 
     /**
@@ -16661,11 +16663,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -47154,11 +47164,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -78604,42 +78622,6 @@ export namespace Schemas {
       Pending: 'pending',
     } as const;
 
-    export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat;
-    };
-
-    export type PersonsFunnelRetrieveFormat = typeof PersonsFunnelRetrieveFormat[keyof typeof PersonsFunnelRetrieveFormat];
-
-
-    export const PersonsFunnelRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat;
-    };
-
-    export type PersonsFunnelCreateFormat = typeof PersonsFunnelCreateFormat[keyof typeof PersonsFunnelCreateFormat];
-
-
-    export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat;
-    };
-
-    export type PersonsLifecycleRetrieveFormat = typeof PersonsLifecycleRetrieveFormat[keyof typeof PersonsLifecycleRetrieveFormat];
-
-
-    export const PersonsLifecycleRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
@@ -78676,18 +78658,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat;
-    };
-
-    export type PersonsTrendsRetrieveFormat = typeof PersonsTrendsRetrieveFormat[keyof typeof PersonsTrendsRetrieveFormat];
-
-
-    export const PersonsTrendsRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -79183,6 +79153,10 @@ export namespace Schemas {
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */

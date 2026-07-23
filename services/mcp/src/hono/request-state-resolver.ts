@@ -63,6 +63,29 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
+/**
+ * Which navigation switch tools to hide given the context the client explicitly
+ * pinned via request params.
+ *
+ * Pinning fixes the *default* active context — it must not disable navigation.
+ * Only an explicitly pinned organization is a hard lock: the client asked to
+ * operate inside one org, so `switch-organization` is dropped while project
+ * switching stays available. A pinned *project* excludes nothing, because the
+ * documented cross-org flow depends on it: from an active project an agent
+ * resolves an org via `organizations-get`, calls `switch-organization`, then
+ * `switch-project` to reach a project in another organization (see the
+ * `switch-project` tool description). Excluding the switch tools on a project
+ * pin — which nearly every connection sends — made that flow impossible.
+ *
+ * Note this only affects keys that can act across orgs. A project-scoped key
+ * (`scoped_teams`) never sees `switch-organization` regardless, because
+ * `getToolsForFeatures` independently strips every `organization:*` tool the
+ * backend would 403 for such a token.
+ */
+export function switchToolsToExclude(pinned: { organizationId?: string | undefined }): string[] {
+    return pinned.organizationId ? ['switch-organization'] : []
+}
+
 // ─── Resolver ───
 
 const SESSION_CONTEXT_KEYS = [
@@ -162,12 +185,7 @@ export class RequestStateResolver {
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
 
-        const excludeTools: string[] = []
-        if (projectId) {
-            excludeTools.push('switch-organization', 'switch-project')
-        } else if (organizationId) {
-            excludeTools.push('switch-organization')
-        }
+        const excludeTools = switchToolsToExclude({ organizationId })
 
         const filterOptions = {
             features,

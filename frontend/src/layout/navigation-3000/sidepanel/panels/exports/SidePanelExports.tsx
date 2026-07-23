@@ -4,7 +4,7 @@ import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/ico
 import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
+import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
@@ -66,7 +66,7 @@ function ExportPanelHeader(): JSX.Element {
 
 function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
     const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
-    const { removeFresh } = useActions(sidePanelExportsLogic)
+    const { downloadExport } = useActions(sidePanelExportsLogic)
     const { setBlob } = useActions(takeScreenshotLogic({ screenshotKey: 'exports' }))
 
     const handleEdit = async (asset: ExportedAssetType): Promise<void> => {
@@ -144,10 +144,7 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                         key={asset.id}
                         data-attr="export-download"
                         disabledReason={disabledReason}
-                        onClick={() => {
-                            removeFresh(asset)
-                            void downloadExportedAsset(asset)
-                        }}
+                        onClick={() => downloadExport(asset)}
                         sideIcon={
                             stillCalculating ? (
                                 <Spinner />
