@@ -1,1 +1,1 @@
-pub use personhog_common::persons::{StorageError, StorageResult};
+pub use personhog_common::storage_error::{StorageError, StorageResult};
