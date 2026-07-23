@@ -67,6 +67,12 @@ export interface GroupCreate {
 }
 
 /**
+ * Result row of insertGroupsBatch: `inserted` is false when the row already
+ * existed and the creation's properties were merged onto it instead.
+ */
+export type GroupCreateResult = Group & { inserted: boolean }
+
+/**
  * Full group repository with read and write operations. Used by the
  * ingestion pipeline which creates, updates, and manages groups.
  * Postgres-backed with support for consistency control and row locking.
@@ -101,12 +107,14 @@ export interface GroupRepository {
     updateGroupsBatch(updates: GroupPropertiesToSetUpdate[]): Promise<Group[]>
 
     /**
-     * Inserts all groups in a single statement and returns the inserted rows.
-     * Rows that already exist are left untouched and absent from the result —
-     * callers handle those individually (typically by converting the creation
-     * into an update against the winning row).
+     * Inserts all groups in a single statement and returns one row per input.
+     * Rows that already exist (a lost cross-pod race) are merged server-side
+     * with the same jsonb semantics as updateGroupsBatch and come back with
+     * `inserted: false`, so callers can tell creations from merges without a
+     * second round trip. Creates must be unique by (team, type, key) —
+     * duplicates make the whole statement fail.
      */
-    insertGroupsBatch(creates: GroupCreate[]): Promise<Group[]>
+    insertGroupsBatch(creates: GroupCreate[]): Promise<GroupCreateResult[]>
 
     insertGroup(
         teamId: TeamId,

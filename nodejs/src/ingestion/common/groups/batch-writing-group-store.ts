@@ -6,7 +6,7 @@ import {
     GroupClickhouseMessage,
 } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
-import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { GroupCreateResult, GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { logger } from '~/common/utils/logger'
 import { promiseRetry } from '~/common/utils/retries'
 import { RaceConditionError } from '~/common/utils/utils'
@@ -521,17 +521,19 @@ export class BatchWritingGroupStore implements GroupStore {
 
     /**
      * Insert all pending group creations in one UNNEST statement. Rows that
-     * lost a cross-pod race are absent from the result and converge through
-     * the individual update path: the entry's version-0 CAS fails, and the
-     * conflict handler rebases it onto the winning row and retries. A failure
-     * of the whole statement falls back to per-row inserts (the pre-batching
-     * behavior), so no captured creation is lost.
+     * lost a cross-pod race come back with `inserted: false` — the statement
+     * already merged their properties onto the winning row server-side, so no
+     * extra convergence round trip is needed. Rows absent from the result
+     * (not expected from Postgres, but kept as a data-loss guard) converge
+     * through the individual update path. A failure of the whole statement
+     * falls back to per-row inserts (the pre-batching behavior), so no
+     * captured creation is lost.
      */
     private async flushCreates(pendingCreates: PendingGroupWrite[]): Promise<GroupFlushResult[]> {
         this.incrementDatabaseOperation('insertGroupsBatch')
         groupBatchCreateSizeHistogram.observe(pendingCreates.length)
 
-        let insertedGroups: Group[]
+        let insertedGroups: GroupCreateResult[]
         try {
             insertedGroups = await this.groupRepository.insertGroupsBatch(
                 pendingCreates.map(({ update, propertiesToSet }) => ({
@@ -558,28 +560,31 @@ export class BatchWritingGroupStore implements GroupStore {
 
         groupBatchCreateExecutedCounter.inc()
 
-        const insertedByKey = new Map<string, Group>()
+        const insertedByKey = new Map<string, GroupCreateResult>()
         for (const group of insertedGroups) {
             insertedByKey.set(this.rowIdentity(group), group)
         }
 
         const results: GroupFlushResult[] = []
-        const lostRaces: PendingGroupWrite[] = []
+        const missingWrites: PendingGroupWrite[] = []
 
         for (const pendingCreate of pendingCreates) {
             const row = insertedByKey.get(this.rowIdentity(pendingCreate.update))
             if (!row) {
-                lostRaces.push(pendingCreate)
+                missingWrites.push(pendingCreate)
                 continue
             }
 
+            if (!row.inserted) {
+                groupBatchCreateFallbackCounter.inc({ reason: 'lost_race' })
+            }
             this.syncCacheEntryFromRow(pendingCreate.update, row)
             results.push(this.buildFlushResultFromRow(row))
         }
 
-        if (lostRaces.length > 0) {
-            groupBatchCreateFallbackCounter.inc({ reason: 'lost_race' }, lostRaces.length)
-            results.push(...(await this.flushIndividual(lostRaces)))
+        if (missingWrites.length > 0) {
+            groupBatchCreateFallbackCounter.inc({ reason: 'missing_row' }, missingWrites.length)
+            results.push(...(await this.flushIndividual(missingWrites)))
         }
 
         return results

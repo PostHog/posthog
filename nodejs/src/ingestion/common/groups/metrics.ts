@@ -37,7 +37,7 @@ export const groupBatchCreateExecutedCounter = new Counter({
 
 export const groupBatchCreateFallbackCounter = new Counter({
     name: 'group_batch_create_fallback_total',
-    help: 'Group creations that fell off the batched-insert fast path, by reason',
+    help: 'Group creations that did not land as plain batched inserts, by reason',
     labelNames: ['reason'],
 })
 

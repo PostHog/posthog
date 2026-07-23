@@ -911,7 +911,7 @@ describe('PostgresGroupRepository Integration', () => {
     })
 
     describe('insertGroupsBatch', () => {
-        it('inserts new rows at version 1, returns them, and leaves existing rows untouched', async () => {
+        it('inserts new rows at version 1 and merges onto existing rows, flagging which happened', async () => {
             await insertTestTeam(teamId)
             await insertTestGroup({ version: 3 })
 
@@ -924,11 +924,12 @@ describe('PostgresGroupRepository Integration', () => {
                     groupProperties: { plan: 'scale' },
                     createdAt: createdAt.plus({ days: 1 }),
                 },
-                { teamId, groupTypeIndex, groupKey, groupProperties: { clobbered: true }, createdAt },
+                { teamId, groupTypeIndex, groupKey, groupProperties: { added: true }, createdAt },
             ])
 
-            // Only the rows this statement created come back.
-            expect(result).toHaveLength(2)
+            // One row per input: fresh inserts flagged true, the lost race
+            // merged server-side and flagged false.
+            expect(result).toHaveLength(3)
             const byKey = new Map(result.map((g) => [g.group_key, g]))
             expect(byKey.get('new-a')).toMatchObject({
                 team_id: teamId,
@@ -936,21 +937,27 @@ describe('PostgresGroupRepository Integration', () => {
                 group_properties: { name: 'A' },
                 created_at: createdAt,
                 version: 1,
+                inserted: true,
             })
             expect(byKey.get('new-b')).toMatchObject({
                 group_type_index: 1,
                 group_properties: { plan: 'scale' },
                 created_at: createdAt.plus({ days: 1 }),
                 version: 1,
+                inserted: true,
             })
-            expect(byKey.has(groupKey)).toBe(false)
+            expect(byKey.get(groupKey)).toMatchObject({
+                group_properties: { ...groupProperties, added: true },
+                created_at: createdAt,
+                version: 4,
+                inserted: false,
+            })
 
-            // The rows are actually persisted, and the conflicting row kept
-            // its original properties and version (DO NOTHING semantics).
+            // Both outcomes are persisted.
             const persisted = await repository.fetchGroup(teamId, groupTypeIndex, 'new-a')
             expect(persisted).toMatchObject({ group_properties: { name: 'A' }, version: 1 })
-            const untouched = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
-            expect(untouched).toMatchObject({ group_properties: groupProperties, version: 3 })
+            const merged = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(merged).toMatchObject({ group_properties: { ...groupProperties, added: true }, version: 4 })
         })
     })
 
