@@ -135,12 +135,22 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub clickhouse_secure: bool,
 
-    /// Whether to validate the ClickHouse server certificate. Defaults to on so an unconfigured
-    /// deployment fails closed; PostHog's internal ClickHouse serves certificates from a per-env
-    /// internal CA that no Kubernetes workload carries a trust anchor for, so the chart sets this
-    /// to `false` — the same TLS-on/verify-off posture every Python ClickHouse consumer runs.
+    /// Whether to validate the ClickHouse server certificate against the public root CAs. Defaults
+    /// to on so an unconfigured deployment fails closed; PostHog's internal ClickHouse serves
+    /// certificates from a per-environment internal CA, so the chart sets this to `false` — the same
+    /// TLS-on/verify-off posture every Python ClickHouse consumer runs. Ignored when
+    /// `clickhouse_ca` names a CA bundle.
     #[envconfig(default = "true")]
     pub clickhouse_verify: bool,
+
+    /// Path to a PEM CA bundle to validate the ClickHouse server certificate against, matching
+    /// Django's `CLICKHOUSE_CA`. Setting it turns on full verification — chain *and* hostname —
+    /// against that CA alone, and takes precedence over `clickhouse_verify`: pointing the seeder at
+    /// a CA is an explicit request to authenticate the server, so it must not be silently downgraded
+    /// by an inherited `CLICKHOUSE_VERIFY=false`. Empty (the default) leaves `clickhouse_verify` in
+    /// charge. A bundle that cannot be read fails startup rather than falling back to a weaker mode.
+    #[envconfig(default = "")]
+    pub clickhouse_ca: String,
 
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,

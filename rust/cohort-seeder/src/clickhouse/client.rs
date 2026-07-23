@@ -13,6 +13,7 @@ use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::rt::TokioExecutor;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{aws_lc_rs, verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::pki_types::pem::{self, PemObject};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 
@@ -126,12 +127,20 @@ impl FromStr for ClickHouseJoinAlgorithm {
 #[error("unknown ClickHouse join algorithm {0:?}")]
 pub struct UnknownJoinAlgorithm(pub String);
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum ClickHouseClientError {
     #[error(transparent)]
     JoinAlgorithm(#[from] UnknownJoinAlgorithm),
-    #[error("building the unverified ClickHouse TLS configuration: {0}")]
+    #[error("building the ClickHouse TLS configuration")]
     Tls(#[from] rustls::Error),
+    #[error("reading the ClickHouse CA bundle at {path}")]
+    CaBundleUnreadable {
+        path: String,
+        #[source]
+        source: pem::Error,
+    },
+    #[error("the ClickHouse CA bundle at {path} contains no certificates")]
+    CaBundleEmpty { path: String },
 }
 
 // Copied from the `clickhouse` crate's own default HTTP client so the unverified-TLS client differs
@@ -141,10 +150,16 @@ const TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Accepts any server certificate, delegating only the handshake-signature checks to the crypto
-/// provider. Selected by `CLICKHOUSE_VERIFY=false`: PostHog's ClickHouse serves certificates from a
-/// per-environment internal CA that no Kubernetes workload carries a trust anchor for, so a real
-/// chain validation could only ever fail. The wire stays encrypted — which is what keeps the
-/// ClickHouse password off the network — but the server is not authenticated.
+/// provider. Selected by `CLICKHOUSE_VERIFY=false`, the posture every Python ClickHouse consumer in
+/// the fleet already runs: PostHog's ClickHouse serves certificates from a per-environment internal
+/// CA, and no Kubernetes workload carries that trust anchor today, so real chain validation could
+/// only ever fail.
+///
+/// The wire stays encrypted, which is what keeps the ClickHouse password off the network, but the
+/// server is *not* authenticated: anything that can redirect traffic on the service network can
+/// impersonate ClickHouse, collect the credentials, and serve forged rows. Set `CLICKHOUSE_CA` to
+/// the environment's internal CA to close that gap — [`pinned_ca_tls_config`] then takes over and
+/// this verifier is never constructed.
 #[derive(Debug)]
 struct AcceptAnyServerCert(Arc<CryptoProvider>);
 
@@ -193,17 +208,50 @@ impl ServerCertVerifier for AcceptAnyServerCert {
     }
 }
 
-/// A client whose TLS stack skips certificate validation. The crate's own `rustls-tls` feature
-/// hardwires the bundled Mozilla public roots (`webpki-roots`) and ignores the container trust
-/// store, so `with_http_client` is the only way to express verify-off.
-fn unverified_tls_client() -> Result<clickhouse::Client, rustls::Error> {
+/// Validates the server against `ca_path` alone, keeping hostname verification. This is the only
+/// mode that authenticates the ClickHouse server, so prefer it wherever the CA reaches the pod.
+fn pinned_ca_tls_config(ca_path: &str) -> Result<ClientConfig, ClickHouseClientError> {
+    let mut roots = rustls::RootCertStore::empty();
+    for certificate in CertificateDer::pem_file_iter(ca_path).map_err(|source| {
+        ClickHouseClientError::CaBundleUnreadable {
+            path: ca_path.to_string(),
+            source,
+        }
+    })? {
+        let certificate =
+            certificate.map_err(|source| ClickHouseClientError::CaBundleUnreadable {
+                path: ca_path.to_string(),
+                source,
+            })?;
+        roots.add(certificate)?;
+    }
+    if roots.is_empty() {
+        return Err(ClickHouseClientError::CaBundleEmpty {
+            path: ca_path.to_string(),
+        });
+    }
+
+    Ok(
+        ClientConfig::builder_with_provider(Arc::new(aws_lc_rs::default_provider()))
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )
+}
+
+/// Skips certificate validation entirely. The crate's own `rustls-tls` feature hardwires the bundled
+/// Mozilla public roots (`webpki-roots`) and ignores the container trust store, so this is the only
+/// way to express verify-off — the posture the rest of the fleet runs against internal ClickHouse.
+fn unverified_tls_config() -> Result<ClientConfig, rustls::Error> {
     let provider = Arc::new(aws_lc_rs::default_provider());
-    let tls_config = ClientConfig::builder_with_provider(provider.clone())
+    Ok(ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(AcceptAnyServerCert(provider)))
-        .with_no_client_auth();
+        .with_no_client_auth())
+}
 
+fn client_with_tls_config(tls_config: ClientConfig) -> clickhouse::Client {
     let mut http_connector = HttpConnector::new();
     http_connector.set_keepalive(Some(TCP_KEEPALIVE));
     // The connector must pass https:// URLs through to the TLS layer below.
@@ -215,21 +263,25 @@ fn unverified_tls_client() -> Result<clickhouse::Client, rustls::Error> {
         .enable_http1()
         .wrap_connector(http_connector);
 
-    Ok(clickhouse::Client::with_http_client(
+    clickhouse::Client::with_http_client(
         HyperClient::builder(TokioExecutor::new())
             .pool_idle_timeout(POOL_IDLE_TIMEOUT)
             .build(connector),
-    ))
+    )
 }
 
 pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseClientError> {
     let join_algorithm = config
         .seeder_ch_join_algorithm
         .parse::<ClickHouseJoinAlgorithm>()?;
-    let client = if config.clickhouse_verify {
+    // Ordered most to least trusted: a pinned CA authenticates the server, public roots authenticate
+    // it only for publicly-issued certificates, and verify-off authenticates nothing.
+    let client = if !config.clickhouse_ca.is_empty() {
+        client_with_tls_config(pinned_ca_tls_config(&config.clickhouse_ca)?)
+    } else if config.clickhouse_verify {
         clickhouse::Client::default()
     } else {
-        unverified_tls_client()?
+        client_with_tls_config(unverified_tls_config()?)
     };
     Ok(client
         .with_url(ClickHouseEndpoint::resolve(config).as_str())
@@ -334,12 +386,11 @@ mod tests {
     fn build_client_rejects_a_join_algorithm_typo_at_startup() {
         let mut config = default_config();
         config.seeder_ch_join_algorithm = "grace_hashh".to_string();
-        assert_eq!(
-            build_client(&config).err(),
-            Some(ClickHouseClientError::JoinAlgorithm(UnknownJoinAlgorithm(
-                "grace_hashh".to_string()
-            )))
-        );
+        assert!(matches!(
+            build_client(&config),
+            Err(ClickHouseClientError::JoinAlgorithm(UnknownJoinAlgorithm(algorithm)))
+                if algorithm == "grace_hashh"
+        ));
     }
 
     #[test]
@@ -351,6 +402,39 @@ mod tests {
             assert!(
                 build_client(&config).is_ok(),
                 "failed to build a client with CLICKHOUSE_VERIFY={verify}"
+            );
+        }
+    }
+
+    /// An unusable `CLICKHOUSE_CA` must crash the seeder, never silently degrade to a weaker mode:
+    /// the whole point of naming a CA is to authenticate the server.
+    #[test]
+    fn an_unusable_ca_bundle_fails_startup_rather_than_downgrading() {
+        let scratch = tempfile::tempdir().unwrap();
+        let empty_bundle = scratch.path().join("empty_ca.pem");
+        std::fs::write(&empty_bundle, b"not a certificate\n").unwrap();
+
+        for (ca_path, expected) in [
+            (
+                "/nonexistent/ca.pem".to_string(),
+                "reading the ClickHouse CA bundle",
+            ),
+            (
+                empty_bundle.to_string_lossy().into_owned(),
+                "contains no certificates",
+            ),
+        ] {
+            let mut config = default_config();
+            // Verify-off must not rescue a broken CA bundle.
+            config.clickhouse_verify = false;
+            config.clickhouse_ca = ca_path.clone();
+            let Err(error) = build_client(&config) else {
+                panic!("CA bundle {ca_path:?} unexpectedly produced a working client");
+            };
+            let error = error.to_string();
+            assert!(
+                error.contains(expected),
+                "CA bundle {ca_path:?} gave {error:?}, expected it to mention {expected:?}"
             );
         }
     }
