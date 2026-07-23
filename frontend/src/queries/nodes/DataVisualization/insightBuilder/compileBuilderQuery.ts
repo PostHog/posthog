@@ -21,8 +21,11 @@ export interface CompiledBuilderQuery {
 export class BuilderCompileError extends Error {}
 
 const DATE_GRAIN_FUNCTIONS: Record<InsightBuilderDateGrain, string> = {
+    // toStartOfHour keeps a time component (correct for hourly). Day uses toDate — not
+    // toStartOfDay — so the bucket is a DATE, not a DateTime at midnight, which otherwise
+    // renders as "00:00" on the axis. Week/month/quarter/year already return DATE.
     hour: 'toStartOfHour',
-    day: 'toStartOfDay',
+    day: 'toDate',
     week: 'toStartOfWeek',
     month: 'toStartOfMonth',
     quarter: 'toStartOfQuarter',

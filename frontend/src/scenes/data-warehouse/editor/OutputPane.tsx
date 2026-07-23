@@ -1012,16 +1012,16 @@ export function InternalDataTableVisualization(
     }
 
     return (
-        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
-            <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar">
+        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2 min-w-0">
+            <div className="relative w-full flex flex-col gap-4 flex-1 min-w-0">
+                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar min-w-0">
                     {props.showSettingsPanel && (
                         <>
                             <SideBar />
                             <LemonDivider vertical className="h-full" />
                         </>
                     )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
+                    <div className={clsx('w-full h-full flex-1 overflow-auto min-w-0')}>{component}</div>
                 </div>
             </div>
         </div>

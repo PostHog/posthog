@@ -121,14 +121,15 @@ describe('compileBuilderQuery', () => {
             })
         )
 
-        expect(result.sql).toContain('GROUP BY toStartOfDay(created_at)')
+        expect(result.sql).toContain('GROUP BY toDate(created_at)')
         expect(result.sql).not.toContain('GROUP BY created_at_day')
     })
 
     describe('dimensionExpr', () => {
         it.each([
             [{ column: 'ts', dateGrain: 'hour' } as const, 'toStartOfHour(ts)'],
-            [{ column: 'ts', dateGrain: 'day' } as const, 'toStartOfDay(ts)'],
+            // Day buckets to a DATE (not a DateTime at midnight) so the axis shows a date, not "00:00"
+            [{ column: 'ts', dateGrain: 'day' } as const, 'toDate(ts)'],
             [{ column: 'ts', dateGrain: 'week' } as const, 'toStartOfWeek(ts)'],
             [{ column: 'ts', dateGrain: 'month' } as const, 'toStartOfMonth(ts)'],
             [{ column: 'ts', dateGrain: 'quarter' } as const, 'toStartOfQuarter(ts)'],
@@ -140,7 +141,7 @@ describe('compileBuilderQuery', () => {
             // Non-positive bin width is ignored (treated as exact)
             [{ column: 'amount', numericBinWidth: 0 } as const, 'amount'],
             // Date grain wins if both are somehow set
-            [{ column: 'ts', dateGrain: 'day', numericBinWidth: 10 } as const, 'toStartOfDay(ts)'],
+            [{ column: 'ts', dateGrain: 'day', numericBinWidth: 10 } as const, 'toDate(ts)'],
         ])('compiles %o to %s', (dim, expected) => {
             expect(dimensionExpr(dim)).toEqual(expected)
         })
