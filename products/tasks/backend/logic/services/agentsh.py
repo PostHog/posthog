@@ -1,4 +1,5 @@
 import shlex
+from pathlib import Path
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -16,6 +17,19 @@ ENV_WRAPPER_SCRIPT = "/tmp/agentsh-env-wrapper.sh"
 # Sourced via BASH_ENV on every `bash -c` the agent runs, so git/gh pick up a
 # mid-session GitHub credential refresh from its dedicated credential file.
 BASH_ENV_SCRIPT = "/tmp/agentsh-bash-env.sh"
+
+# The gh PATH shim (first on PATH; sources the credential script so gh authenticates as the current
+# actor in any shell mode). Baked into new base images, but also installed at runtime so resumes
+# from pre-shim filesystem snapshots — and any window where the image lags this backend — still
+# deliver the token to gh. Read from its single source of truth (the file the Dockerfiles COPY).
+GH_GUARD_INSTALL_PATH = "/opt/posthog/bin/gh"
+_GH_GUARD_SOURCE_PATH = Path(__file__).resolve().parents[2] / "sandbox" / "images" / "gh-guard.sh"
+
+
+def read_gh_guard_script() -> bytes:
+    return _GH_GUARD_SOURCE_PATH.read_bytes()
+
+
 AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",

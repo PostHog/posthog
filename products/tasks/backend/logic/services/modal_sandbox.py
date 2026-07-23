@@ -56,6 +56,7 @@ from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
     ENV_WRAPPER_SCRIPT,
+    GH_GUARD_INSTALL_PATH,
     SESSION_ID_FILE,
     _hostname_from_url,
     build_exec_prefix,
@@ -64,6 +65,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
+    read_gh_guard_script,
 )
 from products.tasks.backend.logic.services.local_packages import (
     get_local_package_runtime_dependencies,
@@ -1106,6 +1108,11 @@ class ModalSandbox(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
+        # pre-shim filesystem snapshot — or any window where the base image lags this backend —
+        # would otherwise leave gh with no token once the frozen launch-env token is unset.
+        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
