@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/conversations/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     ConversationsTicketsListQueryParams,
     ConversationsTicketsMessagesListParams,
@@ -17,6 +13,8 @@ import {
     ConversationsTicketsRetrieveParams,
     ConversationsViewsListQueryParams,
 } from '@/generated/conversations/api'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
 
