@@ -92,7 +92,7 @@ describe('insightNavLogic', () => {
             await expectLogic(builtInsightDataLogic, () => {
                 logic.actions.setActiveView(InsightType.FUNNELS)
             }).toMatchValues({
-                query: {
+                query: setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...nodeKindToDefaultQuery[NodeKind.FunnelsQuery],
@@ -106,7 +106,7 @@ describe('insightNavLogic', () => {
                         ],
                         tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
-                },
+                }),
             })
         })
 
@@ -281,6 +281,7 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.LifecycleQuery],
                             lifecycleFilter: { showValuesOnSeries: true },
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
@@ -484,6 +485,7 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.LifecycleQuery],
                             interval: 'hour',
                             lifecycleFilter: { showValuesOnSeries: true },
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
@@ -517,6 +519,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,
@@ -600,6 +603,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,
@@ -660,6 +664,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },

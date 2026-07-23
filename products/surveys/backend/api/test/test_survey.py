@@ -1473,7 +1473,7 @@ class TestSurvey(APIBaseTest):
         assert survey_with_targeting.json() == {
             "type": "validation_error",
             "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort2' with filters on events cannot be used in surveys.",
+            "detail": "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys.",
             "attr": None,
         }
 
@@ -4391,6 +4391,21 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["appearance"]["surveyPopupDelaySeconds"] == 6000
+
+    def test_create_survey_with_responses_limit(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "responses_limit": 228,
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["responses_limit"] == 228
+        assert Survey.objects.get(id=response_data["id"]).responses_limit == 228
 
     def test_validate_survey_popup_delay(self):
         response = self.client.post(

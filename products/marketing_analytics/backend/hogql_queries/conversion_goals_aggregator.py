@@ -1,4 +1,7 @@
+import contextvars
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import TypeVar
 
 from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsDrillDownLevel
 
@@ -10,7 +13,7 @@ from posthog.settings import TEST
 from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
 
 from .adapters.factory import MarketingSourceFactory
-from .conversion_goal_processor import ConversionGoalProcessor
+from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 # Cap on parallel per-goal ensure_precomputed workers.
@@ -18,6 +21,27 @@ from .marketing_analytics_config import MarketingAnalyticsConfig
 # below the per-process pool while still collapsing wall time for the common 1–4 goal
 # case. Bump only after measuring PG/Redis pressure under realistic concurrency.
 _GOAL_PARALLELISM_LIMIT = 8
+
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+def _map_in_caller_context(build: Callable[[_T], _R], items: list[_T]) -> list[_R]:
+    """`pool.map` each item, but with the caller's contextvars carried into the worker threads.
+
+    `ThreadPoolExecutor` workers don't inherit the submitting thread's contextvars, so the query tags
+    (team_id, feature, trigger) set on the read path would be lost inside the pool — silently un-tagging
+    every ClickHouse query these goals emit, and breaking serve-stale: a background revalidation tags its
+    own ensures CACHE_WARMUP so they skip the grace and actually recompute, and dropping that tag makes
+    the revalidation serve itself stale and never refresh. A Context can't be entered concurrently, so
+    each worker gets its own copy.
+    """
+    contexts = [contextvars.copy_context() for _ in items]
+    with ThreadPoolExecutor(
+        max_workers=min(len(items), _GOAL_PARALLELISM_LIMIT),
+        thread_name_prefix="ma_cte",
+    ) as pool:
+        return list(pool.map(lambda ctx, item: ctx.run(build, item), contexts, items))
 
 
 class ConversionGoalsAggregator:
@@ -35,6 +59,11 @@ class ConversionGoalsAggregator:
         if not self.processors:
             raise ValueError("Cannot create unified CTE without conversion goal processors")
 
+        # The touchpoints precompute is config-agnostic: every goal drives the exact same
+        # ensure_precomputed for the same window. Share one handle so it is materialized once for the
+        # whole read instead of once per goal.
+        touchpoints = SharedTouchpointsPrecompute(self.processors[0].team, self.config)
+
         # Step 1: Generate individual conversion goal queries, parallelised across goals
         # so ensure_precomputed's PG+Redis+ClickHouse round-trips collapse to max(overhead).
         def _build_base_query(processor: ConversionGoalProcessor) -> ast.SelectQuery:
@@ -49,16 +78,13 @@ class ConversionGoalsAggregator:
                 additional_conditions,
                 date_from=date_range.date_from(),
                 date_to=date_range.date_to(),
+                touchpoints=touchpoints,
             )
 
         # Skip the pool in TEST: Django's per-thread DB connections don't see
         # fixtures created in the main test thread.
         if not TEST and len(self.processors) > 1:
-            with ThreadPoolExecutor(
-                max_workers=min(len(self.processors), _GOAL_PARALLELISM_LIMIT),
-                thread_name_prefix="ma_cte",
-            ) as pool:
-                base_queries = list(pool.map(_build_base_query, self.processors))
+            base_queries = _map_in_caller_context(_build_base_query, self.processors)
         else:
             base_queries = [_build_base_query(p) for p in self.processors]
 

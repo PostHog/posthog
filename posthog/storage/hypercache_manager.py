@@ -278,6 +278,26 @@ class HyperCacheManagementConfig:
             return self.get_teams_queryset_fn()
         return Team.objects.all()
 
+    def narrow_team_queryset(
+        self, queryset: "QuerySet[Team]", *, extra_fields: tuple[str, ...] = ()
+    ) -> "QuerySet[Team]":
+        """Select related org/project and restrict Team columns to refresh_only_fields.
+
+        The library warm, refresh, and verify paths and the management commands all
+        route through this so a Team column the read replica hasn't migrated yet
+        can't turn their `SELECT *` into an UndefinedColumn error (see the
+        refresh_only_fields field comment). Only Team columns are narrowed:
+        org/project rows are still fully selected.
+
+        extra_fields adds Team columns a caller needs beyond refresh_only_fields
+        (e.g. the management commands print team.name) without widening the hot
+        cron SELECTs for every config.
+        """
+        queryset = queryset.select_related("organization", "project")
+        if self.refresh_only_fields is not None:
+            queryset = queryset.only(*self.refresh_only_fields, *extra_fields)
+        return queryset
+
 
 def warm_caches(
     config: HyperCacheManagementConfig,
@@ -326,12 +346,9 @@ def warm_caches(
 
     try:
         if team_ids:
-            teams_queryset = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
+            teams_queryset = config.narrow_team_queryset(Team.objects.filter(id__in=team_ids))
         else:
-            teams_queryset = config.get_teams_queryset().select_related("organization", "project")
-
-        if config.refresh_only_fields is not None:
-            teams_queryset = teams_queryset.only(*config.refresh_only_fields)
+            teams_queryset = config.narrow_team_queryset(config.get_teams_queryset())
 
         total_teams = teams_queryset.count()
 

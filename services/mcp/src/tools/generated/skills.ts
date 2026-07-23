@@ -1,7 +1,10 @@
 // AUTO-GENERATED from products/skills/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     LlmSkillsCreateBody,
     LlmSkillsListQueryParams,
@@ -22,7 +25,6 @@ import {
     LlmSkillsNameRetrieveParams,
     LlmSkillsNameRetrieveQueryParams,
 } from '@/generated/skills/api'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SkillArchiveSchema = LlmSkillsNameArchiveCreateParams.omit({ project_id: true }).extend({
     skill_name: LlmSkillsNameArchiveCreateParams.shape['skill_name'].describe(
@@ -218,6 +220,8 @@ const skillGet = (): ToolBase<typeof SkillGetSchema, Schemas.LLMSkill> => ({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/`,
             query: {
+                body_length: params.body_length,
+                body_offset: params.body_offset,
                 version: params.version,
             },
         })

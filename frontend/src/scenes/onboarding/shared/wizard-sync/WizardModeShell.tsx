@@ -3,7 +3,7 @@ import './WizardModeShell.scss'
 import type { ComponentType, ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
-import { WIZARD_HOG_URL } from 'scenes/onboarding/shared/wizardHog'
+import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
 
 import androidImage from '../logos/android.svg'
 import angularImage from '../logos/angular.svg'
@@ -87,10 +87,8 @@ export function WizardModeShell({
     return (
         <div className="flex gap-6" data-attr={dataAttr}>
             {!hideHog && (
-                <img
+                <WizardHog
                     key={`hog-${hogCastKey}`}
-                    src={WIZARD_HOG_URL}
-                    alt="PostHog wizard hedgehog"
                     className={cn(
                         'w-28 h-28 hidden sm:block shrink-0 self-center',
                         hogCastKey > 0 && 'WizardModeShell__hogCast'

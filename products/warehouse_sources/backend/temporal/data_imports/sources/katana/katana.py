@@ -1,86 +1,49 @@
-import time
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlsplit, urlunsplit
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana.settings import (
-    KATANA_ENDPOINTS,
-    KatanaEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.katana.settings import KATANA_ENDPOINTS
 
 KATANA_BASE_URL = "https://api.katanamrp.com/v1"
 # Katana caps list pages at 250 rows; use the max to minimise request count against the 60 req/min limit.
 PAGE_SIZE = 250
-# Katana allows 60 requests per 60 seconds. Space requests ~1/s so a large backfill stays under the
-# limit instead of relying on 429 backoff for every page.
-REQUEST_INTERVAL_SECONDS = 1.1
-MAX_ATTEMPTS = 6
-MAX_BACKOFF_SECONDS = 60.0
-
-
-class KatanaRetryableError(Exception):
-    """Transient server-side failure (5xx) that should be retried."""
-
-
-class KatanaRateLimitError(Exception):
-    """429 response. Carries the server's Retry-After hint (seconds) when present."""
-
-    def __init__(self, retry_after: float | None) -> None:
-        super().__init__("Katana rate limit exceeded")
-        self.retry_after = retry_after
 
 
 @dataclasses.dataclass
 class KatanaResumeConfig:
-    # Next page to fetch. On resume we re-fetch this page in full — a batch may be yielded mid-page,
-    # so re-reading the whole page recovers any un-yielded tail; the delta merge dedupes the overlap.
+    # Page to fetch on resume. Katana paginates by page number and exposes no next-page cursor, so a
+    # restart re-issues from this page; the delta merge dedupes any overlap with already-written rows.
     page: int = 1
 
 
-class _Throttle:
-    """Spaces outbound requests to honour Katana's 60 req/min budget without per-request 429s."""
+class KatanaPaginator(PageNumberPaginator):
+    """Page-number pagination where a SHORT page (fewer rows than the requested limit) is the last page.
 
-    def __init__(self, interval_seconds: float) -> None:
-        self._interval = interval_seconds
-        self._last_request_at: float | None = None
+    Katana exposes no next-page cursor, so any page below ``PAGE_SIZE`` ends the sync (this also covers
+    the empty-page case). Resume (the page number) is inherited from ``PageNumberPaginator``.
+    """
 
-    def wait(self) -> None:
-        if self._last_request_at is not None:
-            elapsed = time.monotonic() - self._last_request_at
-            if elapsed < self._interval:
-                time.sleep(self._interval - elapsed)
-        self._last_request_at = time.monotonic()
+    def __init__(self, page_size: int) -> None:
+        super().__init__(base_page=1)
+        self._page_size = page_size
 
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
-
-
-def _safe_error_url(url: str) -> str:
-    """Scheme + host + path only — drop query and any userinfo so a redirected, credential-bearing
-    final URL never lands in a persisted error message (the Katana key rides in the Authorization
-    header, but a redirect could echo credentials into the URL)."""
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        return ""
-    netloc = parts.hostname or ""
-    if parts.port:
-        netloc = f"{netloc}:{parts.port}"
-    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and (data is None or len(data) < self._page_size):
+            self._has_next_page = False
 
 
 def _format_datetime_z(dt: datetime) -> str:
@@ -109,164 +72,31 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
-def _build_base_params(
-    config: KatanaEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-    incremental_field: str | None,
-) -> dict[str, Any]:
-    """Query params shared by every page of a sync (the server-side timestamp filter)."""
-    params: dict[str, Any] = {}
-
-    if should_use_incremental_field and db_incremental_field_last_value and config.incremental_fields:
-        field_name = incremental_field or config.default_incremental_field
-        clamped = _clamp_future_value_to_now(db_incremental_field_last_value)
-        params[f"{field_name}_min"] = _format_incremental_value(clamped)
-
-    return params
-
-
-def _wait_katana(retry_state: RetryCallState) -> float:
-    """Honour the server's Retry-After on 429; otherwise exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, KatanaRateLimitError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_BACKOFF_SECONDS)
-    return min(2.0**retry_state.attempt_number, MAX_BACKOFF_SECONDS)
-
-
-def _request_page(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    throttle: _Throttle,
-) -> dict:
-    """Single throttled request. Raises the retryable/terminal errors `_fetch_page` retries on."""
-    throttle.wait()
-    response = session.get(url, params=params, headers=headers, timeout=60)
-
-    if response.status_code == 429:
-        retry_after_header = response.headers.get("Retry-After")
-        retry_after = float(retry_after_header) if retry_after_header else None
-        raise KatanaRateLimitError(retry_after)
-
-    if response.status_code >= 500:
-        raise KatanaRetryableError(f"Katana API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # Surface 4xx as an HTTPError so `get_non_retryable_errors` can match and stop the sync. Build the
-        # message from a scrubbed URL rather than `raise_for_status()`, whose default text embeds the raw
-        # final URL — a redirect could carry the credential there, and the error is persisted to job logs.
-        # The scrubbed `... for url: https://api.katanamrp.com/...` prefix stays matchable.
-        safe_url = _safe_error_url(response.url or url)
-        logger.error(f"Katana API error: status={response.status_code}, url={safe_url}")
-        raise requests.HTTPError(
-            f"{response.status_code} Client Error: {response.reason} for url: {safe_url}",
-            response=response,
-        )
-
-    body = response.json()
-    # Every Katana list endpoint wraps results as {"data": [...]}, returning {"data": []} when empty.
-    # A 2xx body missing the `data` key (maintenance page, changed envelope) would otherwise read as an
-    # empty page and silently end pagination mid-sync, so treat it as retryable rather than lose data.
-    if not isinstance(body, dict) or "data" not in body:
-        raise KatanaRetryableError(f"Unexpected Katana response envelope (no 'data' key): url={url}")
-
-    return body
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            KatanaRetryableError,
-            KatanaRateLimitError,
-            requests.ConnectionError,
-            requests.ReadTimeout,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    wait=_wait_katana,
-    stop=stop_after_attempt(MAX_ATTEMPTS),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    throttle: _Throttle,
-) -> dict:
-    return _request_page(session, url, params, headers, logger, throttle)
+def _incremental_filter_value(value: Any) -> Any:
+    """Framework ``convert`` hook for the ``<field>_min`` param: clamp a future cursor to now, then
+    format ISO 8601. Returns ``None`` when there's no cursor (first sync) so the param is dropped and
+    no server-side filter is sent."""
+    if not value:
+        return None
+    return _format_incremental_value(_clamp_future_value_to_now(value))
 
 
 def validate_credentials(api_key: str) -> bool:
     """Cheap token probe: `/user_info` returns 200 for a valid key regardless of resource scopes."""
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
-            f"{KATANA_BASE_URL}/user_info", headers=_get_headers(api_key), timeout=15
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[KatanaResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = KATANA_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    session = make_tracked_session(redact_values=(api_key,))
-    throttle = _Throttle(REQUEST_INTERVAL_SECONDS)
-    batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=200 * 1024 * 1024)
-
-    base_params = _build_base_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{KATANA_BASE_URL}/user_info",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        timeout=15,
     )
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume else 1
-    if resume:
-        logger.debug(f"Katana: resuming {endpoint} from page {page}")
-
-    url = f"{KATANA_BASE_URL}{config.path}"
-
-    while True:
-        params = {**base_params, "page": page, "limit": PAGE_SIZE}
-        data = _fetch_page(session, url, params, headers, logger, throttle)
-        # `_request_page` already guaranteed the `data` key is present (it raises otherwise), so read it
-        # directly — a `.get(..., [])` fallback here would silently mask a regression in that guard.
-        items = data["data"]
-
-        for item in items:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding, pointing at the CURRENT page: a crash re-reads this page in full
-                # (recovering its un-yielded tail) and the merge dedupes the already-written prefix.
-                resumable_source_manager.save_state(KatanaResumeConfig(page=page))
-
-        # A short (or empty) page is the last one — Katana has no next-page cursor to follow.
-        if len(items) < PAGE_SIZE:
-            break
-
-        page += 1
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    return ok
 
 
 def katana_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[KatanaResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -274,17 +104,68 @@ def katana_source(
 ) -> SourceResponse:
     config = KATANA_ENDPOINTS[endpoint]
 
+    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    if should_use_incremental_field and config.incremental_fields:
+        field_name = incremental_field or config.default_incremental_field
+        # Server-side timestamp filter. The framework injects this on every page and drops it when the
+        # cursor is empty (first sync), reproducing the original `<field>_min` behaviour.
+        params[f"{field_name}_min"] = {
+            "type": "incremental",
+            "cursor_path": field_name,
+            "convert": _incremental_filter_value,
+        }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": KATANA_BASE_URL,
+            # Auth (Bearer) goes through the framework auth config so the key is redacted from logs and
+            # raised error messages; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": KatanaPaginator(PAGE_SIZE),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "data",
+                    # Every Katana list endpoint wraps results as {"data": [...]}. A 2xx body missing the
+                    # `data` list (maintenance page, changed envelope) would otherwise read as an empty
+                    # page and silently end the sync mid-run, so treat it as retryable rather than lose
+                    # data.
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the framework saves AFTER a page is yielded, so a crash
+        # re-issues the saved page (merge dedupes) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(KatanaResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -295,4 +176,5 @@ def katana_source(
         # so rows arrive descending. The pipeline finalises the incremental watermark (max cursor) only
         # at the end for desc sources, which keeps it correct despite the fixed order.
         sort_mode="desc",
+        column_hints=resource.column_hints,
     )

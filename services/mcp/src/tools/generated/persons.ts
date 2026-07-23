@@ -1,7 +1,12 @@
 // AUTO-GENERATED from products/persons/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { castStringToInt } from '@/tools/cast-helpers'
+
 import {
     PersonsBulkDeleteCreateBody,
     PersonsCohortsRetrieveQueryParams,
@@ -13,9 +18,6 @@ import {
     PersonsUpdatePropertyCreateParams,
     PersonsValuesRetrieveQueryParams,
 } from '@/generated/persons/api'
-import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsBulkDeleteSchema = PersonsBulkDeleteCreateBody
 

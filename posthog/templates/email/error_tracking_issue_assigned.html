@@ -17,12 +17,12 @@
     <b>Status:</b> {{ assignment.issue.status }}
 </p>
 <div class="mb mt text-center">
-    <a class="button" href="{{ site_url }}/project/{{ team.id }}/error_tracking/{{ assignment.issue.id }}">View issue details</a>
+    <a class="button" href="{{ issue_url }}">View issue details</a>
 </div>
 <div class="mt">
     <p>
         If the button above doesn't work, paste this link into your browser:<br />
-        <a href="{{ site_url }}/project/{{ team.id }}/error_tracking/{{ assignment.issue.id }}">{{ site_url }}/project/{{ team.id }}/error_tracking/{{ assignment.issue.id }}</a>
+        <a href="{{ issue_url }}">{{ issue_url }}</a>
     </p>
 </div>
 {% endblock %}

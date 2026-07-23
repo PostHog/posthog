@@ -1,7 +1,12 @@
 // AUTO-GENERATED from products/surveys/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+
 import {
     SurveysCreateBody,
     SurveysDestroyParams,
@@ -20,9 +25,6 @@ import {
     SurveysSummarizeResponsesCreateParams,
     SurveysSummarizeResponsesCreateQueryParams,
 } from '@/generated/surveys/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SurveyCreateSchema = SurveysCreateBody.omit({
     linked_insight_id: true,

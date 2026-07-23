@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 import pytest
@@ -14,7 +15,8 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.artefact_schemas import SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
@@ -102,9 +104,54 @@ class TestScoutReportAPI(APIBaseTest):
         assert SignalReport.objects.filter(id=body["report_id"], team=self.team).exists()
         embed_mock.assert_called_once()
 
+    def test_report_emit_and_edit_enqueue_configured_slack_destination_after_commit(self) -> None:
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.enqueue_scout_slack_delivery"
+            ) as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            report_id = emitted.json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "append_note": "Re-validated on the next run"},
+                format="json",
+            )
+
+        assert emitted.status_code == status.HTTP_200_OK, emitted.json()
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert enqueue.call_count == 2
+        for call in enqueue.call_args_list:
+            assert call.kwargs["team_id"] == self.team.id
+            assert call.kwargs["output_type"] == "report"
+            assert call.kwargs["output_id"] == report_id
+            assert call.kwargs["run_id"] == str(run.id)
+            assert call.kwargs["integration_id"] == 17
+            assert call.kwargs["channel"] == "CSCOUTS|#scout-findings"
+        # Emit deliveries are keyed on the report id (idempotent); each edit gets its own id.
+        assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
+        assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id
+
     def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
         run = _make_run(self.team)
-        with _safe_judge(choice=False, explanation="prompt injection"), patch(EMBED_PATH):
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+        with (
+            _safe_judge(choice=False, explanation="prompt injection"),
+            patch(EMBED_PATH),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
             response = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -112,6 +159,29 @@ class TestScoutReportAPI(APIBaseTest):
         assert body["report_status"] == SignalReport.Status.SUPPRESSED
         assert body["safety_explanation"] == "prompt injection"
         assert body["report_id"] is not None
+        queue.assert_not_called()
+
+    def test_edit_of_suppressed_report_does_not_enqueue_slack_delivery(self) -> None:
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+        with (
+            _safe_judge(choice=False, explanation="prompt injection"),
+            patch(EMBED_PATH),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
+            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            report_id = emitted.json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "append_note": "note on a suppressed report"},
+                format="json",
+            )
+        assert emitted.status_code == status.HTTP_200_OK, emitted.json()
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        queue.assert_not_called()
 
     def test_emit_report_skips_when_ai_not_approved(self) -> None:
         # Preflight gate: a report is never authored for an org that hasn't approved AI processing.
@@ -189,6 +259,38 @@ class TestScoutReportAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.json()
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
+        # The run link on the report's work log dedupes the same way: emit linked the run once, and
+        # the two edits must not append duplicate `task_run` rows for it.
+        assert (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+            ).count()
+            == 1
+        )
+
+    def test_edit_report_links_editing_run_to_report_it_did_not_author(self) -> None:
+        # `edit_report` can target any inbox report (pipeline-authored included) — the edit must link
+        # the editing scout run on the report's work log so its transcript is reachable from the
+        # report, not just from the run-side `edited_report_ids` tally. Per-task dedupe: a second
+        # run editing the same report gets its own link.
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="pipeline report")
+        first_run = _make_run(self.team)
+        second_run = _make_run(self.team)
+        for i, run in enumerate((first_run, second_run)):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": str(report.id), "append_note": f"scout context {i}"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        artefacts = SignalReportArtefact.objects.filter(
+            report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        ).order_by("created_at")
+        contents = [TaskRunArtefact.model_validate_json(a.content) for a in artefacts]
+        assert [(c.task_id, c.run_id) for c in contents] == [
+            (str(run.task_run.task_id), str(run.task_run_id)) for run in (first_run, second_run)
+        ]
+        assert all(c.product == "signals" and c.type == "scout" for c in contents)
 
     def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
         other_org = Organization.objects.create(name="other")
@@ -259,6 +361,45 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
+
+    def test_edit_report_reason_only_reroute_keeps_commit_evidence(self) -> None:
+        # A scout re-route rebuilds entries from logins, so without merge-forward a reason-only edit
+        # would wipe the pipeline-derived relevant_commits (and prior name) the precedent-weighing
+        # guidance runs on. Kept logins must keep their evidence; new logins start clean.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        commit = {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "touched the hot path"}
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=SuggestedReviewers.model_validate(
+                [{"github_login": "alice", "github_name": "Alice A.", "relevant_commits": [commit]}]
+            ),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        with patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "suggested_reviewers": [
+                        {"github_login": "alice", "reason": "confirmed owner via human correction"},
+                        {"github_login": "dave"},
+                    ],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        stored = {entry["github_login"]: entry for entry in json.loads(artefact.content)}
+        assert stored["alice"]["relevant_commits"] == [commit]
+        assert stored["alice"]["github_name"] == "Alice A."
+        assert stored["alice"]["reason"] == "confirmed owner via human correction"
+        assert stored["dave"]["relevant_commits"] == []
 
     def test_edit_report_unresolvable_reviewer_does_not_partially_mutate(self) -> None:
         # A combined edit (title + a bad reviewer) must fail atomically: reviewers resolve before any
@@ -489,6 +630,22 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         result = _build_suggested_reviewers(self.team.id, [ReviewerInput(github_login="OctoCat")])
         assert result is not None
         assert [e.github_login for e in result.root] == ["octocat"]
+
+    def test_reason_persists_on_resolved_entries(self) -> None:
+        # The resolver rebuilds entries from resolved logins — a refactor that drops `reason` there
+        # silently reverts reviewer routing to unexplained picks. Whitespace-only normalizes to None.
+        result = _build_suggested_reviewers(
+            self.team.id,
+            [
+                ReviewerInput(github_login="alice", reason="Top recent author on the affected surface"),
+                ReviewerInput(github_login="bob", reason="   "),
+            ],
+        )
+        assert result is not None
+        assert [(e.github_login, e.reason) for e in result.root] == [
+            ("alice", "Top recent author on the affected surface"),
+            ("bob", None),
+        ]
 
     def test_resolves_user_uuid_to_linked_login(self) -> None:
         member = self._github_member("ghhandle")

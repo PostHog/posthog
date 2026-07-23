@@ -1,4 +1,5 @@
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from unittest import TestCase
 from unittest.mock import MagicMock
@@ -19,6 +20,15 @@ from posthog.schema import (
 )
 
 from .. import format_query_results_for_llm
+
+
+def _mock_team() -> MagicMock:
+    # Trends/funnel formatters build a QueryDateRange, which reads a real tzinfo off the team.
+    team = MagicMock()
+    team.timezone = "UTC"
+    team.timezone_info = ZoneInfo("UTC")
+    team.week_start_day = None
+    return team
 
 
 class TestFormatQueryResultsForLlm(TestCase):
@@ -96,7 +106,7 @@ class TestFormatQueryResultsForLlm(TestCase):
         ]
     )
     def test_dispatches_correctly(self, _name: str, query, response: dict, expected_substr: str):
-        team = MagicMock()
+        team = _mock_team()
         result = format_query_results_for_llm(query, response, team)
         assert result is not None
         self.assertIn(expected_substr, result)
@@ -131,7 +141,7 @@ class TestFormatQueryResultsForLlm(TestCase):
         ]
     )
     def test_envelope_nodes_are_unwrapped(self, _name: str, query, response: dict, expected_substr: str):
-        team = MagicMock()
+        team = _mock_team()
         result = format_query_results_for_llm(query, response, team)
         assert result is not None, f"Expected a formatted result, got None for {_name}"
         self.assertIn(expected_substr, result)

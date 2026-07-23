@@ -19,6 +19,7 @@ from posthog.errors import (
     CHQueryErrorCannotScheduleTask,
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManySimultaneousQueries,
 )
 from posthog.exceptions import ClickHouseAtCapacity
@@ -28,6 +29,7 @@ from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
@@ -346,7 +348,12 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         logger.exception("failed_to_update_cohort_metrics", error=str(e))
 
 
-def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
+def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> bool:
+    """
+    Returns False if dependency resolution failed and only `cohort` itself was enqueued instead
+    of its full dependency chain, so callers that need to (e.g. the staff recalculate endpoint)
+    can tell a caller the request wasn't fully honored. Callers that don't care can ignore it.
+    """
     dependent_cohorts = get_all_cohort_dependents(cohort)
     dependency_cohorts = get_all_cohort_dependencies(cohort)
     related_cohorts = dependent_cohorts + dependency_cohorts
@@ -373,16 +380,18 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             # Fall back to calculating just this cohort without dependencies
             logger.warning("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
             _enqueue_single_cohort_calculation(cohort, initiating_user)
-            return
+            return False
 
         # Create a chain of tasks to ensure sequential execution.
         # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
         # the preceding cohort's new rows may not have replicated yet. See #47618.
         task_chain: list = []
+        prepared_cohort_ids: list[int] = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
                 _prepare_cohort_for_calculation(current_cohort)
+                prepared_cohort_ids.append(current_cohort.id)
                 task = calculate_cohort_ch.si(
                     current_cohort.id,
                     current_cohort.pending_version,
@@ -393,10 +402,19 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
                 task_chain.append(task)
 
         if task_chain:
-            chain(*task_chain).apply_async()
+            try:
+                chain(*task_chain).apply_async()
+            except Exception:
+                # apply_async() never actually enqueued anything, but _prepare_cohort_for_calculation
+                # already flipped is_calculating on every cohort in the chain. Clear it so they aren't
+                # stranded looking "in flight" until the hourly stuck-cohort reset catches them.
+                Cohort.objects.filter(id__in=prepared_cohort_ids).update(is_calculating=False)
+                raise
     else:
         logger.info("cohort_has_no_dependencies", cohort_id=cohort.id)
         _enqueue_single_cohort_calculation(cohort, initiating_user)
+
+    return True
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
@@ -419,11 +437,20 @@ def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
 def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
     """Helper function to enqueue a single cohort for calculation"""
     _prepare_cohort_for_calculation(cohort)
-    calculate_cohort_ch.delay(
-        cohort.id,
-        cohort.pending_version,
-        initiating_user.id if initiating_user else None,
-    )
+    try:
+        calculate_cohort_ch.delay(
+            cohort.id,
+            cohort.pending_version,
+            initiating_user.id if initiating_user else None,
+        )
+    except Exception:
+        # .delay() never actually enqueued anything, but _prepare_cohort_for_calculation already
+        # flipped is_calculating. Clear it so the cohort isn't stranded looking "in flight" until
+        # the hourly stuck-cohort reset catches it.
+        if not cohort.is_static:
+            cohort.is_calculating = False
+            cohort.save(update_fields=["is_calculating"])
+        raise
 
 
 @shared_task(
@@ -436,6 +463,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
         ClickHouseAtCapacity,
         CHQueryErrorS3Error,
         CHQueryErrorS3FileChangedDuringRead,
+        CHQueryErrorTableIsReadOnly,
     ),
     retry_backoff=60,
     retry_backoff_max=1800,
@@ -866,5 +894,36 @@ def trigger_cohort_backfill_task(team_id: int, cohort_id: int) -> None:
             cohort_id=cohort_id,
             team_id=team_id,
             error=str(e),
+        )
+        raise
+
+
+@shared_task(ignore_result=True, max_retries=3)
+def trigger_cohort_events_backfill_task(team_id: int, cohort_id: int, trigger_kind: str) -> None:
+    try:
+        run = create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        if run is None:
+            logger.info(
+                "skipping_cohort_events_backfill_task",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                trigger_kind=trigger_kind,
+            )
+            return
+        logger.info(
+            "created_cohort_events_backfill_run",
+            run_id=str(run.id),
+            cohort_id=cohort_id,
+            team_id=team_id,
+            trigger_kind=trigger_kind,
+            status=run.status,
+        )
+    except Exception as error:
+        logger.exception(
+            "failed_to_trigger_cohort_events_backfill_task",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            trigger_kind=trigger_kind,
+            error=str(error),
         )
         raise

@@ -31,7 +31,7 @@ async fn connection_refused_endpoint_is_classified_as_retryable() {
     let resolved = process_one(remote_stage(ctx), evt)
         .await
         .expect("connection refused must not surface as terminal");
-    assert_eq!(resolved.exception_list.len(), 1);
+    assert_eq!(resolved.exception_list().len(), 1);
     assert_eq!(good_items.lock().unwrap().len(), 1);
 }
 
@@ -55,7 +55,7 @@ async fn stream_interruption_reroutes_in_flight_items() {
         let resolved = process_one(remote_stage(ctx), build_event(2))
             .await
             .expect("interrupted stream must reroute remaining items");
-        assert_eq!(resolved.exception_list.len(), 2);
+        assert_eq!(resolved.exception_list().len(), 2);
         assert_eq!(interrupted_items.lock().unwrap().len(), 1);
         assert_eq!(good_items.lock().unwrap().len(), 1);
         return;
@@ -113,23 +113,23 @@ async fn accounting_preserves_order_and_team_id_on_resolved_payloads() {
     let evt = build_event(5);
 
     let original_types: Vec<String> = evt
-        .exception_list
+        .exception_list()
         .iter()
         .map(|e| e.exception_type.clone())
         .collect();
-    let original_team_id = evt.team_id;
+    let original_team_id = evt.team_id();
 
     let resolved = process_one(remote_stage(ctx), evt)
         .await
         .expect("happy path");
 
     let resolved_types: Vec<String> = resolved
-        .exception_list
+        .exception_list()
         .iter()
         .map(|e| e.exception_type.clone())
         .collect();
     assert_eq!(resolved_types, original_types, "slots must be preserved");
-    assert_eq!(resolved.team_id, original_team_id);
+    assert_eq!(resolved.team_id(), original_team_id);
 }
 
 #[tokio::test]
@@ -156,7 +156,7 @@ async fn endpoint_refresh_closes_draining_mux_and_reroutes_in_flight_item() {
         .await
         .expect("join remote resolution")
         .expect("drained mux should reroute item");
-    assert_eq!(resolved.exception_list.len(), 1);
+    assert_eq!(resolved.exception_list().len(), 1);
     assert_eq!(old_items.lock().unwrap().len(), 1);
     assert_eq!(new_items.lock().unwrap().len(), 1);
     assert_eq!(pool.endpoints().await, vec![new_addr]);

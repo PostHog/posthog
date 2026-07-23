@@ -20,7 +20,7 @@ from posthog.hogql.database.models import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
-from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
+from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
@@ -73,14 +73,23 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Deletes views that are no longer referenced.
         Materializes views by default.
         """
+        # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
+        from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
+        from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
 
-        expected_views: list[ExpectedView] = []
-        if self.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
-            expected_views = self._get_expected_views_for_revenue_analytics()
-        elif self.kind == DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS:
-            expected_views = self._get_expected_views_for_engineering_analytics()
-        else:
+        provider = get_expected_views_provider(self.kind)
+        if provider is None:
             raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
+
+        expected_views = [
+            ExpectedView(
+                name=view.name,
+                query={"kind": "HogQLQuery", "query": view.query},
+                columns=self._get_columns_from_fields(view.fields),
+                materialized=view.materialized,
+            )
+            for view in provider(self.team)
+        ]
 
         # NOTE: Views that depend on other views MUST be placed AFTER the views they depend on
         # or else we'll fail to build the paths properly.
@@ -190,7 +199,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             managed_dag = DAG.get_or_create_revenue_analytics(self.team)
             for saved_query in saved_queries_to_schedule:
                 try:
-                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+                    # reconcile once after both loops, not once per view
+                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True, reconcile=False)
                     # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
                     # unless something there still depends on it (don't orphan a dependent).
                     for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
@@ -207,7 +217,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         for saved_query in saved_queries_to_schedule:
             try:
-                saved_query.schedule_materialization()
+                saved_query.schedule_materialization(reconcile=False)
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(
@@ -216,6 +226,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     view_name=saved_query.name,
                     error=str(e),
                 )
+
+        if saved_queries_to_schedule:
+            maybe_reconcile_dag(managed_dag)
 
         views_deleted = 0
         for orphaned_view in orphaned_views_to_revert:
@@ -298,46 +311,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 None,
             ),
         }
-
-    def _get_expected_views_for_revenue_analytics(self) -> list[ExpectedView]:
-        """
-        Reuses build_all_revenue_analytics_views() from Database.create_for logic.
-        For each source (events + external data sources):
-          - Creates 6 views: customer, charge, subscription, revenue_item, product, mrr
-        """
-
-        from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
-
-        expected_views = build_all_revenue_analytics_views(self.team)
-        return [
-            ExpectedView(
-                name=view.name,
-                query={"kind": "HogQLQuery", "query": view.query},
-                columns=self._get_columns_from_fields(view.fields),
-            )
-            for view in expected_views
-        ]
-
-    def _get_expected_views_for_engineering_analytics(self) -> list[ExpectedView]:
-        """The engineering-analytics per-job CI cost view, adapted from its facade contract.
-
-        Non-materialized: the view is computed at query time so a Depot rate change propagates
-        immediately and it never joins the materialization schedule / managed DAG. Imported lazily
-        (like revenue above) to keep the product's read layer off the django.setup() path.
-        """
-        from products.engineering_analytics.backend.facade.warehouse_views import (  # noqa: PLC0415 — keeps the product read layer off the startup path
-            get_expected_warehouse_views,
-        )
-
-        return [
-            ExpectedView(
-                name=view.name,
-                query={"kind": "HogQLQuery", "query": view.query},
-                columns=self._get_columns_from_fields(view.fields),
-                materialized=False,
-            )
-            for view in get_expected_warehouse_views(self.team)
-        ]
 
     @staticmethod
     def _get_columns_from_fields(fields: dict[str, FieldOrTable]) -> dict[str, dict[str, Any]]:

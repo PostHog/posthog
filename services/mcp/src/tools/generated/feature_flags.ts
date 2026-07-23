@@ -1,7 +1,14 @@
 // AUTO-GENERATED from products/feature_flags/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
+import { castStringToInt } from '@/tools/cast-helpers'
+
 import {
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsActivityRetrieveQueryParams,
@@ -29,11 +36,6 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
-import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CreateFeatureFlagSchema = FeatureFlagsCreateBody.omit({ archived: true }).extend({
     is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
@@ -136,10 +138,12 @@ const featureFlagGetAll = (): ToolBase<
                 active: params.active,
                 archived: params.archived,
                 created_by_id: params.created_by_id,
+                eligible_for_experiment: params.eligible_for_experiment,
                 evaluation_runtime: params.evaluation_runtime,
                 excluded_properties: params.excluded_properties,
                 excluded_tags: params.excluded_tags,
                 has_evaluation_contexts: params.has_evaluation_contexts,
+                key: params.key,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -314,6 +318,9 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
         if (params.disable_copied_flag !== undefined) {
             body['disable_copied_flag'] = params.disable_copied_flag
         }
+        if (params.copy_dependencies !== undefined) {
+            body['copy_dependencies'] = params.copy_dependencies
+        }
         const result = await context.api.request<Schemas.CopyFlagsResponse>({
             method: 'POST',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,
@@ -358,6 +365,7 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/evaluation_reasons/`,
             query: {
                 distinct_id: params.distinct_id,
+                flag_keys: params.flag_keys,
                 groups: params.groups,
             },
         })

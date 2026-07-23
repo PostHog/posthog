@@ -10,23 +10,30 @@ import {
     LemonMenu,
     LemonSegmentedButton,
     LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    LemonTagType,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { BrokenTestStateTag } from '../components/BrokenTestStateTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { QuarantineTestModal } from '../components/QuarantineTestModal'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import {
+    BrokenTestRow,
+    FlakyTestClassification,
     FlakyTestRow,
     FlakyTestWindow,
     QuarantineEntryRow,
@@ -36,6 +43,10 @@ import {
     engineeringAnalyticsLogic,
     flakyEvidenceReason,
 } from './engineeringAnalyticsLogic'
+
+// Runners with an enforcement adapter; mirrors ADAPTED_RUNNERS in the quarantine
+// contract (tools/hogli-commands/hogli_commands/quarantine/core.py), which the frontend can't import.
+const ENFORCED_RUNNERS = ['pytest', 'jest', 'playwright']
 
 function relativeExpiry(daysUntilExpiry: number): string {
     if (daysUntilExpiry === 0) {
@@ -80,7 +91,278 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
     )
 }
 
-function FlakyTestLeaderboard(): JSX.Element {
+function RelativeTime({ iso }: { iso: string }): JSX.Element {
+    return (
+        <Tooltip title={dayjs(iso).format('YYYY-MM-DD HH:mm:ss')}>
+            <span className="text-xs whitespace-nowrap text-secondary">{dayjs(iso).fromNow()}</span>
+        </Tooltip>
+    )
+}
+
+// Reads the `broken_tests` product endpoint: the failure fingerprints, the classifier that ranks
+// them, and the two cluster reads it merges all run server-side. The row expansion lazy-loads the
+// failing log lines for the row's latest run via run_failure_logs.
+function BrokenTestDrilldown({ row }: { row: BrokenTestRow }): JSX.Element {
+    const { runFailureLogsByRun, runFailureLogsByRunLoading, brokenTestsWindowDays } =
+        useValues(engineeringAnalyticsLogic)
+    const logs = row.latestRunId ? runFailureLogsByRun[row.latestRunId] : undefined
+    const runUrl = row.repo && row.latestRunId ? `https://github.com/${row.repo}/actions/runs/${row.latestRunId}` : null
+
+    return (
+        <div className="flex flex-col gap-2 p-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
+                <span>
+                    Latest failing run on <span className="font-mono">{row.latestBranch || 'unknown branch'}</span>
+                </span>
+                <span>·</span>
+                <span>
+                    {pluralize(row.occurrences, 'failure')} across {pluralize(row.branches, 'branch', 'branches')} in
+                    the last {brokenTestsWindowDays} days
+                </span>
+                {runUrl && (
+                    <Link to={runUrl} target="_blank" className="inline-flex items-center gap-1">
+                        View run on GitHub <IconExternal />
+                    </Link>
+                )}
+            </div>
+            {!row.latestRunId ? (
+                <span className="text-xs text-tertiary">No run id recorded for this failure — can't fetch logs.</span>
+            ) : runFailureLogsByRunLoading && !logs ? (
+                <LemonSkeleton className="h-24 w-full" />
+            ) : !logs || !logs.logs_available || logs.jobs.length === 0 ? (
+                <span className="text-xs text-tertiary">
+                    No failure logs for this run — it didn't fail, or the logs aged out of the short Logs retention.
+                </span>
+            ) : (
+                <div className="flex flex-col gap-3">
+                    {logs.jobs.map((job) => (
+                        <div key={job.job_id} className="flex flex-col gap-1">
+                            <div className="font-mono text-xs font-semibold text-secondary">
+                                {job.branch || 'unknown'} · job {job.job_id} · {job.conclusion}
+                                {job.truncated && ' · truncated'}
+                            </div>
+                            <pre className="m-0 overflow-x-auto rounded border bg-bg-3000 p-2 font-mono text-xs leading-snug">
+                                {job.lines.map((line, idx) => (
+                                    <div
+                                        key={idx}
+                                        className={cn(line.original_line === null && 'italic text-tertiary')}
+                                    >
+                                        <span className="mr-3 inline-block w-12 select-none text-right text-tertiary">
+                                            {line.original_line ?? ''}
+                                        </span>
+                                        {line.text}
+                                    </div>
+                                ))}
+                            </pre>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function BrokenTestsPanel(): JSX.Element {
+    const {
+        visibleBrokenTests,
+        brokenTestsData,
+        brokenTestsDataLoading,
+        brokenTestsError,
+        brokenTestsWindowDays,
+        breakingMasterJobs,
+        hiddenBrokenTestCount,
+        showPrOnlyBrokenTests,
+    } = useValues(engineeringAnalyticsLogic)
+    const { setShowPrOnlyBrokenTests, loadRunFailureLogs } = useActions(engineeringAnalyticsLogic)
+
+    const columns: LemonTableColumns<BrokenTestRow> = [
+        {
+            title: 'State',
+            key: 'state',
+            width: 160,
+            render: (_, row) => <BrokenTestStateTag state={row.state} />,
+        },
+        {
+            title: 'Test',
+            key: 'testId',
+            width: 320,
+            render: (_, row) => (
+                <Tooltip title={row.testId}>
+                    <span className="block max-w-[20rem] truncate font-mono text-xs">{row.testId}</span>
+                </Tooltip>
+            ),
+        },
+        {
+            title: 'Error',
+            key: 'errorSignature',
+            render: (_, row) =>
+                row.errorSignature ? (
+                    <Tooltip title={row.errorSignature}>
+                        <span className="line-clamp-2 max-w-[22rem] text-xs text-secondary">{row.errorSignature}</span>
+                    </Tooltip>
+                ) : (
+                    <span className="text-tertiary">—</span>
+                ),
+        },
+        {
+            title: 'Occurrences',
+            key: 'occurrences',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.occurrences - b.occurrences,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.occurrences)}</span>,
+        },
+        {
+            title: 'Branches',
+            key: 'branches',
+            width: 100,
+            align: 'right',
+            sorter: (a, b) => a.branches - b.branches,
+            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.branches)}</span>,
+        },
+        {
+            title: 'Master hits',
+            key: 'masterHits',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.masterHits - b.masterHits,
+            render: (_, row) =>
+                row.masterHits > 0 ? (
+                    <span className="tabular-nums font-semibold text-danger">
+                        {humanFriendlyNumber(row.masterHits)}
+                    </span>
+                ) : (
+                    <span className="tabular-nums text-tertiary">0</span>
+                ),
+        },
+        {
+            title: 'First seen',
+            key: 'firstSeen',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.firstSeen.localeCompare(b.firstSeen),
+            render: (_, row) => <RelativeTime iso={row.firstSeen} />,
+        },
+        {
+            title: 'Last seen',
+            key: 'lastSeen',
+            width: 110,
+            align: 'right',
+            sorter: (a, b) => a.lastSeen.localeCompare(b.lastSeen),
+            render: (_, row) => <RelativeTime iso={row.lastSeen} />,
+        },
+        {
+            title: 'Trend (24h)',
+            key: 'trend',
+            width: 140,
+            tooltip: 'Failures per hour over the last 24 hours — a climbing bar means it is escalating right now.',
+            render: (_, row) => {
+                const series = row.trend
+                return series && series.some((n) => n > 0) ? (
+                    <Sparkline data={series} type="bar" color="danger" maximumIndicator={false} className="h-8 w-28" />
+                ) : (
+                    <span className="text-tertiary">—</span>
+                )
+            },
+        },
+    ]
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-col gap-0.5">
+                    <h3 className="m-0 text-base font-semibold">Currently broken tests</h3>
+                    <p className="m-0 max-w-2xl text-xs text-tertiary">
+                        Failures over the last {brokenTestsWindowDays} days, grouped by whether they're breaking trunk
+                        right now, resolving, or just flaky — inferred from CI logs + master job history. Expand a row
+                        for the latest failing run's logs.
+                    </p>
+                </div>
+                <LemonSwitch
+                    label="Show PR-only failures"
+                    checked={showPrOnlyBrokenTests}
+                    onChange={setShowPrOnlyBrokenTests}
+                    size="small"
+                    bordered
+                />
+            </div>
+            {brokenTestsError ? (
+                <LemonBanner type="error">Couldn't load broken tests: {brokenTestsError}</LemonBanner>
+            ) : brokenTestsDataLoading && !brokenTestsData ? (
+                <LemonSkeleton className="h-48 w-full" />
+            ) : (
+                <>
+                    {breakingMasterJobs.length > 0 ? (
+                        <LemonBanner type="error">
+                            Breaking master: {pluralize(breakingMasterJobs.length, 'job group')} —{' '}
+                            {breakingMasterJobs.join(', ')}
+                        </LemonBanner>
+                    ) : (
+                        <LemonBanner type="success">
+                            Nothing is flagged as breaking master right now. Failures that hit trunk only show here once
+                            their job's latest master run is known to be red, so this needs the job-level source synced.
+                        </LemonBanner>
+                    )}
+                    <LemonTable
+                        data-attr="engineering-analytics-broken-tests-table"
+                        size="small"
+                        columns={columns}
+                        dataSource={visibleBrokenTests}
+                        rowKey={(row) => row.fingerprint}
+                        loading={brokenTestsDataLoading}
+                        pagination={{ pageSize: 10 }}
+                        useURLForSorting={false}
+                        emptyState="No broken tests to show. Nothing is breaking trunk right now."
+                        nouns={['broken test', 'broken tests']}
+                        expandable={{
+                            noIndent: true,
+                            onRowExpand: (row) => {
+                                if (row.latestRunId) {
+                                    loadRunFailureLogs({ runId: row.latestRunId })
+                                }
+                            },
+                            expandedRowRender: (row) => <BrokenTestDrilldown row={row} />,
+                        }}
+                    />
+                    {brokenTestsData?.truncated && (
+                        <div className="text-xs text-tertiary">
+                            Showing the top {brokenTestsData.limit} by urgency — more distinct failures matched than
+                            fit.
+                        </div>
+                    )}
+                    {hiddenBrokenTestCount > 0 && !showPrOnlyBrokenTests && (
+                        <div className="text-xs text-tertiary">
+                            {pluralize(hiddenBrokenTestCount, 'PR-only failure')} hidden — toggle "Show PR-only
+                            failures" to include them.
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
+    )
+}
+
+const FLAKY_CLASSIFICATION: Record<FlakyTestClassification, { label: string; type: LemonTagType; tooltip: string }> = {
+    confirmed_flake: {
+        label: 'Confirmed flake',
+        type: 'warning',
+        tooltip:
+            'One commit both failed and passed this test, so the failure is nondeterministic. Fix it, or quarantine it while you do.',
+    },
+    suspected_regression: {
+        label: 'Suspected regression',
+        type: 'danger',
+        tooltip:
+            'Only failures recorded, so nothing here proves the test is flaky. Treat it as a real break until a recovery proves otherwise.',
+    },
+    quarantined: {
+        label: 'Quarantined, still failing',
+        type: 'muted',
+        tooltip: 'Already masked as xfail in CI and still failing. Fix it, then remove the quarantine.',
+    },
+}
+
+function ActiveTestHealthQueue(): JSX.Element {
     const { flakyTests, flakyTestsLoading, flakyTestsStatus, flakyTestWindow } = useValues(engineeringAnalyticsLogic)
     const { setFlakyTestWindow, openQuarantineModal } = useActions(engineeringAnalyticsLogic)
 
@@ -89,96 +371,93 @@ function FlakyTestLeaderboard(): JSX.Element {
             title: 'Test',
             key: 'nodeid',
             width: 360,
-            render: (_, row) => (
-                <div className="flex max-w-[22rem] flex-col gap-0.5">
-                    <Tooltip title={row.nodeid}>
-                        <span className="truncate font-mono text-xs">{row.nodeid}</span>
-                    </Tooltip>
-                    {row.xfailedCount > 0 && (
+            render: (_, row) => {
+                const { label, type, tooltip } = FLAKY_CLASSIFICATION[row.classification]
+                return (
+                    <div className="flex max-w-[22rem] flex-col gap-0.5">
+                        <Tooltip title={row.nodeid}>
+                            <span className="truncate font-mono text-xs">{row.nodeid}</span>
+                        </Tooltip>
                         <div>
-                            <Tooltip
-                                title={`Failed ${pluralize(row.xfailedCount, 'time')} while quarantined (runs as xfail) — already masked in CI, still flaky.`}
-                            >
-                                <LemonTag type="warning" size="small">
-                                    Quarantined, still failing
+                            <Tooltip title={tooltip}>
+                                <LemonTag type={type} size="small">
+                                    {label}
                                 </LemonTag>
                             </Tooltip>
                         </div>
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Evidence',
+            key: 'failedRunCount',
+            tooltip: 'Absolute counts, never a rate: fast passing runs are not recorded, so there is no denominator.',
+            sorter: (a, b) => a.failedRunCount - b.failedRunCount,
+            render: (_, row) => (
+                <div className="flex flex-col gap-0.5 text-xs">
+                    {row.failedRunCount > 0 && (
+                        <span>
+                            {pluralize(row.failedRunCount, 'failed run')} · {pluralize(row.failedPrCount, 'PR')}
+                        </span>
+                    )}
+                    {row.quarantinedFailedRunCount > 0 && (
+                        <span>Failed in {pluralize(row.quarantinedFailedRunCount, 'quarantined run')} (xfail)</span>
+                    )}
+                    {/* An xfail row has no recovery question to answer: it is masked, not racing. */}
+                    {row.classification !== 'quarantined' && (
+                        <span className="text-secondary">
+                            {row.sameCommitRecoveryRunCount > 0
+                                ? `Recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
+                                : 'No recovery recorded'}
+                        </span>
+                    )}
+                    {row.masterFailedRunCount > 0 && (
+                        <span className="font-semibold text-danger">
+                            {pluralize(row.masterFailedRunCount, 'master failure')}
+                        </span>
                     )}
                 </div>
             ),
         },
         {
-            title: 'Pass on retry',
-            key: 'rerunPassedCount',
+            title: 'Last signal',
+            key: 'lastSignalAt',
             width: 120,
             align: 'right',
-            tooltip:
-                'Failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with retries emit it.',
-            sorter: (a, b) => a.rerunPassedCount - b.rerunPassedCount,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.rerunPassedCount)}</span>,
-        },
-        {
-            title: 'Failures',
-            key: 'failedCount',
-            width: 100,
-            align: 'right',
-            tooltip:
-                'Runs whose final outcome was failed or error. An absolute count, not a rate — passing runs are mostly not recorded.',
-            sorter: (a, b) => a.failedCount - b.failedCount,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedCount)}</span>,
-        },
-        {
-            title: 'PRs hit',
-            key: 'failedPrCount',
-            width: 100,
-            align: 'right',
-            tooltip:
-                'Distinct pull requests the failures landed on. Failures on master carry no PR and are not counted here.',
-            sorter: (a, b) => a.failedPrCount - b.failedPrCount,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedPrCount)}</span>,
-        },
-        {
-            title: 'Last seen',
-            key: 'lastSeenAt',
-            width: 120,
-            align: 'right',
-            sorter: (a, b) => a.lastSeenAt.localeCompare(b.lastSeenAt),
-            render: (_, row) => (
-                <Tooltip title={dayjs(row.lastSeenAt).format('YYYY-MM-DD HH:mm:ss')}>
-                    <span className="text-xs whitespace-nowrap text-secondary">{dayjs(row.lastSeenAt).fromNow()}</span>
-                </Tooltip>
-            ),
+            sorter: (a, b) => a.lastSignalAt.localeCompare(b.lastSignalAt),
+            render: (_, row) => <RelativeTime iso={row.lastSignalAt} />,
         },
         {
             title: '',
             key: 'actions',
             width: 130,
             align: 'right',
-            render: (_, row) => (
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    icon={<IconShieldLock />}
-                    tooltip="Review the evidence and owner before opening a tracking issue and quarantine PR."
-                    aria-label={`Quarantine ${row.nodeid}`}
-                    onClick={() =>
-                        openQuarantineModal({
-                            action: 'quarantine',
-                            selector: row.selector,
-                            // The evidence is the reason; the cause is the tracking issue's job to find.
-                            reason: flakyEvidenceReason(row, flakyTestWindow),
-                            owner: '',
-                            issue: '',
-                            mode: 'run',
-                            confirm: true,
-                        })
-                    }
-                    data-attr="eng-analytics-flaky-quarantine"
-                >
-                    Quarantine…
-                </LemonButton>
-            ),
+            render: (_, row) =>
+                row.classification === 'confirmed_flake' ? (
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        icon={<IconShieldLock />}
+                        tooltip="Review the evidence and owner before opening a tracking issue and quarantine PR."
+                        aria-label={`Quarantine ${row.nodeid}`}
+                        onClick={() =>
+                            openQuarantineModal({
+                                action: 'quarantine',
+                                selector: row.selector,
+                                // The evidence is the reason; the cause is the tracking issue's job to find.
+                                reason: flakyEvidenceReason(row, flakyTestWindow),
+                                owner: '',
+                                issue: '',
+                                mode: 'run',
+                                confirm: true,
+                            })
+                        }
+                        data-attr="eng-analytics-flaky-quarantine"
+                    >
+                        Quarantine…
+                    </LemonButton>
+                ) : null,
         },
     ]
 
@@ -186,10 +465,10 @@ function FlakyTestLeaderboard(): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
-                    <h3 className="m-0 text-base font-semibold">Flaky test leaderboard</h3>
+                    <h3 className="m-0 text-base font-semibold">Active test health queue</h3>
                     <p className="m-0 text-xs text-tertiary">
-                        Backend tests that passed on retry or failed across several PRs — quarantine candidates, ranked
-                        by flakiness signal.
+                        Backend tests worth acting on now, ranked by blast radius: how many PRs they broke and how often
+                        they broke master.
                     </p>
                 </div>
                 <LemonSegmentedButton
@@ -216,12 +495,12 @@ function FlakyTestLeaderboard(): JSX.Element {
                         loading={flakyTestsLoading}
                         pagination={{ pageSize: 10 }}
                         useURLForSorting={false}
-                        emptyState="No flaky tests detected in this window."
-                        nouns={['flaky test', 'flaky tests']}
+                        emptyState="No tests need attention in this window."
+                        nouns={['test', 'tests']}
                     />
                     {flakyTests?.truncated && (
                         <div className="text-xs text-tertiary">
-                            Showing the {flakyTests.limit} strongest signals — more tests qualified in this window.
+                            Showing the top {flakyTests.limit} by blast radius. More tests qualified in this window.
                         </div>
                     )}
                 </>
@@ -244,9 +523,10 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         <div className="flex flex-col gap-8">
             {/* Tab-level: both sections read the same source, so the picker scopes them together. */}
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
-            <FlakyTestLeaderboard />
+            <BrokenTestsPanel />
+            <ActiveTestHealthQueue />
             <QuarantineRegister />
-            {/* Rendered once for the whole tab: the leaderboard rows, the register rows, and the
+            {/* Rendered once for the whole tab: the queue rows, the register rows, and the
                 register's no-file empty state all open it. */}
             <QuarantineTestModal
                 modal={quarantineModal}
@@ -372,25 +652,34 @@ function QuarantineRegister(): JSX.Element {
         {
             title: 'Selector',
             key: 'id',
-            render: (_, row) => (
-                <div className="flex max-w-[28rem] flex-col gap-0.5">
-                    <Tooltip title={row.id}>
-                        <span className="truncate font-mono text-xs">{row.id}</span>
-                    </Tooltip>
-                    <div className="flex items-center gap-1.5">
-                        <LemonTag type="option" size="small">
-                            {row.selectorKind}
-                        </LemonTag>
-                        {row.runner !== 'pytest' && (
-                            <Tooltip title="No enforcement adapter yet. This entry is informational.">
-                                <LemonTag type="muted" size="small">
-                                    {row.runner}
-                                </LemonTag>
-                            </Tooltip>
-                        )}
+            render: (_, row) => {
+                const isEnforced = ENFORCED_RUNNERS.includes(row.runner)
+                return (
+                    <div className="flex max-w-[28rem] flex-col gap-0.5">
+                        <Tooltip title={row.id}>
+                            <span className="truncate font-mono text-xs">{row.id}</span>
+                        </Tooltip>
+                        <div className="flex items-center gap-1.5">
+                            <LemonTag type="option" size="small">
+                                {row.selectorKind}
+                            </LemonTag>
+                            {row.runner !== 'pytest' && (
+                                <Tooltip
+                                    title={
+                                        isEnforced
+                                            ? `Enforced by the ${row.runner} adapter.`
+                                            : 'No enforcement adapter yet. This entry is informational.'
+                                    }
+                                >
+                                    <LemonTag type={isEnforced ? 'option' : 'muted'} size="small">
+                                        {row.runner}
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
-                </div>
-            ),
+                )
+            },
         },
         {
             title: 'Mode',

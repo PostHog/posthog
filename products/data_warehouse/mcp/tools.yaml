@@ -24,6 +24,9 @@ tools:
     data-warehouse-check-database-name-retrieve:
         operation: data_warehouse_check_database_name_retrieve
         enabled: false
+    data-warehouse-check-schema-name-retrieve:
+        operation: data_warehouse_check_schema_name_retrieve
+        enabled: false
     data-warehouse-completed-activity-retrieve:
         operation: data_warehouse_completed_activity_retrieve
         enabled: false
@@ -39,14 +42,17 @@ tools:
     data-warehouse-deprovision-create:
         operation: data_warehouse_deprovision_create
         enabled: false
-    data-warehouse-enable-backfill-create:
-        operation: data_warehouse_enable_backfill_create
-        enabled: false
     data-warehouse-job-stats-retrieve:
         operation: data_warehouse_job_stats_retrieve
         enabled: false
     data-warehouse-managed-warehouse-data-status-retrieve:
         operation: data_warehouse_managed_warehouse_data_status_retrieve
+        enabled: false
+    data-warehouse-managed-warehouse-source-schemas-retrieve:
+        operation: data_warehouse_managed_warehouse_source_schemas_retrieve
+        enabled: false
+    data-warehouse-onboard-team-create:
+        operation: data_warehouse_onboard_team_create
         enabled: false
     data-warehouse-property-values-retrieve:
         operation: data_warehouse_property_values_retrieve
@@ -521,6 +527,9 @@ tools:
     warehouse-tables-create:
         operation: warehouse_tables_create
         enabled: false
+    warehouse-tables-create-from-upload-create:
+        operation: warehouse_tables_create_from_upload_create
+        enabled: false
     warehouse-tables-destroy:
         operation: warehouse_tables_destroy
         enabled: false
@@ -557,6 +566,9 @@ tools:
         enabled: false
     warehouse-tables-update-schema-create:
         operation: warehouse_tables_update_schema_create
+        enabled: false
+    warehouse-tables-upload-file-create:
+        operation: warehouse_tables_upload_file_create
         enabled: false
     warehouse-view-link-create:
         operation: warehouse_view_link_create

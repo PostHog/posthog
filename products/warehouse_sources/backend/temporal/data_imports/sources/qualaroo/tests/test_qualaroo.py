@@ -1,20 +1,19 @@
-import base64
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo import qualaroo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.qualaroo import (
     PAGE_SIZE,
     QualarooResumeConfig,
-    QualarooRetryableError,
-    _basic_auth_token,
-    check_access,
-    get_rows,
     qualaroo_source,
     validate_credentials,
 )
@@ -23,160 +22,171 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.s
     QUALAROO_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = qualaroo._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the qualaroo module.
+QUALAROO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.qualaroo.make_tracked_session"
+)
+# tenacity naps between retries; patch it out so failure-path tests don't sleep.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: QualarooResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[QualarooResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> QualarooResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: QualarooResumeConfig) -> None:
-        self.saved.append(data)
+def _response(body: Any, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = "https://api.qualaroo.com/api/v1/nudges.json"
+    resp.reason = "OK" if status < 400 else "Error"
+    return resp
 
 
-def _full_page(start_id: int) -> list[dict]:
+def _make_manager(resume_state: QualarooResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session; return a list capturing each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared instead of inspecting the shared dict after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(manager) -> Any:
+    return qualaroo_source(
+        api_key="q-key",
+        api_secret="q-secret",
+        endpoint="nudges",
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
+
+
+def _full_page(start_id: int) -> list[dict[str, Any]]:
     return [{"id": start_id + i} for i in range(PAGE_SIZE)]
 
 
-class TestBasicAuthToken:
-    def test_encodes_key_and_secret_as_basic_credentials(self) -> None:
-        token = _basic_auth_token("my-key", "my-secret")
-        assert base64.b64decode(token).decode() == "my-key:my-secret"
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_progresses_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(_full_page(0)), _response([{"id": 999}])])
 
+        manager = _make_manager()
+        rows = _rows(_run(manager))
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[int, list[dict]], endpoint: str = "nudges"
-    ) -> list[dict]:
-        def fake_fetch(session: Any, path: str, offset: int, limit: int, logger: Any) -> list[dict]:
-            return pages[offset]
-
-        monkeypatch.setattr(qualaroo, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(qualaroo, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="q-key",
-            api_secret="q-secret",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_single_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: [{"id": 1}, {"id": 2}]})
-        assert rows == [{"id": 1}, {"id": 2}]
-        # The page is short (< PAGE_SIZE), so we stop without persisting resume state.
-        assert manager.saved == []
-
-    def test_follows_offset_pagination_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {0: _full_page(0), PAGE_SIZE: [{"id": 999}]}
-        rows = self._collect(manager, monkeypatch, pages)
         assert len(rows) == PAGE_SIZE + 1
-        # State is saved after the first full page (offset advances to PAGE_SIZE), then we stop.
-        assert [s.offset for s in manager.saved] == [PAGE_SIZE]
+        assert rows[-1] == {"id": 999}
+        # First request starts at offset 0 with the max page size; second advances one page.
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == PAGE_SIZE
+        assert params[1]["offset"] == PAGE_SIZE
+        # Checkpoint saved once after the first full page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == QualarooResumeConfig(offset=PAGE_SIZE)
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(QualarooResumeConfig(offset=PAGE_SIZE))
-        # Offset 0 must never be fetched on resume.
-        pages = {PAGE_SIZE: [{"id": 5}]}
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": 5}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}, {"id": 2}])])
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: []})
+        manager = _make_manager()
+        rows = _rows(_run(manager))
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_run(manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Offset 0 must never be fetched on resume — the first request starts at the saved offset.
+        params = _wire(session, [_response([{"id": 5}])])
+
+        manager = _make_manager(QualarooResumeConfig(offset=PAGE_SIZE))
+        rows = _rows(_run(manager))
+
+        assert rows == [{"id": 5}]
+        assert params[0]["offset"] == PAGE_SIZE
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
+class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(QualarooRetryableError):
-            _fetch_page_unwrapped(session, "/nudges.json", 0, PAGE_SIZE, MagicMock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_are_retried_then_reraised(self, _name: str, status: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        session.prepare_request.return_value = mock.MagicMock()
+        session.send.return_value = _response([], status=status)
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_run(_make_manager()))
+        # A persistent retryable status is reissued, not surfaced on the first attempt.
+        assert session.send.call_count > 1
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_fail_loud_without_retry(self, _name: str, status: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        session.prepare_request.return_value = mock.MagicMock()
+        session.send.return_value = _response({"error": "nope"}, status=status)
+
         with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "/nudges.json", 0, PAGE_SIZE, MagicMock())
+            _rows(_run(_make_manager()))
+        # 4xx is permanent — the request must not be reissued.
+        assert session.send.call_count == 1
 
-    def test_success_returns_list_body(self) -> None:
-        body = [{"id": 1}]
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "/nudges.json", 0, PAGE_SIZE, MagicMock())
-        assert result == body
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_is_retried(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        session.prepare_request.return_value = mock.MagicMock()
+        # Qualaroo list endpoints return a bare array; a 200 dict body is treated as a transient
+        # shape glitch and reissued rather than ingested as a single row.
+        session.send.return_value = _response({"error": "nope"})
 
-    def test_non_list_body_is_retryable(self) -> None:
-        session = self._session_returning(200, {"error": "nope"})
-        with pytest.raises(QualarooRetryableError):
-            _fetch_page_unwrapped(session, "/nudges.json", 0, PAGE_SIZE, MagicMock())
-
-    def test_request_uses_limit_and_offset_params(self) -> None:
-        session = self._session_returning(200, [])
-        _fetch_page_unwrapped(session, "/nudges.json", 1000, PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"limit": PAGE_SIZE, "offset": 1000}
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_run(_make_manager()))
+        assert session.send.call_count > 1
 
 
-class TestCheckAccess:
-    def _patch_session(self, response: Any) -> Any:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return patch.object(qualaroo, "make_tracked_session", lambda **kwargs: session)
-
-    @parameterized.expand(
-        [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "Qualaroo returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, status: int, ok: bool, expected_status: int, expected_message: str | None) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        with self._patch_session(response):
-            assert check_access("q-key", "q-secret") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with self._patch_session(requests.ConnectionError("boom")):
-            status, message = check_access("q-key", "q-secret")
-        assert status == 0
-        assert message is not None and "boom" in message
-
+class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True, None),
@@ -185,23 +195,31 @@ class TestCheckAccess:
             (500, False, "Qualaroo returned HTTP 500"),
         ]
     )
-    def test_validate_credentials(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        with self._patch_session(response):
-            assert validate_credentials("q-key", "q-secret") == (expected_valid, expected_message)
+    @mock.patch(QUALAROO_SESSION_PATCH)
+    def test_status_mapping(
+        self, status: int, expected_valid: bool, expected_message: str | None, mock_session
+    ) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("q-key", "q-secret") == (expected_valid, expected_message)
+
+    @mock.patch(QUALAROO_SESSION_PATCH)
+    def test_connection_error_is_unvalidated(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        assert validate_credentials("q-key", "q-secret") == (False, "Could not validate Qualaroo credentials")
 
 
-class TestQualarooSourceResponse:
+class TestSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
+        MockSession.return_value.headers = {}
         response = qualaroo_source(
             api_key="q-key",
             api_secret="q-secret",
             endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == ["id"]

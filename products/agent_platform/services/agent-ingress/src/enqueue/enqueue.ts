@@ -26,6 +26,7 @@ import { randomUUID } from 'crypto'
 import {
     AgentApplication,
     AgentRevision,
+    AgentSession,
     ConversationMessage,
     EMPTY_USAGE_TOTAL,
     SessionPrincipal,
@@ -38,6 +39,10 @@ import { ElevationTrigger, principalDisplay, recordElevationRequest, requireAclA
 
 export interface EnqueueDeps {
     queue: SessionQueue
+}
+
+export interface SessionPreparation {
+    rollback(): Promise<void>
 }
 
 export interface EnqueueInput {
@@ -66,8 +71,9 @@ export interface EnqueueInput {
      *
      * If a session with this key already exists, this call no-ops and
      * returns `{ kind: 'created', isResume: false }` with the original
-     * session id. The principal + seed message of the duplicate request
-     * are discarded — same shape Stripe's idempotency contract follows.
+     * session id. The principal, seed message, and session preparation of
+     * the duplicate request are discarded — same shape Stripe's idempotency
+     * contract follows.
      */
     idempotencyKey?: string
     /**
@@ -95,6 +101,11 @@ export interface EnqueueInput {
      * for audit. Defaults to false (owner-only, the fail-closed behaviour).
      */
     bypassOwnerAcl?: boolean
+    /**
+     * Prepare per-session dependencies before making the session claimable.
+     * Chat uses this to write credentials before a worker can claim the row.
+     */
+    prepareSession?: (sessionId: string) => Promise<SessionPreparation>
 }
 
 export type EnqueueOutcome =
@@ -124,6 +135,51 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
     }
 }
 
+async function withPreparedSession(
+    input: EnqueueInput,
+    sessionId: string,
+    operation: () => Promise<void>
+): Promise<void> {
+    const preparation = await input.prepareSession?.(sessionId)
+    try {
+        await operation()
+    } catch (err) {
+        if (preparation) {
+            try {
+                await preparation.rollback()
+            } catch (rollbackError) {
+                throw new AggregateError([err, rollbackError], 'session preparation rollback failed')
+            }
+        }
+        throw err
+    }
+}
+
+async function elevationIfDenied(
+    deps: EnqueueDeps,
+    input: EnqueueInput,
+    existing: AgentSession
+): Promise<Extract<EnqueueOutcome, { kind: 'elevation_required' }> | null> {
+    const incoming = input.principal ?? null
+    const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)
+    if (check.kind === 'allowed') {
+        return null
+    }
+    const request = await recordElevationRequest(deps.queue, existing, {
+        requester: incoming,
+        requesterDisplay: input.requesterDisplay ?? principalDisplay(incoming),
+        trigger: input.trigger ?? 'chat',
+        proposedMessage: input.seed,
+    })
+    return {
+        kind: 'elevation_required',
+        sessionId: existing.id,
+        isResume: false,
+        elevationRequestId: request.id,
+        existingPrincipalDisplay: principalDisplay(existing.principal),
+    }
+}
+
 async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
     // Idempotency check first — independent of externalKey. A duplicate
     // request returns the original session id unchanged; the principal +
@@ -133,6 +189,10 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
     if (input.idempotencyKey) {
         const existing = await deps.queue.findByIdempotencyKey(input.application.id, input.idempotencyKey)
         if (existing) {
+            const denied = await elevationIfDenied(deps, input, existing)
+            if (denied) {
+                return denied
+            }
             return { kind: 'created', sessionId: existing.id, isResume: false }
         }
     }
@@ -144,25 +204,14 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         // the same external_key stay isolated.
         const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, input.revision.id)
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
-            const incoming = input.principal ?? null
-            const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)
-            if (check.kind === 'denied') {
-                const req = await recordElevationRequest(deps.queue, existing, {
-                    requester: incoming,
-                    requesterDisplay: input.requesterDisplay ?? principalDisplay(incoming),
-                    trigger: input.trigger ?? 'chat',
-                    proposedMessage: input.seed,
-                })
-                return {
-                    kind: 'elevation_required',
-                    sessionId: existing.id,
-                    isResume: false,
-                    elevationRequestId: req.id,
-                    existingPrincipalDisplay: principalDisplay(existing.principal),
-                }
+            const denied = await elevationIfDenied(deps, input, existing)
+            if (denied) {
+                return denied
             }
-            await deps.queue.appendPendingInput(existing.id, input.seed)
-            await deps.queue.update(existing.id, { state: 'queued' })
+            await withPreparedSession(input, existing.id, async () => {
+                await deps.queue.appendPendingInput(existing.id, input.seed)
+                await deps.queue.update(existing.id, { state: 'queued' })
+            })
             return { kind: 'resumed', sessionId: existing.id, isResume: true }
         }
     }
@@ -189,7 +238,7 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         updated_at: new Date().toISOString(),
     }
     try {
-        await deps.queue.enqueue(session)
+        await withPreparedSession(input, session.id, async () => deps.queue.enqueue(session))
     } catch (err) {
         // Race-window safety net: between the `findByIdempotencyKey` check
         // above and this INSERT, a concurrent writer could have created a
@@ -200,6 +249,10 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         if (input.idempotencyKey && isUniqueViolation(err)) {
             const existing = await deps.queue.findByIdempotencyKey(input.application.id, input.idempotencyKey)
             if (existing) {
+                const denied = await elevationIfDenied(deps, input, existing)
+                if (denied) {
+                    return denied
+                }
                 return { kind: 'created', sessionId: existing.id, isResume: false }
             }
         }

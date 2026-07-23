@@ -1,6 +1,5 @@
 import os
 import sys
-from datetime import datetime
 
 import structlog
 
@@ -73,18 +72,14 @@ LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
 # Must hold the same value in both regions; unset disables the proxy.
 PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
 
-# Override for the AI observability trial-eval deprecation cutoff
-AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE: str | None = get_from_env(
-    "AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE", optional=True
-)
-if AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE:
-    # Fail at boot on a malformed value rather than 500ing requests and temporal runs later.
-    datetime.fromisoformat(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE)
-
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
+# Read source for per-team managed-warehouse state: "django" (DuckgresServerTeam rows,
+# the default), "dual" (serve django, compare against the duckgres control plane and emit
+# parity telemetry), or "cp" (serve the control plane org-teams API).
+DUCKGRES_TEAM_STATE_SOURCE: str = get_from_env("DUCKGRES_TEAM_STATE_SOURCE", "django")
 
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)

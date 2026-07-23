@@ -236,7 +236,11 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_bounced'
+        | 'email_bounced_hard'
+        | 'email_bounced_transient'
+        | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
+        | 'email_suppressed'
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
@@ -245,6 +249,8 @@ export type MinimalAppMetric = {
         | 'push_skipped'
         | 'quota_limited'
         | 'conversion'
+        | 'exited_workflow_changed'
+        | 'redirected_workflow_changed'
     count: number
 }
 
@@ -444,6 +450,14 @@ export type HogFunctionTypeType =
     | 'source_webhook'
     | 'warehouse_source_webhook'
     | 'site_destination'
+
+// Function types a cyclotron worker actually executes, so a rerun can safely re-enqueue
+// the stored invocation onto the cyclotron hog queue and have it run. Every other type
+// runs elsewhere (source webhooks inline in the cdp-api HTTP handler, transformations
+// during ingestion, site_* transpiled to client-side JS) and would never drain from that
+// queue — re-enqueuing one wedges the partition. Mirror of the Django `TYPES_THAT_CAN_RERUN`
+// allowlist and the frontend invocations UI.
+export const RERUNNABLE_HOG_FUNCTION_TYPES = new Set<HogFunctionTypeType>(['destination', 'internal_destination'])
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]

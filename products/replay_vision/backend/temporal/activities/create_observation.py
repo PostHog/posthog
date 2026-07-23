@@ -13,6 +13,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.metrics import record_quota_exhausted_skip
 from products.replay_vision.backend.temporal.types import (
     CreateObservationInputs,
     CreateObservationOutput,
@@ -52,6 +53,7 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
             )
 
     if compute_quota_snapshot(scanner.team.organization_id).would_exceed(observation_credits_for_model(scanner.model)):
+        record_quota_exhausted_skip(scanner.scanner_type)
         activity.logger.info(
             "Skipping observation: monthly quota exhausted",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},

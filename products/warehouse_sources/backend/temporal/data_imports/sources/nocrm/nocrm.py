@@ -1,18 +1,21 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.settings import (
     NOCRM_ENDPOINTS,
     NoCRMEndpointConfig,
@@ -22,16 +25,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.sett
 # the low (~2000 req/day) account quota.
 PAGE_SIZE = 100
 
-REQUEST_TIMEOUT_SECONDS = 60
+# noCRM reports the grand total (used to stop before an extra empty request) in this response header.
+TOTAL_COUNT_HEADER = "X-TOTAL-COUNT"
 
 # noCRM hosts every account under `<subdomain>.nocrm.io`. Only the subdomain label is user-supplied,
 # so restrict it to the DNS-label charset — this keeps a crafted value from breaking out of the
 # `.nocrm.io` origin and pointing the authenticated request somewhere else (SSRF).
 _SUBDOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
-
-
-class NoCRMRetryableError(Exception):
-    pass
 
 
 class NoCRMConfigError(Exception):
@@ -131,131 +131,95 @@ class NoCRMResumeConfig:
     offset: int = 0
 
 
-@retry(
-    retry=retry_if_exception_type((NoCRMRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> tuple[list[dict], int | None]:
-    """Fetch one page, returning the row list and the `X-TOTAL-COUNT` total when the header is present.
+class NoCRMOffsetPaginator(OffsetPaginator):
+    """OffsetPaginator with a no-progress guard.
 
-    noCRM list endpoints return a bare JSON array. Over-quota (429) and transient 5xx are retried;
-    on 429 noCRM sends `API-RETRY-AFTER`, but tenacity's exponential backoff is a safe fallback that
-    keeps us well under the daily cap without parsing the header.
+    An endpoint that ignores `offset` re-serves the first page forever. When a fetched page leads with
+    the same id we already saw, pagination isn't advancing, so stop instead of looping. The offending
+    page still surfaces once (merge dedupes on the primary key), but the loop terminates.
     """
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise NoCRMRetryableError(f"noCRM API error (retryable): status={response.status_code}, url={url}")
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._previous_first_id: Any = None
 
-    if not response.ok:
-        logger.error(f"noCRM API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    body = response.json()
-    # List endpoints return a bare array; be defensive about a wrapped object just in case.
-    items = body if isinstance(body, list) else body.get("data", [])
-
-    total_header = response.headers.get("X-TOTAL-COUNT")
-    total = int(total_header) if total_header is not None and total_header.isdigit() else None
-
-    return items, total
-
-
-def get_rows(
-    api_key: str,
-    subdomain: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[NoCRMResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict]]:
-    config = NOCRM_ENDPOINTS[endpoint]
-    base_url = _base_url(subdomain)
-    headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
-    # masks the API key in logged URLs and captured samples. `allow_redirects=False` stops a redirect
-    # from sending the key to another host. `retry=Retry(total=0)` disables the adapter's own retries
-    # so they don't stack on top of the tenacity retry in `_fetch_page`.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0))
-
-    base_params = _build_base_params(config, should_use_incremental_field, db_incremental_field_last_value)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume is not None else 0
-
-    # Guards against an endpoint that ignores `offset` and re-serves the first page forever: if a page
-    # leads with the same id we already saw, pagination isn't advancing, so stop.
-    previous_first_id: Any = None
-
-    while True:
-        params = {**base_params, "limit": PAGE_SIZE, "offset": offset}
-        url = f"{base_url}{config.path}?{urlencode(params)}"
-
-        items, total = _fetch_page(session, url, headers, logger)
-        if not items:
-            break
-
-        first_id = items[0].get("id") if isinstance(items[0], dict) else None
-        if offset > 0 and first_id is not None and first_id == previous_first_id:
-            logger.warning(f"noCRM: endpoint {endpoint} did not honour offset pagination, stopping to avoid a loop")
-            break
-        previous_first_id = first_id
-
-        yield items
-        offset += len(items)
-
-        # Terminate on a short final page or once we've consumed the pre-pagination total.
-        if len(items) < PAGE_SIZE:
-            break
-        if total is not None and offset >= total:
-            break
-
-        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last page
-        # rather than skipping it — merge dedupes on the primary key.
-        resumable_source_manager.save_state(NoCRMResumeConfig(offset=offset))
-
-
-def validate_credentials(api_key: str, subdomain: str) -> bool:
-    """Probe the cheap `/ping` endpoint to confirm the API key and subdomain are genuine."""
-    try:
-        url = f"{_base_url(subdomain)}/ping"
-    except NoCRMConfigError:
-        return False
-    try:
-        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0))
-        response = session.get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    def update_state(self, response: Any, data: Optional[list[Any]] = None) -> None:
+        if data:
+            first = data[0]
+            first_id = first.get("id") if isinstance(first, dict) else None
+            # self.offset is still the offset this page was requested at (super increments it below).
+            if self.offset > 0 and first_id is not None and first_id == self._previous_first_id:
+                self._has_next_page = False
+                return
+            self._previous_first_id = first_id
+        super().update_state(response, data)
 
 
 def nocrm_source(
     api_key: str,
     subdomain: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[NoCRMResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = NOCRM_ENDPOINTS[endpoint]
+    base_params = _build_base_params(config, should_use_incremental_field, db_incremental_field_last_value)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(subdomain),
+            # Non-secret header only; the API key rides on the framework auth so it's redacted from
+            # logs, samples, and raised error messages.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
+            # Pin every request (including seeded resume pages) to the account's own *.nocrm.io host,
+            # and refuse to follow redirects, so the key can't be steered to another origin.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": base_params,
+                    # List endpoints return a bare JSON array; no data_selector needed. noCRM reports
+                    # the grand total in a header, so stop on the header total / short / empty page.
+                    "paginator": NoCRMOffsetPaginator(
+                        limit=PAGE_SIZE, total_path=None, total_header=TOTAL_COUNT_HEADER
+                    ),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(NoCRMResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            subdomain=subdomain,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -267,3 +231,18 @@ def nocrm_source(
         # the framework's incremental checkpointing.
         sort_mode="asc",
     )
+
+
+def validate_credentials(api_key: str, subdomain: str) -> bool:
+    """Probe the cheap `/ping` endpoint to confirm the API key and subdomain are genuine."""
+    try:
+        url = f"{_base_url(subdomain)}/ping"
+    except NoCRMConfigError:
+        return False
+
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0)),
+        url,
+        headers=_get_headers(api_key),
+    )
+    return ok

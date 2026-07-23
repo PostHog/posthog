@@ -68,6 +68,18 @@ export type ProductIntroductionProps = {
     mcpSurfaceKey?: SurfaceKey
 }
 
+/**
+ * @deprecated Use {@link ProductEmptyState} instead: declare {@link SceneExport.emptyState} on the
+ * scene's {@link SceneExport} (see {@link ../ProductEmptyState | ProductEmptyState} and the
+ * `building-product-empty-states` skill).
+ *
+ * {@link ProductEmptyState} covers both of this component's jobs -
+ * "product not installed" via real data detection and "no entities yet" via an
+ * entity-count status - with a local-only skip instead of {@link UserType.has_seen_product_intro_for}.
+ * Don't add new call sites; existing ones should migrate product by product.
+ *
+ * The Growth team is responsible for migrating all call sites to {@link ProductEmptyState}.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.types import OpenApiTypes
@@ -30,8 +30,9 @@ from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
-from posthog.permissions import is_service_auth
+from posthog.permissions import get_authenticator_scopes, is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
@@ -46,6 +47,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunSerializer,
+    CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
@@ -58,6 +61,46 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 # reads need "viewer", writes need "editor".
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
+
+
+class _WarehouseScopeGatedAccessControl:
+    """Wraps ``UserAccessControl`` so object-level ``external_data_source`` access additionally
+    requires the request token to carry the matching ``external_data_source`` scope (``read`` for
+    viewer, ``write`` for editor). Person-property sources gate all warehouse read/write through
+    ``check_access_level_for_object`` on the linked ``external_data_source``, so folding the token
+    scope in here enforces the cross-resource scope on every path without threading it through the
+    facade. Session auth (no token scopes) and ``*`` tokens are unaffected — API scopes never gate
+    session requests, which stay RBAC-only. Everything else delegates to the wrapped instance."""
+
+    def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
+        self._inner = inner
+        self._token_scopes = token_scopes
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
+        if self._token_lacks_scope_for(obj, required_level):
+            return False
+        return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
+
+    def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
+        scopes = self._token_scopes
+        if "*" in scopes or model_to_resource(obj) != "external_data_source":
+            return False
+        if "external_data_source:write" in scopes:
+            return False  # write implies read, so it satisfies both viewer and editor
+        return not (required_level == "viewer" and "external_data_source:read" in scopes)
+
+
+def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
+    """The view's ``UserAccessControl``, additionally gating ``external_data_source`` object access on
+    the request token's warehouse scope. A no-op for session/other non-token auth (no token scopes)."""
+    scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
+    if scopes is None:
+        return view.user_access_control
+    return cast(UserAccessControl, _WarehouseScopeGatedAccessControl(view.user_access_control, scopes))
+
 
 # drf-spectacular auto-describes the pk path param for a model-backed viewset as
 # "A UUID string identifying this <model>.". These viewsets reach the model through the
@@ -100,6 +143,30 @@ def _object_required_level(request: Request, write: bool) -> str | None:
     if is_service_auth(request):
         return None
     return _OBJECT_WRITE_LEVEL if write else _OBJECT_READ_LEVEL
+
+
+_GROUP_TARGET_TYPE = "group"
+
+
+def _has_group_scope(request: Request, *, write: bool) -> bool:
+    """Whether the caller may read (``write=False``) or write (``write=True``) the ``group`` resource.
+    Group-target custom properties read and modify group data, but these viewsets are scoped to
+    ``account`` — so a token/OAuth caller must additionally hold the matching ``group`` scope,
+    mirroring what the group API itself enforces. Session callers are governed by project membership
+    (same as the group API), and service auth is exempt."""
+    if is_service_auth(request):
+        return True
+    token_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if token_scopes is None:
+        return True  # session / non-token auth — same footing as the group API
+    if "*" in token_scopes or "group:write" in token_scopes:
+        return True
+    return not write and "group:read" in token_scopes
+
+
+def _assert_group_scope(request: Request, *, write: bool) -> None:
+    if not _has_group_scope(request, write=write):
+        raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
 
 
 class CustomerProfileConfigViewSet(
@@ -203,23 +270,35 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    # ``values`` is a custom read action; without listing it here it carries no required scope and
+    # rejects token auth outright ("does not support personal API key access") before the group gate runs.
+    scope_object_read_actions = ["list", "retrieve", "values"]
     serializer_class = CustomPropertyDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # Callers without group read authorization don't see group-target definitions.
+        exclude_group_targets = not _has_group_scope(request, write=False)
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_custom_property_definitions(
-                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+                self.team_id,
+                offset=offset,
+                limit=limit,
+                user_access_control=_warehouse_scoped_uac(self),
+                exclude_group_targets=exclude_group_targets,
             ),
             CustomPropertyDefinitionSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         definition = api.get_custom_property_definition(
-            self.team_id, self.kwargs["pk"], user_access_control=self.user_access_control
+            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
         )
-        if definition is None:
+        # Hide group-target definitions from callers without group read authorization.
+        if definition is None or (
+            definition.target_type == _GROUP_TARGET_TYPE and not _has_group_scope(request, write=False)
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
 
@@ -247,6 +326,18 @@ class CustomPropertyDefinitionViewSet(
         key = request.GET.get("key")
         if not key:
             return Response({"results": [], "refreshing": False})
+        # Suggestions expose a group-target definition's option labels (and its existence), so gate them
+        # on group read authorization just like list/retrieve — an account-scoped caller without group
+        # read must not read group property configuration. Unknown keys keep the empty-envelope behavior.
+        definition = api.get_custom_property_definition(
+            self.team_id, key, user_access_control=_warehouse_scoped_uac(self)
+        )
+        if (
+            definition is not None
+            and definition.target_type == _GROUP_TARGET_TYPE
+            and not _has_group_scope(request, write=False)
+        ):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         suggestions = api.list_custom_property_value_suggestions(self.team_id, key, request.GET.get("value"))
         return Response({"results": [{"name": value} for value in suggestions], "refreshing": False})
 
@@ -254,6 +345,11 @@ class CustomPropertyDefinitionViewSet(
         serializer = CustomPropertyDefinitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        # Person and group targets are both gated behind the warehouse-person-properties rollout flag.
+        if data.target_type in ("person", "group") and not api.person_properties_flag_enabled(self.team_id):
+            raise ValidationError({"target_type": "Person/group properties from warehouse data are not enabled yet."})
+        if data.target_type == _GROUP_TARGET_TYPE:
+            _assert_group_scope(request, write=True)
         try:
             definition = api.create_custom_property_definition(
                 team_id=self.team_id,
@@ -263,6 +359,7 @@ class CustomPropertyDefinitionViewSet(
                 is_big_number=data.is_big_number,
                 options=_custom_property_option_dicts(data.options),
                 target_type=data.target_type,
+                group_type_index=data.group_type_index,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
@@ -273,7 +370,16 @@ class CustomPropertyDefinitionViewSet(
             raise ValidationError({"options": str(e)})
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
 
+    def _guard_group_definition(self, request: Request, definition_id) -> None:
+        # Group-target definitions gate the group-writing pipeline, so mutating one needs group scope.
+        definition = api.get_custom_property_definition(
+            self.team_id, definition_id, user_access_control=self.user_access_control
+        )
+        if definition is not None and definition.target_type == _GROUP_TARGET_TYPE:
+            _assert_group_scope(request, write=True)
+
     def update(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_definition(request, self.kwargs["pk"])
         partial = kwargs.pop("partial", False)
         serializer = CustomPropertyDefinitionSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
@@ -285,6 +391,7 @@ class CustomPropertyDefinitionViewSet(
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -299,6 +406,7 @@ class CustomPropertyDefinitionViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_definition(request, self.kwargs["pk"])
         deleted = api.delete_custom_property_definition(
             team_id=self.team_id,
             definition_id=self.kwargs["pk"],
@@ -425,22 +533,52 @@ class CustomPropertySourceViewSet(
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # Callers without group read authorization don't see sources feeding group-target definitions.
+        exclude_group_targets = not _has_group_scope(request, write=False)
         return self._paginate_via_facade(
             request,
-            lambda offset, limit: api.list_custom_property_sources(self.team_id, offset=offset, limit=limit),
+            lambda offset, limit: api.list_custom_property_sources(
+                self.team_id,
+                offset=offset,
+                limit=limit,
+                user_access_control=_warehouse_scoped_uac(self),
+                exclude_group_targets=exclude_group_targets,
+            ),
             CustomPropertySourceSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
-        if source is None:
+        source = api.get_custom_property_source(
+            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
+        )
+        # Hide sources feeding a group-target definition from callers without group read authorization.
+        if source is None or (
+            self._definition_is_group(source.definition) and not _has_group_scope(request, write=False)
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
+
+    def _definition_is_group(self, definition_id) -> bool:
+        if definition_id is None:
+            return False
+        definition = api.get_custom_property_definition(
+            self.team_id, str(definition_id), user_access_control=self.user_access_control
+        )
+        return definition is not None and definition.target_type == _GROUP_TARGET_TYPE
+
+    def _guard_group_source(self, request: Request, source_id, *, write: bool = True) -> None:
+        # A source feeding a group definition reads/activates the group-writing pipeline, so touching
+        # it needs group scope — an account-only token must not read or modify group properties.
+        source = api.get_custom_property_source(self.team_id, source_id)
+        if source is not None and self._definition_is_group(source.definition):
+            _assert_group_scope(request, write=write)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CustomPropertySourceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if self._definition_is_group(data.definition):
+            _assert_group_scope(request, write=True)
         try:
             source = api.create_custom_property_source(
                 team_id=self.team_id,
@@ -452,18 +590,28 @@ class CustomPropertySourceViewSet(
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.CustomPropertySourceValidationError as e:
             raise ValidationError(str(e))
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=CustomPropertySourceUpdateSerializer)
     def update(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_source(request, self.kwargs["pk"])
         write = CustomPropertySourceUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
         write.is_valid(raise_exception=True)
-        source = api.update_custom_property_source(
-            team_id=self.team_id, source_id=self.kwargs["pk"], fields=write.validated_data
-        )
+        try:
+            source = api.update_custom_property_source(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                fields=write.validated_data,
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if source is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
@@ -474,10 +622,100 @@ class CustomPropertySourceViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        deleted = api.delete_custom_property_source(team_id=self.team_id, source_id=self.kwargs["pk"])
+        self._guard_group_source(request, self.kwargs["pk"])
+        try:
+            deleted = api.delete_custom_property_source(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        operation_id="custom_property_sources_sync",
+        request=None,
+        responses={202: CustomPropertySyncTriggerResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def sync(self, request: Request, *args, **kwargs) -> Response:
+        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
+        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
+        off it."""
+        self._guard_group_source(request, self.kwargs["pk"])
+        try:
+            triggered = api.trigger_person_property_sync(
+                team_id=self.team_id, source_id=self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        except api.WarehouseSyncPausedError as e:
+            return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if not triggered:
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
+        return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        operation_id="custom_property_sources_backfill",
+        request=None,
+        responses={202: CustomPropertySyncTriggerResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def backfill(self, request: Request, *args, **kwargs) -> Response:
+        """Person and group sources only: start a backfill that reads the whole warehouse table and
+        populates person or group properties for historical rows. Coalesces if one is already running
+        for the table."""
+        self._guard_group_source(request, self.kwargs["pk"])
+        try:
+            started = api.trigger_person_property_backfill(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                trigger="manual",
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if started is None:
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
+        return Response(
+            {"status": "started" if started else "already_running", "already_running": not started},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        operation_id="custom_property_sources_runs_list",
+        responses={200: CustomPropertySyncRunSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True)
+    def runs(self, request: Request, *args, **kwargs) -> Response:
+        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
+        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
+        errors."""
+        # Hide the run history of a group-target source from callers without group read authorization.
+        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
+        if (
+            source is not None
+            and self._definition_is_group(source.definition)
+            and not _has_group_scope(request, write=False)
+        ):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            return self._paginate_via_facade(
+                request,
+                lambda offset, limit: api.list_custom_property_sync_runs(
+                    self.team_id,
+                    self.kwargs["pk"],
+                    offset=offset,
+                    limit=limit,
+                    user_access_control=_warehouse_scoped_uac(self),
+                ),
+                CustomPropertySyncRunSerializer,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
 
 
 class CustomerJourneyViewSet(

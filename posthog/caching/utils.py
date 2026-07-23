@@ -1,15 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 from dateutil.parser import isoparse, parser
 
 from posthog.clickhouse.client import sync_execute
 from posthog.interval_specs import INTERVAL_SPECS
-from posthog.models.filters.filter import Filter
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.team.team import Team
 
 
@@ -22,10 +19,11 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
 
 
 def largest_teams(limit: int) -> set[int]:
+    # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
     teams_by_event_count = sync_execute(
-        """
+        f"""
             SELECT team_id, COUNT(*) AS event_count
-            FROM events
+            FROM {events_read_table(use_new_events_schema(None))}
             WHERE timestamp > subtractDays(now(), 7)
             GROUP BY team_id
             ORDER BY event_count DESC
@@ -45,16 +43,6 @@ def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[da
     if isinstance(last_refresh, str):
         last_refresh = isoparse(last_refresh)
     return last_refresh
-
-
-def is_stale_filter(
-    team: Team,
-    filter: Filter | RetentionFilter | StickinessFilter | PathFilter,
-    cached_result: Any,
-) -> bool:
-    interval = filter.period.lower() if isinstance(filter, RetentionFilter) else filter.interval
-    last_refresh = last_refresh_from_cached_result(cached_result)
-    return is_stale(team, filter.date_to, interval, last_refresh)
 
 
 # enum legacy, default, lazy

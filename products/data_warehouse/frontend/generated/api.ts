@@ -10,9 +10,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CheckDatabaseNameResponseApi,
+    CheckSchemaNameResponseApi,
+    CreateTableFromUploadApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
+    DataWarehouseCheckSchemaNameRetrieveParams,
+    DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryColumnAnnotationApi,
@@ -20,12 +24,14 @@ import type {
     DataWarehouseSavedQueryFolderApi,
     DeleteWarehouseOrgResponseApi,
     DeprovisionWarehouseResponseApi,
-    EnableWarehouseBackfillRequestApi,
-    EnableWarehouseBackfillResponseApi,
+    FileUploadResponseApi,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseSourceSchemasResponseApi,
+    OnboardWarehouseTeamRequestApi,
+    OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
@@ -64,6 +70,7 @@ import type {
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
     WarehouseTablesListParams,
+    WarehouseTablesUploadFileCreateBody,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
 } from './api.schemas'
@@ -200,6 +207,39 @@ export const dataWarehouseCheckDatabaseNameRetrieve = async (
     })
 }
 
+export const getDataWarehouseCheckSchemaNameRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseCheckSchemaNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/check-schema-name/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/check-schema-name/`
+}
+
+/**
+ * Check if a schema name is free within the organization's managed warehouse.
+ */
+export const dataWarehouseCheckSchemaNameRetrieve = async (
+    projectId: string,
+    params: DataWarehouseCheckSchemaNameRetrieveParams,
+    options?: RequestInit
+): Promise<CheckSchemaNameResponseApi> => {
+    return apiMutator<CheckSchemaNameResponseApi>(getDataWarehouseCheckSchemaNameRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDataWarehouseCompletedActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/completed_activity/`
 }
@@ -291,29 +331,6 @@ export const dataWarehouseDeprovisionCreate = async (
     })
 }
 
-export const getDataWarehouseEnableBackfillCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/enable_backfill/`
-}
-
-/**
- * Enable warehouse backfill for this environment with a dedicated set of tables.
- *
- * Requires a table name and records the environment's membership in the
- * organization's managed warehouse. Restricted to organization admins.
- */
-export const dataWarehouseEnableBackfillCreate = async (
-    projectId: string,
-    enableWarehouseBackfillRequestApi: EnableWarehouseBackfillRequestApi,
-    options?: RequestInit
-): Promise<EnableWarehouseBackfillResponseApi> => {
-    return apiMutator<EnableWarehouseBackfillResponseApi>(getDataWarehouseEnableBackfillCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enableWarehouseBackfillRequestApi),
-    })
-}
-
 export const getDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/job_stats/`
 }
@@ -347,6 +364,66 @@ export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/`
+}
+
+/**
+ * Per-schema backfill and live import status for one source, for the Overview tab's drill-down modal — the main status endpoint only returns a per-source rollup.
+ * @summary Get per-schema detail for one imported source
+ */
+export const dataWarehouseManagedWarehouseSourceSchemasRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseSourceSchemasResponseApi> => {
+    return apiMutator<ManagedWarehouseSourceSchemasResponseApi>(
+        getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseOnboardTeamCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/onboard-team/`
+}
+
+/**
+ * Onboard this project onto the organization's existing managed warehouse.
+ *
+ * Requires a schema name; records the project's membership both in duckgres and in the
+ * Django backfill state. Restricted to organization admins.
+ */
+export const dataWarehouseOnboardTeamCreate = async (
+    projectId: string,
+    onboardWarehouseTeamRequestApi: OnboardWarehouseTeamRequestApi,
+    options?: RequestInit
+): Promise<OnboardWarehouseTeamResponseApi> => {
+    return apiMutator<OnboardWarehouseTeamResponseApi>(getDataWarehouseOnboardTeamCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardWarehouseTeamRequestApi),
+    })
 }
 
 export const getDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {
@@ -435,7 +512,7 @@ export const getDataWarehouseWarehouseStatusRetrieveUrl = (projectId: string) =>
 }
 
 /**
- * Get the current provisioning status of the managed warehouse, with this project's backfill state.
+ * Get the current provisioning status of the managed warehouse, with this project's onboarding state.
  */
 export const dataWarehouseWarehouseStatusRetrieve = async (
     projectId: string,
@@ -1965,6 +2042,33 @@ export const warehouseTablesUpdateSchemaCreate = async (
     })
 }
 
+export const getWarehouseTablesCreateFromUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/create_from_upload/`
+}
+
+/**
+ * Turn a previously uploaded file into a self-managed warehouse table.
+ *
+ * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
+ * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
+ * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
+ * fall back to the node role, never a user-supplied key).
+ * @summary Create a self-managed warehouse table from an uploaded file
+ */
+export const warehouseTablesCreateFromUploadCreate = async (
+    projectId: string,
+    createTableFromUploadApi: CreateTableFromUploadApi,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesCreateFromUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createTableFromUploadApi),
+    })
+}
+
 export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_tables/file/`
 }
@@ -1990,6 +2094,38 @@ export const warehouseTablesFileCreate = async (
     }
 
     return apiMutator<void>(getWarehouseTablesFileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getWarehouseTablesUploadFileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/upload_file/`
+}
+
+/**
+ * Store an uploaded file in object storage so a self-managed table can be created from it.
+ *
+ * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
+ * this returns an `upload_id` the caller passes back to build the table. The file is written under
+ * a team-scoped prefix, so a table can only ever read back its own team's uploads.
+ * @summary Upload a file for a new self-managed warehouse table
+ */
+export const warehouseTablesUploadFileCreate = async (
+    projectId: string,
+    warehouseTablesUploadFileCreateBody?: WarehouseTablesUploadFileCreateBody,
+    options?: RequestInit
+): Promise<FileUploadResponseApi> => {
+    const formData = new FormData()
+    if (warehouseTablesUploadFileCreateBody?.file !== undefined) {
+        formData.append(`file`, warehouseTablesUploadFileCreateBody.file)
+    }
+    if (warehouseTablesUploadFileCreateBody?.file_format !== undefined) {
+        formData.append(`file_format`, warehouseTablesUploadFileCreateBody.file_format)
+    }
+
+    return apiMutator<FileUploadResponseApi>(getWarehouseTablesUploadFileCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,

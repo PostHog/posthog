@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/cdp/mcp/cdp_functions.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     HogFunctionsCreateBody,
     HogFunctionsDestroyParams,
@@ -17,8 +21,6 @@ import {
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
     type: HogFunctionsCreateBody.shape['type'].describe(
@@ -86,7 +88,8 @@ const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, ['inputs.*.value', 'mappings.*.inputs.*.value']) as typeof result
+        return filtered
     },
 })
 
@@ -303,7 +306,8 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, ['inputs.*.value', 'mappings.*.inputs.*.value']) as typeof result
+        return filtered
     },
 })
 

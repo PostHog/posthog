@@ -1,0 +1,255 @@
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+
+from parameterized import parameterized
+
+from products.alerts.backend.scheduling import (
+    BlockedWindow,
+    CalendarInterval,
+    is_weekend,
+    next_calendar_check_time,
+    parse_blocked_windows_tuples,
+    scan_next_unblocked_utc,
+    validate_and_normalize_schedule_restriction,
+)
+
+# Wednesday 2026-03-18 12:00 UTC
+NOW = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
+PREV_CHECK = datetime(2026, 3, 18, 11, 47, tzinfo=UTC)
+
+
+class TestValidateAndNormalizeScheduleRestriction:
+    @parameterized.expand(
+        [
+            (None, None),
+            ({}, None),
+            ({"blocked_windows": []}, None),
+            (
+                {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+                {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            ),
+        ]
+    )
+    def test_normalize_feature_off_or_valid_overnight(self, raw: Any, expected: dict[str, Any] | None) -> None:
+        assert validate_and_normalize_schedule_restriction(raw) == expected
+
+    def test_merges_overlapping_same_day_windows(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "10:30", "end": "11:00"},
+                {"start": "10:40", "end": "11:15"},
+            ]
+        }
+        assert validate_and_normalize_schedule_restriction(raw) == {
+            "blocked_windows": [{"start": "10:30", "end": "11:15"}]
+        }
+
+    def test_adjacent_half_open_windows_merge(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "12:00", "end": "13:00"},
+                {"start": "13:00", "end": "14:00"},
+            ]
+        }
+        assert validate_and_normalize_schedule_restriction(raw) == {
+            "blocked_windows": [{"start": "12:00", "end": "14:00"}]
+        }
+
+    def test_rejects_full_day_coverage(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "00:00", "end": "12:00"},
+                {"start": "12:00", "end": "00:00"},
+            ]
+        }
+        with pytest.raises(ValueError, match="at least one time"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    def test_rejects_too_many_windows_before_merge(self) -> None:
+        raw = {"blocked_windows": [{"start": f"{i:02d}:00", "end": f"{i:02d}:30"} for i in range(6)]}
+        with pytest.raises(ValueError, match="At most 5"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    @parameterized.expand(
+        [
+            ("12:00:00",),
+            ("not_a_time",),
+        ]
+    )
+    def test_rejects_malformed_times(self, bad_time: str) -> None:
+        raw = {"blocked_windows": [{"start": bad_time, "end": "13:00"}]}
+        with pytest.raises(ValueError):
+            validate_and_normalize_schedule_restriction(raw)
+
+    def test_rejects_equal_start_and_end(self) -> None:
+        raw = {"blocked_windows": [{"start": "10:00", "end": "10:00"}]}
+        with pytest.raises(ValueError, match="differ"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    @parameterized.expand(
+        [
+            ("same_day_too_short", "10:00", "10:29", False),
+            ("same_day_minimum", "10:00", "10:30", True),
+            ("overnight_too_short", "23:50", "00:09", False),
+            ("overnight_minimum", "23:40", "00:10", True),
+        ]
+    )
+    def test_enforces_minimum_window_length(self, _name: str, start: str, end: str, is_valid: bool) -> None:
+        raw = {"blocked_windows": [{"start": start, "end": end}]}
+        if is_valid:
+            assert validate_and_normalize_schedule_restriction(raw) == raw
+        else:
+            with pytest.raises(ValueError, match="at least 30 minutes"):
+                validate_and_normalize_schedule_restriction(raw)
+
+    def test_evening_until_midnight_preserves_end_at_midnight(self) -> None:
+        raw = {"blocked_windows": [{"start": "19:00", "end": "00:00"}]}
+        assert validate_and_normalize_schedule_restriction(raw) == raw
+
+
+class TestNextCalendarCheckTime:
+    @parameterized.expand(
+        [
+            # Sub-daily intervals advance from the prior next_check_at, preserving per-alert spread
+            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 11, 49, tzinfo=UTC)),
+            ("real_time_first_check", CalendarInterval.REAL_TIME, None, datetime(2026, 3, 18, 12, 2, tzinfo=UTC)),
+            (
+                "15min_from_prev",
+                CalendarInterval.EVERY_15_MINUTES,
+                PREV_CHECK,
+                datetime(2026, 3, 18, 12, 2, tzinfo=UTC),
+            ),
+            ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 12, 47, tzinfo=UTC)),
+        ]
+    )
+    def test_sub_daily_advances_from_previous(
+        self, _name: str, interval: CalendarInterval, next_check_at: datetime | None, expected: datetime
+    ) -> None:
+        result = next_calendar_check_time(interval, now=NOW, tz_name="UTC", next_check_at=next_check_at)
+        assert result == expected
+
+    @parameterized.expand(
+        [
+            # Daily anchors to ~1am local tomorrow; minute preserved for spread. US/Pacific is UTC-7 on this date.
+            ("daily_pacific", CalendarInterval.DAILY, "US/Pacific", (2026, 3, 19, 8, 0)),
+            # Weekly anchors to ~3am next Monday local (Mon 2026-03-23), 3am PDT = 10:00 UTC
+            ("weekly_pacific", CalendarInterval.WEEKLY, "US/Pacific", (2026, 3, 23, 10, 0)),
+            # Monthly anchors to ~4am on the 1st of next month, 4am PDT = 11:00 UTC
+            ("monthly_pacific", CalendarInterval.MONTHLY, "US/Pacific", (2026, 4, 1, 11, 0)),
+        ]
+    )
+    def test_calendar_anchors_in_team_timezone(
+        self, _name: str, interval: CalendarInterval, tz_name: str, expected_utc: tuple
+    ) -> None:
+        result = next_calendar_check_time(interval, now=NOW, tz_name=tz_name, next_check_at=PREV_CHECK)
+        assert (result.year, result.month, result.day, result.hour, result.minute) == expected_utc
+        assert result.tzinfo is not None
+
+    def test_daily_across_dst_spring_forward(self) -> None:
+        # US spring-forward was 2026-03-08: local 1am tomorrow maps PST(-8) -> PDT(-7),
+        # so the UTC anchor shifts from 09:00 to 08:00 across the transition.
+        before = next_calendar_check_time(
+            CalendarInterval.DAILY,
+            now=datetime(2026, 3, 7, 12, 0, tzinfo=UTC),
+            tz_name="US/Pacific",
+            next_check_at=None,
+        )
+        after = next_calendar_check_time(
+            CalendarInterval.DAILY,
+            now=datetime(2026, 3, 8, 12, 0, tzinfo=UTC),
+            tz_name="US/Pacific",
+            next_check_at=None,
+        )
+        assert before.hour == 9
+        assert after.hour == 8
+
+    @parameterized.expand(
+        [
+            (
+                "weekly_spring_forward",
+                CalendarInterval.WEEKLY,
+                datetime(2026, 3, 6, 12, 0, tzinfo=UTC),
+                datetime(2026, 3, 9, 7, 0, tzinfo=UTC),
+            ),
+            (
+                "monthly_fall_back",
+                CalendarInterval.MONTHLY,
+                datetime(2026, 10, 31, 12, 0, tzinfo=UTC),
+                datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_calendar_anchors_keep_local_wall_time_across_dst(
+        self, _name: str, interval: CalendarInterval, now: datetime, expected: datetime
+    ) -> None:
+        assert next_calendar_check_time(interval, now=now, tz_name="America/New_York", next_check_at=None) == expected
+
+
+class TestIsWeekend:
+    @parameterized.expand(
+        [
+            # Friday 23:00 UTC is already Saturday 08:00 in Tokyo
+            ("tokyo_saturday", datetime(2026, 3, 20, 23, 0, tzinfo=UTC), "Asia/Tokyo", True),
+            ("utc_friday", datetime(2026, 3, 20, 23, 0, tzinfo=UTC), "UTC", False),
+            # Sunday 05:00 UTC is still Saturday 22:00 in Pacific
+            ("pacific_saturday", datetime(2026, 3, 22, 5, 0, tzinfo=UTC), "US/Pacific", True),
+        ]
+    )
+    def test_weekend_is_local(self, _name: str, now: datetime, tz_name: str, expected: bool) -> None:
+        assert is_weekend(now, tz_name) == expected
+
+
+class TestScanNextUnblockedUtc:
+    def _windows(self, *pairs: tuple[str, str]) -> list[BlockedWindow] | None:
+        raw = {"blocked_windows": [{"start": s, "end": e} for s, e in pairs]}
+        return parse_blocked_windows_tuples(validate_and_normalize_schedule_restriction(raw))
+
+    @parameterized.expand(
+        [
+            # Candidate inside a same-day window snaps to the window end (half-open)
+            ("inside_window", ("09:00", "17:00"), datetime(2026, 3, 18, 12, 30, tzinfo=UTC), "UTC", (17, 0)),
+            # Candidate outside any window is returned unchanged (minute precision)
+            ("outside_window", ("09:00", "17:00"), datetime(2026, 3, 18, 18, 15, tzinfo=UTC), "UTC", (18, 15)),
+            # Overnight window (22:00-06:00): a 23:00 candidate snaps to 06:00 next day
+            ("overnight_window", ("22:00", "06:00"), datetime(2026, 3, 18, 23, 0, tzinfo=UTC), "UTC", (6, 0)),
+        ]
+    )
+    def test_snapping(
+        self, _name: str, window: tuple[str, str], candidate: datetime, tz_name: str, expected_hm: tuple
+    ) -> None:
+        result = scan_next_unblocked_utc(candidate, tz_name, self._windows(window))
+        assert result is not None
+        assert (result.hour, result.minute) == expected_hm
+
+    def test_window_is_evaluated_in_local_time(self) -> None:
+        # Blocked 09:00-17:00 in Pacific (PDT, UTC-7). 12:00 UTC = 05:00 local -> not blocked.
+        windows = self._windows(("09:00", "17:00"))
+        result = scan_next_unblocked_utc(datetime(2026, 3, 18, 12, 0, tzinfo=UTC), "US/Pacific", windows)
+        assert result == datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
+        # 18:00 UTC = 11:00 local -> blocked until 17:00 local = 00:00 UTC next day.
+        result = scan_next_unblocked_utc(datetime(2026, 3, 18, 18, 0, tzinfo=UTC), "US/Pacific", windows)
+        assert result is not None
+        assert result == datetime(2026, 3, 19, 0, 0, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            (
+                "spring_forward",
+                ("01:30", "03:30"),
+                datetime(2026, 3, 8, 6, 30, tzinfo=UTC),
+                datetime(2026, 3, 8, 7, 30, tzinfo=UTC),
+            ),
+            (
+                "fall_back",
+                ("00:30", "02:00"),
+                datetime(2026, 11, 1, 5, 0, tzinfo=UTC),
+                datetime(2026, 11, 1, 7, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_scan_respects_dst_offset_changes(
+        self, _name: str, window: tuple[str, str], candidate: datetime, expected: datetime
+    ) -> None:
+        assert scan_next_unblocked_utc(candidate, "America/New_York", self._windows(window)) == expected

@@ -1,54 +1,71 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
 from unittest import mock
 
+from requests import Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta import okta as okta_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta import (
     OktaResumeConfig,
     _build_initial_params,
-    _build_initial_url,
     _format_incremental_value,
-    _parse_next_url,
-    get_rows,
     normalize_domain,
     okta_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import OKTA_ENDPOINTS
 
-
-def _response(
-    *, status_code: int = 200, json_data: Any = None, link: Optional[str] = None, text: str = ""
-) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 400
-    response.is_redirect = status_code in (301, 302, 303, 307, 308)
-    response.is_permanent_redirect = status_code in (301, 308)
-    response.text = text
-    response.json.return_value = json_data
-    response.headers = {"Link": link} if link else {}
-    return response
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
-class _FakeBatcher:
-    """Yields whatever has been buffered on every ``should_yield`` check, so the per-item
-    save_state path in ``get_rows`` is exercised without needing 2000+ rows."""
+def _response(items: Optional[list[dict[str, Any]]], *, status_code: int = 200, link: Optional[str] = None) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(items if items is not None else []).encode()
+    if link:
+        resp.headers["Link"] = link
+    return resp
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._buf: list[Any] = []
 
-    def batch(self, item: Any) -> None:
-        self._buf.append(item)
+def _redirect_response(status_code: int = 302, location: str = "https://internal.example/") -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.headers["Location"] = location
+    resp._content = b""
+    return resp
 
-    def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
-        return len(self._buf) > 0
 
-    def get_table(self) -> list[Any]:
-        rows, self._buf = self._buf, []
-        return rows
+def _make_manager(resume_state: Optional[OktaResumeConfig] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's url + params AT PREPARE TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared rather than inspecting the shared dict after the run.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestNormalizeDomain:
@@ -176,33 +193,6 @@ class TestBuildInitialParams:
         assert params == {"limit": 200}
 
 
-class TestBuildInitialUrl:
-    def test_builds_url_with_params(self):
-        url = _build_initial_url("example.okta.com", OKTA_ENDPOINTS["users"], {"limit": 200})
-        assert url == "https://example.okta.com/api/v1/users?limit=200"
-
-    def test_builds_url_without_params(self):
-        url = _build_initial_url("example.okta.com", OKTA_ENDPOINTS["user_types"], {})
-        assert url == "https://example.okta.com/api/v1/meta/types/user"
-
-
-class TestParseNextUrl:
-    @pytest.mark.parametrize(
-        "header, expected",
-        [
-            ("", None),
-            ('<https://x/api/v1/users>; rel="self"', None),
-            ('<https://x/api/v1/users?after=abc>; rel="next"', "https://x/api/v1/users?after=abc"),
-            (
-                '<https://x/api/v1/users>; rel="self", <https://x/api/v1/users?after=abc>; rel="next"',
-                "https://x/api/v1/users?after=abc",
-            ),
-        ],
-    )
-    def test_parse(self, header, expected):
-        assert _parse_next_url(header) == expected
-
-
 class TestValidateCredentials:
     def _patch_session(self, response=None, raises=None):
         session = mock.MagicMock()
@@ -212,22 +202,31 @@ class TestValidateCredentials:
             session.get.return_value = response
         return mock.patch.object(okta_module, "make_tracked_session", return_value=session)
 
+    def _resp(self, *, status_code=200, json_data=None, text=""):
+        response = mock.MagicMock()
+        response.status_code = status_code
+        response.is_redirect = status_code in (301, 302, 303, 307, 308)
+        response.is_permanent_redirect = status_code in (301, 308)
+        response.text = text
+        response.json.return_value = json_data
+        return response
+
     def test_success(self):
-        with self._patch_session(_response(status_code=200)):
+        with self._patch_session(self._resp(status_code=200)):
             assert validate_credentials("example.okta.com", "tok") == (True, None)
 
     def test_invalid_token(self):
-        with self._patch_session(_response(status_code=401)):
+        with self._patch_session(self._resp(status_code=401)):
             valid, msg = validate_credentials("example.okta.com", "tok")
             assert valid is False
             assert "Invalid Okta API token" == msg
 
     def test_403_at_source_create_is_accepted(self):
-        with self._patch_session(_response(status_code=403)):
+        with self._patch_session(self._resp(status_code=403)):
             assert validate_credentials("example.okta.com", "tok", schema_name=None) == (True, None)
 
     def test_403_for_scoped_probe_fails(self):
-        with self._patch_session(_response(status_code=403)):
+        with self._patch_session(self._resp(status_code=403)):
             valid, msg = validate_credentials("example.okta.com", "tok", schema_name="users")
             assert valid is False
             assert msg is not None
@@ -249,7 +248,7 @@ class TestValidateCredentials:
     def test_rejects_redirect_response(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be rejected,
         # not followed (SSRF).
-        with self._patch_session(_response(status_code=302)) as patched:
+        with self._patch_session(self._resp(status_code=302)) as patched:
             valid, msg = validate_credentials("example.okta.com", "tok")
             assert valid is False
             assert msg == okta_module.HOST_NOT_ALLOWED_ERROR
@@ -260,7 +259,7 @@ class TestValidateCredentials:
         # before any HTTP request is made (SSRF guard).
         with (
             mock.patch.object(okta_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(_response(status_code=200)) as patched,
+            self._patch_session(self._resp(status_code=200)) as patched,
         ):
             valid, msg = validate_credentials("10.0.0.1", "tok", team_id=99)
             assert valid is False
@@ -285,9 +284,9 @@ class TestOktaSourceResponse:
             domain="example.okta.com",
             api_key="tok",
             endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
             team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == [primary_key]
@@ -295,144 +294,143 @@ class TestOktaSourceResponse:
         if partition_key:
             assert response.partition_keys == [partition_key]
             assert response.partition_mode == "datetime"
+            assert response.partition_format == "week"
         else:
             assert response.partition_keys is None
             assert response.partition_mode is None
 
 
-class TestGetRows:
-    def _run(self, manager, responses):
-        session = mock.MagicMock()
-        session.get.side_effect = responses
-        with (
-            mock.patch.object(okta_module, "make_tracked_session", return_value=session),
-            mock.patch.object(okta_module, "Batcher", _FakeBatcher),
-        ):
-            rows: list[Any] = []
-            for table in get_rows(
-                domain="example.okta.com",
-                api_key="tok",
-                endpoint="users",
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager,
-                team_id=1,
-            ):
-                rows.extend(table)
-        return rows, session
-
-    def test_follows_link_header_across_pages(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        page1 = _response(
-            json_data=[{"id": "1"}, {"id": "2"}],
-            link='<https://example.okta.com/api/v1/users?after=cur>; rel="next"',
+class TestOktaPagination:
+    def _source(self, endpoint="users", manager=None, **kwargs):
+        return okta_source(
+            domain="example.okta.com",
+            api_key="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager if manager is not None else _make_manager(),
+            **kwargs,
         )
-        page2 = _response(json_data=[{"id": "3"}])
-        rows, session = self._run(manager, [page1, page2])
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_link_header_across_pages(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response(
+                    [{"id": "1"}, {"id": "2"}],
+                    link='<https://example.okta.com/api/v1/users?after=cur>; rel="next"',
+                ),
+                _response([{"id": "3"}]),
+            ],
+        )
+        rows = _rows(self._source())
 
         assert [r["id"] for r in rows] == ["1", "2", "3"]
-        # Second fetch follows the Link header URL.
-        second_url = session.get.call_args_list[1].args[0]
-        assert second_url == "https://example.okta.com/api/v1/users?after=cur"
+        assert snaps[0]["url"] == "https://example.okta.com/api/v1/users"
+        assert snaps[0]["params"]["limit"] == 200
+        # Second request follows the self-contained Link-header URL.
+        assert snaps[1]["url"] == "https://example.okta.com/api/v1/users?after=cur"
 
-    def test_saves_state_after_yielding(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        page = _response(json_data=[{"id": "1"}])
-        self._run(manager, [page])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_state_after_yielding(self, MockSession):
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "1"}], link='<https://example.okta.com/api/v1/users?after=cur>; rel="next"'),
+                _response([{"id": "2"}]),
+            ],
+        )
+        manager = _make_manager()
+        _rows(self._source(manager=manager))
 
-        assert manager.save_state.called
+        manager.save_state.assert_called_once()
         saved = manager.save_state.call_args.args[0]
         assert isinstance(saved, OktaResumeConfig)
+        assert saved.next_url == "https://example.okta.com/api/v1/users?after=cur"
 
-    def test_resumes_from_saved_state(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = OktaResumeConfig(
-            next_url="https://example.okta.com/api/v1/users?after=resume"
-        )
-        rows, session = self._run(manager, [_response(json_data=[{"id": "9"}])])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([{"id": "9"}])])
+        manager = _make_manager(OktaResumeConfig(next_url="https://example.okta.com/api/v1/users?after=resume"))
+        rows = _rows(self._source(manager=manager))
 
-        first_url = session.get.call_args_list[0].args[0]
-        assert first_url == "https://example.okta.com/api/v1/users?after=resume"
+        assert snaps[0]["url"] == "https://example.okta.com/api/v1/users?after=resume"
         assert [r["id"] for r in rows] == ["9"]
 
-    def test_empty_page_terminates_even_with_next_link(self):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_terminates_even_with_next_link(self, MockSession):
         # The System Log always returns a next link, so an empty page must end pagination.
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        empty = _response(
-            json_data=[],
-            link='<https://example.okta.com/api/v1/logs?after=x>; rel="next"',
-        )
-        rows, session = self._run(manager, [empty])
+        session = MockSession.return_value
+        _wire(session, [_response([], link='<https://example.okta.com/api/v1/logs?after=x>; rel="next"')])
+        rows = _rows(self._source(endpoint="logs"))
 
         assert rows == []
-        assert session.get.call_count == 1
+        assert session.send.call_count == 1
 
-    def test_does_not_follow_next_url_on_foreign_host(self):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_does_not_follow_next_url_on_foreign_host(self, MockSession):
         # A server-controlled Link header pointing off-org must not be followed (SSRF guard).
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        page1 = _response(
-            json_data=[{"id": "1"}],
-            link='<http://169.254.169.254/latest/meta-data/>; rel="next"',
-        )
-        rows, session = self._run(manager, [page1])
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "1"}], link='<http://169.254.169.254/latest/meta-data/>; rel="next"')])
+        rows = _rows(self._source())
 
         assert [r["id"] for r in rows] == ["1"]
-        assert session.get.call_count == 1
+        assert session.send.call_count == 1
 
-    def test_ignores_resume_url_on_foreign_host(self):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_ignores_resume_url_on_foreign_host(self, MockSession):
         # A poisoned resume URL must fall back to the initial org URL, not be followed.
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = OktaResumeConfig(next_url="http://169.254.169.254/latest/meta-data/")
-        rows, session = self._run(manager, [_response(json_data=[{"id": "1"}])])
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([{"id": "1"}])])
+        manager = _make_manager(OktaResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"))
+        rows = _rows(self._source(manager=manager))
 
-        first_url = session.get.call_args_list[0].args[0]
-        assert first_url.startswith("https://example.okta.com/api/v1/users")
+        assert snaps[0]["url"].startswith("https://example.okta.com/api/v1/users")
         assert [r["id"] for r in rows] == ["1"]
 
-    def test_does_not_follow_redirects(self):
-        # Requests are made with allow_redirects=False, and a redirect response is rejected rather
-        # than followed to a (potentially internal) Location (SSRF).
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        with pytest.raises(okta_module.OktaHostNotAllowedError):
-            self._run(manager, [_response(status_code=302)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_does_not_follow_redirects(self, MockSession):
+        # Requests disable redirect following, and a redirect response is rejected rather than
+        # followed to a (potentially internal) Location (SSRF).
+        session = MockSession.return_value
+        _wire(session, [_redirect_response(302)])
+        with pytest.raises(ValueError):
+            _rows(self._source())
 
-    def test_passes_allow_redirects_false(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        _rows, session = self._run(manager, [_response(json_data=[{"id": "1"}])])
-        assert session.get.call_args.kwargs["allow_redirects"] is False
-
-
-class TestRetryAfter:
-    @pytest.mark.parametrize(
-        "header, expected",
-        [
-            ({"Retry-After": "5"}, 5.0),
-            ({"Retry-After": "  9 "}, 9.0),
-            ({"Retry-After": "100000"}, 60.0),  # capped
-            ({"Retry-After": "Wed, 21 Oct 2025 07:28:00 GMT"}, None),  # HTTP-date ignored
-            ({}, None),
-        ],
-    )
-    def test_parse_retry_after(self, header, expected):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta import _parse_retry_after
-
-        response = mock.MagicMock()
-        response.headers = header
-        assert _parse_retry_after(response) == expected
-
-    def test_retry_wait_prefers_retry_after(self):
-        from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta import (
-            OktaRetryableError,
-            _retry_wait,
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_filter_reaches_request(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([{"id": "1"}])])
+        _rows(
+            self._source(
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+                incremental_field="lastUpdated",
+            )
         )
+        assert snaps[0]["params"]["filter"] == 'lastUpdated gt "2024-01-01T00:00:00.000Z"'
+        assert snaps[0]["params"]["limit"] == 200
 
-        state = mock.MagicMock()
-        state.outcome.exception.return_value = OktaRetryableError("rate limited", retry_after=7.0)
-        assert _retry_wait(state) == 7.0
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retries_on_429(self, MockSession, _mock_sleep):
+        session = MockSession.return_value
+        _wire(session, [_response([], status_code=429), _response([{"id": "1"}])])
+        rows = _rows(self._source())
+
+        assert [r["id"] for r in rows] == ["1"]
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_runtime_host_check_blocks_unsafe_domain(self, MockSession):
+        # The configured domain is re-checked at run time (DNS rebinding) before any request.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "1"}])])
+        with mock.patch.object(okta_module, "_is_host_safe", return_value=(False, "internal address")):
+            with pytest.raises(okta_module.OktaHostNotAllowedError):
+                _rows(self._source())
+        session.send.assert_not_called()

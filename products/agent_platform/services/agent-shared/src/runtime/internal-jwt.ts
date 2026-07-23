@@ -8,6 +8,7 @@
  *
  * Audiences today:
  *   - INGRESS_PREVIEW — Django → ingress, draft-revision preview invokes
+ *   - INGRESS_RPC     — Django → ingress, internal read RPCs (session digest)
  *   - JANITOR_RPC     — Django → janitor, bundle CRUD + authoring API
  *
  * Production minting happens on the Django side (posthog/jwt.py:
@@ -20,6 +21,7 @@ import { jwtVerify, SignJWT } from 'jose'
 
 export const INTERNAL_JWT_AUDIENCE = {
     INGRESS_PREVIEW: 'agent-ingress.preview',
+    INGRESS_RPC: 'agent-ingress.rpc',
     JANITOR_RPC: 'agent-janitor.rpc',
 } as const
 

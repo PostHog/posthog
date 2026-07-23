@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer = "2026-07-13T23:30:06.062618Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -27,6 +27,7 @@ modal = false
 members = [
     "hogli",
     "posthog",
+    "posthog-owners",
 ]
 
 [[package]]
@@ -2589,7 +2590,7 @@ wheels = [
 
 [[package]]
 name = "google-ads"
-version = "29.2.0"
+version = "30.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -2601,9 +2602,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/44/eb/92edcc232060fc3bdee6f3f147f986db844083b157794658e9bb6ff05cc9/google_ads-29.2.0.tar.gz", hash = "sha256:d2331f2a79447792f80ce2a17f46eebc4003d3e4228b2e580e20af313dce8ed0", size = 9628865, upload-time = "2026-02-25T21:37:44.799Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/e0/7660c28100d5ef82d8e7348e2f38938c89547d80cd2984692cf7fcf2ee85/google_ads-30.1.0.tar.gz", hash = "sha256:beecd95690cbb5fff728d5455f67588f0af12aec1fb3c54ad373a5a57716e9f4", size = 12140520, upload-time = "2026-04-22T20:55:22.984Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/a3/4f3cef090c97dd307048b6e3075cdc45f913584c32c6a8d45de71ad31702/google_ads-29.2.0-py3-none-any.whl", hash = "sha256:264d98b5a08158702d91248be633e104436da522b2a513fc90f983e39553380d", size = 18308345, upload-time = "2026-02-25T21:37:41.956Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/c6/d198458fb6fa09492f0ef066fcd64ab1f2e5188b369bcba278b4a686eb24/google_ads-30.1.0-py3-none-any.whl", hash = "sha256:ed58ecf23511009664a5628f6d615365459585d55d889a4ba5e98ee652fbef1b", size = 23076755, upload-time = "2026-04-22T20:55:18.936Z" },
 ]
 
 [[package]]
@@ -5743,6 +5744,7 @@ dev = [
     { name = "orjson" },
     { name = "packaging" },
     { name = "parameterized" },
+    { name = "posthog-owners" },
     { name = "prance" },
     { name = "protoletariat" },
     { name = "pyarrow" },
@@ -5871,7 +5873,7 @@ requires-dist = [
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "gitpython", specifier = "~=3.1.44" },
     { name = "glom", specifier = "~=24.11.0" },
-    { name = "google-ads", specifier = "==29.2.0" },
+    { name = "google-ads", specifier = "==30.1.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
     { name = "google-cloud-bigquery-storage", specifier = "==2.32.0" },
     { name = "google-cloud-iam", specifier = "==2.21" },
@@ -5931,7 +5933,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthoganalytics", specifier = "==7.20.4" },
+    { name = "posthoganalytics", specifier = "==7.27.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6018,6 +6020,7 @@ dev = [
     { name = "orjson", specifier = "==3.11.9" },
     { name = "packaging", specifier = "==24.1" },
     { name = "parameterized", specifier = "==0.9.0" },
+    { name = "posthog-owners", editable = "tools/owners" },
     { name = "prance", specifier = "==23.6.21.0" },
     { name = "protoletariat", specifier = "~=3.3.10" },
     { name = "pyarrow", specifier = "==23.0.1" },
@@ -6068,8 +6071,30 @@ sentiment = [
 ]
 
 [[package]]
+name = "posthog-owners"
+version = "0.1.0"
+source = { editable = "tools/owners" }
+dependencies = [
+    { name = "click" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "posthoganalytics"
-version = "7.20.4"
+version = "7.27.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6077,9 +6102,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/21/ee/a2e18df3178f3cd05512bb65b87b3037b145c2889477820b1a5b243b1bce/posthoganalytics-7.20.4.tar.gz", hash = "sha256:89f364d1796ca4e414977e67f6dae94136fb41385f68f37d4c3c85bd4278fb74", size = 262180, upload-time = "2026-06-24T15:48:16.262Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/52/b2c043125c35abbfcaaebf581497d97227051625bc9bee9b235dbed5e807/posthoganalytics-7.27.0.tar.gz", hash = "sha256:5fdabb0e58616a766daeedb040a0868142581d259416d20d84fe5147db8488bd", size = 352566, upload-time = "2026-07-18T16:40:21.412Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/de/81f6ffaae7ab5e95121b960bb98a2958b5ab7c36c10e1933da49d791b239/posthoganalytics-7.20.4-py3-none-any.whl", hash = "sha256:fcbfc2f9db527abeea8ba06caede720ee5fa5115f89b48827527314418c6a33c", size = 305163, upload-time = "2026-06-24T15:48:14.397Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/75/9e6f0d3c55c2476d0fef27e8650c233b8afdd2848fab4674bdb71371b084/posthoganalytics-7.27.0-py3-none-any.whl", hash = "sha256:8fb2dd8f0238d2a8a61bed3e7f54536ad4d3dcfe1a45e113d67f4c6814c022f5", size = 424440, upload-time = "2026-07-18T16:40:20.013Z" },
 ]
 
 [[package]]

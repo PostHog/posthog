@@ -12,7 +12,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.template.loader import get_template
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -24,14 +24,47 @@ from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.presentation.views import UserInterviewTopicSerializer
 from products.user_interviews.backend.presentation.webhooks import (
     DEFAULT_FIRST_MESSAGE_TEMPLATE,
     EMBEDDING_CONTENT_MAX_BYTES,
     FIRST_MESSAGE_PROMPT_NAME,
     _build_first_message,
+    _create_vapi_web_call,
     _resolve_first_message_template,
 )
+
+
+def _mock_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]:
+    return {"webCallUrl": "https://daily.example/call", "id": "call_test"}
+
+
+class TestCreateVapiWebCall(SimpleTestCase):
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    @patch("products.user_interviews.backend.presentation.webhooks.vapi_request")
+    def test_creates_call_server_side_and_returns_only_join_fields(self, mock_request: Mock) -> None:
+        response = Mock(status_code=201)
+        response.json.return_value = {
+            "id": "call_123",
+            "webCallUrl": "https://daily.example/call",
+            "assistant": {"id": "asst_test", "secret": "not-for-browser"},
+            "artifactPlan": {"videoRecordingEnabled": False},
+        }
+        mock_request.return_value = response
+        overrides = {"metadata": {"sharing_access_token": "share-token"}}
+
+        web_call = _create_vapi_web_call(overrides)
+
+        assert web_call == {
+            "id": "call_123",
+            "webCallUrl": "https://daily.example/call",
+            "artifactPlan": {"videoRecordingEnabled": False},
+        }
+        assert mock_request.call_args.kwargs["api_token"] == "pk_test"
+        assert mock_request.call_args.kwargs["json"] == {
+            "assistantId": "asst_test",
+            "assistantOverrides": overrides,
+            "roomDeleteOnUserLeaveEnabled": True,
+        }
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -180,13 +213,12 @@ class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
             ("empty_lists", {"interviewee_emails": [], "interviewee_distinct_ids": []}),
         ]
     )
-    def test_rejects_topic_without_identifiers(self, _name: str, targeting: dict[str, Any]):
+    def test_accepts_topic_without_identifiers(self, _name: str, targeting: dict[str, Any]):
+        # A zero-target topic is valid — it backs a non-personalised (shared) link for anonymous
+        # visitors we have no contact details for. Targets can be added later for personalised links.
         payload = {"topic": "Why people churn", **targeting}
         response = self.client.post(self._url(), data=payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        body = response.json()
-        candidates = body.get("non_field_errors") or [body.get("detail", "")]
-        assert UserInterviewTopicSerializer.MISSING_TARGETING_ERROR in candidates, body
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
     @parameterized.expand(
         [
@@ -293,14 +325,19 @@ class TestUserInterviewTopicEdit(_FeatureFlagEnabledMixin):
         topic.refresh_from_db()
         assert topic.topic == "New angle"
 
-    def test_partial_update_rejects_clearing_all_targeting(self):
+    def test_partial_update_can_clear_all_targeting_for_shared_only_topic(self):
+        # Zero-target topics are valid — a shared (non-personalised) link needs no pre-seeded
+        # interviewees — so clearing all targeting must be allowed, not rejected.
         topic = self._topic()
         response = self.client.patch(
             self._detail_url(str(topic.id)),
             data={"interviewee_emails": [], "interviewee_distinct_ids": []},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        topic.refresh_from_db()
+        assert topic.interviewee_emails == []
+        assert topic.interviewee_distinct_ids == []
 
     def test_partial_update_revokes_shares_for_removed_identifiers(self):
         topic = self._topic(interviewee_emails=["alex@example.com", "jordan@example.com"])
@@ -504,6 +541,15 @@ class TestResolveFirstMessageTemplate(APIBaseTest):
 
 
 class TestInterviewStartCall(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = patch(
+            "products.user_interviews.backend.presentation.webhooks._create_vapi_web_call",
+            side_effect=_mock_web_call,
+        )
+        self.create_vapi_web_call = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _create_share(self) -> SharingConfiguration:
         topic = UserInterviewTopic.objects.create(
             team=self.team,
@@ -529,9 +575,8 @@ class TestInterviewStartCall(APIBaseTest):
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
-        self.assertEqual(body["public_key"], "pk_test")
-        self.assertEqual(body["assistant_id"], "asst_test")
-        overrides = body["assistant_overrides"]
+        self.assertEqual(body, {"web_call": {"webCallUrl": "https://daily.example/call", "id": "call_test"}})
+        overrides = self.create_vapi_web_call.call_args.args[0]
         # Merged agent_context combines topic-level and per-person notes.
         self.assertIn("adoption research", overrides["variableValues"]["agent_context"])
         self.assertIn("heavy user, churned last quarter", overrides["variableValues"]["agent_context"])
@@ -544,7 +589,7 @@ class TestInterviewStartCall(APIBaseTest):
         self.client.logout()
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        overrides = response.json()["assistant_overrides"]
+        overrides = self.create_vapi_web_call.call_args.args[0]
         # Scoped to the two lifecycle events we act on — keeps Vapi from sending
         # speech-update / conversation-update / etc that we'd just ignore.
         self.assertEqual(overrides["serverMessages"], ["status-update", "end-of-call-report"])
@@ -555,7 +600,7 @@ class TestInterviewStartCall(APIBaseTest):
         self.client.logout()
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         assert response.status_code == status.HTTP_200_OK, response.content
-        first_message = response.json()["assistant_overrides"]["firstMessage"]
+        first_message = self.create_vapi_web_call.call_args.args[0]["firstMessage"]
         assert "Hey Alex!" in first_message
         assert "Replay adoption" in first_message
 
@@ -579,8 +624,8 @@ class TestInterviewStartCall(APIBaseTest):
     def test_returns_questions_as_json_not_python_repr(self):
         share = self._create_share()
         self.client.logout()
-        response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
-        questions_raw = response.json()["assistant_overrides"]["variableValues"]["questions"]
+        self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        questions_raw = self.create_vapi_web_call.call_args.args[0]["variableValues"]["questions"]
         # The Vapi assistant prompt receives this string verbatim; it must parse as JSON,
         # not Python repr (which would be `['What blocks you?']` with single quotes).
         self.assertEqual(json.loads(questions_raw), ["What blocks you?"])

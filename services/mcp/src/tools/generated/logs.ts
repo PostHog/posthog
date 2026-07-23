@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/logs/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     LogsAlertsCreateBody,
     LogsAlertsDestinationsCreateBody,
@@ -27,8 +31,6 @@ import {
     LogsSparklineCreateBody,
     LogsValuesRetrieveQueryParams,
 } from '@/generated/logs/api'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LogsAlertsCreateSchema = LogsAlertsCreateBody
 
@@ -99,9 +101,25 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
     },
 })
 
-const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true }).extend(
-    LogsAlertsDestinationsCreateBody.shape
-)
+const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true })
+    .extend(LogsAlertsDestinationsCreateBody.shape)
+    .extend({
+        type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
+            'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+        ),
+        slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
+            'Slack workspace integration ID. Required when type is slack.'
+        ),
+        slack_channel_id: LogsAlertsDestinationsCreateBody.shape['slack_channel_id'].describe(
+            'Slack channel ID. Required when type is slack.'
+        ),
+        slack_channel_name: LogsAlertsDestinationsCreateBody.shape['slack_channel_name'].describe(
+            'Optional Slack channel name used for display.'
+        ),
+        webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
+            'Required when type is webhook or teams.'
+        ),
+    })
 
 const logsAlertsDestinationsCreate = (): ToolBase<
     typeof LogsAlertsDestinationsCreateSchema,
@@ -228,6 +246,7 @@ const logsAlertsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
             query: {
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
             },

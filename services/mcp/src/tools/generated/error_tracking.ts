@@ -1,7 +1,12 @@
 // AUTO-GENERATED from products/error_tracking/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+
 import {
     ErrorTrackingAssignmentRulesCreateBody,
     ErrorTrackingAssignmentRulesListQueryParams,
@@ -32,9 +37,6 @@ import {
     ErrorTrackingSymbolSetsListQueryParams,
     ErrorTrackingSymbolSetsRetrieveParams,
 } from '@/generated/error_tracking/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingAssignmentRulesCreateSchema = ErrorTrackingAssignmentRulesCreateBody
 
@@ -643,8 +645,8 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
             if (params.offset !== undefined) {
                 body['offset'] = params.offset
             }
-            if (params.verbosity !== undefined) {
-                body['verbosity'] = params.verbosity
+            if (params.include !== undefined) {
+                body['include'] = params.include
             }
             if (params.onlyAppFrames !== undefined) {
                 body['onlyAppFrames'] = params.onlyAppFrames

@@ -1,8 +1,8 @@
 // AUTO-GENERATED from services/mcp/definitions/query-wrappers.yaml + schema.json — do not edit
 import { z } from 'zod'
 
-import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { ZodObjectAny } from '@/tools/types'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 
 // --- Shared Zod schemas generated from schema.json ---
 
@@ -458,6 +458,7 @@ const AggregationAxisFormat = z.enum([
     'numeric',
     'duration',
     'duration_ms',
+    'duration_ns',
     'percentage',
     'percentage_scaled',
     'currency',
@@ -471,7 +472,7 @@ const TrendsFormulaNode = z.object({
 
 const AssistantTrendsFilter = z.object({
     aggregationAxisFormat: AggregationAxisFormat.describe(
-        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
+        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage. `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
     )
         .default('numeric')
         .optional(),
@@ -520,7 +521,7 @@ const AssistantTrendsFilter = z.object({
     formulaNodes: z
         .array(TrendsFormulaNode)
         .describe(
-            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
+            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.'
         )
         .optional(),
     metricChangeDecreaseColor: z
@@ -1417,6 +1418,47 @@ const AssistantWebStatsTableQuery = z.object({
         .optional(),
 })
 
+const WebVitalsMetric = z.enum(['INP', 'LCP', 'CLS', 'FCP'])
+
+const WebVitalsPercentile = z.enum(['p75', 'p90', 'p99'])
+
+const AssistantWebVitalsPathBreakdownQuery = z.object({
+    dateRange: AssistantDateRangeFilter.describe(
+        'Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile.'
+    ).optional(),
+    doPathCleaning: z.coerce
+        .boolean()
+        .describe("Apply the team's path-cleaning rules to the returned paths.")
+        .default(false)
+        .optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe("Exclude internal and test users by applying the team's test-account filter.")
+        .default(false)
+        .optional(),
+    kind: z.literal('WebVitalsPathBreakdownQuery').default('WebVitalsPathBreakdownQuery'),
+    metric: WebVitalsMetric.describe(
+        'Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).'
+    ),
+    percentile: WebVitalsPercentile.describe(
+        "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75."
+    ),
+    properties: z
+        .array(z.union([EventPropertyFilter, PersonPropertyFilter]))
+        .describe(
+            'Property filters applied to the query. Accepts event and person filters only (the query runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.'
+        )
+        .default([])
+        .optional(),
+    thresholds: z
+        .array(z.coerce.number())
+        .min(2)
+        .max(2)
+        .describe(
+            'Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.'
+        ),
+})
+
 const AssistantTracesQuery = z.object({
     dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
     filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
@@ -1743,6 +1785,13 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-web-stats',
         schema: AssistantWebStatsTableQuery,
         kind: 'WebStatsTableQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
+    }),
+    'query-web-vitals': createQueryWrapper({
+        name: 'query-web-vitals',
+        schema: AssistantWebVitalsPathBreakdownQuery,
+        kind: 'WebVitalsPathBreakdownQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'json',
     }),

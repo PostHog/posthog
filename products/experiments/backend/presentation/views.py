@@ -57,6 +57,7 @@ from products.experiments.backend.presentation.serializers import (
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
     ExperimentBasicSerializer,
+    ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentSessionContextResponseSerializer,
@@ -69,6 +70,7 @@ from products.experiments.backend.presentation.serializers import (
 from products.experiments.backend.recalculation import (
     build_job_payload,
     build_timeseries_cold_start_payload,
+    get_active_recalculation,
     get_latest_recalculation,
     get_recalculation_by_id,
     get_run_results,
@@ -86,11 +88,9 @@ from products.experiments.backend.session_context import get_session_experiment_
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
-from products.feature_flags.backend.facade.api import serialize_flags
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_tours.backend.models import ProductTour
-from products.surveys.backend.models import Survey
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import has_tasks_access
 
 tracer = trace.get_tracer(__name__)
@@ -151,10 +151,10 @@ def list_is_legacy_annotation() -> Case:
 def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
     """Build N feature flag variants from an ordered list of prompt versions.
 
-    First variant is keyed "control" (required by ExperimentService._validate_existing_flag
-    when the experiment is later launched). For the standard 2-variant case the second is
-    keyed "test", matching the rest of the codebase's defaults. For N >= 3 the trailing
-    variants are keyed "test-1", "test-2", … so each key stays unique.
+    First variant is keyed "control", matching the codebase's baseline convention (the
+    baseline defaults to 'control' when present). For the standard 2-variant case the
+    second is keyed "test", matching the rest of the codebase's defaults. For N >= 3 the
+    trailing variants are keyed "test-1", "test-2", … so each key stays unique.
     The human-readable prompt version goes in the variant name so chart legends stay readable.
     Splits are integers summing to 100; the last variant absorbs any remainder.
     """
@@ -416,7 +416,7 @@ class EnterpriseExperimentsViewSet(
         Validates the experiment is in draft state, activates its linked feature flag,
         sets start_date to the current server time, and transitions the experiment to running.
         Returns 400 if the experiment has already been launched or if the feature flag
-        configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+        configuration is invalid (e.g. fewer than 2 variants).
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
@@ -569,6 +569,53 @@ class EnterpriseExperimentsViewSet(
 
     @extend_schema(
         request=None,
+        responses=ExperimentFlagCleanupTaskSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def flag_cleanup_task(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Status of the flag-cleanup Code task opened for this experiment.
+
+        When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+        removes the experiment's feature-flag code and opens a draft pull request. This
+        returns that task's latest run status and the PR URL once one is opened. Poll
+        until is_terminal is true. Returns 404 when no cleanup task was opened.
+        """
+        experiment: Experiment = self.get_object()
+        if not experiment.flag_cleanup_task_id:
+            raise NotFound("No flag cleanup task was opened for this experiment.")
+        # Read through the facade rather than the tasks API: cleanup tasks are creator-visible
+        # there, but their status should be visible to everyone who can see the experiment.
+        run = tasks_facade.get_latest_run_by_task([experiment.flag_cleanup_task_id]).get(
+            str(experiment.flag_cleanup_task_id)
+        )
+        # get_latest_run_by_task filters by task id only. After a project transfer the
+        # experiment can point at a task in the old team — treat that run as absent rather
+        # than leaking its status across teams.
+        if run is not None and run.team_id != experiment.team_id:
+            run = None
+        # The PR URL comes from the task run's output blob — only pass it through when it
+        # actually points at GitHub, since the frontend renders it as a GitHub link.
+        pr_url = run.pr_url if run else None
+        if pr_url and not pr_url.startswith("https://github.com/"):
+            pr_url = None
+        response_serializer = ExperimentFlagCleanupTaskSerializer(
+            {
+                "task_id": experiment.flag_cleanup_task_id,
+                "run_status": run.status if run else "queued",
+                "is_terminal": run.is_terminal if run else False,
+                "pr_url": pr_url,
+                # Whether the tasks API would let this user open the task page — cleanup
+                # tasks are creator-visible there today, so hide the link from everyone else.
+                "can_view_task": tasks_facade.task_visible(
+                    experiment.flag_cleanup_task_id, self.team.pk, cast(User, request.user).id
+                ),
+            }
+        )
+        return Response(response_serializer.data)
+
+    @extend_schema(
+        request=None,
         responses=ExperimentSerializer,
     )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
@@ -660,8 +707,9 @@ class EnterpriseExperimentsViewSet(
         """
         Reset an experiment back to draft state.
 
-        Clears start/end dates, conclusion, and archived flag. The feature
-        flag is left unchanged — users continue to see their assigned variants.
+        Clears start/end dates, conclusion, archived flag, and any flag-cleanup
+        task pointer. The feature flag is left unchanged — users continue to see
+        their assigned variants.
 
         Previously collected events still exist but won't be included in
         results unless the start date is manually adjusted after re-launch.
@@ -873,64 +921,6 @@ class EnterpriseExperimentsViewSet(
         cohort_data = CohortSerializer(cohort, context={"request": request, "team": self.team}).data
         return Response({"cohort": cohort_data}, status=201)
 
-    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
-    def eligible_feature_flags(self, request: Request, **kwargs: Any) -> Response:
-        """
-        Returns a paginated list of feature flags eligible for use in experiments.
-
-        Eligible flags must:
-        - Be multivariate with at least 2 variants
-        - Have "control" as the first variant key
-
-        Query parameters:
-        - search: Filter by flag key or name (case insensitive)
-        - limit: Number of results per page (default: 20)
-        - offset: Pagination offset (default: 0)
-        - active: Filter by active status ("true" or "false")
-        - created_by_id: Filter by creator user ID
-        - order: Sort order field
-        - evaluation_runtime: Filter by evaluation runtime
-        - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
-        """
-        # validate limit and offset
-        try:
-            limit = min(int(request.query_params.get("limit", 20)), 100)
-            offset = max(int(request.query_params.get("offset", 0)), 0)
-        except ValueError:
-            return Response({"error": "Invalid limit or offset"}, status=400)
-
-        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
-        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
-            team__project_id=self.project_id, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
-        excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
-
-        service = ExperimentService(team=self.team, user=request.user)
-        eligible_feature_flags = service.get_eligible_feature_flags(
-            limit=limit,
-            offset=offset,
-            excluded_flag_ids=excluded_flag_ids,
-            search=request.query_params.get("search"),
-            active=request.query_params.get("active"),
-            created_by_id=request.query_params.get("created_by_id"),
-            order=request.query_params.get("order"),
-            evaluation_runtime=request.query_params.get("evaluation_runtime"),
-            has_evaluation_contexts=request.query_params.get("has_evaluation_contexts"),
-        )
-
-        # Serialize using the flag API's standard representation
-        results = serialize_flags(
-            eligible_feature_flags["results"],
-            context=self.get_serializer_context(),
-        )
-
-        return Response(
-            {
-                "results": results,
-                "count": eligible_feature_flags["count"],
-            }
-        )
-
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -1048,7 +1038,10 @@ class EnterpriseExperimentsViewSet(
                 asyncio.run(
                     temporal.start_workflow(
                         "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(recalculation_id=recalculation_id),
+                        MetricsRecalcInputs(
+                            recalculation_id=recalculation_id,
+                            fairness_key=str(experiment.team.organization_id),
+                        ),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
                         task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )
@@ -1076,14 +1069,26 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
+        active = get_active_recalculation(experiment)
+        active_run = {"id": str(active.id), "status": active.status} if active is not None else None
         recalc = get_latest_recalculation(experiment)
+
         if recalc is not None:
-            return Response(_serialize_recalculation(recalc))
-        # Cold start: no completed run yet. Fall back to the latest timeseries data as a read-only
-        # placeholder so the user sees results immediately. Pure read, no workflow start.
+            return Response(_serialize_recalculation(recalc, active_run=active_run))
+
+        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately, even while a first run is active (its pending
+        # payload would blank them out); an active run still rides along for polling. Pure read, no
+        # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
+            if active_run is not None:
+                fallback["active_run"] = active_run
             return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+
+        if active is not None:
+            return Response(_serialize_recalculation(active, active_run=active_run))
+
         return Response({"detail": "No completed recalculation found"}, status=404)
 
     @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
@@ -1207,7 +1212,11 @@ class EnterpriseExperimentsViewSet(
         experiments = self.user_access_control.filter_queryset_by_access_level(
             Experiment.objects.filter(team_id=self.team.pk)
         )
-        items = get_session_experiment_context(team=self.team, session_id=session_id, experiments=experiments)
+        # user threads through to the HogQL queries: exposure criteria can filter on arbitrary
+        # properties, which must respect the viewer's property-level access control.
+        items = get_session_experiment_context(
+            team=self.team, session_id=session_id, experiments=experiments, user=cast(User, request.user)
+        )
         if items is None:
             raise NotFound("Recording not found")
 
@@ -1215,13 +1224,10 @@ class EnterpriseExperimentsViewSet(
         return Response(serializer.data)
 
 
-def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
-    """Shape an ExperimentMetricsRecalculation row + its per-run results for the GET responses.
-
-    Computes the per-run results once and threads them into both the derived counters and the response
-    `results` field — recomputing per-metric fingerprints once per request is enough.
-    """
+def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
     results = get_run_results(recalc)
     payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
+    if active_run is not None:
+        payload["active_run"] = active_run
     return ExperimentMetricsRecalculationSerializer(payload).data

@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
-# `(t 123)` / `(t 123, t 456)` citation markers the model leaks into the plain-text signal description despite the
-# prompt forbidding them. Matched leniently (whitespace, comma-joined times) so the strip catches every variant.
-_SIGNAL_TIMESTAMP_MARKER_RE = re.compile(r"\s*\(\s*t\s*\d+(?:\s*,\s*t?\s*\d+)*\s*\)")
+# `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
+# model leaks comma-joined variants too, so match leniently (whitespace, comma-joined times, optional repeated `t`).
+# Shared by the signal-description stripper below and the chip extractor in `call_scanner_provider` so the two
+# parsers can't drift apart. The group captures the comma-joined seconds list.
+TIMESTAMP_CITATION_RE = re.compile(r"\s*\(\s*t\s*(\d+(?:\s*,\s*t?\s*\d+)*)\s*\)")
 
 
 # Sited here rather than `temporal/types.py`: `types.py` imports from this module, so siting Segment in types.py would close the cycle.
@@ -78,7 +80,7 @@ class SignalFinding(BaseModel, frozen=True):
         # The model leaks `(t 123)` markers into this embedded, free-text-searchable field despite the prompt — strip
         # them so the timing stays only in start_time/end_time and the prose reads cleanly. Collapse any double space
         # the removal (or the model) leaves so the prose stays clean.
-        return re.sub(r"\s{2,}", " ", _SIGNAL_TIMESTAMP_MARKER_RE.sub("", value)).strip()
+        return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
 
 
 class SignalsResponse(BaseModel, frozen=True):
@@ -160,12 +162,23 @@ class BaseScanner(BaseModel, frozen=True):
         """Scanner-type-specific template variables. Subclasses override to inject their per-instance config."""
         return {}
 
-    def preamble(self, *, team_name: str, session_metadata: dict[str, Any] | None = None) -> str:
-        """The conversation's shared opening: framing, footer, events tool, calibration, and session metadata."""
+    def preamble(
+        self,
+        *,
+        team_name: str,
+        session_metadata: dict[str, Any] | None = None,
+        navigation: list[dict[str, Any]] | None = None,
+        navigation_dropped: int = 0,
+    ) -> str:
+        """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
+        session metadata. `navigation` takes dumped `NavigationEntry` dicts (plain dicts keep this module free of a
+        `types.py` import, which would close an import cycle)."""
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
             session_metadata=session_metadata or {},
+            navigation=navigation or [],
+            navigation_dropped=navigation_dropped,
         )
 
     def core_steps(self) -> list[MissionStep]:

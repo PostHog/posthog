@@ -99,19 +99,37 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "organization": "The organization the profile is associated with.",
             "title": "The profile's job title.",
             "location": "The profile's location details.",
-            "properties": "Custom properties set on the profile.",
+            "properties": (
+                "Custom properties set on the profile. Subscription status lives here in the `$consent` array "
+                "— the communication channels (`sms`, `email`, and/or `push`) the profile is currently "
+                "consented to — not in list membership: a profile can belong to a list without being "
+                "subscribed. `$consent_timestamp` records when the profile consented to receive communication, "
+                "but it is not reliably cleared on unsubscribe, so use `$consent`, not `$consent_timestamp`, "
+                "to tell who is currently subscribed."
+            ),
             "created": "Time at which the profile was created.",
             "updated": "Time at which the profile was last updated.",
             "last_event_date": "Time of the profile's most recent event.",
         },
     },
     "list_profiles": {
-        "description": "A flat join table mapping which profiles belong to which Klaviyo list. Rows for profiles removed from a list are only pruned by a full refresh.",
+        "description": (
+            "A flat join table mapping which profiles belong to which Klaviyo list. Rows for profiles removed "
+            "from a list are only pruned by a full refresh. List membership is not the same as subscription: "
+            "a profile can be on a list without being subscribed to any channel. To tell which channels "
+            "(`sms`, `email`, and/or `push`) a profile is actually subscribed to, check the `$consent` array "
+            "in the profile's `properties` (in the `profiles` table)."
+        ),
         "docs_url": "https://developers.klaviyo.com/en/reference/get_profiles_for_list",
         "columns": {
             "list_id": "Identifier of the list.",
             "profile_id": "Identifier of a profile that is a member of the list.",
-            "joined_group_at": "The datetime when the profile most recently joined the list. Updated if the profile re-joins.",
+            "joined_group_at": (
+                "The datetime when the profile most recently joined the list. Updated if the profile re-joins. "
+                "Joining a list does not mean the profile is subscribed: check the `$consent` array in the "
+                "`profiles` table's `properties` for current subscription status. This timestamp often matches "
+                "the profile's `$consent_timestamp`, but not always — do not treat them as interchangeable."
+            ),
         },
     },
 }

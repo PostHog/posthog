@@ -19,15 +19,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpinionStageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opinionstage import (
+    OpinionStageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.opinion_stage import (
     OpinionStageResumeConfig,
-    check_access,
     opinion_stage_source,
+    validate_credentials as validate_opinion_stage_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     OPINION_STAGE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -35,6 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpinionStageSource(ResumableSource[OpinionStageSourceConfig, OpinionStageResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,33 +101,28 @@ You can find your API key on your account settings page in [Opinion Stage](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the documented date-range filter has no parameter
         # names in the OpenAPI spec, so there is no incremental cursor to advance safely.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: OpinionStageSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpinionStageSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The personal API key is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
+        ok, status = validate_opinion_stage_credentials(config.api_key)
+        if ok:
             return True, None
         if status in (401, 403):
             return False, "Invalid Opinion Stage API key"
-        return False, message or "Could not validate Opinion Stage API key"
+        if status is not None:
+            return False, f"Opinion Stage returned HTTP {status}"
+        return False, "Could not validate Opinion Stage API key"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OpinionStageResumeConfig]:
         return ResumableSourceManager[OpinionStageResumeConfig](inputs, OpinionStageResumeConfig)
@@ -135,6 +139,8 @@ You can find your API key on your account settings page in [Opinion Stage](https
         return opinion_stage_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Opinion Stage endpoint is full refresh
         )

@@ -76,7 +76,28 @@ class DeletePersonsProfileTests(BaseTest):
             result = delete_persons_profile(self.team.pk, [p], actor=self.user)
         assert result.deleted_count == 1
         assert result.errors == []
-        ch_delete.assert_called_once_with(person=p)
+        ch_delete.assert_called_once()
+        assert ch_delete.call_args.kwargs["person"] == p
+        assert [d.id for d in ch_delete.call_args.kwargs["distinct_ids"]] == ["a"]
+        pg_delete.assert_called_once_with(self.team.pk, [p])
+
+    @parameterized.expand(
+        [
+            ("batch_fetch_fails", {"side_effect": RuntimeError("personhog down")}),
+            ("person_missing_from_batch", {"return_value": {}}),
+        ]
+    )
+    def test_falls_back_to_per_person_lookup(self, _name, batch_behavior):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with (
+            patch("posthog.models.person.bulk_delete._batched_get_distinct_ids_for_persons", **batch_behavior),
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user)
+        assert result.deleted_count == 1
+        assert result.errors == []
+        assert ch_delete.call_args.kwargs["distinct_ids"] is None
         pg_delete.assert_called_once_with(self.team.pk, [p])
 
     def test_collects_errors_and_skips_failed_persons_in_pg_batch(self):

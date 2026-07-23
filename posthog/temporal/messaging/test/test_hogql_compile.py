@@ -24,7 +24,9 @@ class TestCompileHogqlForStreaming:
         )
 
         with patch(
-            "posthog.hogql.printer.utils.get_restricted_properties_for_team",
+            # Patch the defining module: printer/utils imports this at call time, so a patch on
+            # the printer.utils namespace would never intercept.
+            "products.access_control.backend.property_access_control.get_restricted_properties_for_team",
             side_effect=AssertionError("get_restricted_properties_for_team must not be called"),
         ):
             sql, params = await compile_hogql_for_streaming(node, team_id=team.id)

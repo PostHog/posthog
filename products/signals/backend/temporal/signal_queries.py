@@ -18,13 +18,13 @@ from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
 
 logger = structlog.get_logger(__name__)
 
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 WAIT_POLL_INTERVAL_SECONDS = 10
 
@@ -566,14 +566,21 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
 # fetch_report_ids_for_source_products — synchronous, for the viewset list filter
 # ---------------------------------------------------------------------------
 
+# Bounds the report-id set handed to the Django `id__in` inbox filters (source/scout). The cap is
+# applied after a deterministic `ORDER BY max(timestamp) DESC`, so it keeps the most-recently-active
+# matching reports and the same set across list/count calls.
+_REPORT_ID_FILTER_CAP = 300
+
 
 def fetch_report_ids_for_source_products(team: Team, source_products: list[str]) -> set[str]:
     """Return the set of report IDs that have at least one non-deleted signal from the given source products.
 
     Uses argMax deduplication to give stable results regardless of ReplacingMergeTree merge state.
+    Capped at `_REPORT_ID_FILTER_CAP` most-recently-active matching reports after a deterministic
+    `ORDER BY` so the list and count requests that both call this see the identical truncated set.
     """
     ch_query = f"""
-        SELECT DISTINCT report_id
+        SELECT report_id
         FROM (
             SELECT
                 JSONExtractString(metadata, 'report_id') as report_id,
@@ -581,12 +588,13 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
                 JSONExtractString(metadata, 'source_product') as source_product,
                 timestamp
             FROM ({_deduped_signals_subquery()})
-            ORDER BY timestamp DESC
         )
         WHERE NOT is_deleted
           AND report_id != ''
           AND source_product IN ({{source_products}})
-        LIMIT 300
+        GROUP BY report_id
+        ORDER BY max(timestamp) DESC
+        LIMIT {_REPORT_ID_FILTER_CAP}
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
@@ -604,91 +612,53 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
 
 
 # ---------------------------------------------------------------------------
-# fetch_source_products_for_reports — synchronous, for the serializer list view
+# fetch_report_ids_for_scout_names — synchronous, for the viewset list filter
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ReportSignalMeta:
-    """Per-report signal metadata read off ClickHouse for the inbox list/detail views."""
+def fetch_report_ids_for_scout_names(team: Team, scout_names: list[str]) -> set[str]:
+    """Return the set of report IDs that have at least one non-deleted signal authored by the given scouts.
 
-    source_products: list[str]
-    # Raw skill_name slug of the authoring scout (e.g. "signals-scout-error-tracking"), when the
-    # report's backing signals carry one. None for pipeline reports and reports emitted before the
-    # scout stamped skill_name onto its signals.
-    scout_name: str | None
+    Scout-emitted signals carry the authoring scout's raw skill_name slug (e.g.
+    "signals-scout-error-tracking") in `extra.skill_name`; other sources leave it empty, so
+    matching on it alone is already scoped to scout signals. Uses argMax deduplication to give
+    stable results regardless of ReplacingMergeTree merge state.
 
-
-def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, ReportSignalMeta]:
-    """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
-
-    Only includes non-deleted signals. Source products are returned in sorted order. `scout_name` is
-    any non-empty `extra.skill_name` on the report's signals (all scout-authored signals of a report
-    share one), or None.
-
-    Bounds the argMax dedup to documents that ever carried one of these report_ids, instead
-    of deduping the team's whole signal history. The unbounded dedup's memory grows with the
-    team's total signal count; the candidate-bounded form keeps it proportional to the signals
-    in the requested page's reports, which is what flattens the tail on signal-heavy teams.
-    The report_id filter stays AFTER the argMax so "latest version wins" holds: a signal that
-    was re-grouped to a different report is matched by the candidate scan (it once carried this
-    report_id) but excluded by the outer filter (its latest metadata points elsewhere) — the
-    same correctness trap fetch_report_ids_for_source_ids documents.
+    Capped at `_REPORT_ID_FILTER_CAP` most-recently-active matching reports (by newest signal
+    timestamp). The cap is applied after a deterministic `ORDER BY` so the list and count requests
+    that both call this see the identical set — without the ordering the truncated set could differ
+    between calls, flickering reports in and out across refreshes.
     """
-    if not report_ids:
-        return {}
-
-    ch_query = """
-        SELECT
-            report_id,
-            arraySort(groupUniqArray(source_product)) as source_products,
-            anyIf(skill_name, skill_name != '') as scout_name
+    ch_query = f"""
+        SELECT report_id
         FROM (
             SELECT
                 JSONExtractString(metadata, 'report_id') as report_id,
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
-                JSONExtractString(metadata, 'source_product') as source_product,
-                JSONExtractString(metadata, 'extra', 'skill_name') as skill_name
-            FROM (
-                SELECT argMax(metadata, inserted_at) as metadata
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                  AND document_id IN (
-                      SELECT DISTINCT document_id
-                      FROM document_embeddings
-                      WHERE model_name = {model_name}
-                        AND product = 'signals'
-                        AND document_type = 'signal'
-                        AND JSONExtractString(metadata, 'report_id') IN ({report_ids})
-                  )
-                GROUP BY document_id
-            )
+                JSONExtractString(metadata, 'extra', 'skill_name') as skill_name,
+                timestamp
+            FROM ({_deduped_signals_subquery()})
         )
         WHERE NOT is_deleted
           AND report_id != ''
-          AND report_id IN ({report_ids})
-          AND source_product != ''
+          AND skill_name IN ({{scout_names}})
         GROUP BY report_id
+        ORDER BY max(timestamp) DESC
+        LIMIT {_REPORT_ID_FILTER_CAP}
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
-        query_type="SignalsFetchSourceProductsForReports",
+        query_type="SignalsFilterByScoutName",
         query=ch_query,
         team=team,
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
+            "scout_names": ast.Tuple(exprs=[ast.Constant(value=name) for name in scout_names]),
         },
     )
 
-    return {
-        row[0]: ReportSignalMeta(source_products=row[1], scout_name=(row[2] or None))
-        for row in (result.results or [])
-        if row[0]
-    }
+    return {row[0] for row in (result.results or []) if row[0]}
 
 
 # ---------------------------------------------------------------------------
