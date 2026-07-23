@@ -15,7 +15,7 @@ from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _is_cancellation
 
 
 @dataclass
@@ -252,6 +252,42 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+def test_is_cancellation_detects_wrapped_cancellation():
+    """A cancellation injected mid-DB-query can surface wrapped in a driver/ORM exception that only
+    carries the CancelledError in its __cause__/__context__ chain. temporalio's is_cancelled_exception
+    inspects the top-level type only, so the guard must walk the chain to keep this noise out of error
+    tracking."""
+    direct = CancelledError("Cancelled")
+    assert _is_cancellation(direct)
+
+    explicit_cause = ValueError("db connection lost")
+    explicit_cause.__cause__ = CancelledError("Cancelled")
+    assert _is_cancellation(explicit_cause)
+
+    try:
+        try:
+            raise CancelledError("Cancelled")
+        except CancelledError:
+            # Mirrors a lazy FK dereference tripping over cancellation: a new exception raised while
+            # handling the cancellation chains it as __context__.
+            raise RuntimeError("wrapped by the ORM")
+    except RuntimeError as e:
+        implicit_context = e
+    assert _is_cancellation(implicit_context)
+
+    # A genuine failure with no cancellation anywhere in its chain must still be reported.
+    assert not _is_cancellation(ValueError("real bug"))
+
+
+def test_is_cancellation_handles_cyclic_chain():
+    """__cause__/__context__ can form a cycle; the walk must terminate rather than loop forever."""
+    a = ValueError("a")
+    b = ValueError("b")
+    a.__context__ = b
+    b.__context__ = a
+    assert not _is_cancellation(a)
 
 
 @pytest.mark.asyncio
