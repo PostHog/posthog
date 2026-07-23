@@ -30,6 +30,9 @@ class AiEventsTable(Table):
         "_timestamp": DateTimeDatabaseField(
             name="_timestamp",
             nullable=False,
+            # Kafka-metadata column kept out of the serialized schema: internal ingestion-lag-aware
+            # checks need it, but it is not part of the user-facing ai_events surface.
+            hidden=True,
             description="When this row was written to ClickHouse (Kafka consumer processing time, UTC). "
             "Unlike `timestamp`, this is not client-set, so it's safe to use for ingestion-lag-aware checks.",
         ),
