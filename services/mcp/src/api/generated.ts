@@ -43526,6 +43526,7 @@ export namespace Schemas {
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
      * * `dismissal` - Dismissal
+     * * `feedback` - Feedback
      * * `code_reference` - Code Reference
      * * `commit` - Commit
      * * `task_run` - Task Run
@@ -43547,6 +43548,7 @@ export namespace Schemas {
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
       Dismissal: 'dismissal',
+      Feedback: 'feedback',
       CodeReference: 'code_reference',
       Commit: 'commit',
       TaskRun: 'task_run',
@@ -43716,6 +43718,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly dismissal_note: string | null;
+      /**
+         * Sentiment (positive/negative) from the latest feedback artefact — a reader's thumbs verdict on the report, left without changing its state (when present).
+         * @nullable
+         */
+      readonly feedback_sentiment: string | null;
+      /**
+         * Free-form note captured alongside the latest feedback sentiment (when present). Feedback entries stack over time; the full history is on the report's artefact log.
+         * @nullable
+         */
+      readonly feedback_note: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -61267,7 +61279,7 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, feedback, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
