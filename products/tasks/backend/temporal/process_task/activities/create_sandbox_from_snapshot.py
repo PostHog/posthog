@@ -2,9 +2,11 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
     SnapshotNotFoundError,
@@ -86,6 +88,16 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                         repository=ctx.repository,
                     )
                     or ""
+                )
+            except ReauthorizationRequired as e:
+                raise CredentialUnavailableError(
+                    "GitHub user integration for this run requires reauthorization",
+                    {
+                        "github_integration_id": ctx.github_integration_id,
+                        "task_id": ctx.task_id,
+                        "team_id": ctx.team_id,
+                    },
+                    cause=e,
                 )
             except Exception as e:
                 raise GitHubAuthenticationError(
