@@ -535,13 +535,23 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         ),
     )
     target_type = serializers.ChoiceField(
-        choices=[("account", "account"), ("person", "person")],
+        choices=[("account", "account"), ("person", "person"), ("group", "group")],
         required=False,
         default="account",
         help_text=(
-            "What entity this property is attached to: 'account' (default) or 'person'. Person "
-            "properties are populated from a warehouse schema and become usable like any other "
-            "person property (feature flags, cohorts, insights)."
+            "What entity this property is attached to: 'account' (default), 'person', or 'group'. "
+            "Person and group properties are populated from a warehouse schema and become usable like "
+            "any other person/group property (feature flags, cohorts, insights)."
+        ),
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=4,
+        help_text=(
+            "For 'group' targets only: which group type (0-4) the property attaches to. Required when "
+            "target_type is 'group'; must be omitted otherwise. Create-only."
         ),
     )
     is_big_number = serializers.BooleanField(
@@ -572,6 +582,20 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         help_text="Workflows that use this property, resolved by definition id.",
     )
 
+    def validate(self, attrs):
+        # target_type and group_type_index are create-only, so only enforce the group rule on create.
+        # (On a partial update DataclassSerializer fills unset fields with a sentinel, not None.)
+        if self.partial:
+            return attrs
+        # DataclassSerializer hands us the constructed dataclass (not a dict).
+        is_group = getattr(attrs, "target_type", None) == "group"
+        has_index = getattr(attrs, "group_type_index", None) is not None
+        if is_group and not has_index:
+            raise serializers.ValidationError({"group_type_index": "Required when target_type is 'group'."})
+        if not is_group and has_index:
+            raise serializers.ValidationError({"group_type_index": "Only valid when target_type is 'group'."})
+        return attrs
+
     class Meta:
         dataclass = CustomPropertyDefinitionView
         ref_name = "CustomPropertyDefinition"
@@ -581,6 +605,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "description",
             "display_type",
             "target_type",
+            "group_type_index",
             "is_big_number",
             "options",
             "source",
