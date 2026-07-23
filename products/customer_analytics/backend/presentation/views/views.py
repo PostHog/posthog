@@ -297,8 +297,9 @@ class CustomPropertyDefinitionViewSet(
         serializer = CustomPropertyDefinitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if data.target_type == "person" and not api.person_properties_flag_enabled(self.team_id):
-            raise ValidationError({"target_type": "Person properties from warehouse data are not enabled yet."})
+        # Person and group targets are both gated behind the warehouse-person-properties rollout flag.
+        if data.target_type in ("person", "group") and not api.person_properties_flag_enabled(self.team_id):
+            raise ValidationError({"target_type": "Person/group properties from warehouse data are not enabled yet."})
         try:
             definition = api.create_custom_property_definition(
                 team_id=self.team_id,
@@ -308,6 +309,7 @@ class CustomPropertyDefinitionViewSet(
                 is_big_number=data.is_big_number,
                 options=_custom_property_option_dicts(data.options),
                 target_type=data.target_type,
+                group_type_index=data.group_type_index,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),

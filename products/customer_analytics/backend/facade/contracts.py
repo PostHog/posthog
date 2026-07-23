@@ -347,6 +347,8 @@ class CustomPropertyDefinitionView:
     description: str | None = None
     display_type: str = "text"
     target_type: str = "account"
+    # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
+    group_type_index: int | None = None
     is_big_number: bool = False
     created_at: datetime | None = None
     created_by: int | None = None

@@ -2055,6 +2055,51 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert runs.status_code == status.HTTP_200_OK
         assert any(run["status"] == "running" for run in runs.json()["results"])
 
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_create_group_definition_and_source_round_trip(self, _flag):
+        # Group support: a group definition carries a group_type_index, and its source binds the same
+        # warehouse way as a person source (external_data_schema + column_property_map + key_column).
+        definitions_endpoint = f"/api/projects/{self.team.id}/custom_property_definitions/"
+        definition = self.client.post(
+            definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        assert definition.json()["group_type_index"] == 0
+
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        assert created.json()["external_data_schema"] == str(schema.id)
+
+    @parameterized.expand(
+        [
+            ("group_without_index", {"target_type": "group"}),
+            ("index_without_group", {"target_type": "person", "group_type_index": 0}),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_type_index_validation(self, _name, extra, _flag):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/custom_property_definitions/",
+            {"name": "X", "display_type": "text", **extra},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
 
 class TestAccountNotesViewSet(APIBaseTest):
     def setUp(self):
