@@ -18,7 +18,7 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*, m
 Run the code, not just the diff. This is a repo-local skill for PostHog developers working on PostHog itself. It executes a bounded frontend QA loop against a local PostHog stack and operates in one of two modes:
 
 - **PR mode** - user references a specific PR (URL, number, or branch). The skill checks out the PR, runs QA, optionally uploads final evidence after approval, and posts a single PR comment after approval. Requires a clean working tree.
-- **Local mode** - user asks to QA their current work with no PR reference. The skill QAs the current checkout against `origin/master` by default, or an explicit local base ref when the user provides one, plus staged, unstaged, and untracked changes. It writes a report locally and does **not** upload evidence or touch GitHub. A dirty working tree is fine in this mode.
+- **Local mode** - user asks to QA their current work with no PR reference. The skill QAs the current checkout against the repo's default branch (`origin/HEAD`) by default, or an explicit local base ref when the user provides one, plus staged, unstaged, and untracked changes. It writes a report locally and does **not** upload evidence or touch GitHub. A dirty working tree is fine in this mode.
 
 Use this skill only for explicit frontend/browser/runtime QA. If the prompt is a generic review, code-review, "check my changes", CI-debugging, or security-audit request, use the more specific repo skill instead.
 
@@ -92,7 +92,7 @@ Parse `$ARGUMENTS` into:
 - `PR_REF`: first non-option token, or the value after `--pr`. Optional in local mode, required in PR mode.
 - `LOGIN_USERNAME`: value after `--login-username` or `--username`.
 - `LOGIN_PASSWORD`: value after `--login-password` or `--password`.
-- `LOCAL_BASE_REF`: value after `--base` or `--base-ref`. Only applies in local mode. Default `origin/master`, or the repo default branch if that is different.
+- `LOCAL_BASE_REF`: value after `--base` or `--base-ref`. Only applies in local mode. Default: the repo's default branch - resolve it with `git symbolic-ref refs/remotes/origin/HEAD` rather than assuming a branch name.
 - `FIX_MODE`: one of `auto-low-risk`, `ask`, or `report-only`. Parse explicit options like `--fix`, `--ask-before-fix`, `--no-fix`, and matching natural language. If unspecified and the user is present, ask once before the QA loop whether narrow, in-diff fixes should be attempted when found. Recommend `auto-low-risk` for PR mode and `ask` for local mode. If the run cannot get an answer, use `report-only`.
 - `AUTO_PUSH_FIXES`: boolean. True if `$ARGUMENTS` contains `--auto-push` or natural-language equivalents like "auto push fixes", "push fixes automatically", "no need to ask before pushing". Default false.
 - `NO_VIDEO`: boolean. True if `$ARGUMENTS` contains `--no-video` or natural language like "skip the video" or "no recording". Default false: the recorded demo pass runs by default when the browser tool can record and `ffmpeg` is available.
@@ -149,7 +149,7 @@ A dirty working tree is allowed. Do not abort, stash, or modify the user's tree.
 Record:
 
 - Current branch: `git branch --show-current`
-- Base ref: `LOCAL_BASE_REF`, defaulting to `origin/master` (or repo default branch)
+- Base ref: `LOCAL_BASE_REF`, defaulting to the resolved repo default branch
 - Changed-file set: union of path-only commands so the result is a clean list of paths (not status-prefixed porcelain output):
 
   ```bash
@@ -160,7 +160,7 @@ Record:
   git ls-files --others --exclude-standard           # untracked
   ```
 
-  If `LOCAL_BASE_REF` cannot be resolved, stop and ask the user for a valid base ref. Do not silently fall back to `origin/master` after the user supplied an explicit base.
+  If `LOCAL_BASE_REF` cannot be resolved, stop and ask the user for a valid base ref. Do not silently fall back to the default branch after the user supplied an explicit base.
 
   For renames (`R` status), use `git diff --name-only -M` and accept the new path; do not use `oldname -> newname` strings in route-finding notes.
 
