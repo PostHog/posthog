@@ -711,10 +711,7 @@ class HogFunctionViewSet(
                 {
                     "queued_count": 0,
                     "skipped_count": 0,
-                    "detail": (
-                        f"Re-runs aren't supported for '{hog_function.type}' functions. They run outside "
-                        "the cyclotron queue that a re-run replays onto, so a re-run would never execute."
-                    ),
+                    "detail": f"Re-runs aren't supported for '{hog_function.type}' functions.",
                 },
                 status=400,
             )
