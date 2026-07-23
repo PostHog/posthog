@@ -31,6 +31,7 @@ members = [
   "common/s3",
   "common/serve_metrics",
   "common/symbol_data",
+  "common/temporal",
   "common/types",
   "common/compression",
   "common/hypercache",

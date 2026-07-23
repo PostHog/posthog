@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
     _DEFAULT_RATE_PER_SEC,
     DLQ,
+    EVENT_SOURCE,
     RETRY,
     SENT,
     InvalidPersonPropertyMessage,
@@ -38,6 +39,29 @@ class TestBuildCaptureKwargs:
             "process_person_profile": True,
         }
 
+    def test_group_message_maps_to_groupidentify(self):
+        # Regression: a group message must become a $groupidentify with $group_type/$group_key/$group_set
+        # and process_person_profile=False, mirroring the canonical group-identify write.
+        kwargs = build_capture_kwargs(
+            {
+                "token": "tok",
+                "kind": "group",
+                "distinct_id": "team-uuid",
+                "group_type": "organization",
+                "group_type_index": 0,
+                "group_key": "acme",
+                "properties": {"plan_tier": "pro"},
+            }
+        )
+        assert kwargs == {
+            "token": "tok",
+            "event_name": "$groupidentify",
+            "event_source": EVENT_SOURCE,
+            "distinct_id": "team-uuid",
+            "properties": {"$group_type": "organization", "$group_key": "acme", "$group_set": {"plan_tier": "pro"}},
+            "process_person_profile": False,
+        }
+
     @parameterized.expand(
         [
             ("missing_token", {"distinct_id": "a", "properties": {"p": 1}}),
@@ -47,6 +71,14 @@ class TestBuildCaptureKwargs:
             ("nan_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("nan")}}),
             ("inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("inf")}}),
             ("nested_inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": {"q": float("-inf")}}}),
+            (
+                "group_missing_group_type",
+                {"token": "t", "distinct_id": "a", "kind": "group", "group_key": "k", "properties": {"p": 1}},
+            ),
+            (
+                "group_missing_group_key",
+                {"token": "t", "distinct_id": "a", "kind": "group", "group_type": "org", "properties": {"p": 1}},
+            ),
         ]
     )
     def test_rejects_unusable_messages(self, _name, payload):

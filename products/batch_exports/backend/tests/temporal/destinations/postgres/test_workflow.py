@@ -308,9 +308,10 @@ async def test_postgres_export_workflow_without_events(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
-    # interval.
-    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=24)],
+    # This is set to 72 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval. We use 72 hours (instead of 24) so that with 10 randomly sampled persons the probability of none
+    # landing more than 12 hours before the end is negligible ((12/72)^10 ≈ 1 in 60 million).
+    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=72)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)

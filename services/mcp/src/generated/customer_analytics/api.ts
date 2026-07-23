@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 29 enabled ops
+ * PostHog API - MCP 37 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -434,6 +434,9 @@ export const CustomPropertyDefinitionsCreateParams = /* @__PURE__ */ zod.object(
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
 export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMax = 4
+
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
 
@@ -453,11 +456,19 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
             ),
         target_type: zod
-            .enum(['account', 'person'])
-            .describe('* `account` - account\n* `person` - person')
+            .enum(['account', 'person', 'group'])
+            .describe('* `account` - account\n* `person` - person\n* `group` - group')
             .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
             .describe(
-                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person"
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person\n* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsCreateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsCreateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -528,6 +539,9 @@ export const CustomPropertyDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.
 
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
 
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax = 4
+
 export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
 
 export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
@@ -548,11 +562,19 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
             ),
         target_type: zod
-            .enum(['account', 'person'])
-            .describe('* `account` - account\n* `person` - person')
+            .enum(['account', 'person', 'group'])
+            .describe('* `account` - account\n* `person` - person\n* `group` - group')
             .optional()
             .describe(
-                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person"
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person\n* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -604,6 +626,174 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertySourcesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertySourcesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const CustomPropertySourcesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertySourcesCreateBodySourceColumnMax = 400
+
+export const customPropertySourcesCreateBodyKeyColumnMax = 400
+
+export const customPropertySourcesCreateBodyIsEnabledDefault = true
+
+export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod
+            .string()
+            .describe('UUID of the custom property definition this source feeds. One source per definition.'),
+        saved_query: zod
+            .string()
+            .nullish()
+            .describe(
+                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+            ),
+        external_data_schema: zod
+            .string()
+            .nullish()
+            .describe(
+                'Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+            ),
+        source_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodySourceColumnMax)
+            .nullish()
+            .describe('Account sources only: column in the view whose value is written to the property.'),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person.'
+            ),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodyKeyColumnMax)
+            .describe(
+                "Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources."
+            ),
+        is_enabled: zod
+            .boolean()
+            .default(customPropertySourcesCreateBodyIsEnabledDefault)
+            .describe(
+                'Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count.'
+            ),
+    })
+    .describe(
+        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+    )
+
+export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertySourcesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
+
+export const customPropertySourcesPartialUpdateBodyKeyColumnMax = 400
+
+export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        source_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodySourceColumnMax)
+            .optional()
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
+            .optional()
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the source syncs; re-enabling it resets the failure count.'),
+    })
+    .describe(
+        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+    )
+
+export const CustomPropertySourcesDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Person sources only: start a backfill that reads the whole warehouse table and populates
+ * person properties for historical rows. Coalesces if one is already running for the table.
+ */
+export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Person sources only: the source's sync/backfill run history, newest first. Gated on the
+ * caller's warehouse-source viewer access, since the runs expose its row counts and sync errors.
+ */
+export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
+ * real (billable) warehouse sync; the incremental person-property update runs off it.
+ */
+export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()

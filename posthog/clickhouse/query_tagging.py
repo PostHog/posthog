@@ -277,6 +277,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
             | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_FAILURE_OCCURRENCES_QUERY
             | NodeKind.MCP_TOOL_STATS_QUERY
             | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
             | NodeKind.MCP_TOOL_QUALITY_ROWS_QUERY

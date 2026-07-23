@@ -1,16 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { kea, path, useValues } from 'kea'
+import { kea, path, useActions, useValues } from 'kea'
 import { Form, forms } from 'kea-forms'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { LemonSegmentedButtonOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { useStorybookMocks } from '~/mocks/browser'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { IntegrationType } from '~/types'
 
+import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
+import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
 
 import { AlertAdvancedOptions } from './AlertAdvancedOptions'
 import { AlertDefinitionRow, AlertNextEvaluationStatus, AlertTimezoneNotice } from './AlertDefinition'
@@ -225,6 +229,109 @@ function NotificationsStory(): JSX.Element {
     )
 }
 
+const STORY_SLACK_WORKSPACES: IntegrationType[] = [
+    {
+        id: 1,
+        kind: 'slack',
+        display_name: 'PostHog',
+        icon_url: '/static/services/slack.png',
+        config: { team: { id: 'T11111', name: 'PostHog' } },
+        created_at: '2026-01-01T00:00:00Z',
+    },
+    {
+        id: 2,
+        kind: 'slack',
+        display_name: 'Acme Workspace',
+        icon_url: '/static/services/slack.png',
+        config: { team: { id: 'T99999', name: 'Acme Workspace' } },
+        created_at: '2026-01-01T00:00:00Z',
+    },
+]
+
+const STORY_SLACK_CHANNELS: Record<string, { id: string; name: string }[]> = {
+    '1': [
+        { id: 'C100', name: 'alerts' },
+        { id: 'C101', name: 'general' },
+    ],
+    '2': [
+        { id: 'C200', name: 'acme-alerts' },
+        { id: 'C201', name: 'acme-eng' },
+    ],
+}
+
+const STORY_EXISTING_HOG_FUNCTIONS = [
+    {
+        id: 'hf1',
+        type: 'internal_destination',
+        name: 'Alert: Slack #alerts',
+        description: '',
+        created_by: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        enabled: true,
+        hog: '',
+        template_id: 'template-slack',
+        inputs: {
+            slack_workspace: { value: 1 },
+            channel: { value: 'C100' },
+        },
+    },
+    {
+        id: 'hf2',
+        type: 'internal_destination',
+        name: 'Alert: Slack #acme-alerts',
+        description: '',
+        created_by: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        enabled: true,
+        hog: '',
+        template_id: 'template-slack',
+        inputs: {
+            slack_workspace: { value: 2 },
+            channel: { value: 'C200' },
+        },
+    },
+]
+
+function MultipleSlackWorkspacesStory(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/integrations': { results: STORY_SLACK_WORKSPACES, count: 2 },
+            '/api/environments/:team_id/integrations/:id/channels': ({ params, request }) => {
+                const channelId = new URL(request.url).searchParams.get('channel_id')
+                const allChannels = (STORY_SLACK_CHANNELS[String(params.id)] ?? []).map((channel) => ({
+                    ...channel,
+                    is_private: false,
+                    is_ext_shared: false,
+                    is_member: true,
+                }))
+                const channels = channelId ? allChannels.filter((channel) => channel.id === channelId) : allChannels
+                return [200, { channels, lastRefreshedAt: '2026-01-01T00:00:00Z' }]
+            },
+            '/api/environments/:team_id/hog_functions': {
+                results: STORY_EXISTING_HOG_FUNCTIONS,
+                count: STORY_EXISTING_HOG_FUNCTIONS.length,
+            },
+        },
+    })
+
+    // Preselect a workspace + channel so the picker doesn't open empty.
+    const { setSelectedSlackIntegrationId, setSlackChannelValue } = useActions(
+        alertNotificationLogic({ alertId: 'alert-1' })
+    )
+    useEffect(() => {
+        setSelectedSlackIntegrationId(2)
+        setSlackChannelValue('C201|#acme-eng')
+    }, [setSelectedSlackIntegrationId, setSlackChannelValue])
+
+    return (
+        <div className="max-w-2xl border rounded bg-surface-primary p-4">
+            <InlineAlertNotifications alertId="alert-1" />
+        </div>
+    )
+}
+
 function QuietHoursStory(): JSX.Element {
     const [scheduleRestriction, setScheduleRestriction] = useState<ScheduleRestriction | null>({
         blocked_windows: [{ start: '22:00', end: '07:00' }],
@@ -296,5 +403,6 @@ export const EditorLoading: Story = {
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }
+export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
