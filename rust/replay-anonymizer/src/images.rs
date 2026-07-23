@@ -52,6 +52,12 @@ const ID_HEX_LEN: usize = 8;
 /// slower, bounded, identical output. Global memory stays bounded at (concurrent messages x cap).
 pub(crate) const MAX_QUEUED_URI_BYTES: usize = 32 * 1024 * 1024;
 
+/// Cap on distinct queued images per message: the byte budget alone under-counts tiny URIs, whose
+/// per-job overhead (job struct, result channel, map entries) dominates their payload. Real
+/// messages hold at most dozens of distinct images — repeats dedup — so past this the caller
+/// scrubs inline. With bounded scrub concurrency this also bounds the global channel depth.
+pub(crate) const MAX_QUEUED_IMAGES_PER_MESSAGE: u32 = 512;
+
 /// Generous ceiling on one blur job (worst real decodes are hundreds of ms); see `resolve`.
 const IMAGE_JOB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -162,7 +168,8 @@ impl ImageQueue {
             id
         } else {
             let queued = self.queued_uri_bytes.get().saturating_add(uri.len());
-            if queued > max_queued_uri_bytes {
+            if queued > max_queued_uri_bytes || self.next_id.get() >= MAX_QUEUED_IMAGES_PER_MESSAGE
+            {
                 return None;
             }
             let (result_tx, result_rx) = mpsc::sync_channel(1);
@@ -373,6 +380,17 @@ mod tests {
             format!("[\"data:image/png;base64,{BLANK_PNG_BASE64}\",\"{PLACEHOLDER_SRC}\",\"{BLANK_PNG_BASE64}\"]")
         );
         assert_eq!(q.blur_count.get(), 1);
+    }
+
+    #[test]
+    fn submissions_over_the_count_cap_decline() {
+        let q = ImageQueue::default();
+        q.next_id.set(MAX_QUEUED_IMAGES_PER_MESSAGE);
+        let uri = png_data_uri(8, 8, [7, 7, 7, 255]);
+        assert_eq!(
+            q.submit(&uri, ImageFallback::Blank, true, MAX_QUEUED_URI_BYTES),
+            None
+        );
     }
 
     #[test]
