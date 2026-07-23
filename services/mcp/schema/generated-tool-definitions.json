@@ -7180,8 +7180,24 @@
         "feature_flag": "mcp-analytics",
         "system_prompt_hint": "Distinct effective descriptions seen for one MCP tool"
     },
+    "query-mcp-tool-failure-occurrences": {
+        "description": "Return individual errored $mcp_tool_call events for a single MCP tool within one failure bucket, newest first (up to 50). Each occurrence carries the timestamp, distinct_id, session id, resolved harness, the agent's stated intent, the captured error message ($mcp_error_message — empty on events that predate message capture), and the HTTP status. Pass toolName plus the errorType (raw $mcp_error_type; \"unknown\" for events without one) and optional errorStatus exactly as returned by query-mcp-tool-failures — when errorStatus is omitted, only events without a status match. Use to answer \"show me the actual errors\" after a failure bucket looks suspicious.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Individual errored calls in one failure bucket",
+        "title": "Individual errored calls in one failure bucket",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Individual errored calls (with error messages) for one MCP tool's failure bucket"
+    },
     "query-mcp-tool-failures": {
-        "description": "Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error rate — grouped by $mcp_error_type and HTTP $mcp_error_status (there is no free-text error message on tool calls). Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
+        "description": "Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error rate — grouped by $mcp_error_type and HTTP $mcp_error_status. Each bucket carries the raw error_type and error_status, which you can pass to query-mcp-tool-failure-occurrences to see individual errored calls with their error messages. Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
         "category": "MCP analytics",
         "feature": "mcp_analytics",
         "summary": "Top errors for one MCP tool",
@@ -7919,7 +7935,7 @@
         }
     },
     "scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",

@@ -43,7 +43,7 @@ export function GlobalShortcuts(): null {
         intent: 'Search',
         interaction: 'function',
         callback: () => {
-            toggleCommand()
+            toggleCommand('keyboard-shortcut')
         },
         priority: 10,
     })

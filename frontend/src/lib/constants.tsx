@@ -174,6 +174,7 @@ export const FEATURE_FLAGS = {
     HALLOWEEN_OVERRIDE: 'halloween-override', // owner: #team-growth, overrides the checks for Halloween to return true when this is enabled
 
     // UX flags, used to control the UX of the app
+    CMD_K_NAV_EXPERIMENT: 'cmd-k-nav-experiment', // owner: @rafaeelaudibert #team-platform-ux multivariate=control,search-bar,footer-hint,tools-row,footer-callout - surfaces the Cmd+K command menu more prominently in the left nav: search-bar = full-width search field below the nav header, footer-hint = extra Search row in the nav footer, tools-row = Search row after the Tools item in the Project section, footer-callout = dismissible callout card in the nav ad slot for users a few days after signup
     CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
     NEW_INSIGHT_MENU_EXPERIMENT: 'new-insight-menu-experiment', // owner: @thmsobrmlr #team-product-analytics multivariate=control,chips,grouped — experiment on the saved insights "New" menu: control = text list, chips = visual card grid with sub-insight chips, grouped = two-column card grid grouped by question
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
