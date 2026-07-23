@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    align_incoming_decimals_to_delta,
     conditional_lru_cache_async,
     normalize_column_name,
     pyarrow_schema_from_arrow_exportable,
@@ -185,6 +186,46 @@ def _first_per_pk_table(
     return pa_table.take(kept_indices)
 
 
+def delta_storage_options() -> dict[str, str]:
+    """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
+    read path (e.g. the person-property backfill) can open a Delta table without constructing a full
+    ``DeltaTableHelper`` (which carries caching, first-sync mutation, and corruption-repair)."""
+    if settings.USE_LOCAL_SETUP:
+        if (
+            not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
+            or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
+            or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
+        ):
+            raise KeyError(
+                "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
+            )
+
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+        options = {
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+        }
+    else:
+        options = {}
+
+    # Conditional puts make a clashing concurrent commit fail loudly instead of
+    # clobbering _delta_log; set explicitly so a library default change can't undo it.
+    options["conditional_put"] = "etag"
+    if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
+        options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
+    return options
+
+
 class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
@@ -204,40 +245,7 @@ class DeltaTableHelper:
         return self._is_first_sync
 
     def _get_credentials(self):
-        if settings.USE_LOCAL_SETUP:
-            if (
-                not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
-                or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
-                or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
-            ):
-                raise KeyError(
-                    "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
-                )
-
-            ensure_bucket_exists(
-                settings.BUCKET_URL,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                settings.OBJECT_STORAGE_ENDPOINT,
-            )
-
-            options = {
-                "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_ALLOW_HTTP": "true",
-            }
-        else:
-            options = {}
-
-        # Conditional puts make a clashing concurrent commit fail loudly instead of
-        # clobbering _delta_log; set explicitly so a library default change can't undo it.
-        options["conditional_put"] = "etag"
-        if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
-            options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
-        return options
+        return delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
@@ -274,9 +282,18 @@ class DeltaTableHelper:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        is_delta = await asyncio.to_thread(
-            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
-        )
+        try:
+            is_delta = await asyncio.to_thread(
+                deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+            )
+        except Exception as e:
+            # Mirrors the DeltaTable() open below: capture before propagating. Callers range from
+            # best-effort maintenance to the main write path, so this can't safely swallow the
+            # error and report "no table" here — that would trip should_overwrite_table for a
+            # table that actually exists, risking data loss.
+            capture_exception(e)
+            raise
+
         if is_delta:
             try:
                 return await asyncio.to_thread(
@@ -422,6 +439,11 @@ class DeltaTableHelper:
         if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
+
+            # The merge casts every source column to its stored column type; a scale-heavy decimal
+            # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
+            # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
+            data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
             existing_delta_table = delta_table
 

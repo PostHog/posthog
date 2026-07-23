@@ -28,6 +28,8 @@ import type {
     CustomPropertySourceApi,
     CustomPropertySourceUpdateApi,
     CustomPropertySourcesListParams,
+    CustomPropertySourcesRunsListParams,
+    CustomPropertySyncTriggerResponseApi,
     CustomPropertyValueApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
@@ -46,6 +48,7 @@ import type {
     PaginatedAnnouncementListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
+    PaginatedCustomPropertySyncRunListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
@@ -868,6 +871,83 @@ export const customPropertySourcesDestroy = async (
     return apiMutator<void>(getCustomPropertySourcesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/backfill/`
+}
+
+/**
+ * Person sources only: start a backfill that reads the whole warehouse table and populates
+ * person properties for historical rows. Coalesces if one is already running for the table.
+ */
+export const customPropertySourcesBackfill = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomPropertySyncTriggerResponseApi> => {
+    return apiMutator<CustomPropertySyncTriggerResponseApi>(getCustomPropertySourcesBackfillUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getCustomPropertySourcesRunsListUrl = (
+    projectId: string,
+    id: string,
+    params?: CustomPropertySourcesRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/custom_property_sources/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/custom_property_sources/${id}/runs/`
+}
+
+/**
+ * Person sources only: the source's sync/backfill run history, newest first. Gated on the
+ * caller's warehouse-source viewer access, since the runs expose its row counts and sync errors.
+ */
+export const customPropertySourcesRunsList = async (
+    projectId: string,
+    id: string,
+    params?: CustomPropertySourcesRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedCustomPropertySyncRunListApi> => {
+    return apiMutator<PaginatedCustomPropertySyncRunListApi>(
+        getCustomPropertySourcesRunsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getCustomPropertySourcesSyncUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/sync/`
+}
+
+/**
+ * Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
+ * real (billable) warehouse sync; the incremental person-property update runs off it.
+ */
+export const customPropertySourcesSync = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomPropertySyncTriggerResponseApi> => {
+    return apiMutator<CustomPropertySyncTriggerResponseApi>(getCustomPropertySourcesSyncUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

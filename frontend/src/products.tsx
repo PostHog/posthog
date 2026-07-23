@@ -1854,7 +1854,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.engineeringAnalytics(),
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
         tags: ['alpha'],
-        pinnedByDefault: true,
         sceneKey: 'EngineeringAnalytics',
         sceneKeys: [
             'EngineeringAnalytics',
@@ -2179,7 +2178,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.replayVision(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.REPLAY_VISION,
-        pinnedByDefault: true,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
@@ -2289,7 +2287,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.taskTracker(),
         sceneKey: 'TaskTracker',
         flag: FEATURE_FLAGS.TASKS,
-        pinnedByDefault: true,
         sceneKeys: ['TaskTracker'],
     },
     {
