@@ -693,11 +693,17 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        // Covers mounting into a tab whose node already carries a builder (e.g. page refresh)
         const builder = values.sourceQuery.builder
         if (builder?.enabled && !objectsEqual(builder, values.builderConfig)) {
+            // Existing builder insight: hydrate wells and load its base fields
             actions.hydrateFromNode(builder, values.sourceQuery.display)
             actions.loadBaseColumns()
+        } else if ((values.queryInput ?? '').trim() !== '') {
+            // Fresh query: this logic mounts only when the Visualization tab opens (after the
+            // setActiveTab that would have triggered loading), so snapshot the editor query and
+            // load its columns here. refreshBase reads queryInput; loadBaseColumns alone would
+            // read the still-empty baseQuery snapshot and find nothing.
+            actions.refreshBase()
         }
     }),
 ])

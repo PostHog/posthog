@@ -157,7 +157,7 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
 
 export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
     const { baseFields, baseFieldsLoading, baseOutOfSync } = useValues(insightBuilderLogic({ tabId }))
-    const { loadBaseColumns, refreshBase } = useActions(insightBuilderLogic({ tabId }))
+    const { refreshBase } = useActions(insightBuilderLogic({ tabId }))
 
     const dimensions = baseFields.filter((field) => !field.isNumerical)
     const measures = baseFields.filter((field) => field.isNumerical)
@@ -182,7 +182,7 @@ export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
             ) : baseFields.length === 0 ? (
                 <div className="flex flex-col gap-2 p-2 text-sm text-secondary">
                     <span>No fields yet. Run a query, then refresh.</span>
-                    <LemonButton size="small" type="secondary" onClick={() => loadBaseColumns()}>
+                    <LemonButton size="small" type="secondary" onClick={() => refreshBase()}>
                         Refresh fields
                     </LemonButton>
                 </div>
