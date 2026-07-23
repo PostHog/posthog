@@ -3,14 +3,20 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import BraintreeResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
+    BRAINTREE_VERSION_2019_01_01,
+    BRAINTREE_VERSION_2026_07_14,
+    BraintreeResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BraintreeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
+    BraintreeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -187,3 +193,25 @@ class TestBraintreeSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_bt_source.call_args.kwargs["api_version"] == expected
+
+
+class TestValidateCredentialsResolvedPin:
+    @pytest.mark.parametrize(
+        "pin, expected",
+        [
+            # The no-pin (None -> default) case is already covered by test_validate_credentials.
+            (BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2019_01_01),
+            (BRAINTREE_VERSION_2026_07_14, BRAINTREE_VERSION_2026_07_14),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source.validate_braintree_credentials"
+    )
+    def test_probe_receives_resolved_pin(self, mock_validate, pin, expected):
+        # A pinned source must revalidate under its own version, not always the default.
+        mock_validate.return_value = True
+        config = BraintreeSourceConfig(environment="production", public_key="pub", private_key="priv")
+
+        BraintreeSource().validate_credentials(config, 1, api_version=pin)
+
+        assert mock_validate.call_args.args[-1] == expected

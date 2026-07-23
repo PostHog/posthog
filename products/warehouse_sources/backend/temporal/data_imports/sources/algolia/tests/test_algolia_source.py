@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.source import AlgoliaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AlgoliaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.algolia import (
+    AlgoliaSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

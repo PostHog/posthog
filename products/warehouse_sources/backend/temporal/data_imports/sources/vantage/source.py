@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VantageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vantage import (
+    VantageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -96,11 +98,16 @@ Create a read-scoped access token or a service token from your [Vantage settings
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: VantageSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: VantageSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_vantage_credentials(config.api_key):
             return True, None

@@ -352,6 +352,44 @@ export function getViewRecordingFilters(
 }
 
 /**
+ * Event/action filters for one metric's sources — the "session reached this metric" part of a
+ * recordings query. Data-warehouse sources have no session events and are skipped, so a metric
+ * whose every source is a data-warehouse node (or a retention metric, whose steps the recordings
+ * surfaces don't enumerate) yields no filters.
+ */
+export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFiltersGroupValue[] {
+    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
+        ? [metric.source]
+        : isExperimentFunnelMetric(metric)
+          ? metric.series
+          : isExperimentRatioMetric(metric)
+            ? [metric.numerator, metric.denominator]
+            : []
+    return sources
+        .filter((source) => source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode)
+        .map((source) => seriesToFilter(source))
+        .filter((filter): filter is UniversalFiltersGroupValue => filter !== null)
+}
+
+/**
+ * Whether a recordings event filter can only match zero sessions: the project has never seen the
+ * event with a `$session_id` (e.g. it is captured server-side). Action and data warehouse filters
+ * pass through unchecked, matching the replay playlist's own posture.
+ */
+export function isUnlinkableEventFilter(
+    filter: UniversalFiltersGroupValue,
+    unlinkableEventNames: Set<string>
+): boolean {
+    return (
+        'type' in filter &&
+        filter.type === 'events' &&
+        'name' in filter &&
+        typeof filter.name === 'string' &&
+        unlinkableEventNames.has(filter.name)
+    )
+}
+
+/**
  * Event names whose session-linkability must be checked before building "View recordings" links:
  * the exposure event plus every plain-event metric step across primary, secondary and shared
  * metrics, mirroring how `getViewRecordingFilters` enumerates them. Action and data warehouse
@@ -405,11 +443,7 @@ export function applySessionLinkability(
     unlinkableEventNames: Set<string>
 ): { filters: UniversalFiltersGroupValue[]; droppedMetricEventCount: number; exposureUnlinkable: boolean } {
     const isUnlinkable = (filter: UniversalFiltersGroupValue): boolean =>
-        'type' in filter &&
-        filter.type === 'events' &&
-        'name' in filter &&
-        typeof filter.name === 'string' &&
-        unlinkableEventNames.has(filter.name)
+        isUnlinkableEventFilter(filter, unlinkableEventNames)
 
     if (filters.length === 0) {
         return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false }

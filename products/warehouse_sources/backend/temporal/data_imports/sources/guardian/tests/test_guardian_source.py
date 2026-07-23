@@ -3,7 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GuardianSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guardian import (
+    GuardianSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.guardian import GuardianResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.source import GuardianSource

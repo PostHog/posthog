@@ -7,7 +7,8 @@ import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { TicketStatus } from '../../types'
+import type { TicketChannel, TicketStatus } from '../../types'
+import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 
 export interface MessageInputProps {
@@ -20,6 +21,8 @@ export interface MessageInputProps {
     ) => void
     messageSending: boolean
     placeholder?: string
+    /** Channel the ticket came from; drives the default placeholder and the send-button logo */
+    channel?: TicketChannel
     buttonText?: string
     minRows?: number
     /** Whether to show the "Send as private" checkbox */
@@ -43,7 +46,7 @@ export interface MessageInputProps {
     /** Recipient description shown in the draft-mode send confirmation (e.g. "This will send to ...") */
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
-    sendAndSetStatusOptions?: { value: TicketStatus; label: string }[]
+    sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
     unsavedTicketChanges?: string[]
 }
@@ -51,7 +54,8 @@ export interface MessageInputProps {
 export function MessageInput({
     onSendMessage,
     messageSending,
-    placeholder = 'Type your message...',
+    placeholder,
+    channel,
     buttonText = 'Send',
     minRows = 3,
     showPrivateOption = false,
@@ -79,6 +83,10 @@ export function MessageInput({
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
+
+    const resolvedPlaceholder = placeholder ?? (isPrivate ? 'Type your private note...' : getReplyPlaceholder(channel))
+    const showChannelLogo = !isPrivate && hasReplyChannelBranding(channel)
+    const sendVerb = isPrivate ? 'Attach' : 'Send'
 
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {
         // These guard the Cmd+Enter path, which bypasses the (disabled) button.
@@ -112,10 +120,12 @@ export function MessageInput({
             // Sending with a status saves the whole ticket, so surface any other unsaved edits first.
             if (statusAfterSend && unsavedTicketChanges && unsavedTicketChanges.length > 0) {
                 LemonDialog.open({
-                    title: 'Send and save other changes?',
+                    title: `${sendVerb} and save other changes?`,
                     description: (
                         <>
-                            <p>Sending will also save your other unsaved ticket changes:</p>
+                            <p>
+                                {isPrivate ? 'Attaching' : 'Sending'} will also save your other unsaved ticket changes:
+                            </p>
                             <ul className="list-disc pl-5">
                                 {unsavedTicketChanges.map((change) => (
                                     <li key={change}>{change}</li>
@@ -126,7 +136,7 @@ export function MessageInput({
                             ) : null}
                         </>
                     ),
-                    primaryButton: { children: 'Send and save', type: 'primary', onClick: doSend },
+                    primaryButton: { children: `${sendVerb} and save`, type: 'primary', onClick: doSend },
                     secondaryButton: { children: 'Cancel' },
                 })
             } else if (draftMode && !isPrivate && sendConfirmationMessage) {
@@ -163,7 +173,7 @@ export function MessageInput({
         <div>
             <SupportEditor
                 initialContent={draftContent}
-                placeholder={placeholder}
+                placeholder={resolvedPlaceholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
                     if (draftContent) {
@@ -204,9 +214,16 @@ export function MessageInput({
                 )}
                 <div className="flex items-center gap-2">
                     {onDraftModeChange && (
-                        <Tooltip title="In draft mode, sending asks you to confirm the recipient first.">
+                        <Tooltip
+                            title={isPrivate ? null : 'In draft mode, sending asks you to confirm the recipient first.'}
+                        >
                             <span>
-                                <LemonSwitch checked={draftMode} onChange={onDraftModeChange} label="Draft mode" />
+                                <LemonSwitch
+                                    checked={draftMode}
+                                    onChange={onDraftModeChange}
+                                    label="Draft mode"
+                                    disabledReason={isPrivate ? 'Draft mode has no effect on private notes' : undefined}
+                                />
                             </span>
                         </Tooltip>
                     )}
@@ -219,7 +236,7 @@ export function MessageInput({
                         sideAction={
                             sendAndSetStatusOptions?.length
                                 ? {
-                                      'aria-label': 'Send and set ticket status',
+                                      'aria-label': `${sendVerb} and set ticket status`,
                                       disabled: messageSending,
                                       disabledReason: sendBlockedReason,
                                       dropdown: {
@@ -231,7 +248,7 @@ export function MessageInput({
                                                   size="small"
                                                   onClick={() => handleSubmit(option.value)}
                                               >
-                                                  {option.label}
+                                                  {`${sendVerb} and set ${option.statusLabel}`}
                                               </LemonButton>
                                           )),
                                       },
@@ -239,7 +256,16 @@ export function MessageInput({
                                 : undefined
                         }
                     >
-                        {isPrivate ? 'Attach' : buttonText}
+                        {isPrivate ? (
+                            'Attach'
+                        ) : showChannelLogo ? (
+                            <span className="inline-flex items-center gap-1.5">
+                                {buttonText}
+                                <span className="text-sm dark:grayscale">{channelIcon[channel]}</span>
+                            </span>
+                        ) : (
+                            buttonText
+                        )}
                     </LemonButton>
                 </div>
             </div>

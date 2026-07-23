@@ -3,7 +3,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailjetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailjet import (
+    MailjetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.mailjet import MailjetResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source import MailJetSource

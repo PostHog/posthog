@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
     WebhookDeletionResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RevenueCatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.revenuecat import (
+    RevenueCatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     CUSTOMER_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,

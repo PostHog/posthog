@@ -1554,8 +1554,9 @@ export function CodeReviewScene(): JSX.Element {
                         ReviewHog reviews pull requests before humans do
                     </h2>
                     <p className="m-0 max-w-155 text-sm text-secondary">
-                        Specialist review perspectives read your changed code in parallel, a blind-spot sweep catches
-                        what they missed, and only validated findings get published back to the pull request.
+                        Specialist review skills read your changed code in parallel each from their own perspective, a
+                        blind-spot sweep catches what they missed, and only validated findings get published back to the
+                        pull request.
                     </p>
                     <ProofCard />
                 </section>
@@ -1575,7 +1576,7 @@ export function CodeReviewScene(): JSX.Element {
                         <h2 className="m-0 text-xl font-bold">Review skills</h2>
                         <p className="m-0 max-w-160 text-sm text-secondary">
                             Everything below is a regular skill, stored in your PostHog skills store like anything else
-                            you've added. Perspectives read your changed code, a blind-spot sweep catches what they
+                            you've added. Review skills read your changed code, a blind-spot sweep catches what they
                             missed, and validation criteria decide what reaches the pull request. Toggling one here
                             applies only to your pull request reviews; editing a skill changes it for the whole team.
                         </p>

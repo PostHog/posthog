@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SecodaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secoda import SecodaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.secoda import (
     SecodaResumeConfig,
     secoda_source,
@@ -96,6 +96,7 @@ You can create an API key under **Settings → API** in [Secoda](https://app.sec
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Secoda's filter syntax exposes no range operator, so
         # there is no server-side timestamp cursor to advance an incremental sync (INCREMENTAL_FIELDS
@@ -103,7 +104,11 @@ You can create an API key under **Settings → API** in [Secoda](https://app.sec
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: SecodaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SecodaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)

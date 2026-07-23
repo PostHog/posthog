@@ -38,6 +38,31 @@ export interface AnonymizeMeta {
     events: AnonymizeEventMeta[]
 }
 
+/**
+ * Phase timings for one {@link anonymizeKafkaPayload} call, reported on success and failure alike
+ * (including contained panics). All offsets are monotonic nanoseconds from the moment the addon
+ * was invoked on the JS thread; a `null` boundary means the phase was never reached.
+ */
+export interface AnonymizeTimings {
+    /** Threadpool pickup — this offset IS the libuv queue wait. */
+    taskStartNs: number | null
+    decompressStartNs: number | null
+    decompressEndNs: number | null
+    scrubStartNs: number | null
+    scrubEndNs: number | null
+    /** Accumulated cv de/recompression time across all events in the message. */
+    cvTotalNs: number
+    cvCount: number
+    /** Accumulated image blur/pixelate time (cache misses only). */
+    blurTotalNs: number
+    blurCount: number
+    /**
+     * The op in flight when processing stopped: `done` on success, else the phase or op
+     * (`queued` | `decompress` | `scrub` | `cv` | `blur` | `serialize_meta`) that was running.
+     */
+    lastOp: string
+}
+
 export interface AnonymizeKafkaPayloadResult {
     /** True if the message could not be anonymized — the caller must drop or DLQ it (fail-closed). */
     failed: boolean
@@ -58,6 +83,8 @@ export interface AnonymizeKafkaPayloadResult {
      * whole-message parse fallback fired; the label is an A/B / fallback-rate signal.
      */
     route: 'stream' | 'tree' | null
+    /** Phase timings; present on success and failure alike. `null` only if serialization failed. */
+    timings: AnonymizeTimings | null
 }
 
 /** Initialize the process-wide allow lists. Call once at startup before {@link anonymizeKafkaPayload}. */
@@ -73,14 +100,19 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * `cv` payloads re-emit as zstd; the reader dispatches on magic bytes.
  */
-export function anonymizeKafkaPayload(
+export async function anonymizeKafkaPayload(
     payload: Buffer,
-    contentEncoding?: string | null,
-    firstPartyHosts?: string[] | null
+    contentEncoding?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
-    return native.anonymizeKafkaPayload(
-        payload,
-        contentEncoding ?? undefined,
-        firstPartyHosts && firstPartyHosts.length > 0 ? JSON.stringify(firstPartyHosts) : undefined
-    )
+    const result = await native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined)
+    // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
+    let timings: AnonymizeTimings | null = null
+    if (typeof result.timings === 'string') {
+        try {
+            timings = JSON.parse(result.timings)
+        } catch {
+            timings = null
+        }
+    }
+    return { ...result, timings }
 }

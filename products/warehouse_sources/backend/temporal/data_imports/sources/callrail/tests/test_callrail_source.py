@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source import CallRailSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CallRailSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.callrail import (
+    CallRailSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

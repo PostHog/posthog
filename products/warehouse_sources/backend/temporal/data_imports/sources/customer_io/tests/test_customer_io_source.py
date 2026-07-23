@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customer_i
     CustomerIOSource,
     _webhook_table_transformer,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerio import (
+    CustomerIOSourceConfig,
+)
 
 
 def _config(app_api_key: str = "test-key", region: Literal["us", "eu"] = "us") -> CustomerIOSourceConfig:

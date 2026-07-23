@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PicqerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.picqer import PicqerSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer import (
     PicqerResumeConfig,
     picqer_source,

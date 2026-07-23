@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RaygunSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.raygun import (
     RaygunResumeConfig,
     raygun_source,
@@ -78,13 +78,18 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Raygun exposes no server-side "updated since" filter, so every endpoint is full refresh —
         # no endpoint declares incremental fields, so none support incremental/append sync.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RaygunSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RaygunSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_token(config.personal_access_token)
         if is_valid:

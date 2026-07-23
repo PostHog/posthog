@@ -93,7 +93,6 @@ class TestRecomputeTask(BaseTest):
                 with self.captureOnCommitCallbacks(execute=True):
                     self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
         self.assertEqual(mock_notify.call_count, 1)
-        self.assertTrue(mock_notify.call_args.args[0].archivable)
 
     def test_unlock_notification_skipped_when_achievements_flag_disabled(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):

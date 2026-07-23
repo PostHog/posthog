@@ -12,7 +12,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CohereSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

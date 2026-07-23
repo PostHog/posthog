@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OktaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okta import OktaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta import (
     HOST_NOT_ALLOWED_ERROR,
     OktaResumeConfig,
@@ -111,6 +111,7 @@ The token's user should have read access to the resources you want to sync, for 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -128,7 +129,7 @@ The token's user should have read access to the resources you want to sync, for 
         return schemas
 
     def validate_credentials(
-        self, config: OktaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: OktaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_okta_credentials(config.okta_domain, config.api_key, schema_name, team_id)
 

@@ -761,6 +761,11 @@ export interface TicketApi {
      * @nullable
      */
     readonly organization_id: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -854,6 +859,11 @@ export interface PatchedTicketApi {
      * @nullable
      */
     readonly organization_id?: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -1050,6 +1060,8 @@ export interface TicketViewApi {
     filters?: TicketViewApiFilters
     readonly created_at: string
     readonly created_by: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
 }
 
 export interface PaginatedTicketViewListApi {
@@ -1075,6 +1087,8 @@ export interface PatchedTicketViewApi {
     filters?: PatchedTicketViewApiFilters
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
 }
 
 export interface ZendeskImportStartApi {

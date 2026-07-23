@@ -10,7 +10,7 @@ it is redacted from logs and raised error messages.
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -97,18 +97,23 @@ def _build_memories_filters(incremental_field: str, cutoff: str | None) -> dict[
 
 
 def _ensure_mem0_origin(url: str) -> str:
-    """Refuse pagination/resume URLs that leave the Mem0 API origin.
+    """Resolve a pagination/resume URL against the Mem0 API origin, refusing any that leave it.
 
-    The session carries the API key on every request, so following an off-origin ``next`` link
-    (from a tampered response, or a poisoned resume-state entry) would send the credential to an
-    arbitrary host. Rejects any URL whose scheme or host differs from the Mem0 API origin —
-    including an ``http://`` downgrade to the same host.
+    Mem0's ``next`` links are sometimes relative (e.g. ``/v1/events/?page=2``); resolving them
+    against the API base yields the absolute URL the request must target. The session carries the
+    API key on every request, so following an off-origin link (from a tampered response, or a
+    poisoned resume-state entry) would send the credential to an arbitrary host. Rejects any URL
+    that resolves to a scheme or host other than the Mem0 API origin — including a scheme-relative
+    ``//other-host`` link or an ``http://`` downgrade to the same host.
     """
-    parsed = urlparse(url)
+    resolved = urljoin(MEM0_BASE_URL, url)
+    parsed = urlparse(resolved)
     expected = urlparse(MEM0_BASE_URL)
     if parsed.scheme != expected.scheme or parsed.netloc != expected.netloc:
-        raise ValueError(f"Refusing to follow a pagination URL off the Mem0 API origin: {url}")
-    return url
+        raise ValueError(
+            f"Refusing to follow a pagination URL off the Mem0 API origin: {parsed.scheme}://{parsed.netloc}"
+        )
+    return resolved
 
 
 class Mem0OriginPinnedPaginator(JSONResponsePaginator):
@@ -118,12 +123,12 @@ class Mem0OriginPinnedPaginator(JSONResponsePaginator):
     def update_state(self, response: Any, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
         if self._has_next_page and self._next_url is not None:
-            _ensure_mem0_origin(self._next_url)
+            self._next_url = _ensure_mem0_origin(self._next_url)
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         next_url = state.get("next_url")
         if next_url is not None:
-            _ensure_mem0_origin(next_url)
+            state = {**state, "next_url": _ensure_mem0_origin(next_url)}
         super().set_resume_state(state)
 
 
@@ -311,8 +316,7 @@ def _events_resource(
     if resume is not None and resume.next_url:
         # Validate the seeded resume URL before it is ever requested (poisoned resume state must
         # not receive the credentialed request); the paginator re-checks on seed too.
-        _ensure_mem0_origin(resume.next_url)
-        initial_paginator_state = {"next_url": resume.next_url}
+        initial_paginator_state = {"next_url": _ensure_mem0_origin(resume.next_url)}
 
     rest_config: RESTAPIConfig = {
         "client": client,

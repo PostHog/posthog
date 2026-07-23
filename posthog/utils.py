@@ -531,7 +531,17 @@ def _build_template_context(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        if posthoganalytics.api_key:
+        # posthog-js uses this token to evaluate PostHog's own gating flags, so it must point at the
+        # team those flags are synced to — the dogfood-flags team (first team by PK), the same team
+        # the server-side bootstrap evaluates against via _build_flag_provider(). Do NOT use the
+        # self-capture team here (posthoganalytics.api_key = most-recently-active user's current_team):
+        # it drifts onto demo teams that hold no internal flags, so flags load from the bootstrap and
+        # then vanish the moment posthog-js reloads them against that team.
+        dogfood_team = resolve_dogfood_flags_team()
+        if dogfood_team is not None:
+            context["js_posthog_api_key"] = dogfood_team.api_token
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
+        elif posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:

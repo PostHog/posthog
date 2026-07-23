@@ -7,10 +7,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import (
     Batcher,
     _column_offset_pressure,
-    _column_payload_bytes,
     _max_offset_pressure,
     _split_table,
-    _table_payload_bytes,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+    _column_payload_bytes,
+    table_payload_bytes,
 )
 
 
@@ -225,9 +227,9 @@ def test_table_payload_bytes_is_slice_accurate():
     # buffer for a zero-copy slice and would make the byte-driven split non-converging.
     table = pa.table({"val": ["aaaa", "bbbb", "cccc", "dddd"]})
 
-    full = _table_payload_bytes(table)
-    first_half = _table_payload_bytes(table.slice(0, 2))
-    second_half = _table_payload_bytes(table.slice(2, 2))
+    full = table_payload_bytes(table)
+    first_half = table_payload_bytes(table.slice(0, 2))
+    second_half = table_payload_bytes(table.slice(2, 2))
 
     assert first_half < full
     assert first_half == second_half  # equal-sized rows here
@@ -241,7 +243,7 @@ def test_split_table_splits_on_bytes_when_offset_is_under_limit():
 
     assert len(result) > 1
     for slice_table in result:
-        assert _table_payload_bytes(slice_table) <= 14 or slice_table.num_rows <= 1
+        assert table_payload_bytes(slice_table) <= 14 or slice_table.num_rows <= 1
     assert pa.concat_tables(result).equals(table)
 
 

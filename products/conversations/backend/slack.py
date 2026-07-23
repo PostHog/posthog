@@ -1081,7 +1081,9 @@ def create_ticket_from_confirmation(
     Mirrors the emoji-reaction path: re-fetch the source message, create the ticket, then
     backfill any replies posted while the prompt was pending. Idempotent — a duplicate
     click returns the already-open ticket so the caller can confirm rather than error.
-    Returns None only on genuine failure (source message gone, fetch error, empty content).
+    Returns None on genuine failure (source message gone, fetch error, empty content), but
+    also when a concurrent duplicate delivery holds the create lock mid-flight — callers
+    should treat None as retryable, since a re-run resolves to the winner's committed ticket.
     """
     existing = Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=message_ts).first()
     if existing:

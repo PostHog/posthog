@@ -7,7 +7,9 @@ from unittest.mock import patch
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
+    ZendeskSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,

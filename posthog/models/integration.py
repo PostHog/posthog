@@ -112,6 +112,7 @@ REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
 REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
 REFRESH_FAILURE_REASON_NETWORK = "network"
+REFRESH_FAILURE_REASON_RATE_LIMITED = "rate_limited"
 REFRESH_FAILURE_REASON_OTHER = "other"
 
 
@@ -126,6 +127,17 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # endpoint means the grant, not the request - match that exact shape for reddit only.
     if kind == "reddit-ads" and status_code == 400 and error == 400:
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # HubSpot reports a grant whose portal (hub) was deleted or disconnected as
+    # `{"status": "BAD_HUB", "error": "access_denied", ...}` - no `invalid_grant` code, so
+    # without this mapping the row is retried forever instead of going terminal. Its
+    # `BAD_REFRESH_TOKEN` responses do carry `"error": "invalid_grant"` and need no special case.
+    if kind == "hubspot" and status_code < 500 and body.get("status") == "BAD_HUB":
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Transient throttling, not a credential problem: the backoff cap synchronises failed
+    # integrations into retry herds that can trip a provider's per-second limit and take
+    # healthy refreshes in the same second down with them.
+    if status_code == 429:
+        return REFRESH_FAILURE_REASON_RATE_LIMITED
     if status_code >= 500:
         return REFRESH_FAILURE_REASON_HTTP_5XX
     return REFRESH_FAILURE_REASON_OTHER
@@ -139,8 +151,8 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
     integration goes terminal and the sweep stops retrying entirely. The streak is tracked
     separately from the total failure count and resets on any other reason, so one transient
     invalid_grant amid e.g. a 5xx outage can't brick the integration. Other reasons
-    (invalid_client, 5xx, network) never go terminal - a platform-side credential fix must let
-    the fleet self-recover.
+    (invalid_client, 5xx, network, rate_limited) never go terminal - a platform-side credential
+    fix must let the fleet self-recover.
 
     Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
@@ -1855,7 +1867,9 @@ class GoogleAdsIntegration:
 
             return accounts
 
-        for account in accessible_accounts["resourceNames"]:
+        # A Google login with no accessible Ads accounts gets a 200 with an empty body, so
+        # `resourceNames` is absent (proto3 omits empty repeated fields) rather than an empty list.
+        for account in accessible_accounts.get("resourceNames", []):
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
 
         return all_accounts

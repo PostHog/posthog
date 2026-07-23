@@ -6,7 +6,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import K6CloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
+    K6CloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.k6_cloud import K6CloudResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.source import K6CloudSource

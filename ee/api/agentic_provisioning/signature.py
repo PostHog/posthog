@@ -1,3 +1,8 @@
+# TODO(migration): the global-secret verification here (verify_provisioning_signature,
+# STRIPE_SIGNING_SECRET) is Stripe-only — removable once Stripe traffic has fully
+# moved to /api/partners/stripe/. _compute_hmac/_get_raw_body/_parse_signature_header
+# must survive: authentication.py uses them for per-partner HMAC.
+
 import re
 import hmac
 import uuid

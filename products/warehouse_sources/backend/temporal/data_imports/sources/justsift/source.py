@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JustSiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justsift import (
+    JustSiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.justsift import (
     JustSiftResumeConfig,
     check_access,
@@ -101,13 +103,18 @@ Create a token in the [Sift admin dashboard](https://admin.justsift.com) under *
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Sift's list endpoints expose no server-side
         # timestamp filter, so there is no incremental cursor to advance.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: JustSiftSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JustSiftSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The token is org-wide, so a single probe validates access to every schema; there is no
         # per-endpoint scope to check.

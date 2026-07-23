@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -9,6 +10,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, Project, Team, User
 
 from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer
@@ -950,27 +952,47 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 
 class TestTestHogEndpoint(APIBaseTest):
+    EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
+
     def _mock_hogql_response(self, count=1):
         from posthog.hogql.query import HogQLQueryResponse
 
+        heavy_property_values = {
+            "$ai_input": json.dumps("What is 2+2?"),
+            "$ai_output": json.dumps("4"),
+        }
+        heavy_values = tuple(
+            heavy_property_values.get(HEAVY_COLUMN_TO_PROPERTY[column_name], "") for column_name in HEAVY_COLUMN_NAMES
+        )
         rows = [
             (
                 str(uuid4()),
                 "$ai_generation",
-                {"$ai_input": "What is 2+2?", "$ai_output": "4"},
+                {"$ai_model": "gpt-5-mini"},
                 "user-1",
+                self.EVENT_TIMESTAMP,
+                *heavy_values,
             )
             for _ in range(count)
         ]
-        return HogQLQueryResponse(results=rows, columns=["uuid", "event", "properties", "distinct_id"])
+        return HogQLQueryResponse(
+            results=rows,
+            columns=["uuid", "event", "properties", "distinct_id", "timestamp", *HEAVY_COLUMN_NAMES],
+        )
 
-    @patch("posthog.hogql.query.execute_hogql_query")
-    def test_test_hog_compiles_and_executes(self, mock_query):
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_test_hog_loads_ai_input_and_output(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(2)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "return length(output) > 0", "sample_count": 2},
+            {
+                "source": (
+                    "return evaluation_events.1.output_text == '4' "
+                    f"and evaluation_events.1.timestamp == '{self.EVENT_TIMESTAMP}'"
+                ),
+                "sample_count": 2,
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -982,6 +1004,13 @@ class TestTestHogEndpoint(APIBaseTest):
             self.assertIn("error", r)
             self.assertTrue(r["result"])
             self.assertIsNone(r["error"])
+            self.assertEqual(r["input_preview"], "What is 2+2?")
+            self.assertEqual(r["output_preview"], "4")
+
+        query = mock_query.call_args.kwargs["query"]
+        self.assertEqual(query.select_from.table.chain, ["posthog", "ai_events"])
+        self.assertEqual(query.select[4].chain, ["timestamp"])
+        self.assertEqual([field.chain for field in query.select[5:]], [[name] for name in HEAVY_COLUMN_NAMES])
 
     def test_test_hog_compilation_error(self):
         response = self.client.post(
@@ -998,7 +1027,7 @@ class TestTestHogEndpoint(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_test_hog_no_events(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(0)
 
@@ -1010,7 +1039,7 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(response.json()["results"], [])
         self.assertIn("message", response.json())
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_test_hog_handles_runtime_error(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(1)
 
@@ -1024,7 +1053,7 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertIsNone(results[0]["result"])
         self.assertIn("Must return boolean", results[0]["error"])
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_test_hog_uses_null_safe_comparisons(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(1)
 

@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShortcutSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortcut import (
+    ShortcutSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source import ShortcutSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

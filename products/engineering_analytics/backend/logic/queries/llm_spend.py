@@ -2,7 +2,7 @@
 
 Attribution is by git **branch**, not head SHA: a coding agent stamps ``$ai_git_branch`` on its
 ``$ai_generation`` events at capture time — before the PR exists — and the ``github_pull_requests``
-snapshot keeps only the latest head, so a head-SHA join would drop every push but the last (SPEC §7).
+snapshot keeps only the latest head, so a head-SHA join would drop every push but the last (SPEC §6).
 Reads the ``events`` table directly (not the warehouse) through the same curated read handle, so the
 team scope and warehouse ACL bypass rules stay in one place.
 

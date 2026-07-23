@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.source import DeepsourceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeepsourceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
+    DeepsourceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _CONFIG = DeepsourceSourceConfig(api_token="tok", account_login="acme", vcs_provider="GITHUB")

@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshcalle
     validate_credentials as validate_freshcaller_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import FRESHCALLER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshcallerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
+    FreshcallerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, Calls, Call
@@ -118,6 +120,7 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -137,7 +140,11 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
         return schemas
 
     def validate_credentials(
-        self, config: FreshcallerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FreshcallerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not _SUBDOMAIN_REGEX.match(normalize_subdomain(config.subdomain)):
             return False, "Freshcaller account name is invalid"

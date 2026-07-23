@@ -3,13 +3,20 @@ import logging
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
-from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GitHubAuthenticationError,
+    OAuthTokenError,
+    TaskNotFoundError,
+)
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -21,6 +28,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
 )
+from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
@@ -177,6 +185,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                     )
                     or ""
                 )
+            except ReauthorizationRequired as e:
+                raise CredentialUnavailableError(
+                    "GitHub user integration for this run requires reauthorization",
+                    {"github_integration_id": github_integration_id, "task_id": ctx.task_id},
+                    cause=e,
+                )
             except Exception as e:
                 raise GitHubAuthenticationError(
                     f"Failed to get GitHub token for integration {github_integration_id}",
@@ -295,6 +309,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         )
         with StepTimer("sandbox_creation", used_snapshot=used_snapshot) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
+            # The provider's TTL clock starts here — the usage ledger anchors its
+            # kill deadline on this boundary, not on when the row is opened below.
+            sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
         snapshot_outcome = "used" if used_snapshot else "fresh" if snapshot_source == "none" else "fallback"
@@ -368,6 +385,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if credentials.token:
             sandbox_state["sandbox_connect_token"] = credentials.token
         TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+
+        # Best-effort usage-ledger row (swallows its own failures). Only after the
+        # sandbox is fully reachable, mirroring create_sandbox_for_repository: the
+        # failure paths above destroy the sandbox, and those must not enter the ledger.
+        open_sandbox_session(
+            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
+        )
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 

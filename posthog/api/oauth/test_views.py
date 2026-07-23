@@ -255,6 +255,18 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_request")
         self.assertEqual(response.json()["error_description"], "Missing client_id parameter.")
 
+    @parameterized.expand(["client_id", "response_type", "redirect_uri", "scope", "state"])
+    def test_authorize_rejects_duplicate_param(self, param):
+        # Duplicate OAuth params (HTTP parameter pollution) must be rejected as fatal errors,
+        # so a proxy/parser reading first-vs-last can't route a victim's code elsewhere.
+        url = f"{self.base_authorization_url}&{param}=dup_one&{param}=dup_two"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], f"Duplicate {param} parameter.")
+
     def test_authorize_invalid_client_id(self):
         url = self.base_authorization_url
 

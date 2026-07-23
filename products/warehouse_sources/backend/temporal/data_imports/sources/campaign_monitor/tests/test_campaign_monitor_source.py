@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_m
     CampaignMonitorSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campaignmonitor import (
     CampaignMonitorSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType

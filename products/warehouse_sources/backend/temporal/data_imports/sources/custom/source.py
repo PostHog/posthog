@@ -1,6 +1,7 @@
 import copy
 import json
 import hashlib
+import inspect
 import graphlib
 from collections.abc import Callable
 from datetime import date
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
     build_resource_dependency_graph,
     create_auth,
+    get_paginator_class,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     EndpointResource,
@@ -68,7 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     resolve_request_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -405,6 +407,52 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
                 f"Resource {resource.get('name')!r}: endpoint.incremental.start_param is required and must be a "
                 "non-empty string naming the query parameter used to send the cursor value to the API"
             )
+
+
+def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
+    """Reject paginator config keys that would deterministically crash at sync time.
+
+    A dict paginator config reaches the REST engine as ``PaginatorClass(**config)`` (minus
+    ``type``), so an unsupported key — e.g. one copied from newer dlt docs — arrives as an
+    unexpected kwarg and crashes sync setup with a ``TypeError`` the pipeline doesn't convert
+    to non-retryable, so Temporal retries a deterministic failure. An unknown ``type`` is
+    caught here too, rather than surfacing as a bare engine ``ValueError`` mid-sync.
+    """
+    client = manifest.get("client")
+    if isinstance(client, dict):
+        _check_paginator_config(client.get("paginator"), "client.paginator")
+
+    for resource in manifest.get("resources") or []:
+        if not isinstance(resource, dict):
+            continue
+        endpoint = resource.get("endpoint")
+        paginator = endpoint.get("paginator") if isinstance(endpoint, dict) else None
+        _check_paginator_config(paginator, f"Resource {resource.get('name')!r}: endpoint.paginator")
+
+
+def _check_paginator_config(paginator: Any, location: str) -> None:
+    # Only a dict is spread into the paginator constructor as kwargs; a string names a built-in
+    # and an instance is used as-is, so neither reaches the unexpected-kwarg path.
+    if not isinstance(paginator, dict):
+        return
+    try:
+        paginator_class = get_paginator_class(cast(Any, paginator.get("type", "auto")))
+    except ValueError as exc:
+        raise ManifestValidationError(f"{location}: {exc}") from exc
+    # "auto" (and any type mapped to None) applies no paginator, so extra keys are ignored.
+    if paginator_class is None:
+        return
+    supported = {
+        name
+        for name, param in inspect.signature(paginator_class).parameters.items()
+        if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
+    }
+    unsupported = sorted(set(paginator) - {"type"} - supported)
+    if unsupported:
+        raise ManifestValidationError(
+            f"{location} has unsupported {'keys' if len(unsupported) > 1 else 'key'} "
+            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(supported))}"
+        )
 
 
 # Plain-English replacements for the pydantic constraint messages users hit most
@@ -875,6 +923,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         config: CustomSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
         *,
         source_id: Optional[str] = None,
         owner_user_id: Optional[int] = None,
@@ -890,6 +939,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # map feeds the probe's child filter below.
             resolved = _validate_resource_graph(manifest)
             _validate_incremental_configs(manifest)
+            _validate_paginator_configs(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
 
@@ -1089,6 +1139,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         manifest = self._assemble_manifest(config)
 
@@ -1140,6 +1191,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # endpoint.incremental block missing start_param crashes the engine with a bare,
             # retryable KeyError. Reject it as a ValueError so it fails fast and non-retryably.
             _validate_incremental_configs({"resources": engine_resources})
+            _validate_paginator_configs({"client": manifest.get("client"), "resources": engine_resources})
 
             # The engine serializes a datetime watermark via str() (space-separated),
             # which strict APIs reject — format it to the declared wire format first.

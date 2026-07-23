@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drata.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DrataSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -107,6 +107,7 @@ You can create an API key under **Settings → API keys** in [Drata](https://app
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only events exposes a server-side timestamp filter (createdAtStartDate), so it is the
         # only endpoint that supports incremental sync.
@@ -127,7 +128,7 @@ You can create an API key under **Settings → API keys** in [Drata](https://app
         return schemas
 
     def validate_credentials(
-        self, config: DrataSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DrataSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide; one probe validates the token itself. Per-endpoint scopes
         # are surfaced at sync time via get_non_retryable_errors.

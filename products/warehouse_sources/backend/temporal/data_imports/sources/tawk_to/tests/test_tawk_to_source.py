@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TawkToSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tawkto import TawkToSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source import TawkToSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import TawkToResumeConfig

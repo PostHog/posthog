@@ -19,6 +19,7 @@ from ee.hogai.tools.read_taxonomy.core import (
 from ee.hogai.tools.read_taxonomy.tool import ReadTaxonomyTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+from ee.models.event_definition import EnterpriseEventDefinition
 
 
 class TestReadTaxonomyTool(NonAtomicBaseTest):
@@ -141,3 +142,32 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         self.assertIn(DYNAMIC_EVENT_PROPERTIES_HINT, result)
         self.assertIn("$feature/{flag_key}", result)
+
+    @parameterized.expand(
+        [
+            ("with_description", "Fired when a user retakes a quiz", True),
+            ("without_description", None, False),
+        ]
+    )
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_event_properties_surface_stored_event_description(
+        self, _name, stored_description, expect_prefix, mock_toolkit_class
+    ):
+        # Guards the single-event path surfacing a custom event's own description: without it the
+        # agent only sees the property list and wrongly concludes no description exists.
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.return_value = "- mixer_session_id\n- is_autoplay"
+        if stored_description is not None:
+            EnterpriseEventDefinition.objects.create(
+                team=self.team, name="quiz_retaken", description=stored_description
+            )
+
+        result = execute_taxonomy_query(
+            ReadEventProperties(event_name="quiz_retaken"), mock_toolkit, self.team, self.user
+        )
+
+        if expect_prefix:
+            self.assertIn(f"Description of `quiz_retaken`: {stored_description}", result)
+        else:
+            self.assertNotIn("Description of `quiz_retaken`", result)
+        self.assertIn("mixer_session_id", result)

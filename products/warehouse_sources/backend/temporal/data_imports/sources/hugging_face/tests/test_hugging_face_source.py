@@ -9,7 +9,9 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HuggingFaceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huggingface import (
+    HuggingFaceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.hugging_face import (
     HuggingFaceResumeConfig,

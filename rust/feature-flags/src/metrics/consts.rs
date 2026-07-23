@@ -332,6 +332,13 @@ pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_t
 // split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
 pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
+// Remote config ETag metrics
+// Labels: result (hit = 304, miss = 200 with stale etag, none = request sent no
+// If-None-Match; the 200 still carries an etag since it is computed per request). Unlike flag
+// definitions there is no redis_error case: no cache backs this endpoint, so the etag is
+// content-derived per request and can always be computed.
+pub const REMOTE_CONFIG_ETAG_COUNTER: &str = "flags_remote_config_etag_total";
+
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)
 pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";

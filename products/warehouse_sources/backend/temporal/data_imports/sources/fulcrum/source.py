@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FulcrumSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fulcrum import (
+    FulcrumSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -97,13 +99,18 @@ You can create an API token in your [Fulcrum account settings](https://web.fulcr
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only `records` carries incremental fields, so build_endpoint_schemas marks it (and only it)
         # incremental + append and leaves the rest full-refresh — matching the per-endpoint config.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: FulcrumSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FulcrumSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_fulcrum_credentials(config.api_token):
             return True, None

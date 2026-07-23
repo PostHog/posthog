@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodefreshSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codefresh import (
+    CodefreshSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -104,6 +106,7 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Codefresh exposes no server-side updated-since filter on any list endpoint, so every
         # table is full refresh only (INCREMENTAL_FIELDS is empty per endpoint) — an "incremental"
@@ -116,7 +119,11 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
         )
 
     def validate_credentials(
-        self, config: CodefreshSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CodefreshSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         valid, error = validate_codefresh_credentials(config.api_key, schema_name=schema_name)
         if valid:

@@ -5,7 +5,7 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PretixSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pretix import PretixResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import (
     ENDPOINTS,

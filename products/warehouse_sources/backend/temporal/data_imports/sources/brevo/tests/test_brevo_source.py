@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo import BrevoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source import BrevoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrevoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

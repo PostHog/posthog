@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlausibleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plausible import (
+    PlausibleSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import (
     PlausibleResumeConfig,
     hostname_of,
@@ -118,6 +120,7 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint)
@@ -140,7 +143,11 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
         return schemas
 
     def validate_credentials(
-        self, config: PlausibleSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PlausibleSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)

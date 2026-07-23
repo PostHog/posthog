@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TicketTailorSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tickettailor import (
+    TicketTailorSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source import TicketTailorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.tickettailor import (

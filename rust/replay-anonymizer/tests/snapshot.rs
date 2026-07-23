@@ -11,7 +11,7 @@ use posthog_replay_anonymizer::snapshot::{
     AnonymizedMessage, FailKind, Failure, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS,
     FLAG_MOUSE_ACTIVITY,
 };
-use posthog_replay_anonymizer::Ctx;
+use posthog_replay_anonymizer::{Ctx, ImagePolicy};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -56,7 +56,7 @@ const TS0: f64 = 1_700_000_000_000.0;
 fn end_to_end_contract() {
     let allow = AllowLists::new(["hello"], Vec::<String>::new());
     let inner = snapshot_message(json!([
-        // Meta: href scrubbed (authority collapsed), no flags.
+        // Meta: href path scrubbed (host kept), no flags.
         { "type": 4, "timestamp": TS0, "data": { "href": "https://foo.corp.com/path", "width": 1, "height": 1 } },
         // Input: text scrubbed; keypress + active.
         { "type": 3, "timestamp": TS0 + 1000.0, "data": { "source": 5, "id": 1, "text": "hello secret", "isChecked": false } },
@@ -78,7 +78,7 @@ fn end_to_end_contract() {
     }
     assert_eq!(
         lines[0][1]["data"]["href"],
-        "https://example.com/[redacted]"
+        "https://foo.corp.com/[redacted]"
     );
     assert_eq!(lines[1][1]["data"]["text"], "hello ******");
     assert_eq!(
@@ -116,7 +116,7 @@ fn end_to_end_contract() {
     );
     assert_eq!(
         meta.events[0].href.as_deref(),
-        Some("https://example.com/[redacted]"),
+        Some("https://foo.corp.com/[redacted]"),
         "href meta must be the post-scrub value"
     );
     assert_eq!(meta.events[1].href, None);
@@ -365,24 +365,21 @@ impl Rng {
 
 fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str) {
     let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": inner_json})).unwrap();
-    // Hosts that appear across the fixture corpus, so first-party collapsing is differentially
-    // pinned alongside the no-hosts configuration.
-    let host_configs: &[&[&str]] = &[&[], &["example.com", "example-vendor.co"]];
-    for hosts in host_configs {
-        let hosts: Vec<String> = hosts.iter().map(|h| h.to_string()).collect();
-        let ctx = Ctx::with_first_party_hosts(allow, hosts.clone());
-        let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
+    let ctx = Ctx::new(allow);
+    let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
-        // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks)
-        // and the simd path.
-        for byte_walk in [true, false] {
-            let fp = !hosts.is_empty();
+    // Every engine combination is pinned against the tree reference: the parse-free byte walk
+    // (with its per-event fallbacks) vs the simd path, and inline vs deferred-parallel images.
+    for byte_walk in [true, false] {
+        for image_policy in [ImagePolicy::Inline, ImagePolicy::Parallel] {
             let mut bytes = payload.as_bytes().to_vec();
             let stream = anonymize_kafka_payload_opts(
                 allow,
                 &mut bytes,
-                AnonymizeOpts { byte_walk },
-                hosts.clone(),
+                AnonymizeOpts {
+                    byte_walk,
+                    image_policy,
+                },
             );
             match (&stream, &tree) {
                 (Ok(s), Ok(t)) => {
@@ -390,21 +387,21 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
                     let t_lines = parse_lines(&t.lines);
                     assert_eq!(
                         s_lines, t_lines,
-                        "lines diverged (walk={byte_walk} fp={fp}): {label}"
+                        "lines diverged (walk={byte_walk}, images={image_policy:?}): {label}"
                     );
                     assert_eq!(
                         s.meta, t.meta,
-                        "meta diverged (walk={byte_walk} fp={fp}): {label}"
+                        "meta diverged (walk={byte_walk}, images={image_policy:?}): {label}"
                     );
                 }
                 (Err(s), Err(t)) => {
                     assert_eq!(
                         s.kind, t.kind,
-                        "failure kind diverged (walk={byte_walk} fp={fp}): {label}"
+                        "failure kind diverged (walk={byte_walk}, images={image_policy:?}): {label}"
                     );
                 }
                 (s, t) => panic!(
-                    "outcome diverged (walk={byte_walk} fp={fp}) for {label}: stream={:?} tree={:?}",
+                    "outcome diverged (walk={byte_walk}, images={image_policy:?}) for {label}: stream={:?} tree={:?}",
                     s.as_ref().map(|m| parse_lines(&m.lines)),
                     t.as_ref().map(|m| parse_lines(&m.lines)),
                 ),

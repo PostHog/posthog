@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrowserUseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseruse import (
+    BrowserUseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -100,6 +102,7 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Browser Use v3 list endpoints expose no server-side created/updated-since filter and
         # no sort parameter, so there is no reliable way to fetch only new rows. Every endpoint is
@@ -116,7 +119,11 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         )
 
     def validate_credentials(
-        self, config: BrowserUseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BrowserUseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_browser_use_credentials(config.api_key):
             return True, None

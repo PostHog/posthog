@@ -6,15 +6,16 @@ Query the canonical `$`-prefixed event name. Servers instrumented with the `@pos
 
 **For a single tool, prefer the typed tools.** Each takes a `toolName` plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below. `toolName` is the effective name (resolved server-side — the inner tool of a single-exec wrapper call) for all of them, including `posthog:query-mcp-tool-failures`:
 
-| question about one tool                                             | tool                                    |
-| ------------------------------------------------------------------- | --------------------------------------- |
-| headline numbers (calls, errors, p50/p95, users, sessions, intents) | `posthog:query-mcp-tool-stats`          |
-| day-by-day trend                                                    | `posthog:query-mcp-tool-daily-stats`    |
-| top failure buckets, by harness                                     | `posthog:query-mcp-tool-failures`       |
-| top callers (incl. person email/name)                               | `posthog:query-mcp-tool-top-users`      |
-| tools called before/after it (`neighborDirection: before`/`after`)  | `posthog:query-mcp-tool-neighbors`      |
-| recent agent intents                                                | `posthog:query-mcp-tool-sample-intents` |
-| distinct descriptions seen                                          | `posthog:query-mcp-tool-descriptions`   |
+| question about one tool                                             | tool                                         |
+| ------------------------------------------------------------------- | -------------------------------------------- |
+| headline numbers (calls, errors, p50/p95, users, sessions, intents) | `posthog:query-mcp-tool-stats`               |
+| day-by-day trend                                                    | `posthog:query-mcp-tool-daily-stats`         |
+| top failure buckets, by harness                                     | `posthog:query-mcp-tool-failures`            |
+| individual errored calls in one failure bucket                      | `posthog:query-mcp-tool-failure-occurrences` |
+| top callers (incl. person email/name)                               | `posthog:query-mcp-tool-top-users`           |
+| tools called before/after it (`neighborDirection: before`/`after`)  | `posthog:query-mcp-tool-neighbors`           |
+| recent agent intents                                                | `posthog:query-mcp-tool-sample-intents`      |
+| distinct descriptions seen                                          | `posthog:query-mcp-tool-descriptions`        |
 
 And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see below).
 
@@ -58,7 +59,7 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))
 ```
 
-**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` plus a semantic `$mcp_error_type` and, for HTTP failures, `$mcp_error_status`. `posthog:query-mcp-tool-failures` groups errored tool calls by these two fields. A free-text `$mcp_error_message` / `$mcp_response` exists in the SDK schema but PostHog's hosted server leaves both empty, so don't rely on them for tool-failure detail. PostHog's own tool calls also don't emit `$exception` events — those only exist for separately-instrumented MCP servers.
+**Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` plus a semantic `$mcp_error_type` and, for HTTP failures, `$mcp_error_status`. `posthog:query-mcp-tool-failures` groups errored tool calls by these two fields and returns each bucket's raw `error_type`/`error_status`; pass those to `posthog:query-mcp-tool-failure-occurrences` for individual errored calls with the free-text `$mcp_error_message` (sanitized, truncated to 2048 chars — empty on events captured before PostHog's server started emitting it). `$mcp_response` stays empty on PostHog's hosted server. PostHog's own tool calls also don't emit `$exception` events — those only exist for separately-instrumented MCP servers.
 
 ## Example queries
 

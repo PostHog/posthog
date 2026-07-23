@@ -11,6 +11,7 @@ Every entry point here is best-effort by construction: a status comment must nev
 retry a review, so all exceptions are swallowed after logging.
 """
 
+import random
 import logging
 from datetime import timedelta
 from typing import Any
@@ -69,13 +70,25 @@ _PRIORITY_LABELS = {
 }
 
 # A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
-# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for a calming gif.
-# Self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked, to keep it copyright-clean.
-_NO_ISSUES_GIF_URL = (
-    "https://raw.githubusercontent.com/PostHog/pr-assets/"
-    "2cfa8ec2d6e5c88ed94a98881499a09153681886/2026/07/41e56d03-cfbe-4660-b7d5-8774d805af5c.gif"
+# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for calming media.
+# Assets are optimized and self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked.
+_NO_ISSUES_MEDIA = (
+    (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "2cfa8ec2d6e5c88ed94a98881499a09153681886/2026/07/41e56d03-cfbe-4660-b7d5-8774d805af5c.gif",
+        "Someone relaxing in a sunny garden",
+    ),
+    (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "e58e5703b12db9127e450347a5dc7882eec1a8dd/2026/07/fb797d93-c7f5-4f67-869b-68f630e0e1a2.png",
+        "A happy dog on a sunny path",
+    ),
+    (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "3cf9366a6d40bc591284b00304cb6ecd84164343/2026/07/c755cc49-ef33-4435-87e0-51074f110b19.gif",
+        "A panda relaxing and waving",
+    ),
 )
-_NO_ISSUES_GIF_ALT = "Someone relaxing in a sunny garden"
 
 
 def status_marker(report_id: str) -> str:
@@ -99,7 +112,7 @@ def render_in_progress_body(report_id: str, progress: dict[str, Any] | None) -> 
             "",
             f"**{label}{counter}**",
             "",
-            "Specialist review perspectives read the changed code in parallel, a blind-spot sweep "
+            "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
             "catches what they missed, and only validated findings are published back to this pull request.",
             "",
             "<sub>This comment updates as the review progresses.</sub>",
@@ -130,11 +143,12 @@ def render_final_body(
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:
+        media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
         lines.extend(
             [
-                "Nothing worth raising this time, so here's a calming gif instead:",
+                "Nothing worth raising this time, so here's a calming picture instead:",
                 "",
-                f"![{_NO_ISSUES_GIF_ALT}]({_NO_ISSUES_GIF_URL})",
+                f"![{media_alt}]({media_url})",
             ]
         )
     else:

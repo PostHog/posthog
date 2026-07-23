@@ -267,6 +267,10 @@ class TestPromptBuilder(BaseTest):
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "scout-emit-signal" in prompt
         assert "scout-scratchpad-search" in prompt
+        # Steering notes are prior context on every channel — the section and its tool
+        # reference must survive in the signal tail.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -353,6 +357,9 @@ class TestPromptBuilder(BaseTest):
         # run-identity emit reference point at emit-report, not emit-signal.
         assert "scout-emit-report" in prompt
         assert "scout-edit-report" in prompt
+        # Steering notes are prior context on the report channel too.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
         # The two highest-leverage nudges the report channel adds: search the inbox
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).
@@ -721,18 +728,46 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "resolved, expected_model, expected_runtime_adapter",
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort",
     [
-        (ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex"), "@cf/zai-org/glm-5.2", "codex"),
-        (ScoutModel(model=None, runtime_adapter=None), None, None),
+        # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
+        # optional effort) travel with the model so the agent server can route it.
+        (
+            ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex", reasoning_effort="high"),
+            AgentRuntime(),
+            "@cf/zai-org/glm-5.2",
+            "codex",
+            "high",
+        ),
+        # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
+        # configured model trial is the production bug this ordering exists to prevent.
+        (
+            ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
+            "@cf/zai-org/glm-5.2",
+            "codex",
+            None,
+        ),
+        # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
+        (
+            ScoutModel(model=None, runtime_adapter=None),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
+            "gpt-5.5",
+            "codex",
+            "high",
+        ),
+        # Neither configured: agent-server default.
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None),
     ],
 )
 async def test_run_pins_sandbox_to_resolved_scout_model(
-    ateam, aerrors_skill, resolved, expected_model, expected_runtime_adapter
+    ateam, aerrors_skill, resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort
 ):
-    # The `scouts-model-selection` gate resolves an agent-model override (glm-5.2 on the codex
-    # runtime) or the agent-server default (None/None); the runner must hand both straight to the
-    # sandbox via the context — the runtime travels with the model so the agent server can route it.
+    # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
+    # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
+    # source supplies the whole runtime/model/effort triple.
+    # The routed model must also ride on both lifecycle events (omitted on the default path), so
+    # run outcomes are sliceable by model without joining through $ai_generation.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -748,10 +783,9 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             "products.signals.backend.scout_harness.runner.resolve_scout_model",
             return_value=resolved,
         ),
-        # No `signals-pipeline-models` runtime pin: the scouts-glm model gate drives the run.
         patch(
             "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
-            return_value=AgentRuntime(),
+            return_value=pin,
         ),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
@@ -761,51 +795,36 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
         ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_codex_runtime_pin_overrides_scout_model(ateam, aerrors_skill):
-    # A runtime pin replaces the scouts-glm gated model wholesale (runtime/model move as a set).
-    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
-    captured: dict = {}
-
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
-        captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
-        return session, result
-
-    with (
-        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_scout_model",
-            return_value="@cf/zai-org/glm-5.2",
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
-            return_value=AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
-            return_value="env-id",
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
-            return_value=42,
-        ),
-    ):
-        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    ctx = captured["context"]
-    assert ctx.runtime_adapter == "codex"
-    assert ctx.model == "gpt-5.5"
-    assert ctx.reasoning_effort == "high"
+    assert captured["context"].reasoning_effort == expected_reasoning_effort
+    # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
+    # `{}` on the default path) — the native API-side record of which model served the run.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    expected_metadata = {
+        key: value
+        for key, value in (
+            ("model", expected_model),
+            ("runtime_adapter", expected_runtime_adapter),
+            ("reasoning_effort", expected_reasoning_effort),
+        )
+        if value is not None
+    }
+    assert bridge.metadata == expected_metadata
+    events = {c.kwargs["event"] for c in capture.call_args_list}
+    assert events == {"signals_scout_run_started", "signals_scout_run_finished"}
+    for call in capture.call_args_list:
+        props = call.kwargs["properties"]
+        if expected_model is None:
+            assert "model" not in props
+            assert "runtime_adapter" not in props
+        else:
+            assert props["model"] == expected_model
+            assert props["runtime_adapter"] == expected_runtime_adapter
 
 
 @pytest.mark.asyncio
@@ -923,6 +942,16 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
             new_callable=AsyncMock,
             side_effect=RuntimeError("sandbox refused to start"),
         ),
+        # A routed model must survive onto the failed event too — timeouts and crashes are
+        # exactly the outcomes a model trial slices by.
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value=ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="claude"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
+            return_value=AgentRuntime(),
+        ),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
             return_value="env-id",
@@ -942,6 +971,8 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # No bridge row persisted (TaskRun never created), so no emit tally or join key.
     assert props["emitted_count"] == 0
     assert props["task_run_id"] is None
+    assert props["model"] == "@cf/zai-org/glm-5.2"
+    assert props["runtime_adapter"] == "claude"
     # Failure reason rides on the event so the failure rate is breakable down by cause
     # without digging into worker logs — the bulk of scout failures fail here, before the
     # process-task workflow's own task_run_failed event fires.

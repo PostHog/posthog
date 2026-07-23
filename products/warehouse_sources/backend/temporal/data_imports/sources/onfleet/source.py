@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OnfleetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
+    OnfleetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.onfleet import (
     OnfleetResumeConfig,
     get_credentials_status,
@@ -96,6 +98,7 @@ You can create an API key in your [Onfleet dashboard](https://onfleet.com/dashbo
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
             ENDPOINTS,
@@ -105,7 +108,11 @@ You can create an API key in your [Onfleet dashboard](https://onfleet.com/dashbo
         )
 
     def validate_credentials(
-        self, config: OnfleetSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OnfleetSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = get_credentials_status(config.api_key)
         if status == 200:

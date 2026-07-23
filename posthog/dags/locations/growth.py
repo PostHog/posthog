@@ -7,6 +7,7 @@ from products.growth.dags import (
     product_push_campaigns,
     team_production_event_activation,
     user_product_list,
+    user_product_list_pruning,
 )
 
 from . import loggers, resources
@@ -19,6 +20,8 @@ jobs = [
     # sync, but the job stays available for manual runs.
     user_product_list.sync_colleagues_products_monthly_job,
     user_product_list.sync_cross_sell_products_monthly_job,
+    # One-off sidebar cleanup, manual runs only (dry_run defaults to true).
+    user_product_list_pruning.prune_unused_user_products_job,
     team_production_event_activation.detect_first_team_production_event_job,
     product_push_campaigns.product_push_campaigns_job,
 ]

@@ -6,6 +6,7 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutConfigViewSet,
     SignalScoutMembersViewSet,
     SignalScoutMetadataViewSet,
+    SignalScoutNoteViewSet,
     SignalScoutRunViewSet,
     SignalScratchpadViewSet,
 )
@@ -13,47 +14,48 @@ from products.signals.backend.views import SignalViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.register_legacy_dual_route(r"signals", SignalViewSet, "project_signals", ["team_id"])
+    routers.projects.register(r"signals", SignalViewSet, "project_signals", ["team_id"])
     signal_reports_router = routers.projects.register(
-        r"signals/reports", signals.SignalReportViewSet, "environment_signal_reports", ["team_id"]
+        r"signals/reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"]
     )
     signal_reports_router.register(
         r"artefacts",
         signals.SignalReportArtefactViewSet,
-        "environment_signal_report_artefacts",
+        "project_signal_report_artefacts",
         ["team_id", "report_id"],
     )
     routers.projects.register(
-        r"signals/source_configs", signals.SignalSourceConfigViewSet, "environment_signal_source_configs", ["team_id"]
+        r"signals/source_configs", signals.SignalSourceConfigViewSet, "project_signal_source_configs", ["team_id"]
     )
+    routers.projects.register(r"signals/config", signals.SignalTeamConfigViewSet, "project_signal_config", ["team_id"])
     routers.projects.register(
-        r"signals/config", signals.SignalTeamConfigViewSet, "environment_signal_config", ["team_id"]
-    )
-    routers.projects.register(
-        r"signals/processing", signals.SignalProcessingViewSet, "environment_signal_processing", ["team_id"]
+        r"signals/processing", signals.SignalProcessingViewSet, "project_signal_processing", ["team_id"]
     )
     # Signals agent HTTP surface — exposed via MCP as `scout-*` tools. Most reads (runs,
     # memory, project profile) are public-grantable via `signal_scout:read`; writes — and the member
     # roster read — are sandbox-scope only via the internal `signal_scout_internal` scope object.
+    routers.projects.register(r"signals/scout/runs", SignalScoutRunViewSet, "project_signals_scout_runs", ["team_id"])
     routers.projects.register(
-        r"signals/scout/runs", SignalScoutRunViewSet, "environment_signals_scout_runs", ["team_id"]
+        r"signals/scout/configs", SignalScoutConfigViewSet, "project_signals_scout_configs", ["team_id"]
     )
     routers.projects.register(
-        r"signals/scout/configs", SignalScoutConfigViewSet, "environment_signals_scout_configs", ["team_id"]
+        r"signals/scout/scratchpad", SignalScratchpadViewSet, "project_signals_scout_scratchpad", ["team_id"]
     )
+    # Steering notes team members (or their agents) leave for the scouts. Reads are public
+    # (`signal_scout:read`); writes require skill-authoring-level authorization — see the viewset.
     routers.projects.register(
-        r"signals/scout/scratchpad", SignalScratchpadViewSet, "environment_signals_scout_scratchpad", ["team_id"]
+        r"signals/scout/notes", SignalScoutNoteViewSet, "project_signals_scout_notes", ["team_id"]
     )
     routers.projects.register(
         r"signals/scout/project_profile",
         SignalProjectProfileViewSet,
-        "environment_signals_scout_project_profile",
+        "project_signals_scout_project_profile",
         ["team_id"],
     )
     routers.projects.register(
         r"signals/scout/metadata",
         SignalScoutMetadataViewSet,
-        "environment_signals_scout_metadata",
+        "project_signals_scout_metadata",
         ["team_id"],
     )
     # Reviewer-routing roster. `signal_scout_internal:read` (internal scope) → sandbox-only, never in
@@ -61,6 +63,6 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"signals/scout/members",
         SignalScoutMembersViewSet,
-        "environment_signals_scout_members",
+        "project_signals_scout_members",
         ["team_id"],
     )

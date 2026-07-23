@@ -224,18 +224,25 @@ async def arun_signals_scout(
         team, skill.name, str(run_id)
     )
 
-    # A runtime pin takes precedence over the scout-model gate and replaces it wholesale —
-    # runtime/model/effort move as a set so a Codex runtime never pairs with a glm model.
-    # Model-only payload entries are deliberately ignored for scout: the gate supplies
+    # The scout-model gate is the per-scout, per-run experiment layer; the `signals-pipeline-models`
+    # runtime pin is the default layer beneath it. When the gate resolves a model for this run it
+    # wins (its unallocated remainder resolves None and falls through to the pin), so a fleet-wide
+    # pin can't silently swallow a configured model trial. Either way the whole
+    # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
+    # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
     agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_SCOUT)
-    if agent_runtime.runtime_adapter:
-        runtime_adapter: str | None = agent_runtime.runtime_adapter
+    if scout_model.model:
+        runtime_adapter: str | None = scout_model.runtime_adapter
+        model: str | None = scout_model.model
+        reasoning_effort: str | None = scout_model.reasoning_effort
+    elif agent_runtime.runtime_adapter:
+        runtime_adapter = agent_runtime.runtime_adapter
         model = agent_runtime.model
-        reasoning_effort: str | None = agent_runtime.reasoning_effort
+        reasoning_effort = agent_runtime.reasoning_effort
     else:
-        runtime_adapter = scout_model.runtime_adapter
-        model = scout_model.model
+        runtime_adapter = None
+        model = None
         reasoning_effort = None
     try:
         last_message, task_run_id = await _spawn_and_run(
@@ -264,6 +271,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
         return RunResult(
             run_id=str(run_id),
@@ -312,6 +321,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            model=model,
+            runtime_adapter=runtime_adapter,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
         )
@@ -354,6 +365,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
             runtime_s=runtime_s,
             emitted_count=None,
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
         raise
 
@@ -470,6 +483,9 @@ async def _spawn_and_run(
             team=team,
             config=config,
             skill=skill,
+            model=model,
+            runtime_adapter=runtime_adapter,
+            reasoning_effort=reasoning_effort,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -482,6 +498,8 @@ async def _spawn_and_run(
             skill=skill,
             run_id=run_id,
             task_run_id=str(task_run.id),
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
 
     session, result = await MultiTurnSession.start(
@@ -650,7 +668,22 @@ def _create_run_row(
     team: Team,
     config: SignalScoutConfig,
     skill: LoadedSkill,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> SignalScoutRun:
+    # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
+    # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
+    # on the default path, so an empty dict means the agent-server default served the run.
+    metadata = {
+        key: value
+        for key, value in (
+            ("model", model),
+            ("runtime_adapter", runtime_adapter),
+            ("reasoning_effort", reasoning_effort),
+        )
+        if value is not None
+    }
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -658,6 +691,7 @@ def _create_run_row(
         scout_config=config,
         skill_name=skill.name,
         skill_version=skill.version,
+        metadata=metadata,
     )
 
 
@@ -690,6 +724,8 @@ def _capture_run_started(
     skill: LoadedSkill,
     run_id: Any,
     task_run_id: str,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -700,17 +736,19 @@ def _capture_run_started(
     finalize — an event-derived stall signal with no warehouse lag. Best-effort: a capture
     failure must never block the run.
     """
+    properties: dict[str, Any] = {
+        "skill_name": skill.name,
+        "skill_version": skill.version,
+        "scout_config_id": str(config.id),
+        "run_id": str(run_id),
+        "task_run_id": task_run_id,
+    }
+    _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
     try:
         posthoganalytics.capture(
             event="signals_scout_run_started",
             distinct_id=str(team.uuid),
-            properties={
-                "skill_name": skill.name,
-                "skill_version": skill.version,
-                "scout_config_id": str(config.id),
-                "run_id": str(run_id),
-                "task_run_id": task_run_id,
-            },
+            properties=properties,
             groups=groups(team.organization, team),
         )
     except Exception:
@@ -759,6 +797,16 @@ def _capture_run_reaped(
         )
 
 
+def _attach_model_props(properties: dict[str, Any], *, model: str | None, runtime_adapter: str | None) -> None:
+    # Only attached when the `scouts-model-selection` gate (or a runtime pin) routed the run —
+    # absence means the agent-server default served it. Makes run outcomes (timeout rate, runtime,
+    # emit volume) sliceable by model without joining through $ai_generation.
+    if model is not None:
+        properties["model"] = model
+    if runtime_adapter is not None:
+        properties["runtime_adapter"] = runtime_adapter
+
+
 def _capture_run_finished(
     *,
     team: Team,
@@ -769,6 +817,8 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
 ) -> None:
@@ -796,6 +846,7 @@ def _capture_run_finished(
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
     }
+    _attach_model_props(properties, model=model, runtime_adapter=runtime_adapter)
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.
     if error_type is not None:

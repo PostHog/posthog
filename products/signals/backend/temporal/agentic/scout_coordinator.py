@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+from croniter import CroniterError, croniter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -224,7 +225,7 @@ def _collect_planned_runs(
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
-            overdue_s = _overdue_seconds(config, now)
+            overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
@@ -390,8 +391,43 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
     return [(teams[team_id], team_id in explicit) for team_id in sorted(all_ids) if team_id in teams]
 
 
-def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
-    """Seconds past due (down to `-DUE_GRACE_SECONDS`), or None if not yet due. Never-run rows are maximally overdue."""
+def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
+    """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue."""
+    if config.run_cron_schedule:
+        # `schedule_changed_at` (stamped only on actual schedule edits — deliberately not
+        # `updated_at`, which every emit/enabled save bumps) anchors a newly saved schedule so
+        # selecting a future slot waits for that occurrence instead of immediately catching up
+        # against a slot from before the edit. `created_at` covers never-edited rows.
+        schedule_reference = max(
+            reference
+            for reference in (config.last_run_at, config.schedule_changed_at, config.created_at)
+            if reference is not None
+        )
+        local_schedule_reference = schedule_reference.astimezone(project_timezone)
+        try:
+            # First occurrence strictly after the reference. Iterated in *naive* project-local
+            # time and re-localized afterwards: tz-aware croniter preserves the absolute interval
+            # across a DST change (shifting the local hour), but the contract here is wall-clock —
+            # a 9am schedule stays 9am local through DST transitions.
+            naive_slot = croniter(config.run_cron_schedule, local_schedule_reference.replace(tzinfo=None)).get_next(
+                datetime
+            )
+            first_unfulfilled_slot = naive_slot.replace(tzinfo=project_timezone)
+        except CroniterError:
+            # The expression is serializer-validated on write, so this only fires on out-of-band
+            # writes. Fall through to the rolling interval rather than killing the whole tick.
+            logger.warning(
+                "signals_scout_invalid_cron_schedule",
+                config_id=str(config.pk),
+                run_cron_schedule=config.run_cron_schedule,
+            )
+        else:
+            if now < first_unfulfilled_slot:
+                return None
+            # Keep measuring from the first missed slot until dispatch so bounded coordinator ticks
+            # cannot reset a deferred run's priority when the next scheduled slot arrives.
+            return (now - first_unfulfilled_slot).total_seconds()
+
     if config.last_run_at is None:
         return float("inf")
     overdue = (now - config.last_run_at).total_seconds() - config.run_interval_minutes * 60

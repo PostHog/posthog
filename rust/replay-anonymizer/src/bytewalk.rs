@@ -14,7 +14,7 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
-use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::blur::is_image_data_uri;
 use crate::context::Ctx;
 use crate::css;
 use crate::dom::{
@@ -22,9 +22,10 @@ use crate::dom::{
     ParentKind, TagKind,
 };
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
+use crate::images::ImageFallback;
 use crate::scan::{self, Span};
 use crate::text::{redact_emails, scrub_text};
-use crate::url::{scrub_url, scrub_url_opts};
+use crate::url::scrub_url;
 
 // rrweb NodeType (mirrors dom.rs).
 const NODE_DOCUMENT: u8 = 0;
@@ -837,7 +838,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         if !is_image_data_uri(s) {
                             return None;
                         }
-                        Some(w.ctx.blur_data_uri(s).unwrap_or_else(blank_image_data_uri))
+                        Some(w.ctx.scrub_image(s, ImageFallback::Blank))
                     });
                 }
                 if name == "style" || name == css::INLINED_STYLESHEET_ATTR {
@@ -895,14 +896,10 @@ impl<'c, 'a> Walker<'c, 'a> {
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
         if is_image_data_uri(&existing) {
-            let blurred = self
-                .ctx
-                .blur_data_uri(&existing)
-                .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
+            let blurred = self.ctx.scrub_image(&existing, ImageFallback::Placeholder);
             scan::write_json_string(&blurred, out);
         } else {
-            let scrubbed =
-                scrub_url_opts(self.ctx, &existing, true).unwrap_or_else(|| existing.into_owned());
+            let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }
