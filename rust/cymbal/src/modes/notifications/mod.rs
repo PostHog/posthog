@@ -25,6 +25,7 @@ mod issue_handler;
 pub mod side_effects;
 pub mod signals;
 pub mod stacktrace;
+pub mod temporal;
 pub mod types;
 
 pub use config::NotificationsConfig;

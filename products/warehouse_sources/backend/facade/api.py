@@ -71,6 +71,24 @@ __all__ = [
     "build_file_upload_url_pattern",
 ]
 
+# GitHub multi-repo source helpers live in ``github_warehouse_repos`` and pull the source
+# registry (dlt drivers) in via ``facade.source_management``, so resolve them lazily to keep that
+# weight off the ``django.setup()`` import path — only the namespaced-resource registry loads them.
+_LAZY = {
+    "github_repositories_for_job_inputs": "github_warehouse_repos",
+    "reconcile_github_repositories": "github_warehouse_repos",
+}
+
+
+def __getattr__(name: str):
+    module = _LAZY.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    return getattr(importlib.import_module(f"products.warehouse_sources.backend.{module}"), name)
+
+
 # --- Mappers (ORM -> contract) ---
 
 

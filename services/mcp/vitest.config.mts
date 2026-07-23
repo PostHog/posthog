@@ -1,7 +1,19 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-import { textLoader } from './tests/vitest-text-loader'
+// Shared markdown loader so *.md imports resolve as string exports in the
+// Node-pool project. The workers-pool project has its own transform stack.
+const markdownLoader = {
+    name: 'markdown-loader',
+    transform(code: string, id: string) {
+        if (id.endsWith('.md')) {
+            return {
+                code: `export default ${JSON.stringify(code)}`,
+                map: null,
+            }
+        }
+    },
+}
 
 // Two projects run under a single `pnpm test` invocation:
 //   - `unit`    → fast Node-pool suite (default pool, ~2s)
@@ -17,7 +29,7 @@ export default defineConfig({
         globalSetup: ['tests/global-setup.ts'],
         projects: [
             {
-                plugins: [tsconfigPaths({ root: '.' }), textLoader],
+                plugins: [tsconfigPaths({ root: '.' }), markdownLoader],
                 test: {
                     name: 'unit',
                     globals: true,

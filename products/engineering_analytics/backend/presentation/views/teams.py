@@ -23,6 +23,8 @@ from products.engineering_analytics.backend.presentation.views._base import (
 
 
 class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
+    READ_ACTIONS = ["team_ci_health", "team_ci_activity", "team_merge_trend"]
+
     @extend_schema(
         operation_id="engineering_analytics_team_ci_health",
         parameters=[
