@@ -1,17 +1,26 @@
+import uuid
 from dataclasses import asdict
-from typing import cast
+from typing import Any, cast
+
+from django.db import transaction
 
 import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from pydantic import (
+    RootModel as PydanticRootModel,
+    TypeAdapter,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework import serializers, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import DateRange, SourceMap
+from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, DateRange, SourceMap
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -20,6 +29,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.models.user import User
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
@@ -154,6 +164,65 @@ class ConversionGoalsListResponseSerializer(serializers.Serializer):
         help_text="The team's attribution model (e.g. last_touch, first_touch, linear)"
     )
     has_misconfigured = serializers.BooleanField(help_text="True if any goal is misconfigured")
+
+
+# --- conversion goal writes ---
+
+
+_CONVERSION_GOAL_ADAPTER: TypeAdapter[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = (
+    TypeAdapter(ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)
+)
+
+
+class ConversionGoalWrittenList(PydanticRootModel):
+    """List wrapper for OpenAPI schema generation - the response carries every configured goal."""
+
+    root: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
+
+
+class ConversionGoal(PydanticRootModel):
+    """Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes."""
+
+    root: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
+
+
+@extend_schema_field(ConversionGoal)  # type: ignore[arg-type]
+class ConversionGoalField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> dict:
+        value = super().to_internal_value(data)
+        # JSONField accepts any JSON value; a non-object goal would 500 at the dict() call downstream
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("goal must be a JSON object.")
+        return value
+
+
+@extend_schema_field(ConversionGoalWrittenList)  # type: ignore[arg-type]
+class ConversionGoalListField(serializers.JSONField):
+    pass
+
+
+def _readable_pydantic_errors(error: PydanticValidationError) -> list[str]:
+    """Pydantic reports one error per union member, which is noise. Keep the field and the message."""
+    seen: dict[str, str] = {}
+    for detail in error.errors():
+        field = ".".join(str(part) for part in detail["loc"] if not str(part).startswith("ConversionGoalFilter"))
+        seen.setdefault(field or "goal", detail["msg"])
+    return [f"{field}: {message}" for field, message in seen.items()]
+
+
+class ConversionGoalWriteSerializer(serializers.Serializer):
+    goal = ConversionGoalField(
+        help_text=(
+            "The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions "
+            "node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value "
+            "sent is ignored. On update, only the fields you send are changed."
+        )
+    )
+
+
+class ConversionGoalWriteResponseSerializer(serializers.Serializer):
+    goal = ConversionGoalField(help_text="The goal as stored after the write")
+    conversion_goals = ConversionGoalListField(help_text="Every configured goal after the write, in display order")
 
 
 # --- list_data_sources ---
@@ -524,6 +593,137 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 {"detail": "Failed to list conversion goals. Check server logs for details."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @validated_request(
+        request_serializer=ConversionGoalWriteSerializer,
+        responses={
+            201: OpenApiResponse(response=ConversionGoalWriteResponseSerializer, description="The goal as created"),
+            400: OpenApiResponse(description="The goal does not match any conversion goal shape"),
+            403: OpenApiResponse(description="Requires project admin access"),
+        },
+        summary="Create conversion goal",
+        description="Add one conversion goal to the project. The server assigns conversion_goal_id and appends the goal to the end of the list, leaving existing goals untouched.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="conversion_goals/create",
+        required_scopes=["marketing_analytics:write"],
+    )
+    def create_conversion_goal(self, request: Request, *args, **kwargs) -> Response:
+        self._require_project_admin()
+        goal = dict(request.validated_data["goal"])
+        goal["conversion_goal_id"] = str(uuid.uuid4())
+
+        with transaction.atomic():
+            config = self._locked_config()
+            goals = list(config.conversion_goals)
+            goals.append(self._validated_goal(goal, existing=goals))
+            self._store_goals(config, goals)
+
+        return Response(
+            {"goal": goals[-1], "conversion_goals": goals},
+            status=status.HTTP_201_CREATED,
+        )
+
+    @validated_request(
+        request_serializer=ConversionGoalWriteSerializer,
+        responses={
+            200: OpenApiResponse(response=ConversionGoalWriteResponseSerializer, description="The goal as updated"),
+            400: OpenApiResponse(description="The resulting goal does not match any conversion goal shape"),
+            403: OpenApiResponse(description="Requires project admin access"),
+            404: OpenApiResponse(description="No goal with that conversion_goal_id"),
+        },
+        summary="Update conversion goal",
+        description="Change one conversion goal in place. Fields you send are merged into the stored goal, the rest are kept, and the goal keeps its position in the list.",
+    )
+    @action(
+        methods=["PATCH"],
+        detail=False,
+        url_path="conversion_goals/(?P<conversion_goal_id>[^/.]+)/update",
+        required_scopes=["marketing_analytics:write"],
+    )
+    def update_conversion_goal(self, request: Request, *args, **kwargs) -> Response:
+        self._require_project_admin()
+        conversion_goal_id = kwargs["conversion_goal_id"]
+        patch = dict(request.validated_data["goal"])
+
+        with transaction.atomic():
+            config = self._locked_config()
+            goals = list(config.conversion_goals)
+            index = self._index_of(goals, conversion_goal_id)
+
+            merged = {**goals[index], **patch, "conversion_goal_id": conversion_goal_id}
+            goals[index] = self._validated_goal(merged, existing=goals, ignore_index=index)
+            self._store_goals(config, goals)
+
+        return Response({"goal": goals[index], "conversion_goals": goals})
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ConversionGoalWriteResponseSerializer, description="The goals left after the delete"
+            ),
+            403: OpenApiResponse(description="Requires project admin access"),
+            404: OpenApiResponse(description="No goal with that conversion_goal_id"),
+        },
+        summary="Delete conversion goal",
+        description="Remove one conversion goal from the project, leaving the others in place.",
+    )
+    @action(
+        methods=["DELETE"],
+        detail=False,
+        url_path="conversion_goals/(?P<conversion_goal_id>[^/.]+)/delete",
+        required_scopes=["marketing_analytics:write"],
+    )
+    def delete_conversion_goal(self, request: Request, *args, **kwargs) -> Response:
+        self._require_project_admin()
+        conversion_goal_id = kwargs["conversion_goal_id"]
+
+        with transaction.atomic():
+            config = self._locked_config()
+            goals = list(config.conversion_goals)
+            removed = goals.pop(self._index_of(goals, conversion_goal_id))
+            self._store_goals(config, goals)
+
+        return Response({"goal": removed, "conversion_goals": goals})
+
+    def _require_project_admin(self) -> None:
+        # Conversion goals live on the team config, whose `_conversion_goals` field is gated to project
+        # admins on the settings PATCH path (field_access_control); these endpoints keep the same bar.
+        if not self.user_access_control.check_access_level_for_object(self.team, "admin"):
+            raise PermissionDenied("You need admin access to this project to modify conversion goals.")
+
+    def _locked_config(self) -> TeamMarketingAnalyticsConfig:
+        """Take a row lock so concurrent single-goal writes can't clobber each other."""
+        config = self.team.marketing_analytics_config
+        return TeamMarketingAnalyticsConfig.objects.select_for_update().get(pk=config.pk)
+
+    def _validated_goal(self, goal: dict, existing: list[dict], ignore_index: int | None = None) -> dict[str, Any]:
+        try:
+            validated = _CONVERSION_GOAL_ADAPTER.validate_python(goal)
+        except PydanticValidationError as e:
+            raise serializers.ValidationError({"goal": _readable_pydantic_errors(e)})
+
+        name = goal.get("conversion_goal_name")
+        for index, other in enumerate(existing):
+            if index != ignore_index and other.get("conversion_goal_name") == name:
+                raise serializers.ValidationError({"goal": f"A conversion goal named '{name}' already exists."})
+
+        return validated.model_dump(exclude_none=True, mode="json")
+
+    def _index_of(self, goals: list[dict], conversion_goal_id: str) -> int:
+        for index, goal in enumerate(goals):
+            if goal.get("conversion_goal_id") == conversion_goal_id:
+                return index
+        raise NotFound(f"No conversion goal with id '{conversion_goal_id}'.")
+
+    def _store_goals(self, config: TeamMarketingAnalyticsConfig, goals: list[dict]) -> None:
+        # Writes the column directly rather than going through the `conversion_goals` setter. Every goal here has
+        # already been validated against the schema models, while the setter's validator predates them and requires
+        # a `name` the schema treats as optional, so it would reject goals the schema considers valid.
+        config._conversion_goals = goals
+        config.save()
 
     @validated_request(
         query_serializer=DataSourcesQuerySerializer,

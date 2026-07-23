@@ -70,6 +70,819 @@ export interface ConversionGoalsListResponseApi {
     has_misconfigured: boolean
 }
 
+export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
+
+export const PropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
+
+export const Key10Api = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export interface ElementPropertyFilterApi {
+    key: Key10Api
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'element'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface EventMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'event_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
+export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
+
+export const DurationTypeApi = {
+    Duration: 'duration',
+    ActiveSeconds: 'active_seconds',
+    InactiveSeconds: 'inactive_seconds',
+} as const
+
+export interface RecordingPropertyFilterApi {
+    key: DurationTypeApi | string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'recording'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface LogEntryPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'log_entry'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
+export interface GroupPropertyFilterApi {
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
+    group_type_index?: number | null
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'group'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface FeaturePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Event property with "$feature/" prepended */
+    type?: 'feature'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface FlagPropertyFilterApi {
+    /** The key should be the flag ID */
+    key: string
+    label?: string | null
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator?: 'flag_evaluates_to'
+    /** Feature flag dependency */
+    type?: 'flag'
+    /** The value can be true, false, or a variant name */
+    value: boolean | string
+}
+
+export interface HogQLPropertyFilterApi {
+    key: string
+    label?: string | null
+    type?: 'hogql'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export const EmptyPropertyFilterApiValue = {
+    type: 'empty',
+} as const
+export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
+
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface DataWarehousePersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse_person_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface ErrorTrackingIssueFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'error_tracking_issue'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
+
+export const LogPropertyFilterTypeApi = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface LogPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: LogPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
+
+export const SpanPropertyFilterTypeApi = {
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+export interface SpanPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: SpanPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface RevenueAnalyticsPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'revenue_analytics'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface WorkflowVariablePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'workflow_variable'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
+
+export const BaseMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+    WeeklyActive: 'weekly_active',
+    MonthlyActive: 'monthly_active',
+    UniqueSession: 'unique_session',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstMatchingEventForUser: 'first_matching_event_for_user',
+} as const
+
+export type FunnelMathTypeApi = (typeof FunnelMathTypeApi)[keyof typeof FunnelMathTypeApi]
+
+export const FunnelMathTypeApi = {
+    Total: 'total',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
+} as const
+
+export type PropertyMathTypeApi = (typeof PropertyMathTypeApi)[keyof typeof PropertyMathTypeApi]
+
+export const PropertyMathTypeApi = {
+    Avg: 'avg',
+    Sum: 'sum',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+    P75: 'p75',
+    P90: 'p90',
+    P95: 'p95',
+    P99: 'p99',
+} as const
+
+export type CountPerActorMathTypeApi = (typeof CountPerActorMathTypeApi)[keyof typeof CountPerActorMathTypeApi]
+
+export const CountPerActorMathTypeApi = {
+    AvgCountPerActor: 'avg_count_per_actor',
+    MinCountPerActor: 'min_count_per_actor',
+    MaxCountPerActor: 'max_count_per_actor',
+    MedianCountPerActor: 'median_count_per_actor',
+    P75CountPerActor: 'p75_count_per_actor',
+    P90CountPerActor: 'p90_count_per_actor',
+    P95CountPerActor: 'p95_count_per_actor',
+    P99CountPerActor: 'p99_count_per_actor',
+} as const
+
+export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+
+export const ExperimentMetricMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
+} as const
+
+export type CalendarHeatmapMathTypeApi = (typeof CalendarHeatmapMathTypeApi)[keyof typeof CalendarHeatmapMathTypeApi]
+
+export const CalendarHeatmapMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+} as const
+
+export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+
+export const MathGroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export type CurrencyCodeApi = (typeof CurrencyCodeApi)[keyof typeof CurrencyCodeApi]
+
+export const CurrencyCodeApi = {
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
+} as const
+
+export interface RevenueCurrencyPropertyConfigApi {
+    property?: string | null
+    static?: CurrencyCodeApi | null
+}
+
+export type ConversionGoalFilter1ApiResponse = { [key: string]: unknown } | null
+
+export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter1Api {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    /** The event or `null` for all events. */
+    event?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    kind?: 'EventsNode'
+    limit?: number | null
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'unique_group'
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Columns to order by */
+    orderBy?: string[] | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    response?: ConversionGoalFilter1ApiResponse
+    schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ConversionGoalFilter2ApiResponse = { [key: string]: unknown } | null
+
+export type ConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter2Api {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    id: number
+    kind?: 'ActionsNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'unique_group'
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    response?: ConversionGoalFilter2ApiResponse
+    schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type ConversionGoalFilter3ApiResponse = { [key: string]: unknown } | null
+
+export type ConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter3Api {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    distinct_id_field: string
+    dw_source_type?: string | null
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    id: string
+    id_field: string
+    kind?: 'DataWarehouseNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'unique_group'
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name?: string | null
+    optionalInFunnel?: boolean | null
+    /** Properties configurable in the interface */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+    response?: ConversionGoalFilter3ApiResponse
+    schema_map: ConversionGoalFilter3ApiSchemaMap
+    table_name: string
+    timestamp_field: string
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+/**
+ * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
+ */
+export type ConversionGoalApi = ConversionGoalFilter1Api | ConversionGoalFilter2Api | ConversionGoalFilter3Api
+
+/**
+ * List wrapper for OpenAPI schema generation - the response carries every configured goal.
+ */
+export type ConversionGoalWrittenListApi = (
+    | ConversionGoalFilter1Api
+    | ConversionGoalFilter2Api
+    | ConversionGoalFilter3Api
+)[]
+
+export interface ConversionGoalWriteResponseApi {
+    /** The goal as stored after the write */
+    goal: ConversionGoalApi
+    /** Every configured goal after the write, in display order */
+    conversion_goals: ConversionGoalWrittenListApi
+}
+
+export interface PatchedConversionGoalWriteApi {
+    /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value sent is ignored. On update, only the fields you send are changed. */
+    goal?: ConversionGoalApi
+}
+
+export interface ConversionGoalWriteApi {
+    /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value sent is ignored. On update, only the fields you send are changed. */
+    goal: ConversionGoalApi
+}
+
 export interface RequiredTableStatusApi {
     /** Name of the required source table (e.g. 'campaign', 'campaign_stats') */
     table_name: string
