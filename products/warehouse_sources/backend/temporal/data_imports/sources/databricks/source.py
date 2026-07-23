@@ -41,6 +41,9 @@ DatabricksErrors = {
     "PERMISSION_DENIED": "Your Databricks credentials don't have permission to access this data. Grant USE CATALOG, USE SCHEMA, and SELECT to the connecting principal, then try again.",
     "INSUFFICIENT_PERMISSIONS": "Your Databricks credentials don't have permission to access this data. Grant USE CATALOG, USE SCHEMA, and SELECT to the connecting principal, then try again.",
     "TABLE_OR_VIEW_NOT_FOUND": "The catalog has no `information_schema` — this usually means it's a legacy `hive_metastore` catalog. The Databricks source requires a Unity Catalog catalog.",
+    # Raised when the SQL warehouse referenced by the HTTP path was mistyped or deleted — a common
+    # setup mistake that otherwise falls through to the generic "could not connect" message.
+    "RESOURCE_DOES_NOT_EXIST": "Can't find the SQL warehouse referenced by the HTTP path. Check the HTTP path points to an existing, running SQL warehouse.",
     "nodename nor servname provided": "Can't resolve the server hostname. Check the server hostname and try again.",
     "Name or service not known": "Can't resolve the server hostname. Check the server hostname and try again.",
     "Failed to resolve": "Can't resolve the server hostname. Check the server hostname and try again.",
