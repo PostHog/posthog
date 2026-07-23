@@ -19,7 +19,7 @@ from rest_framework import status
 
 from posthog.hogql.errors import QueryError
 
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -1499,7 +1499,7 @@ class TestExportAssetCounters(APIBaseTest):
             # User error: recorded but not raised
             (QueryError("Invalid query"), FAILURE_TYPE_USER, 0.0, 1.0, False),
             # System error: retried by tenacity, then recorded (not raised, swallowed by export_asset)
-            (CHQueryErrorTooManySimultaneousQueries("err"), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
+            (ClickHouseAtCapacity(), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
         ],
         name_func=lambda func, num, params: f"{func.__name__}_{['success', 'user_error', 'system_error'][int(num)]}",
     )

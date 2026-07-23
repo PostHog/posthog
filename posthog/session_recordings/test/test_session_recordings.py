@@ -1331,7 +1331,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             (
                 "at_capacity",
                 ClickHouseAtCapacity(),
-                "Too many simultaneous queries. Try again later.",
+                "ClickHouse is at capacity. Try again later.",
             ),
             (
                 "timeout_exceeded",

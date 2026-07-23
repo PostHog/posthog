@@ -245,7 +245,12 @@ def execute_process_query(
     except (ClickHouseAtCapacity, ConcurrencyLimitExceeded):
         # Capacity/concurrency errors are transient — let them propagate so the enclosing
         # Celery task (process_query_task) retries with backoff instead of being swallowed
-        # below as a "user-safe" APIException that never retries.
+        # below as a "user-safe" APIException that never retries. Clear the assumed-complete
+        # flags stored in the finally below, or the retry would short-circuit at the
+        # `if query_status.complete: return` guard above and never re-run the query.
+        # If retries are exhausted, process_query_task's on_failure marks the status errored.
+        query_status.complete = False
+        query_status.error = False
         raise
     except Exception as err:
         from posthog.rbac.user_access_control import UserAccessControlError

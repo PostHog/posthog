@@ -1,7 +1,7 @@
 import time
 import datetime
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -15,6 +15,7 @@ import requests
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
+from rest_framework.exceptions import APIException
 from structlog import get_logger
 
 from posthog.hogql.constants import LimitContext
@@ -341,6 +342,36 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
+def _process_query_task_failure(
+    self: Any, exc: Exception, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], einfo: Any
+) -> None:
+    # Transient errors (capacity/concurrency) clear the stored completion flags so each
+    # retry re-runs the query. Once Celery gives up, mark the status errored here so
+    # clients don't poll a forever-pending status until it expires.
+    from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager
+
+    bound = dict(zip(("team_id", "user_id", "query_id"), args))
+    bound.update(kwargs)
+    team_id = bound.get("team_id")
+    query_id = bound.get("query_id")
+    if team_id is None or query_id is None:
+        return
+
+    manager = QueryStatusManager(query_id, team_id)
+    try:
+        query_status = manager.get_query_status()
+    except QueryNotFoundError:
+        return
+
+    query_status.complete = True
+    query_status.error = True
+    if isinstance(exc, APIException):
+        # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
+        query_status.error_message = str(exc.detail)
+    query_status.end_time = datetime.datetime.now(datetime.UTC)
+    manager.store_query_status(query_status)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
@@ -350,6 +381,7 @@ def redis_heartbeat() -> None:
         ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
     ),
+    on_failure=_process_query_task_failure,
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
