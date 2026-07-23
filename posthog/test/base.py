@@ -21,7 +21,8 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import connection, connections, transaction
+from django.core.signals import request_finished, request_started
+from django.db import close_old_connections, connection, connections, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -1581,6 +1582,17 @@ class BaseTestMigrations(QueryMatchingTest):
         reset_unusable_db_connections()
         # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
         super().setUpClass()  # type: ignore[misc]
+        # Django wires close_old_connections to the request_started/request_finished signals.
+        # Under CONN_MAX_AGE=0 every connection is instantly "obsolete", and the class-level
+        # test transaction (now open) leaves autocommit disabled (!= the AUTOCOMMIT setting) —
+        # so if any request signal fires before the test's own DB work, close_old_connections
+        # severs the connection out from under the open transaction, and setUp's
+        # MigrationExecutor then fails with "the connection is closed". Detaching the receiver
+        # for the life of the class closes that race; migration tests manage their connections
+        # explicitly and don't rely on signal-driven cycling. Restored in tearDownClass. Done
+        # after super().setUpClass() so a failure there can't leak the disconnect process-wide.
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
 
     def setUp(self):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
@@ -1628,11 +1640,17 @@ class BaseTestMigrations(QueryMatchingTest):
 
     @classmethod
     def tearDownClass(cls):
-        super().tearDownClass()  # type: ignore
-        executor = MigrationExecutor(connection)  # Reset Django's migration state
-        targets = executor.loader.graph.leaf_nodes()
-        executor.migrate(targets)  # Migrate to the latest migration
-        executor.loader.build_graph()  # Reload.
+        try:
+            super().tearDownClass()  # type: ignore
+            executor = MigrationExecutor(connection)  # Reset Django's migration state
+            targets = executor.loader.graph.leaf_nodes()
+            executor.migrate(targets)  # Migrate to the latest migration
+            executor.loader.build_graph()  # Reload.
+        finally:
+            # Re-arm the receiver disconnected in setUpClass (idempotent: Django dedupes
+            # connect by receiver identity, so a no-op if it was never disconnected).
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
 
 
 class TestMigrations(BaseTestMigrations, BaseTest):
