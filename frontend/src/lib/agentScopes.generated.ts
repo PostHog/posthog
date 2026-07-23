@@ -134,4 +134,5 @@ export const AGENT_USE_CASE_SCOPES = [
     'warehouse_view:read',
     'warehouse_view:write',
     'web_analytics:read',
+    'web_analytics:write',
 ] as const
