@@ -134,6 +134,18 @@ class OrganizationInviteManager:
         ).delete()
 
 
+def first_bulk_invite_error(errors: list[Any]) -> exceptions.ValidationError:
+    """
+    A many=True ValidationError carries a list of per-row error dicts, which the exception handler
+    can't flatten into the standard {type, code, detail, attr} shape — clients would see the raw
+    dict repr. Re-raise the first failing row's error so bulk renders identically to single create.
+    """
+    for row_errors in errors:
+        if row_errors:
+            return exceptions.ValidationError(row_errors)
+    return exceptions.ValidationError(errors)
+
+
 def validate_invite_target_email_domain(organization: Organization, email: str) -> None:
     """
     When an organization enforces SSO, invites may only go to emails on one of the org's verified
@@ -698,7 +710,8 @@ class OrganizationInviteViewSet(
                 "session_id": session_id,
             },
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            raise first_bulk_invite_error(serializer.errors)
         serializer.save()
 
         organization = Organization.objects.get(id=self.organization_id)
