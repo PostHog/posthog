@@ -207,7 +207,7 @@ class PolicyContext:
             state, decided_by = team_policy
             return ResolvedPolicy(state=state, decided_by=decided_by, team_state=state)
 
-        return ResolvedPolicy(state="needs_approval", decided_by="default", team_state=None)
+        return ResolvedPolicy(state="approved", decided_by="default", team_state=None)
 
     def resolve(self, tool_name: str, description: str = "") -> ResolvedPolicy:
         team_policy = self.team_policy(tool_name, description)

@@ -429,6 +429,17 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         self._make_admin()
         server, _installation, _tool = self._server_with_personal_tool(approval_state="needs_approval")
 
+        default_response = self.client.get(
+            self._api_url(f"{server.id}/tools/"),
+            {"scope_type": "team"},
+        )
+
+        assert default_response.status_code == status.HTTP_200_OK
+        default_policy = default_response.json()["results"][0]
+        assert default_policy["policy_state"] == "approved"
+        assert default_policy["team_state"] is None
+        assert default_policy["decided_by"] == "default"
+
         response = self.client.post(
             self._api_url(f"{server.id}/policies/"),
             data={
