@@ -1693,6 +1693,27 @@ class TestBulkObserveAction(_VisionAPITestCase):
         self.assertEqual(body["started"], 1)
         self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_quota"])
 
+    def test_concurrent_claim_exhaustion_maps_to_skipped_limit(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The headroom pre-slice passed, but a racing request consumed the remaining slots before we
+        # could start — the atomic claim refuses, and the result must read as the limit, not a failure.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        with patch(
+            "products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", side_effect=[True, False]
+        ) as claim:
+            resp = self.client.post(
+                self.bulk_url(str(self.scanner.id)), data={"session_ids": ["a", "b", "c"]}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(body["started"], 1)
+        self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_limit", "skipped_limit"])
+        # The refused claim short-circuits the batch; no third claim attempt is made.
+        self.assertEqual(claim.call_count, 2)
+
     def test_already_running_session_is_a_no_op_and_consumes_no_headroom(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:

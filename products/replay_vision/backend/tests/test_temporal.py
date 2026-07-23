@@ -30,6 +30,11 @@ from posthog.session_recordings.queries.session_replay_events import SessionEven
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.enqueue_claims import (
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+    try_claim_enqueue_slot,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -221,6 +226,32 @@ class TestCreateObservationActivity:
         assert observation.scanner_snapshot["scanner_config"] == scanner.scanner_config
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
+
+    def test_releases_enqueue_claim_once_the_row_exists(self) -> None:
+        # The claim bridges enqueue-to-persistence; if the activity stops releasing it, every scan
+        # holds a phantom cap slot for the full claim TTL and on-demand headroom starves.
+        scanner = _make_scanner()
+        assert try_claim_enqueue_slot(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            workflow_id="wf-claimed",
+            team_in_flight_rows=0,
+            scanner_in_flight_rows=0,
+        )
+
+        create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-claimed",
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                triggered_by_user_id=None,
+                workflow_id="wf-claimed",
+            )
+        )
+
+        assert pending_enqueue_claims_for_team(scanner.team_id) == 0
+        assert pending_enqueue_claims_for_scanner(scanner.id) == 0
 
     def test_snapshot_is_frozen_against_later_scanner_edits(self) -> None:
         scanner = _make_scanner()
