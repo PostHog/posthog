@@ -1686,6 +1686,24 @@ class TestObserveAction(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 503, resp.json())
 
+    def test_observe_returns_429_when_the_atomic_claim_is_refused(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The snapshot pre-check can pass while a racing request holds the last slot; the atomic claim
+        # is the authoritative gate, so its refusal must surface as 429 and start no workflow.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        with patch("products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", return_value=False):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-capped"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 429, resp.json())
+        start_workflow.assert_not_called()
+        self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-capped").exists())
+
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
@@ -1946,6 +1964,26 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 503)
         # `detail` is what the frontend toast surfaces; `error` would be silently dropped.
         self.assertIn("was kept", resp.json()["detail"])
+        restored = ReplayObservation.objects.get(id=observation.id)
+        self.assertEqual(restored.status, ObservationStatus.FAILED)
+        self.assertEqual(restored.created_at, original_created_at)
+
+    def test_retry_returns_429_and_restores_row_when_the_atomic_claim_is_refused(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The claim can refuse after the snapshot pre-check passed; the retry must 429 and bring the
+        # failed row back rather than deleting it while no replacement run started.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-capped")
+        original_created_at = observation.created_at
+
+        with patch("products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", return_value=False):
+            resp = self.client.post(self.retry_url(str(observation.id)))
+
+        self.assertEqual(resp.status_code, 429, resp.json())
+        start_workflow.assert_not_called()
         restored = ReplayObservation.objects.get(id=observation.id)
         self.assertEqual(restored.status, ObservationStatus.FAILED)
         self.assertEqual(restored.created_at, original_created_at)
