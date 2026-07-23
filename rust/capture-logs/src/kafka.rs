@@ -196,6 +196,39 @@ async fn build_producer(
     Ok(producer)
 }
 
+#[cfg(test)]
+impl KafkaSink {
+    /// A sink whose producers point at an unreachable broker and skip the
+    /// startup metadata ping. For handler tests that exercise pre-produce
+    /// paths only — any actual produce would time out.
+    pub(crate) async fn for_tests() -> KafkaSink {
+        let registry = health::HealthRegistry::new("test");
+        let mut handles = Vec::new();
+        for name in ["logs", "traces", "metrics"] {
+            handles.push(
+                registry
+                    .register(name.to_string(), Duration::from_secs(30))
+                    .await,
+            );
+        }
+        let mut producers = handles.into_iter().map(|liveness| {
+            let mut config = ClientConfig::new();
+            config.set("bootstrap.servers", "localhost:1");
+            config
+                .create_with_context(KafkaContext { liveness })
+                .expect("test producer")
+        });
+        KafkaSink {
+            logs_producer: producers.next().unwrap(),
+            traces_producer: producers.next().unwrap(),
+            metrics_producer: producers.next().unwrap(),
+            logs_topic: "logs".to_string(),
+            traces_topic: "traces".to_string(),
+            metrics_topic: "metrics".to_string(),
+        }
+    }
+}
+
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
