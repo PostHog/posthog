@@ -452,6 +452,28 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(select, expected)
 
     @freeze_time("2025-11-12")
+    def test_group_node_two_events_and_operator(self):
+        group = GroupNode(
+            operator=FilterLogicalOperator.AND_,
+            nodes=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+        )
+        query = FunnelsQuery(series=[group, EventsNode(event="$checkout")])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        funnel_event_query = FunnelEventQuery(context=context).to_query()
+
+        select = format_query(funnel_event_query)
+        expected = dedent("""
+            SELECT e.timestamp AS timestamp,
+                   person_id AS aggregation_target,
+                   if(and(equals(event, '$pageview'), equals(event, '$pageleave')), 1, 0) AS step_0,
+                   if(equals(event, '$checkout'), 1, 0) AS step_1
+            FROM EVENTS AS e
+            WHERE and(and(and(greaterOrEquals(e.timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2025-11-12 23:59:59.999999'))), IN(event, tuple('$checkout', '$pageleave', '$pageview'))), or(equals(step_0, 1), equals(step_1, 1)))
+        """).strip()
+        self.assertEqual(select, expected)
+
+    @freeze_time("2025-11-12")
     def test_group_node_between_event_and_action(self):
         checkout_action = Action.objects.create(
             team=self.team,
