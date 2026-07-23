@@ -13,6 +13,9 @@ jest.setTimeout(30000)
 // The dev stack's S3-compatible store: the SeaweedFS `seaweedfs` service on
 // :8333 — the same instance and bucket session replay v2 uses
 // (SESSION_RECORDING_V2_S3_*, whose defaults this connection config mirrors).
+// The service sits behind the replay/agents compose profiles, so the Node.js
+// Tests CI job starts it explicitly (see ci-nodejs.yml); locally run
+// `docker compose -f docker-compose.dev.yml up seaweedfs -d --wait`.
 // The shared `posthog` bucket is deliberate: SeaweedFS maps each bucket to a
 // collection with its own volume slots, and the dev node's 8 slots are already
 // allocated — a dedicated test bucket would hang on volume assignment.
