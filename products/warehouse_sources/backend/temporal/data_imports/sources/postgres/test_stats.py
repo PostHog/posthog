@@ -18,8 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     SNAPSHOT_COLUMNS,
+    is_database_stats_schema_row,
     stats_table_name,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresDatabaseStatsConfig,
     PostgresSourceConfig,
@@ -516,6 +518,63 @@ class TestStatsSourceRouting:
         rows = list(cast(Iterable[Any], response.items()))
         assert rows, "expected table statistics from the test database"
         assert {"relname", "seq_scan", "total_size_bytes"} <= set(rows[0].keys())
+
+    @pytest.mark.django_db
+    def test_reconcile_leaves_stats_rows_routable(self, team):
+        # Regression: reconcile_postgres_schemas resolves every row to a real
+        # (catalog, schema, table). Run over a statistics row it dot-split the synthetic
+        # name and stored source_table_name, which made the row look like a discovered
+        # table — the next sync then issued
+        # `SELECT * FROM "system_tables"."pg_replication_slots"` and failed with
+        # UndefinedTable.
+        source = self._source(team, pre_ssl_cutoff=True)
+        name = stats_table_name("pg_replication_slots")
+        schema_row = ExternalDataSchema.objects.create(
+            name=name,
+            team_id=team.pk,
+            source_id=source.pk,
+            sync_type="append",
+            sync_type_config={},
+        )
+        stats_schema = SourceSchema(
+            name=name,
+            supports_incremental=False,
+            supports_append=True,
+            columns=[("collected_at", "timestamp with time zone", False), ("slot_name", "name", True)],
+        )
+
+        PostgresSource().reconcile_schema_metadata(source, [stats_schema], team_id=team.pk)
+
+        schema_row.refresh_from_db()
+        metadata = schema_row.schema_metadata or {}
+        assert metadata.get("source_table_name") is None
+        # The column list is still recorded, so the column picker works.
+        assert [c["name"] for c in metadata["columns"]] == ["collected_at", "slot_name"]
+        assert is_database_stats_schema_row(name, metadata, POSTGRES_STATS_CATALOGS) is True
+
+    @pytest.mark.django_db
+    def test_reconcile_still_resolves_ordinary_tables(self, team):
+        source = self._source(team, pre_ssl_cutoff=True)
+        schema_row = ExternalDataSchema.objects.create(
+            name="public.users",
+            team_id=team.pk,
+            source_id=source.pk,
+            sync_type="full_refresh",
+            sync_type_config={},
+        )
+        table_schema = SourceSchema(
+            name="public.users",
+            supports_incremental=False,
+            supports_append=False,
+            columns=[("id", "integer", False)],
+            source_schema="public",
+            source_table_name="users",
+        )
+
+        PostgresSource().reconcile_schema_metadata(source, [table_schema], team_id=team.pk)
+
+        schema_row.refresh_from_db()
+        assert (schema_row.schema_metadata or {}).get("source_table_name") == "users"
 
     @pytest.mark.django_db
     def test_colliding_real_table_syncs_as_a_table_despite_toggle(self, team):

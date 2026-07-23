@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     database_stats_enabled,
+    is_database_stats_schema,
     is_database_stats_schema_row,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -41,7 +42,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
+    SQLSource,
+    reconcile_source_schema_metadata,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
@@ -732,8 +736,25 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         source_schemas: list[SourceSchema],
         team_id: int,
     ) -> list[str]:
-        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
-        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables.
+
+        Statistics tables are held back from that path: it resolves every row to a real
+        `(catalog, schema, table)` in the customer's database, and for a synthetic name
+        like `system_tables.pg_settings` it would dot-split one into existence. Persisting
+        a `source_table_name` there makes the row indistinguishable from a discovered
+        table, so the next sync reads `SELECT * FROM "system_tables"."pg_settings"` and
+        fails. They go through the generic hook instead, which records the column list for
+        the picker and leaves the source-location keys unset.
+        """
+        stats_schemas = [
+            schema for schema in source_schemas if is_database_stats_schema(schema.name, self.database_stats_catalogs)
+        ]
+        table_schemas = [schema for schema in source_schemas if schema not in stats_schemas]
+
+        deleted = reconcile_postgres_schemas(source=source, source_schemas=table_schemas, team_id=team_id)
+        if stats_schemas:
+            reconcile_source_schema_metadata(source, stats_schemas, team_id)
+        return deleted
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Drop the Temporal schedule + PostHog-managed slot/publication.
