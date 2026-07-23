@@ -293,10 +293,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh signals repository activity",
     )
 
-    # Outcomes batch evaluation - every 30 minutes, fans out one task per outcome
+    # Outcomes batch evaluation - every 5 minutes, fans out one task per outcome definition
+    # (reach-to-trigger latency equals this cadence, so keep it tight enough for
+    # onboarding/installation-style outcomes)
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/30"),
+        crontab(minute="*/5"),
         schedule_outcome_calculations.s(),
         name="schedule outcome calculations",
     )

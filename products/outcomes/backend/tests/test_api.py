@@ -13,8 +13,8 @@ from rest_framework import status
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
-from products.outcomes.backend.api import OutcomeSerializer
-from products.outcomes.backend.models import Outcome, OutcomeLatch
+from products.outcomes.backend.api import OutcomeDefinitionSerializer
+from products.outcomes.backend.models import OutcomeDefinition, OutcomeLatch
 
 from .test_criteria import atom, criteria, path
 
@@ -41,24 +41,24 @@ class TestOutcomeSerializerValidation(SimpleTestCase):
         ]
     )
     def test_rejects_inadmissible_criteria(self, _name: str, criteria_dict: dict) -> None:
-        serializer = OutcomeSerializer(data={"name": "A", "criteria": criteria_dict})
+        serializer = OutcomeDefinitionSerializer(data={"name": "A", "criteria": criteria_dict})
         assert not serializer.is_valid()
         assert "criteria" in serializer.errors
 
     def test_accepts_full_grammar(self) -> None:
-        serializer = OutcomeSerializer(data={"name": "A", "criteria": VALID_CRITERIA})
+        serializer = OutcomeDefinitionSerializer(data={"name": "A", "criteria": VALID_CRITERIA})
         assert serializer.is_valid(), serializer.errors
 
 
 class TestOutcomeAPI(APIBaseTest):
-    def _create_outcome(self, team: Team | None = None, **kwargs) -> Outcome:
+    def _create_outcome(self, team: Team | None = None, **kwargs) -> OutcomeDefinition:
         team = team or self.team
         defaults = {"name": "Activated", "criteria": criteria(path(atom("uploaded_file", threshold=3)))}
         defaults.update(kwargs)
         with team_scope(team.id):
-            return Outcome.objects.create(team=team, created_by=self.user, **defaults)
+            return OutcomeDefinition.objects.create(team=team, created_by=self.user, **defaults)
 
-    def _create_latch(self, outcome: Outcome, **kwargs) -> OutcomeLatch:
+    def _create_latch(self, outcome: OutcomeDefinition, **kwargs) -> OutcomeLatch:
         defaults = {
             "person_id": uuid.uuid4(),
             "distinct_id": "some-user",
@@ -67,7 +67,7 @@ class TestOutcomeAPI(APIBaseTest):
         }
         defaults.update(kwargs)
         with team_scope(outcome.team_id):
-            return OutcomeLatch.objects.create(team_id=outcome.team_id, outcome=outcome, **defaults)
+            return OutcomeLatch.objects.create(team_id=outcome.team_id, definition=outcome, **defaults)
 
     def test_create_outcome_with_full_criteria(self) -> None:
         response = self.client.post(
@@ -80,7 +80,7 @@ class TestOutcomeAPI(APIBaseTest):
         assert data["reached_count"] == 0
         assert [len(p["atoms"]) for p in data["criteria"]["paths"]] == [2, 1]
         assert data["criteria"]["paths"][0]["min_matches"] == 1
-        outcome = Outcome.objects.for_team(self.team.id).get(id=data["id"])
+        outcome = OutcomeDefinition.objects.for_team(self.team.id).get(id=data["id"])
         assert outcome.created_by == self.user
         assert outcome.criteria["paths"][0]["atoms"][1]["aggregation"] == "sum"
 
@@ -137,3 +137,16 @@ class TestOutcomeAPI(APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/outcomes/{outcome.id}/calculate")
         assert response.status_code == status.HTTP_202_ACCEPTED
         mock_task.delay.assert_called_once_with(outcome_id=str(outcome.id), team_id=self.team.id)
+
+    def test_calculate_is_debounced_after_a_recent_run(self) -> None:
+        outcome = self._create_outcome(last_calculated_at=timezone.now())
+        with patch("products.outcomes.backend.api.calculate_outcome") as mock_task:
+            response = self.client.post(f"/api/projects/{self.team.id}/outcomes/{outcome.id}/calculate")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_task.delay.assert_not_called()
+
+    def test_api_is_gated_on_the_feature_flag(self) -> None:
+        self._create_outcome()
+        with patch("products.outcomes.backend.api.outcomes_feature_enabled", return_value=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/outcomes")
+        assert response.status_code == status.HTTP_403_FORBIDDEN

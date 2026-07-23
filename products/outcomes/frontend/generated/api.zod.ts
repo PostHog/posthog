@@ -53,7 +53,7 @@ export const OutcomesCreateBody = /* @__PURE__ */ zod.object({
                                         .describe('\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct')
                                         .default(outcomesCreateBodyCriteriaOnePathsItemAtomsItemAggregationDefault)
                                         .describe(
-                                            'Monotone aggregation over matching events: count of events, sum of a numeric property, or number of distinct values of a property.\n\n\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct'
+                                            'Monotone aggregation over matching events: count of events, sum of a numeric property (the highest running total, so refunds never un-reach it), or number of distinct values of a property.\n\n\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct'
                                         ),
                                     aggregation_property: zod
                                         .string()
@@ -131,7 +131,7 @@ export const OutcomesUpdateBody = /* @__PURE__ */ zod.object({
                                         .describe('\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct')
                                         .default(outcomesUpdateBodyCriteriaOnePathsItemAtomsItemAggregationDefault)
                                         .describe(
-                                            'Monotone aggregation over matching events: count of events, sum of a numeric property, or number of distinct values of a property.\n\n\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct'
+                                            'Monotone aggregation over matching events: count of events, sum of a numeric property (the highest running total, so refunds never un-reach it), or number of distinct values of a property.\n\n\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct'
                                         ),
                                     aggregation_property: zod
                                         .string()
@@ -211,7 +211,7 @@ export const OutcomesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemAggregationDefault
                                         )
                                         .describe(
-                                            'Monotone aggregation over matching events: count of events, sum of a numeric property, or number of distinct values of a property.\n\n\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct'
+                                            'Monotone aggregation over matching events: count of events, sum of a numeric property (the highest running total, so refunds never un-reach it), or number of distinct values of a property.\n\n\* `count` - count\n\* `sum` - sum\n\* `distinct` - distinct'
                                         ),
                                     aggregation_property: zod
                                         .string()

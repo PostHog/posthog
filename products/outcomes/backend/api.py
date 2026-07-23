@@ -1,23 +1,69 @@
+from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Count, QuerySet
+from django.utils import timezone
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
+import posthoganalytics
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import Throttled
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyRateThrottle, SustainedRateThrottle
 
 from products.outcomes.backend.criteria import AGGREGATIONS, CriteriaValidationError, parse_criteria
-from products.outcomes.backend.models import Outcome, OutcomeLatch
+from products.outcomes.backend.models import OutcomeDefinition, OutcomeLatch
 from products.outcomes.backend.tasks import calculate_outcome
 
 logger = structlog.get_logger(__name__)
+
+OUTCOMES_FEATURE_FLAG = "outcomes-feature-enabled"
+
+# The on-demand recalculation runs a full ClickHouse aggregate; keep manual triggers rare.
+CALCULATE_DEBOUNCE = timedelta(minutes=2)
+
+
+def outcomes_feature_enabled(distinct_id: str) -> bool:
+    if settings.DEBUG or settings.TEST:
+        return True
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                OUTCOMES_FEATURE_FLAG,
+                distinct_id,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("outcomes_feature_flag_check_failed")
+        return False
+
+
+class OutcomesFeatureEnabled(BasePermission):
+    """The API ships dark behind the outcomes-feature-enabled flag, matching the UI gate."""
+
+    message = "Outcomes is not available yet."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        user = request.user
+        return bool(
+            user and user.is_authenticated and outcomes_feature_enabled(str(getattr(user, "distinct_id", user.pk)))
+        )
+
+
+class OutcomeCalculateThrottle(PersonalApiKeyRateThrottle):
+    scope = "outcome_calculate"
+    rate = "12/hour"
 
 
 @extend_schema_field(
@@ -43,8 +89,8 @@ class OutcomeAtomSerializer(serializers.Serializer):
     aggregation = serializers.ChoiceField(
         choices=list(AGGREGATIONS),
         default="count",
-        help_text="Monotone aggregation over matching events: count of events, sum of a numeric property, "
-        "or number of distinct values of a property.",
+        help_text="Monotone aggregation over matching events: count of events, sum of a numeric property "
+        "(the highest running total, so refunds never un-reach it), or number of distinct values of a property.",
     )
     aggregation_property = serializers.CharField(
         required=False,
@@ -81,9 +127,7 @@ class OutcomeCriteriaSerializer(serializers.Serializer):
     )
 
 
-# "Outcome" is already taken in the OpenAPI schema by session summaries.
-@extend_schema_serializer(component_name="OutcomeDefinition")
-class OutcomeSerializer(serializers.ModelSerializer):
+class OutcomeDefinitionSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     criteria = OutcomeCriteriaSerializer(
         help_text="Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N)."
@@ -93,7 +137,7 @@ class OutcomeSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model = Outcome
+        model = OutcomeDefinition
         fields = [
             "id",
             "name",
@@ -108,11 +152,11 @@ class OutcomeSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "reached_count", "last_calculated_at", "created_at", "updated_at", "created_by"]
 
     @extend_schema_field(serializers.IntegerField())
-    def get_reached_count(self, outcome: Outcome) -> int:
-        annotated = getattr(outcome, "reached_count", None)
+    def get_reached_count(self, definition: OutcomeDefinition) -> int:
+        annotated = getattr(definition, "reached_count", None)
         if annotated is not None:
             return annotated
-        return outcome.latches.count()
+        return definition.latches.count()
 
     def validate_criteria(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -132,15 +176,15 @@ class OutcomeSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
-    def create(self, validated_data: dict[str, Any]) -> Outcome:
+    def create(self, validated_data: dict[str, Any]) -> OutcomeDefinition:
         team = self.context["get_team"]()
-        outcome = Outcome.objects.create(
+        definition = OutcomeDefinition.objects.create(
             team=team,
             created_by=self.context["request"].user,
             **validated_data,
         )
-        logger.info("outcome_created", outcome_id=str(outcome.id), team_id=team.id)
-        return outcome
+        logger.info("outcome_created", outcome_id=str(definition.id), team_id=team.id)
+        return definition
 
 
 @extend_schema_field(
@@ -164,15 +208,21 @@ class OutcomeLatchSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class OutcomeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class OutcomeDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Create, read, update, and delete outcome definitions, and inspect who reached them."""
 
     scope_object = "INTERNAL"
     # `.unscoped()` avoids the fail-closed manager raising at import (no team context yet);
     # `safely_get_queryset` re-scopes every real query to the team.
-    queryset = Outcome.objects.unscoped()
-    serializer_class = OutcomeSerializer
-    permission_classes = [IsAuthenticated]
+    queryset = OutcomeDefinition.objects.unscoped()
+    serializer_class = OutcomeDefinitionSerializer
+    permission_classes = [IsAuthenticated, OutcomesFeatureEnabled]
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "calculate":
+            return [OutcomeCalculateThrottle()]
+        return super().get_throttles()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
@@ -188,17 +238,19 @@ class OutcomeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET"], detail=True, pagination_class=None)
     def reached(self, request: Request, **kwargs: Any) -> Response:
-        outcome = self.get_object()
-        latches = outcome.latches.order_by("-reached_at")[:100]
+        definition = self.get_object()
+        latches = definition.latches.order_by("-reached_at")[:100]
         return Response(OutcomeLatchSerializer(latches, many=True).data)
 
     @extend_schema(
         request=None,
-        responses={202: OutcomeSerializer},
+        responses={202: OutcomeDefinitionSerializer},
         description="Enqueue an immediate recalculation of this outcome instead of waiting for the periodic run.",
     )
     @action(methods=["POST"], detail=True)
     def calculate(self, request: Request, **kwargs: Any) -> Response:
-        outcome = self.get_object()
-        calculate_outcome.delay(outcome_id=str(outcome.id), team_id=outcome.team_id)
-        return Response(self.get_serializer(outcome).data, status=status.HTTP_202_ACCEPTED)
+        definition = self.get_object()
+        if definition.last_calculated_at and timezone.now() - definition.last_calculated_at < CALCULATE_DEBOUNCE:
+            raise Throttled(detail="This outcome was calculated moments ago. Try again in a couple of minutes.")
+        calculate_outcome.delay(outcome_id=str(definition.id), team_id=definition.team_id)
+        return Response(self.get_serializer(definition).data, status=status.HTTP_202_ACCEPTED)

@@ -3,8 +3,9 @@
 Grammar (two levels of nesting, no more): paths are OR'd together; atoms within
 a path are AND'd, optionally relaxed to M-of-N via ``min_matches``. An atom
 aggregates events monotonically — ``count`` of matching events, ``sum`` of a
-numeric property, or ``distinct`` values of a property — always compared with
-``>= threshold``.
+numeric property (the highest time-ordered running total, so negative values
+never un-reach a crossed threshold), or ``distinct`` values of a property —
+always compared with ``>= threshold``.
 
 Monotonicity is a grammar-level invariant: as events arrive an admissible
 criterion can only move toward satisfaction, never away from it. That is what

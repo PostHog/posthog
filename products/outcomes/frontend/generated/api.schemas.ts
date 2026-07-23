@@ -33,7 +33,7 @@ export interface OutcomeAtomApi {
     event: string
     /** Property filters an event must match to count toward this condition. */
     properties?: OutcomeAtomApiPropertiesItem[]
-    /** Monotone aggregation over matching events: count of events, sum of a numeric property, or number of distinct values of a property.
+    /** Monotone aggregation over matching events: count of events, sum of a numeric property (the highest running total, so refunds never un-reach it), or number of distinct values of a property.
      *
      * * `count` - count
      * * `sum` - sum

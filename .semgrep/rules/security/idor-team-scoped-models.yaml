@@ -218,7 +218,7 @@ rules:
                               |Notebook
                               |NotebookNodeRun
                               |ObjectMediaPreview
-                              |Outcome
+                              |OutcomeDefinition
                               |OutcomeLatch
                               |ParserRecipe
                               |PendingSourceCredential
@@ -531,7 +531,7 @@ rules:
                         |Notebook
                         |NotebookNodeRun
                         |ObjectMediaPreview
-                        |Outcome
+                        |OutcomeDefinition
                         |OutcomeLatch
                         |ParserRecipe
                         |PendingSourceCredential

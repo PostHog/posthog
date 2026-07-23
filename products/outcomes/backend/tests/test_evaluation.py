@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.scoping import team_scope
 
-from products.outcomes.backend.models import Outcome, OutcomeLatch
+from products.outcomes.backend.models import OutcomeDefinition, OutcomeLatch
 from products.outcomes.backend.tasks import calculate_outcome
 
 from .test_criteria import atom, criteria, path
@@ -13,11 +13,13 @@ from .test_criteria import atom, criteria, path
 
 @patch("products.outcomes.backend.evaluation.capture_batch_internal", return_value=MagicMock())
 class TestOutcomeEvaluation(ClickhouseTestMixin, BaseTest):
-    def _create_outcome(self, criteria_dict: dict, name: str = "Activated") -> Outcome:
+    def _create_outcome(self, criteria_dict: dict, name: str = "Activated") -> OutcomeDefinition:
         with team_scope(self.team.id):
-            return Outcome.objects.create(team=self.team, created_by=self.user, name=name, criteria=criteria_dict)
+            return OutcomeDefinition.objects.create(
+                team=self.team, created_by=self.user, name=name, criteria=criteria_dict
+            )
 
-    def _calculate(self, outcome: Outcome) -> None:
+    def _calculate(self, outcome: OutcomeDefinition) -> None:
         calculate_outcome(outcome_id=str(outcome.id), team_id=self.team.id)
 
     def _latches(self) -> list[OutcomeLatch]:
@@ -83,10 +85,14 @@ class TestOutcomeEvaluation(ClickhouseTestMixin, BaseTest):
         # Conditions a (Jan 3) and c (Jan 1) are satisfied; the 2nd one to complete was a.
         assert latches[0].reached_at == datetime(2026, 1, 3, 10, 0, tzinfo=UTC)
 
-    def test_sum_aggregation_crosses_at_cumulative_threshold(self, mock_capture: MagicMock) -> None:
+    def test_sum_aggregation_crosses_at_cumulative_threshold_and_refunds_never_unreach(
+        self, mock_capture: MagicMock
+    ) -> None:
         _create_person(distinct_ids=["p1"], team=self.team)
         _create_person(distinct_ids=["p2"], team=self.team)
-        for ts, amount in [("2026-01-01T10:00:00Z", 40), ("2026-01-02T10:00:00Z", 70), ("2026-01-03T10:00:00Z", 5)]:
+        # Running sums: 40, 110, 85 — crosses 100 on the second purchase, then a refund
+        # pulls the total back under the threshold.
+        for ts, amount in [("2026-01-01T10:00:00Z", 40), ("2026-01-02T10:00:00Z", 70), ("2026-01-03T10:00:00Z", -25)]:
             _create_event(
                 event="purchase", distinct_id="p1", team=self.team, timestamp=ts, properties={"amount": amount}
             )
@@ -105,9 +111,9 @@ class TestOutcomeEvaluation(ClickhouseTestMixin, BaseTest):
 
         latches = self._latches()
         assert [latch.distinct_id for latch in latches] == ["p1"]
-        # The running sum (40, 110, 115) crossed 100 on the second purchase.
         assert latches[0].reached_at == datetime(2026, 1, 2, 10, 0, tzinfo=UTC)
-        assert latches[0].evidence["paths"][0]["atoms"][0]["attained"] == 115.0
+        # Attained is the highest running sum (monotone), not the refund-reduced total.
+        assert latches[0].evidence["paths"][0]["atoms"][0]["attained"] == 110.0
 
     def test_distinct_aggregation_crosses_at_nth_distinct_value(self, mock_capture: MagicMock) -> None:
         _create_person(distinct_ids=["p1"], team=self.team)

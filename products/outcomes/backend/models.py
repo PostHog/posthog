@@ -6,7 +6,7 @@ from posthog.models.utils import UUIDModel
 from products.outcomes.backend.criteria import OUTCOME_REACHED_EVENT as OUTCOME_REACHED_EVENT
 
 
-class Outcome(TeamScopedRootMixin, UUIDModel):
+class OutcomeDefinition(TeamScopedRootMixin, UUIDModel):
     """A user-defined compound condition over events that, once met by a person, becomes a permanent dated fact.
 
     Criteria follow the monotone grammar in `criteria.py`: paths OR'd together, atoms AND'd
@@ -34,7 +34,7 @@ class Outcome(TeamScopedRootMixin, UUIDModel):
     )
 
     class Meta:
-        db_table = "posthog_outcome"
+        db_table = "posthog_outcome_definition"
 
     def __str__(self) -> str:
         return self.name
@@ -43,13 +43,13 @@ class Outcome(TeamScopedRootMixin, UUIDModel):
 class OutcomeLatch(TeamScopedRootMixin, UUIDModel):
     """The permanent fact that a person reached an outcome.
 
-    One row per (outcome, person); first satisfaction latches and never un-reaches.
+    One row per (definition, person); first satisfaction latches and never un-reaches.
     Rows are only ever inserted — `reached_at` is immutable once written, and the unique
     constraint is what makes `$outcome_reached` emission effectively-once.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    outcome = models.ForeignKey(Outcome, on_delete=models.CASCADE, related_name="latches")
+    definition = models.ForeignKey(OutcomeDefinition, on_delete=models.CASCADE, related_name="latches")
     person_id = models.UUIDField(help_text="UUID of the person who reached the outcome.")
     distinct_id = models.CharField(
         max_length=400, help_text="A distinct ID of the person, used for display and event emission."
@@ -65,8 +65,8 @@ class OutcomeLatch(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_outcome_latch"
         constraints = [
-            models.UniqueConstraint(fields=["outcome", "person_id"], name="unique_outcome_person_latch"),
+            models.UniqueConstraint(fields=["definition", "person_id"], name="unique_outcome_person_latch"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.person_id} reached {self.outcome_id} at {self.reached_at}"
+        return f"{self.person_id} reached {self.definition_id} at {self.reached_at}"
