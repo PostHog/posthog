@@ -1,4 +1,5 @@
 import time
+from typing import Any, cast
 
 import structlog
 import posthoganalytics
@@ -6,6 +7,8 @@ from celery import Task, shared_task
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.comment.formatting import slack_to_content_and_rich_content
+from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
@@ -14,6 +17,10 @@ from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
+
+# item_context key holding the source Slack message ts of an ingested reply — the
+# idempotency key that makes re-processing the same Slack event a no-op.
+SLACK_MESSAGE_TS_KEY = "slack_message_ts"
 
 # item_context key holding the Slack ts of a reply's mirrored copy. Its presence is the
 # idempotency marker that keeps Celery retries and backfill re-runs from double-posting.
@@ -76,6 +83,20 @@ def _log_backfill_reply_failure(comment_slack_thread_id: str, reply: Comment) ->
         comment_slack_thread_id=comment_slack_thread_id,
         comment_id=str(reply.id),
     )
+
+
+def _neutralize_rich_content_images(node: dict[str, Any] | list[Any] | object) -> None:
+    """Escape markdown image syntax in every text node of an inbound reply's rich content."""
+    if isinstance(node, dict):
+        typed_node = cast(dict[str, Any], node)
+        text = typed_node.get("text")
+        if typed_node.get("type") == "text" and isinstance(text, str):
+            typed_node["text"] = text.replace("![", "!\\[")
+        for value in typed_node.values():
+            _neutralize_rich_content_images(value)
+    elif isinstance(node, list):
+        for item in node:
+            _neutralize_rich_content_images(item)
 
 
 def _mark_reply_synced(reply: Comment, ts: object) -> None:
@@ -141,6 +162,101 @@ def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
     except Exception as exc:
         raise self.retry(exc=exc)
     _mark_reply_synced(comment, posted_ts)
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit  # Comment is on RootTeamManager; queries pin the team via the mirror's integration
+def ingest_slack_discussion_reply(
+    self: Task,
+    comment_slack_thread_id: str,
+    slack_user_id: str,
+    text: str,
+    blocks: list | None,
+    message_ts: str,
+) -> None:
+    """Save a Slack thread reply as a discussion comment (the inbound mirror half).
+
+    Runs off the webhook request thread: Slack expects the events endpoint to ack in ~3
+    seconds and this path makes a ``users.info`` call. Idempotent per source Slack message
+    ts, so task retries and duplicate event deliveries can't create duplicate comments.
+    """
+    mirror = (
+        CommentSlackThread.objects.unscoped()
+        .filter(id=comment_slack_thread_id)
+        .select_related("integration__team")
+        .first()
+    )
+    if mirror is None:
+        return
+    # message_ts is the idempotency key; without it a redelivered event would duplicate the
+    # comment (the enqueuing side already refuses these — this is the fail-closed backstop).
+    if not message_ts:
+        return
+    team = mirror.integration.team
+    if _sync_killed(team.id):
+        return
+
+    if Comment.objects.filter(
+        team_id=team.id,
+        source_comment_id=mirror.source_comment_id,
+        item_context__slack_message_ts=message_ts,
+    ).exists():
+        return
+
+    content, rich_content = slack_to_content_and_rich_content(text, blocks)
+    if not content and not rich_content:
+        return
+    # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
+    # external participant's reply from making the discussion UI load remote images. The UI
+    # prefers rich_content (flattened back to markdown), so its text nodes need the same
+    # treatment or the escape would be sidestepped whenever the message carries blocks.
+    content = content.replace("![", "!\\[")
+    _neutralize_rich_content_images(rich_content)
+
+    try:
+        client = SlackIntegration(mirror.integration).client
+        client.timeout = 10
+        # The profile feeds the workspace-membership trust check below — namespace the cache by
+        # this integration's workspace so a colliding user id from another workspace (Slack
+        # Connect) can't be served from a stale entry.
+        user_info = resolve_slack_user(client, slack_user_id, workspace=mirror.integration.integration_id or "")
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+    # Only attribute the comment to a PostHog user when Slack confirms the author belongs to
+    # this integration's own workspace. In externally-shared (Slack Connect) channels the other
+    # workspace's admin controls its users' profile emails, so trusting the email there would
+    # let an outsider post as any org member.
+    posthog_user = None
+    if user_info.get("team_id") and user_info.get("team_id") == mirror.integration.integration_id:
+        posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
+
+    Comment.objects.create(
+        team=team,
+        scope=mirror.scope,
+        item_id=mirror.item_id,
+        # The reply hangs off the mirrored thread's root comment (None only for whole-item mirrors).
+        source_comment_id=mirror.source_comment_id,
+        content=content,
+        rich_content=rich_content,
+        # Slack users without a verified PostHog account stay author-less; their display
+        # identity rides in item_context (name + avatar only — no email or Slack user id,
+        # which would leak external participants' PII through the comments API).
+        created_by=posthog_user,
+        item_context={
+            "from_slack": True,
+            SLACK_MESSAGE_TS_KEY: message_ts,
+            "slack_author_name": user_info["name"],
+            "slack_author_avatar": user_info.get("avatar"),
+        },
+    )
+    logger.info(
+        "slack_discussion_reply_ingested",
+        team_id=team.id,
+        scope=mirror.scope,
+        item_id=mirror.item_id,
+        comment_slack_thread_id=comment_slack_thread_id,
+    )
 
 
 @shared_task(ignore_result=True)

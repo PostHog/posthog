@@ -42,8 +42,11 @@ logger = structlog.get_logger(__name__)
 STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
 
 # item_context keys the Slack mirror sync stamps server-side. Stripped from client input so a
-# caller can't forge sync state (suppress mirroring of a reply, or spoof Slack attribution).
-RESERVED_ITEM_CONTEXT_KEYS = frozenset({"from_slack", "slack_synced_ts"})
+# caller can't forge sync state (suppress mirroring of a reply, block ingestion of a real Slack
+# message by squatting on its ts, or spoof a Slack author identity in the discussion UI).
+RESERVED_ITEM_CONTEXT_KEYS = frozenset(
+    {"from_slack", "slack_synced_ts", "slack_message_ts", "slack_author_name", "slack_author_avatar"}
+)
 
 
 def _release_slack_reservation(slack_thread: "CommentSlackThread") -> None:

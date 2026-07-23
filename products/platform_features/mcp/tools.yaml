@@ -321,6 +321,9 @@ tools:
     comments-reopen-create:
         operation: comments_reopen_create
         enabled: false
+    comments-send-to-slack-create:
+        operation: comments_send_to_slack_create
+        enabled: false
     comments-update:
         operation: comments_update
         enabled: false
