@@ -562,18 +562,22 @@ export interface RecurringSurveyScheduleInfo {
  * A recurring survey ("Repeat on a schedule") auto-closes once its final iteration window has passed.
  * The last iteration starts on `start_date + (count - 1) * frequency` days and lasts `frequency` more days,
  * so the survey runs for `count * frequency` days total and closes at the end of that span.
- * Mirrors the backend logic in posthog/tasks/update_survey_iteration.py.
+ * Mirrors the backend logic in posthog/tasks/update_survey_iteration.py, which computes iteration windows
+ * on the UTC calendar day — so we do the arithmetic in UTC too.
+ *
+ * Returns null once the survey has already ended: it then shows its real end date, so a projected one would
+ * only contradict it.
  */
 export function getRecurringSurveyScheduleInfo(
-    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date'>
+    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
 ): RecurringSurveyScheduleInfo | null {
     const count = survey.iteration_count
     const frequency = survey.iteration_frequency_days
-    if (!count || !frequency || count < 1 || frequency < 1) {
+    if (survey.end_date || !count || !frequency || count < 1 || frequency < 1) {
         return null
     }
     const totalDurationDays = count * frequency
-    const autoCloseDate = survey.start_date ? dayjs(survey.start_date).add(totalDurationDays, 'day') : null
+    const autoCloseDate = survey.start_date ? dayjs.utc(survey.start_date).add(totalDurationDays, 'day') : null
     return { totalDurationDays, autoCloseDate }
 }
 

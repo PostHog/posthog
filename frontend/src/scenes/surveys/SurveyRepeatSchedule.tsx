@@ -93,7 +93,7 @@ function AlwaysScheduleBanner({
 function SurveyAutoCloseHelper({
     survey,
 }: {
-    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date'>
+    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
 }): JSX.Element | null {
     const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
 
@@ -121,7 +121,8 @@ function SurveyAutoCloseHelper({
             ) : (
                 <span>
                     This survey will automatically close on{' '}
-                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, after its last repeat.
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, after its last
+                    repeat.
                 </span>
             )}
         </LemonBanner>

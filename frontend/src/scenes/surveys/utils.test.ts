@@ -1473,27 +1473,40 @@ describe('getRecurringSurveyScheduleInfo', () => {
             iteration_count: 2,
             iteration_frequency_days: 30,
             start_date: null,
+            end_date: null,
         })
         expect(info).not.toBeNull()
         expect(info?.totalDurationDays).toBe(60)
         expect(info?.autoCloseDate).toBeNull()
     })
 
-    it('computes the auto-close date from the start date', () => {
+    it('computes the auto-close date from the start date in UTC', () => {
         const info = getRecurringSurveyScheduleInfo({
             iteration_count: 2,
             iteration_frequency_days: 30,
-            start_date: '2026-01-01T00:00:00Z',
+            // Time-of-day near a UTC midnight boundary must not shift the calendar day the backend uses
+            start_date: '2026-01-01T01:00:00Z',
+            end_date: null,
         })
         // 2 iterations of 30 days -> closes 60 days after launch
         expect(info?.autoCloseDate?.format('YYYY-MM-DD')).toBe('2026-03-02')
     })
 
+    it('returns null once the survey has already ended', () => {
+        const info = getRecurringSurveyScheduleInfo({
+            iteration_count: 2,
+            iteration_frequency_days: 30,
+            start_date: '2026-01-01T00:00:00Z',
+            end_date: '2026-01-15T00:00:00Z',
+        })
+        expect(info).toBeNull()
+    })
+
     it.each([
-        ['zero count', { iteration_count: 0, iteration_frequency_days: 30, start_date: null }],
-        ['zero frequency', { iteration_count: 2, iteration_frequency_days: 0, start_date: null }],
-        ['null count', { iteration_count: null, iteration_frequency_days: 30, start_date: null }],
-        ['null frequency', { iteration_count: 2, iteration_frequency_days: null, start_date: null }],
+        ['zero count', { iteration_count: 0, iteration_frequency_days: 30, start_date: null, end_date: null }],
+        ['zero frequency', { iteration_count: 2, iteration_frequency_days: 0, start_date: null, end_date: null }],
+        ['null count', { iteration_count: null, iteration_frequency_days: 30, start_date: null, end_date: null }],
+        ['null frequency', { iteration_count: 2, iteration_frequency_days: null, start_date: null, end_date: null }],
     ])('returns null for %s', (_name, survey) => {
         expect(getRecurringSurveyScheduleInfo(survey)).toBeNull()
     })
