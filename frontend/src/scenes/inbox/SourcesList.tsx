@@ -242,7 +242,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!zendeskTicketsConfig?.enabled}
                 loading={isZendeskTicketsToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Zendesk')}
+                onToggle={() => initiateDataWarehouseSourceToggle('zendesk')}
             />
 
             <Source
@@ -253,7 +253,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!linearIssuesConfig?.enabled}
                 loading={isLinearIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Linear')}
+                onToggle={() => initiateDataWarehouseSourceToggle('linear')}
             />
 
             <Source
@@ -264,7 +264,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!githubIssuesConfig?.enabled}
                 loading={isGithubIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('Github')}
+                onToggle={() => initiateDataWarehouseSourceToggle('github')}
             />
 
             <Source
@@ -275,7 +275,7 @@ export function SourcesList(): JSX.Element {
                 checked={!!pgAnalyzeIssuesConfig?.enabled}
                 loading={isPgAnalyzeIssuesToggling}
                 requiresSetup
-                onToggle={() => initiateDataWarehouseSourceToggle('PgAnalyze')}
+                onToggle={() => initiateDataWarehouseSourceToggle('pganalyze')}
             />
 
             <Source

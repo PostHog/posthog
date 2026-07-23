@@ -13780,6 +13780,38 @@ export namespace Schemas {
       readonly value: string;
     }
 
+    /**
+     * * `running` - RUNNING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED
+     */
+    export type SyncStatusEnum = typeof SyncStatusEnum[keyof typeof SyncStatusEnum];
+
+
+    export const SyncStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface CISignalsConfig {
+      /** Whether this project has ever configured CI signals. */
+      configured: boolean;
+      /** Whether every CI signal detector is enabled. */
+      enabled: boolean;
+      /** Aggregate sync status for pull requests, workflow runs, and workflow jobs.
+       *
+       * * `running` - RUNNING
+       * * `completed` - COMPLETED
+       * * `failed` - FAILED */
+      sync_status: SyncStatusEnum | null;
+    }
+
+    export interface CISignalsConfigUpdate {
+      /** Enable or disable every CI signal detector atomically. */
+      enabled: boolean;
+    }
+
     export interface CIStatusRollup {
       /** Distinct workflows run on the PR's head SHA. */
       runs: number;
@@ -14372,22 +14404,6 @@ export namespace Schemas {
       /** Whether the schema name is free within the organization's warehouse */
       available: boolean;
     }
-
-    /**
-     * * `new` - new
-     * * `rate_shift` - rate_shift
-     * * `gone` - gone
-     * * `unchanged` - unchanged
-     */
-    export type ClassificationEnum = typeof ClassificationEnum[keyof typeof ClassificationEnum];
-
-
-    export const ClassificationEnum = {
-      New: 'new',
-      RateShift: 'rate_shift',
-      Gone: 'gone',
-      Unchanged: 'unchanged',
-    } as const;
 
     /**
      * * `abandoned` - Abandoned
@@ -16518,8 +16534,8 @@ export namespace Schemas {
     }
 
     /**
-     * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
-     * pipeline, never through the API.
+     * One person- or group-property sync or backfill run. Read-only: runs are created by the
+     * sync/backfill pipeline, never through the API.
      */
     export interface CustomPropertySyncRun {
       readonly id: string;
@@ -16541,11 +16557,11 @@ export namespace Schemas {
       readonly rows_read: number;
       /** Rows whose mapped values changed since the last run. */
       readonly changed: number;
-      /** Person profiles updated (changed rows that matched an existing person). */
+      /** Person or group profiles updated (changed rows that matched an existing person/group). */
       readonly existing: number;
       /** Property-update intents produced to the ingestion pipeline. */
       readonly produced: number;
-      /** Changed rows dropped because no existing person matched the distinct id. */
+      /** Changed rows dropped because no existing person/group matched the key column value. */
       readonly skipped_missing_person: number;
       /**
          * Error summary if the run failed, else null.
@@ -16557,8 +16573,9 @@ export namespace Schemas {
     }
 
     /**
-     * Binds a materialized data-warehouse view column to a custom property definition; the view's
-     * values are synced onto matching accounts on each materialization.
+     * Binds a data-warehouse source to a custom property definition. Account sources read a
+     * materialized view column and sync onto matching accounts; person and group sources read a
+     * warehouse schema and sync onto matching persons or groups on each warehouse sync.
      */
     export interface CustomPropertySource {
       readonly id: string;
@@ -16570,7 +16587,7 @@ export namespace Schemas {
          */
       saved_query?: string | null;
       /**
-         * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+         * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
          * @nullable
          */
       external_data_schema?: string | null;
@@ -16580,10 +16597,10 @@ export namespace Schemas {
          * @nullable
          */
       source_column?: string | null;
-      /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+      /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
       /**
-         * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
+         * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
          */
       key_column: string;
@@ -16607,16 +16624,16 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       /**
-         * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+         * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
          * @nullable
          */
       readonly sync_frequency_interval_seconds: number | null;
       /**
-         * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+         * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
          * @nullable
          */
       readonly next_sync_at: string | null;
-      /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+      /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
       readonly latest_run: CustomPropertySyncRun | null;
     }
 
@@ -16728,7 +16745,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Response of the person-property sync/backfill trigger actions.
+     * Response of the person/group-property sync/backfill trigger actions.
      */
     export interface CustomPropertySyncTriggerResponse {
       /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
@@ -31524,31 +31541,49 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    /**
+     * * `confirmed_flake` - CONFIRMED_FLAKE
+     * * `suspected_regression` - SUSPECTED_REGRESSION
+     * * `quarantined` - QUARANTINED
+     */
+    export type FlakyTestItemClassificationEnum = typeof FlakyTestItemClassificationEnum[keyof typeof FlakyTestItemClassificationEnum];
+
+
+    export const FlakyTestItemClassificationEnum = {
+      ConfirmedFlake: 'confirmed_flake',
+      SuspectedRegression: 'suspected_regression',
+      Quarantined: 'quarantined',
+    } as const;
+
     export interface FlakyTestItem {
       /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
       nodeid: string;
       /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
       selector: string;
-      /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
-      rerun_passed_count: number;
-      /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */
-      failed_count: number;
-      /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
+      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+       *
+       * * `confirmed_flake` - CONFIRMED_FLAKE
+       * * `suspected_regression` - SUSPECTED_REGRESSION
+       * * `quarantined` - QUARANTINED */
+      classification: FlakyTestItemClassificationEnum;
+      /** Runs where one commit both failed and passed the test: a 'Re-run failed jobs' attempt went green on the same commit, or an in-job pytest retry (tests hand-marked @pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit and never counts. */
+      same_commit_recovery_run_count: number;
+      /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
+      failed_run_count: number;
+      /** Distinct pull requests among the failed runs. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_run_count). */
       failed_pr_count: number;
-      /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
-      master_failed_count: number;
-      /** Distinct git branches across all of the test's flaky-signal spans in the window. */
-      branch_count: number;
-      /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
-      xfailed_count: number;
-      /** Most recent flaky-signal span for this test in the window. */
-      last_seen_at: string;
+      /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
+      master_failed_run_count: number;
+      /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+      quarantined_failed_run_count: number;
+      /** Most recent failure, recovery, or xfail run for this test in the window. */
+      last_signal_at: string;
     }
 
     export interface FlakyTestList {
-      /** Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`. */
+      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
       items: FlakyTestItem[];
-      /** True when more tests qualified than the cap; `items` is the strongest `limit` rows. */
+      /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
       truncated: boolean;
       /** Maximum number of tests returned in `items`. */
       limit: number;
@@ -32396,6 +32431,13 @@ export namespace Schemas {
          * @nullable
          */
       median_viewport_height: number | null;
+    }
+
+    export interface HeatmapPrewarmRequest {
+      /** Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed. */
+      url: string;
+      /** When true, ask the headless browser to dismiss cookie/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused. */
+      block_consent_modals?: boolean;
     }
 
     export interface HeatmapResponseItem {
@@ -36692,6 +36734,10 @@ export namespace Schemas {
       path: string;
       /** @maxLength 100 */
       content_type?: string;
+      /** Number of lines in the file content. */
+      line_count: number;
+      /** Number of characters in the file content. */
+      char_count: number;
     }
 
     export interface LLMSkillOutlineEntry {
@@ -36742,7 +36788,7 @@ export namespace Schemas {
       metadata?: LLMSkillMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
-      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
@@ -37044,6 +37090,65 @@ export namespace Schemas {
       skill: LLMSkill;
       versions: LLMSkillVersionSummary[];
       has_more: boolean;
+    }
+
+    export interface LLMSkillSearchError {
+      /** Explanation of why the skill search could not complete. */
+      detail: string;
+    }
+
+    /**
+     * * `name` - name
+     * * `description` - description
+     * * `body` - body
+     * * `file_path` - file_path
+     * * `file_content` - file_content
+     */
+    export type MatchedFieldEnum = typeof MatchedFieldEnum[keyof typeof MatchedFieldEnum];
+
+
+    export const MatchedFieldEnum = {
+      Name: 'name',
+      Description: 'description',
+      Body: 'body',
+      FilePath: 'file_path',
+      FileContent: 'file_content',
+    } as const;
+
+    export interface LLMSkillSearchMatch {
+      /** Skill field that matched the search query.
+       *
+       * * `name` - name
+       * * `description` - description
+       * * `body` - body
+       * * `file_path` - file_path
+       * * `file_content` - file_content */
+      matched_field: MatchedFieldEnum;
+      /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
+      path?: string;
+      /**
+         * One-based line containing the match when the result came from a body or bundled file.
+         * @minimum 1
+         */
+      line?: number;
+      /** Short excerpt showing why this skill matched. */
+      excerpt: string;
+    }
+
+    export interface LLMSkillSearchResult {
+      /** Unique skill name. */
+      name: string;
+      /** What this skill does and when to use it. */
+      description: string;
+      /** Up to two locations that matched the search query, ordered by field relevance. */
+      matches: LLMSkillSearchMatch[];
+    }
+
+    export interface LLMSkillSearchResponse {
+      /** Number of matching skills returned, capped at 10. */
+      count: number;
+      /** Matching ordinary skills in relevance order. */
+      results: LLMSkillSearchResult[];
     }
 
     export interface LLMTaggerConfig {
@@ -51809,6 +51914,25 @@ export namespace Schemas {
       summary?: string;
     }
 
+    export interface SignalScoutSlackDestination {
+      /**
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+         * @maxLength 255
+         * @nullable
+         */
+      channel?: string | null;
+    }
+
+    export interface SignalScoutOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+    }
+
     /**
      * Editable schedule, enablement, and emit posture for one scout config.
      */
@@ -51829,6 +51953,8 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
+      output_destinations?: SignalScoutOutputDestinations;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -60127,6 +60253,16 @@ export namespace Schemas {
       reference: RoleExternalReference | null;
     }
 
+    /**
+     * Async-accepted response for POST /vision/actions/{id}/run/.
+     */
+    export interface RunActionResponse {
+      /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+      workflow_id: string;
+      /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+      already_running: boolean;
+    }
+
     export interface RunFailureLogs {
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
@@ -60674,6 +60810,54 @@ export namespace Schemas {
       banner_message: string | null;
       /** The team's enforced scout run caps and current usage. */
       limits: ScoutLimits;
+    }
+
+    /**
+     * `SignalScoutNote` projection used by `notes-list` and `notes-create`.
+     */
+    export interface ScoutNote {
+      /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
+      id: string;
+      /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+      skill_name: string;
+      /** The note's prose, read verbatim by scout runs. */
+      content: string;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 expiry, or null for a note that stays active until deleted.
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * Display name of the user who left the note, or null when unavailable.
+         * @nullable
+         */
+      created_by_name: string | null;
+    }
+
+    /**
+     * Request body for `notes-create`.
+     */
+    export interface ScoutNoteCreateRequest {
+      /**
+         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+         * @maxLength 10000
+         */
+      content: string;
+      /**
+         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+         * @maxLength 200
+         */
+      skill_name?: string;
+      /**
+         * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted.
+         * @nullable
+         */
+      expires_at?: string | null;
     }
 
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
@@ -61283,7 +61467,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+     * Read shape for a per-(team, skill) scout config.
      *
      * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
      * when it discovers a scout skill; this serializer lets agents tune the row.
@@ -61311,6 +61495,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly run_cron_schedule: string | null;
+      /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+      readonly output_destinations: SignalScoutOutputDestinations;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -61341,6 +61527,8 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -61424,8 +61612,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -61491,8 +61686,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -68282,11 +68484,11 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest selector; exact when the CI reporter emitted it. */
       selector: string;
-      /** Failed + error + pass-on-retry spans in the current window (xfail excluded). */
+      /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent signal span for this test, either window. */
+      /** Most recent failure, recovery, or xfail run for this test, either window. */
       last_seen_at: string;
     }
 
@@ -68302,23 +68504,27 @@ export namespace Schemas {
     export interface TeamCIHealthItem {
       /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
       owner_team: string;
-      /** Owned tests meeting the flaky-leaderboard bar in the window (passed on retry or failed on enough distinct PRs). Compare with flaky_test_count_prior for the delta. */
+      /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
       flaky_test_count: number;
       /** Same count over the equal-length window immediately before date_from. */
       flaky_test_count_prior: number;
-      /** Signal spans on owned tests with final outcome 'failed' or 'error' in the window. An absolute count, not a rate: fast passing runs are not emitted. */
-      failed_count: number;
+      /** Owned tests that failed with no recorded same-commit recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
+      regression_test_count: number;
       /** Same count over the prior window. */
-      failed_count_prior: number;
-      /** Spans on owned tests that failed, then passed on an automatic retry, the strongest flaky signal. Only rerun-enabled CI lanes emit it. */
-      rerun_passed_count: number;
+      regression_test_count_prior: number;
+      /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+      failed_run_count: number;
       /** Same count over the prior window. */
-      rerun_passed_count_prior: number;
-      /** Spans on owned tests that failed while quarantined (xfail): masked in CI but still flaky. */
-      xfailed_count: number;
+      failed_run_count_prior: number;
+      /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+      same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
-      xfailed_count_prior: number;
-      /** Most recent signal span across the team's owned tests, either window. */
+      same_commit_recovery_run_count_prior: number;
+      /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+      quarantined_failed_run_count: number;
+      /** Same count over the prior window. */
+      quarantined_failed_run_count_prior: number;
+      /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
       last_seen_at: string;
     }
 
@@ -69419,6 +69625,8 @@ export namespace Schemas {
       workflow_name: string;
       /** Total runs started in the window. */
       run_count: number;
+      successful_run_count: number;
+      conclusive_run_count: number;
       /**
          * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
          * @nullable
@@ -69449,6 +69657,10 @@ export namespace Schemas {
          * @nullable
          */
       latest_run_conclusion: string | null;
+      /** @nullable */
+      latest_run_id: number | null;
+      /** @nullable */
+      latest_run_attempt: number | null;
       /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
       granularity: string;
       /**
@@ -69468,6 +69680,7 @@ export namespace Schemas {
          * @nullable
          */
       success_rate_prev?: number | null;
+      percentile_run_count?: number;
     }
 
     export interface WorkflowJob {
@@ -69970,6 +70183,22 @@ export namespace Schemas {
       match_literal: string | null;
     }
 
+    /**
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged
+     */
+    export type _LogPatternDiffEntryClassificationEnum = typeof _LogPatternDiffEntryClassificationEnum[keyof typeof _LogPatternDiffEntryClassificationEnum];
+
+
+    export const _LogPatternDiffEntryClassificationEnum = {
+      New: 'new',
+      RateShift: 'rate_shift',
+      Gone: 'gone',
+      Unchanged: 'unchanged',
+    } as const;
+
     export interface _LogPatternDiffEntry {
       /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
        *
@@ -69977,7 +70206,7 @@ export namespace Schemas {
        * * `rate_shift` - rate_shift
        * * `gone` - gone
        * * `unchanged` - unchanged */
-      classification: ClassificationEnum;
+      classification: _LogPatternDiffEntryClassificationEnum;
       /**
          * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
          * @nullable
@@ -74223,13 +74452,9 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * A test with no recorded recovery qualifies once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3.
      */
     min_failed_prs?: number;
-    /**
-     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
-     */
-    min_rerun_passes?: number;
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
@@ -74482,13 +74707,9 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.
      */
     min_failed_prs?: number;
-    /**
-     * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
-     */
-    min_rerun_passes?: number;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -77645,6 +77866,15 @@ export namespace Schemas {
     version_id?: string;
     };
 
+    export type LlmSkillsSearchRetrieveParams = {
+    /**
+     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * @minLength 1
+     * @maxLength 200
+     */
+    query: string;
+    };
+
     export type LogsAlertsListParams = {
     /**
      * Only return log alerts created by the user with this UUID.
@@ -78550,18 +78780,6 @@ export namespace Schemas {
       Pending: 'pending',
     } as const;
 
-    export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat;
-    };
-
-    export type PersonsLifecycleRetrieveFormat = typeof PersonsLifecycleRetrieveFormat[keyof typeof PersonsLifecycleRetrieveFormat];
-
-
-    export const PersonsLifecycleRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
@@ -79136,6 +79354,41 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type SignalsScoutNotesListParams = {
+    /**
+     * Truncate each note's `content` to the first N characters (a preview). Omit for the full body — use this on wide scans so stacked notes can't dominate your context.
+     * @minimum 0
+     */
+    content_max_chars?: number;
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass the `created_at` of the oldest note from the prior page to walk back past the result cap.
+     */
+    date_to?: string;
+    /**
+     * Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.
+     */
+    include_expired?: boolean;
+    /**
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     */
+    include_general?: boolean;
+    /**
+     * Max rows to return (default 20, hard cap 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * @minLength 1
+     */
+    skill_name?: string;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
