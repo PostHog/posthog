@@ -72,6 +72,8 @@ from products.slack_app.backend.views import (
     slack_app_command_handler,
     slack_user_link_authorize,
     slack_user_link_callback,
+    telegram_connect_start,
+    telegram_link_start,
 )
 from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
@@ -665,6 +667,9 @@ urlpatterns = [
     # and likewise must precede `social_django.urls` for the same reason.
     path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
     path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
+    # Telegram linking has no OAuth callback — the bot's webhook redeems the codes.
+    path("telegram/link/start/", telegram_link_start, name="telegram_link_start"),
+    path("telegram/connect/start/", telegram_connect_start, name="telegram_connect_start"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
