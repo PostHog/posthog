@@ -1,80 +1,23 @@
 // AUTO-GENERATED from products/signals/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    SignalsReportArtefactsCreateBody,
-    SignalsReportArtefactsCreateParams,
-    SignalsReportArtefactsDestroyParams,
-    SignalsReportArtefactsListParams,
-    SignalsReportArtefactsListQueryParams,
-    SignalsReportArtefactsPartialUpdateBody,
-    SignalsReportArtefactsPartialUpdateParams,
-    SignalsReportArtefactsRetrieveParams,
-    SignalsReportsBulkStateCreateBody,
-    SignalsReportsListQueryParams,
-    SignalsReportsPartialUpdateBody,
-    SignalsReportsPartialUpdateParams,
-    SignalsReportsRetrieveParams,
-    SignalsReportsStateCreateBody,
-    SignalsReportsStateCreateParams,
-    SignalsScoutConfigCreateBody,
-    SignalsScoutConfigDestroyParams,
-    SignalsScoutConfigRunParams,
-    SignalsScoutConfigUpdateBody,
-    SignalsScoutConfigUpdateParams,
-    SignalsScoutEditReportBody,
-    SignalsScoutEditReportParams,
-    SignalsScoutEmitReportBody,
-    SignalsScoutEmitReportParams,
-    SignalsScoutEmitSignalBody,
-    SignalsScoutEmitSignalParams,
-    SignalsScoutMembersListQueryParams,
-    SignalsScoutProjectProfileGetQueryParams,
-    SignalsScoutRunsEmissionReportsParams,
-    SignalsScoutRunsEmissionsParams,
-    SignalsScoutRunsListQueryParams,
-    SignalsScoutRunsRecentEmissionsQueryParams,
-    SignalsScoutRunsRetrieveParams,
-    SignalsScoutScratchpadForgetBody,
-    SignalsScoutScratchpadRememberBody,
-    SignalsScoutScratchpadSearchQueryParams,
-    SignalsSourceConfigsCreateBody,
-    SignalsSourceConfigsListQueryParams,
-    SignalsSourceConfigsPartialUpdateBody,
-    SignalsSourceConfigsPartialUpdateParams,
-    SignalsSourceConfigsRetrieveParams,
-    SignalsSourceConfigsUpdateBody,
-    SignalsSourceConfigsUpdateParams,
-} from '@/generated/signals/api'
-import {
-    withPostHogUrl,
-    withAgentNote,
-    pickResponseFields,
-    type WithPostHogUrl,
-    type WithAgentNote,
-} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, withAgentNote, pickResponseFields, type WithPostHogUrl, type WithAgentNote } from '@/tools/tool-utils'
 
-const InboxReportArtefactsCreateSchema = SignalsReportArtefactsCreateParams.omit({ project_id: true }).extend(
-    SignalsReportArtefactsCreateBody.shape
-)
+import type { Schemas } from '@/api/generated'
 
-const inboxReportArtefactsCreate = (): ToolBase<
-    typeof InboxReportArtefactsCreateSchema,
-    WithPostHogUrl<Schemas.SignalReportArtefactWriteResponse>
-> => ({
+import { SignalsReportArtefactsCreateBody, SignalsReportArtefactsCreateParams, SignalsReportArtefactsDestroyParams, SignalsReportArtefactsListParams, SignalsReportArtefactsListQueryParams, SignalsReportArtefactsPartialUpdateBody, SignalsReportArtefactsPartialUpdateParams, SignalsReportArtefactsRetrieveParams, SignalsReportsBulkStateCreateBody, SignalsReportsListQueryParams, SignalsReportsPartialUpdateBody, SignalsReportsPartialUpdateParams, SignalsReportsRetrieveParams, SignalsReportsStateCreateBody, SignalsReportsStateCreateParams, SignalsScoutConfigCreateBody, SignalsScoutConfigDestroyParams, SignalsScoutConfigRunParams, SignalsScoutConfigUpdateBody, SignalsScoutConfigUpdateParams, SignalsScoutEditReportBody, SignalsScoutEditReportParams, SignalsScoutEmitReportBody, SignalsScoutEmitReportParams, SignalsScoutEmitSignalBody, SignalsScoutEmitSignalParams, SignalsScoutMembersListQueryParams, SignalsScoutProjectProfileGetQueryParams, SignalsScoutRunsEmissionReportsParams, SignalsScoutRunsEmissionsParams, SignalsScoutRunsListQueryParams, SignalsScoutRunsRecentEmissionsQueryParams, SignalsScoutRunsRetrieveParams, SignalsScoutScratchpadForgetBody, SignalsScoutScratchpadRememberBody, SignalsScoutScratchpadSearchQueryParams, SignalsSourceConfigsCreateBody, SignalsSourceConfigsListQueryParams, SignalsSourceConfigsPartialUpdateBody, SignalsSourceConfigsPartialUpdateParams, SignalsSourceConfigsRetrieveParams, SignalsSourceConfigsUpdateBody, SignalsSourceConfigsUpdateParams } from '@/generated/signals/api'
+
+const InboxReportArtefactsCreateSchema = SignalsReportArtefactsCreateParams.omit({ project_id: true }).extend(SignalsReportArtefactsCreateBody.shape)
+
+const inboxReportArtefactsCreate = (): ToolBase<typeof InboxReportArtefactsCreateSchema, WithPostHogUrl<Schemas.SignalReportArtefactWriteResponse>> => ({
     name: 'inbox-report-artefacts-create',
     schema: InboxReportArtefactsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.artefact_type !== undefined) {
-            body['artefact_type'] = params.artefact_type
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
+        if (params.artefact_type !== undefined) body["artefact_type"] = params.artefact_type
+        if (params.content !== undefined) body["content"] = params.content
         const result = await context.api.request<Schemas.SignalReportArtefactWriteResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/`,
@@ -99,14 +42,9 @@ const inboxReportArtefactsDelete = (): ToolBase<typeof InboxReportArtefactsDelet
     },
 })
 
-const InboxReportArtefactsListSchema = SignalsReportArtefactsListParams.omit({ project_id: true }).extend(
-    SignalsReportArtefactsListQueryParams.shape
-)
+const InboxReportArtefactsListSchema = SignalsReportArtefactsListParams.omit({ project_id: true }).extend(SignalsReportArtefactsListQueryParams.shape)
 
-const inboxReportArtefactsList = (): ToolBase<
-    typeof InboxReportArtefactsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>
-> => ({
+const inboxReportArtefactsList = (): ToolBase<typeof InboxReportArtefactsListSchema, WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>> => ({
     name: 'inbox-report-artefacts-list',
     schema: InboxReportArtefactsListSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsListSchema>) => {
@@ -125,10 +63,7 @@ const inboxReportArtefactsList = (): ToolBase<
 
 const InboxReportArtefactsRetrieveSchema = SignalsReportArtefactsRetrieveParams.omit({ project_id: true })
 
-const inboxReportArtefactsRetrieve = (): ToolBase<
-    typeof InboxReportArtefactsRetrieveSchema,
-    WithPostHogUrl<Schemas.SignalReportArtefact>
-> => ({
+const inboxReportArtefactsRetrieve = (): ToolBase<typeof InboxReportArtefactsRetrieveSchema, WithPostHogUrl<Schemas.SignalReportArtefact>> => ({
     name: 'inbox-report-artefacts-retrieve',
     schema: InboxReportArtefactsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsRetrieveSchema>) => {
@@ -141,22 +76,15 @@ const inboxReportArtefactsRetrieve = (): ToolBase<
     },
 })
 
-const InboxReportArtefactsUpdateSchema = SignalsReportArtefactsPartialUpdateParams.omit({ project_id: true }).extend(
-    SignalsReportArtefactsPartialUpdateBody.shape
-)
+const InboxReportArtefactsUpdateSchema = SignalsReportArtefactsPartialUpdateParams.omit({ project_id: true }).extend(SignalsReportArtefactsPartialUpdateBody.shape)
 
-const inboxReportArtefactsUpdate = (): ToolBase<
-    typeof InboxReportArtefactsUpdateSchema,
-    Schemas.SignalReportArtefactWriteResponse
-> => ({
+const inboxReportArtefactsUpdate = (): ToolBase<typeof InboxReportArtefactsUpdateSchema, Schemas.SignalReportArtefactWriteResponse> => ({
     name: 'inbox-report-artefacts-update',
     schema: InboxReportArtefactsUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
+        if (params.content !== undefined) body["content"] = params.content
         const result = await context.api.request<Schemas.SignalReportArtefactWriteResponse>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/${encodeURIComponent(String(params.id))}/`,
@@ -168,30 +96,17 @@ const inboxReportArtefactsUpdate = (): ToolBase<
 
 const InboxReportsBulkSetStateSchema = SignalsReportsBulkStateCreateBody
 
-const inboxReportsBulkSetState = (): ToolBase<
-    typeof InboxReportsBulkSetStateSchema,
-    Schemas.SignalReportBulkStateResponse
-> => ({
+const inboxReportsBulkSetState = (): ToolBase<typeof InboxReportsBulkSetStateSchema, Schemas.SignalReportBulkStateResponse> => ({
     name: 'inbox-reports-bulk-set-state',
     schema: InboxReportsBulkSetStateSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportsBulkSetStateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.state !== undefined) {
-            body['state'] = params.state
-        }
-        if (params.dismissal_reason !== undefined) {
-            body['dismissal_reason'] = params.dismissal_reason
-        }
-        if (params.dismissal_note !== undefined) {
-            body['dismissal_note'] = params.dismissal_note
-        }
-        if (params.snooze_for !== undefined) {
-            body['snooze_for'] = params.snooze_for
-        }
-        if (params.ids !== undefined) {
-            body['ids'] = params.ids
-        }
+        if (params.state !== undefined) body["state"] = params.state
+        if (params.dismissal_reason !== undefined) body["dismissal_reason"] = params.dismissal_reason
+        if (params.dismissal_note !== undefined) body["dismissal_note"] = params.dismissal_note
+        if (params.snooze_for !== undefined) body["snooze_for"] = params.snooze_for
+        if (params.ids !== undefined) body["ids"] = params.ids
         const result = await context.api.request<Schemas.SignalReportBulkStateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/bulk-state/`,
@@ -203,10 +118,7 @@ const inboxReportsBulkSetState = (): ToolBase<
 
 const InboxReportsListSchema = SignalsReportsListQueryParams
 
-const inboxReportsList = (): ToolBase<
-    typeof InboxReportsListSchema,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportList>>
-> => ({
+const inboxReportsList = (): ToolBase<typeof InboxReportsListSchema, WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportList>>> => ({
     name: 'inbox-reports-list',
     schema: InboxReportsListSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportsListSchema>) => {
@@ -229,51 +141,17 @@ const inboxReportsList = (): ToolBase<
                 task_id: params.task_id,
             },
         })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'title',
-                    'summary',
-                    'status',
-                    'priority',
-                    'actionability',
-                    'already_addressed',
-                    'dismissal_reason',
-                    'dismissal_note',
-                    'signal_count',
-                    'total_weight',
-                    'source_products',
-                    'is_suggested_reviewer',
-                    'implementation_pr_url',
-                    'created_at',
-                    'updated_at',
-                ])
-            ),
-        } as typeof result
-        return withAgentNote(
-            await withPostHogUrl(
-                context,
-                {
-                    ...filtered,
-                    results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
-                    ),
-                },
-                '/inbox'
-            ),
-            "If you do ANY work connected to one of these reports — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only session) ignore the association step entirely — artefact persistence is handled for you. Read the report's work log via inbox-report-artefacts-list before acting."
-        )
+        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'title', 'summary', 'status', 'priority', 'actionability', 'already_addressed', 'dismissal_reason', 'dismissal_note', 'signal_count', 'total_weight', 'source_products', 'is_suggested_reviewer', 'implementation_pr_url', 'created_at', 'updated_at'])) } as typeof result
+        return withAgentNote(await withPostHogUrl(context, {
+            ...filtered,
+            results: await Promise.all((filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))),
+        }, '/inbox'), "If you do ANY work connected to one of these reports — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only session) ignore the association step entirely — artefact persistence is handled for you. Read the report's work log via inbox-report-artefacts-list before acting.")
     },
 })
 
 const InboxReportsRetrieveSchema = SignalsReportsRetrieveParams.omit({ project_id: true })
 
-const inboxReportsRetrieve = (): ToolBase<
-    typeof InboxReportsRetrieveSchema,
-    WithAgentNote<WithPostHogUrl<Schemas.SignalReport>>
-> => ({
+const inboxReportsRetrieve = (): ToolBase<typeof InboxReportsRetrieveSchema, WithAgentNote<WithPostHogUrl<Schemas.SignalReport>>> => ({
     name: 'inbox-reports-retrieve',
     schema: InboxReportsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportsRetrieveSchema>) => {
@@ -282,16 +160,11 @@ const inboxReportsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/`,
         })
-        return withAgentNote(
-            await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "If you do ANY work connected to this report — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push via git_signed_commit are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and continue. Then log the work as artefacts as you go — notes, code references, and any commit you have already pushed to a remote branch outside git_signed_commit (signed pushes are recorded automatically; never record a commit that is not on a remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for you."
-        )
+        return withAgentNote(await withPostHogUrl(context, result, `/inbox/${result.id}`), "If you do ANY work connected to this report — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push via git_signed_commit are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and continue. Then log the work as artefacts as you go — notes, code references, and any commit you have already pushed to a remote branch outside git_signed_commit (signed pushes are recorded automatically; never record a commit that is not on a remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for you.")
     },
 })
 
-const InboxReportsSetStateSchema = SignalsReportsStateCreateParams.omit({ project_id: true }).extend(
-    SignalsReportsStateCreateBody.shape
-)
+const InboxReportsSetStateSchema = SignalsReportsStateCreateParams.omit({ project_id: true }).extend(SignalsReportsStateCreateBody.shape)
 
 const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, WithPostHogUrl<Schemas.SignalReport>> => ({
     name: 'inbox-reports-set-state',
@@ -299,18 +172,10 @@ const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, Wit
     handler: async (context: Context, params: z.infer<typeof InboxReportsSetStateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.state !== undefined) {
-            body['state'] = params.state
-        }
-        if (params.dismissal_reason !== undefined) {
-            body['dismissal_reason'] = params.dismissal_reason
-        }
-        if (params.dismissal_note !== undefined) {
-            body['dismissal_note'] = params.dismissal_note
-        }
-        if (params.snooze_for !== undefined) {
-            body['snooze_for'] = params.snooze_for
-        }
+        if (params.state !== undefined) body["state"] = params.state
+        if (params.dismissal_reason !== undefined) body["dismissal_reason"] = params.dismissal_reason
+        if (params.dismissal_note !== undefined) body["dismissal_note"] = params.dismissal_note
+        if (params.snooze_for !== undefined) body["snooze_for"] = params.snooze_for
         const result = await context.api.request<Schemas.SignalReport>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/state/`,
@@ -320,9 +185,7 @@ const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, Wit
     },
 })
 
-const InboxReportsUpdateSchema = SignalsReportsPartialUpdateParams.omit({ project_id: true }).extend(
-    SignalsReportsPartialUpdateBody.shape
-)
+const InboxReportsUpdateSchema = SignalsReportsPartialUpdateParams.omit({ project_id: true }).extend(SignalsReportsPartialUpdateBody.shape)
 
 const inboxReportsUpdate = (): ToolBase<typeof InboxReportsUpdateSchema, WithPostHogUrl<Schemas.SignalReport>> => ({
     name: 'inbox-reports-update',
@@ -330,12 +193,8 @@ const inboxReportsUpdate = (): ToolBase<typeof InboxReportsUpdateSchema, WithPos
     handler: async (context: Context, params: z.infer<typeof InboxReportsUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.summary !== undefined) {
-            body['summary'] = params.summary
-        }
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.summary !== undefined) body["summary"] = params.summary
         const result = await context.api.request<Schemas.SignalReport>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/`,
@@ -353,18 +212,10 @@ const inboxSourceConfigsCreate = (): ToolBase<typeof InboxSourceConfigsCreateSch
     handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.source_product !== undefined) {
-            body['source_product'] = params.source_product
-        }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
+        if (params.source_product !== undefined) body["source_product"] = params.source_product
+        if (params.source_type !== undefined) body["source_type"] = params.source_type
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.config !== undefined) body["config"] = params.config
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/`,
@@ -376,10 +227,7 @@ const inboxSourceConfigsCreate = (): ToolBase<typeof InboxSourceConfigsCreateSch
 
 const InboxSourceConfigsListSchema = SignalsSourceConfigsListQueryParams
 
-const inboxSourceConfigsList = (): ToolBase<
-    typeof InboxSourceConfigsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSignalSourceConfigList>
-> => ({
+const inboxSourceConfigsList = (): ToolBase<typeof InboxSourceConfigsListSchema, WithPostHogUrl<Schemas.PaginatedSignalSourceConfigList>> => ({
     name: 'inbox-source-configs-list',
     schema: InboxSourceConfigsListSchema,
     handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsListSchema>) => {
@@ -392,49 +240,23 @@ const inboxSourceConfigsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'source_product',
-                    'source_type',
-                    'enabled',
-                    'status',
-                    'created_at',
-                    'updated_at',
-                ])
-            ),
-        } as typeof result
+        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'source_product', 'source_type', 'enabled', 'status', 'created_at', 'updated_at'])) } as typeof result
         return await withPostHogUrl(context, filtered, '/inbox')
     },
 })
 
-const InboxSourceConfigsPartialUpdateSchema = SignalsSourceConfigsPartialUpdateParams.omit({ project_id: true }).extend(
-    SignalsSourceConfigsPartialUpdateBody.shape
-)
+const InboxSourceConfigsPartialUpdateSchema = SignalsSourceConfigsPartialUpdateParams.omit({ project_id: true }).extend(SignalsSourceConfigsPartialUpdateBody.shape)
 
-const inboxSourceConfigsPartialUpdate = (): ToolBase<
-    typeof InboxSourceConfigsPartialUpdateSchema,
-    Schemas.SignalSourceConfig
-> => ({
+const inboxSourceConfigsPartialUpdate = (): ToolBase<typeof InboxSourceConfigsPartialUpdateSchema, Schemas.SignalSourceConfig> => ({
     name: 'inbox-source-configs-partial-update',
     schema: InboxSourceConfigsPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.source_product !== undefined) {
-            body['source_product'] = params.source_product
-        }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
+        if (params.source_product !== undefined) body["source_product"] = params.source_product
+        if (params.source_type !== undefined) body["source_type"] = params.source_type
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.config !== undefined) body["config"] = params.config
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
@@ -446,10 +268,7 @@ const inboxSourceConfigsPartialUpdate = (): ToolBase<
 
 const InboxSourceConfigsRetrieveSchema = SignalsSourceConfigsRetrieveParams.omit({ project_id: true })
 
-const inboxSourceConfigsRetrieve = (): ToolBase<
-    typeof InboxSourceConfigsRetrieveSchema,
-    Schemas.SignalSourceConfig
-> => ({
+const inboxSourceConfigsRetrieve = (): ToolBase<typeof InboxSourceConfigsRetrieveSchema, Schemas.SignalSourceConfig> => ({
     name: 'inbox-source-configs-retrieve',
     schema: InboxSourceConfigsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsRetrieveSchema>) => {
@@ -462,9 +281,7 @@ const inboxSourceConfigsRetrieve = (): ToolBase<
     },
 })
 
-const InboxSourceConfigsUpdateSchema = SignalsSourceConfigsUpdateParams.omit({ project_id: true }).extend(
-    SignalsSourceConfigsUpdateBody.shape
-)
+const InboxSourceConfigsUpdateSchema = SignalsSourceConfigsUpdateParams.omit({ project_id: true }).extend(SignalsSourceConfigsUpdateBody.shape)
 
 const inboxSourceConfigsUpdate = (): ToolBase<typeof InboxSourceConfigsUpdateSchema, Schemas.SignalSourceConfig> => ({
     name: 'inbox-source-configs-update',
@@ -472,18 +289,10 @@ const inboxSourceConfigsUpdate = (): ToolBase<typeof InboxSourceConfigsUpdateSch
     handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.source_product !== undefined) {
-            body['source_product'] = params.source_product
-        }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
+        if (params.source_product !== undefined) body["source_product"] = params.source_product
+        if (params.source_type !== undefined) body["source_type"] = params.source_type
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.config !== undefined) body["config"] = params.config
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
@@ -501,24 +310,12 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
     handler: async (context: Context, params: z.infer<typeof ScoutConfigCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.skill_name !== undefined) {
-            body['skill_name'] = params.skill_name
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.emit !== undefined) {
-            body['emit'] = params.emit
-        }
-        if (params.run_interval_minutes !== undefined) {
-            body['run_interval_minutes'] = params.run_interval_minutes
-        }
-        if (params.output_destinations !== undefined) {
-            body['output_destinations'] = params.output_destinations
-        }
-        if (params.run_cron_schedule !== undefined) {
-            body['run_cron_schedule'] = params.run_cron_schedule
-        }
+        if (params.skill_name !== undefined) body["skill_name"] = params.skill_name
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.emit !== undefined) body["emit"] = params.emit
+        if (params.run_interval_minutes !== undefined) body["run_interval_minutes"] = params.run_interval_minutes
+        if (params.output_destinations !== undefined) body["output_destinations"] = params.output_destinations
+        if (params.run_cron_schedule !== undefined) body["run_cron_schedule"] = params.run_cron_schedule
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
@@ -549,7 +346,7 @@ const scoutConfigList = (): ToolBase<typeof ScoutConfigListSchema, WithPostHogUr
     name: 'scout-config-list',
     schema: ScoutConfigListSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ScoutConfigListSchema>) => {
+handler: async (context: Context, params: z.infer<typeof ScoutConfigListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'GET',
@@ -565,7 +362,7 @@ const scoutConfigSync = (): ToolBase<typeof ScoutConfigSyncSchema, WithPostHogUr
     name: 'scout-config-sync',
     schema: ScoutConfigSyncSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ScoutConfigSyncSchema>) => {
+handler: async (context: Context, params: z.infer<typeof ScoutConfigSyncSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'POST',
@@ -575,9 +372,7 @@ const scoutConfigSync = (): ToolBase<typeof ScoutConfigSyncSchema, WithPostHogUr
     },
 })
 
-const ScoutConfigUpdateSchema = SignalsScoutConfigUpdateParams.omit({ project_id: true }).extend(
-    SignalsScoutConfigUpdateBody.shape
-)
+const ScoutConfigUpdateSchema = SignalsScoutConfigUpdateParams.omit({ project_id: true }).extend(SignalsScoutConfigUpdateBody.shape)
 
 const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostHogUrl<Schemas.SignalScoutConfig>> => ({
     name: 'scout-config-update',
@@ -585,21 +380,11 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
     handler: async (context: Context, params: z.infer<typeof ScoutConfigUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.emit !== undefined) {
-            body['emit'] = params.emit
-        }
-        if (params.run_interval_minutes !== undefined) {
-            body['run_interval_minutes'] = params.run_interval_minutes
-        }
-        if (params.run_cron_schedule !== undefined) {
-            body['run_cron_schedule'] = params.run_cron_schedule
-        }
-        if (params.output_destinations !== undefined) {
-            body['output_destinations'] = params.output_destinations
-        }
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.emit !== undefined) body["emit"] = params.emit
+        if (params.run_interval_minutes !== undefined) body["run_interval_minutes"] = params.run_interval_minutes
+        if (params.run_cron_schedule !== undefined) body["run_cron_schedule"] = params.run_cron_schedule
+        if (params.output_destinations !== undefined) body["output_destinations"] = params.output_destinations
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -609,9 +394,7 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
     },
 })
 
-const ScoutEditReportSchema = SignalsScoutEditReportParams.omit({ project_id: true }).extend(
-    SignalsScoutEditReportBody.shape
-)
+const ScoutEditReportSchema = SignalsScoutEditReportParams.omit({ project_id: true }).extend(SignalsScoutEditReportBody.shape)
 
 const scoutEditReport = (): ToolBase<typeof ScoutEditReportSchema, Schemas.EditReportResponse> => ({
     name: 'scout-edit-report',
@@ -619,21 +402,11 @@ const scoutEditReport = (): ToolBase<typeof ScoutEditReportSchema, Schemas.EditR
     handler: async (context: Context, params: z.infer<typeof ScoutEditReportSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.report_id !== undefined) {
-            body['report_id'] = params.report_id
-        }
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.summary !== undefined) {
-            body['summary'] = params.summary
-        }
-        if (params.append_note !== undefined) {
-            body['append_note'] = params.append_note
-        }
-        if (params.suggested_reviewers !== undefined) {
-            body['suggested_reviewers'] = params.suggested_reviewers
-        }
+        if (params.report_id !== undefined) body["report_id"] = params.report_id
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.summary !== undefined) body["summary"] = params.summary
+        if (params.append_note !== undefined) body["append_note"] = params.append_note
+        if (params.suggested_reviewers !== undefined) body["suggested_reviewers"] = params.suggested_reviewers
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -643,9 +416,7 @@ const scoutEditReport = (): ToolBase<typeof ScoutEditReportSchema, Schemas.EditR
     },
 })
 
-const ScoutEmitReportSchema = SignalsScoutEmitReportParams.omit({ project_id: true }).extend(
-    SignalsScoutEmitReportBody.shape
-)
+const ScoutEmitReportSchema = SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
 
 const scoutEmitReport = (): ToolBase<typeof ScoutEmitReportSchema, Schemas.EmitReportResponse> => ({
     name: 'scout-emit-report',
@@ -653,36 +424,16 @@ const scoutEmitReport = (): ToolBase<typeof ScoutEmitReportSchema, Schemas.EmitR
     handler: async (context: Context, params: z.infer<typeof ScoutEmitReportSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.summary !== undefined) {
-            body['summary'] = params.summary
-        }
-        if (params.evidence !== undefined) {
-            body['evidence'] = params.evidence
-        }
-        if (params.actionability_explanation !== undefined) {
-            body['actionability_explanation'] = params.actionability_explanation
-        }
-        if (params.actionability !== undefined) {
-            body['actionability'] = params.actionability
-        }
-        if (params.already_addressed !== undefined) {
-            body['already_addressed'] = params.already_addressed
-        }
-        if (params.repository !== undefined) {
-            body['repository'] = params.repository
-        }
-        if (params.priority !== undefined) {
-            body['priority'] = params.priority
-        }
-        if (params.priority_explanation !== undefined) {
-            body['priority_explanation'] = params.priority_explanation
-        }
-        if (params.suggested_reviewers !== undefined) {
-            body['suggested_reviewers'] = params.suggested_reviewers
-        }
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.summary !== undefined) body["summary"] = params.summary
+        if (params.evidence !== undefined) body["evidence"] = params.evidence
+        if (params.actionability_explanation !== undefined) body["actionability_explanation"] = params.actionability_explanation
+        if (params.actionability !== undefined) body["actionability"] = params.actionability
+        if (params.already_addressed !== undefined) body["already_addressed"] = params.already_addressed
+        if (params.repository !== undefined) body["repository"] = params.repository
+        if (params.priority !== undefined) body["priority"] = params.priority
+        if (params.priority_explanation !== undefined) body["priority_explanation"] = params.priority_explanation
+        if (params.suggested_reviewers !== undefined) body["suggested_reviewers"] = params.suggested_reviewers
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-report/`,
@@ -692,9 +443,7 @@ const scoutEmitReport = (): ToolBase<typeof ScoutEmitReportSchema, Schemas.EmitR
     },
 })
 
-const ScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(
-    SignalsScoutEmitSignalBody.shape
-)
+const ScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(SignalsScoutEmitSignalBody.shape)
 
 const scoutEmitSignal = (): ToolBase<typeof ScoutEmitSignalSchema, Schemas.EmitFindingResponse> => ({
     name: 'scout-emit-signal',
@@ -702,36 +451,16 @@ const scoutEmitSignal = (): ToolBase<typeof ScoutEmitSignalSchema, Schemas.EmitF
     handler: async (context: Context, params: z.infer<typeof ScoutEmitSignalSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
-        }
-        if (params.evidence !== undefined) {
-            body['evidence'] = params.evidence
-        }
-        if (params.hypothesis !== undefined) {
-            body['hypothesis'] = params.hypothesis
-        }
-        if (params.severity !== undefined) {
-            body['severity'] = params.severity
-        }
-        if (params.dedupe_keys !== undefined) {
-            body['dedupe_keys'] = params.dedupe_keys
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.time_range !== undefined) {
-            body['time_range'] = params.time_range
-        }
-        if (params.mcp_trace_id !== undefined) {
-            body['mcp_trace_id'] = params.mcp_trace_id
-        }
-        if (params.finding_id !== undefined) {
-            body['finding_id'] = params.finding_id
-        }
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.confidence !== undefined) body["confidence"] = params.confidence
+        if (params.evidence !== undefined) body["evidence"] = params.evidence
+        if (params.hypothesis !== undefined) body["hypothesis"] = params.hypothesis
+        if (params.severity !== undefined) body["severity"] = params.severity
+        if (params.dedupe_keys !== undefined) body["dedupe_keys"] = params.dedupe_keys
+        if (params.tags !== undefined) body["tags"] = params.tags
+        if (params.time_range !== undefined) body["time_range"] = params.time_range
+        if (params.mcp_trace_id !== undefined) body["mcp_trace_id"] = params.mcp_trace_id
+        if (params.finding_id !== undefined) body["finding_id"] = params.finding_id
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
@@ -765,7 +494,7 @@ const scoutMetadataGet = (): ToolBase<typeof ScoutMetadataGetSchema, Schemas.Sco
     name: 'scout-metadata-get',
     schema: ScoutMetadataGetSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ScoutMetadataGetSchema>) => {
+handler: async (context: Context, params: z.infer<typeof ScoutMetadataGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutMetadata>({
             method: 'GET',
@@ -810,10 +539,7 @@ const scoutRunNow = (): ToolBase<typeof ScoutRunNowSchema, unknown> => ({
 
 const ScoutRunsEmissionReportsSchema = SignalsScoutRunsEmissionReportsParams.omit({ project_id: true })
 
-const scoutRunsEmissionReports = (): ToolBase<
-    typeof ScoutRunsEmissionReportsSchema,
-    WithPostHogUrl<Schemas.ScoutEmissionReportLink[]>
-> => ({
+const scoutRunsEmissionReports = (): ToolBase<typeof ScoutRunsEmissionReportsSchema, WithPostHogUrl<Schemas.ScoutEmissionReportLink[]>> => ({
     name: 'scout-runs-emission-reports',
     schema: ScoutRunsEmissionReportsSchema,
     handler: async (context: Context, params: z.infer<typeof ScoutRunsEmissionReportsSchema>) => {
@@ -828,10 +554,7 @@ const scoutRunsEmissionReports = (): ToolBase<
 
 const ScoutRunsEmissionsListSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
 
-const scoutRunsEmissionsList = (): ToolBase<
-    typeof ScoutRunsEmissionsListSchema,
-    WithPostHogUrl<Schemas.SignalScoutEmission[]>
-> => ({
+const scoutRunsEmissionsList = (): ToolBase<typeof ScoutRunsEmissionsListSchema, WithPostHogUrl<Schemas.SignalScoutEmission[]>> => ({
     name: 'scout-runs-emissions-list',
     schema: ScoutRunsEmissionsListSchema,
     handler: async (context: Context, params: z.infer<typeof ScoutRunsEmissionsListSchema>) => {
@@ -870,10 +593,7 @@ const scoutRunsList = (): ToolBase<typeof ScoutRunsListSchema, WithPostHogUrl<Sc
 
 const ScoutRunsRecentEmissionsSchema = SignalsScoutRunsRecentEmissionsQueryParams
 
-const scoutRunsRecentEmissions = (): ToolBase<
-    typeof ScoutRunsRecentEmissionsSchema,
-    WithPostHogUrl<Schemas.SignalScoutEmission[]>
-> => ({
+const scoutRunsRecentEmissions = (): ToolBase<typeof ScoutRunsRecentEmissionsSchema, WithPostHogUrl<Schemas.SignalScoutEmission[]>> => ({
     name: 'scout-runs-recent-emissions',
     schema: ScoutRunsRecentEmissionsSchema,
     handler: async (context: Context, params: z.infer<typeof ScoutRunsRecentEmissionsSchema>) => {
@@ -915,9 +635,7 @@ const scoutScratchpadForget = (): ToolBase<typeof ScoutScratchpadForgetSchema, S
     handler: async (context: Context, params: z.infer<typeof ScoutScratchpadForgetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
+        if (params.key !== undefined) body["key"] = params.key
         const result = await context.api.request<Schemas.ForgetResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/forget/`,
@@ -935,15 +653,9 @@ const scoutScratchpadRemember = (): ToolBase<typeof ScoutScratchpadRememberSchem
     handler: async (context: Context, params: z.infer<typeof ScoutScratchpadRememberSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.run_id !== undefined) {
-            body['run_id'] = params.run_id
-        }
+        if (params.key !== undefined) body["key"] = params.key
+        if (params.content !== undefined) body["content"] = params.content
+        if (params.run_id !== undefined) body["run_id"] = params.run_id
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -955,10 +667,7 @@ const scoutScratchpadRemember = (): ToolBase<typeof ScoutScratchpadRememberSchem
 
 const ScoutScratchpadSearchSchema = SignalsScoutScratchpadSearchQueryParams
 
-const scoutScratchpadSearch = (): ToolBase<
-    typeof ScoutScratchpadSearchSchema,
-    WithPostHogUrl<Schemas.ScratchpadEntry[]>
-> => ({
+const scoutScratchpadSearch = (): ToolBase<typeof ScoutScratchpadSearchSchema, WithPostHogUrl<Schemas.ScratchpadEntry[]>> => ({
     name: 'scout-scratchpad-search',
     schema: ScoutScratchpadSearchSchema,
     handler: async (context: Context, params: z.infer<typeof ScoutScratchpadSearchSchema>) => {
@@ -988,24 +697,12 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
     handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.skill_name !== undefined) {
-            body['skill_name'] = params.skill_name
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.emit !== undefined) {
-            body['emit'] = params.emit
-        }
-        if (params.run_interval_minutes !== undefined) {
-            body['run_interval_minutes'] = params.run_interval_minutes
-        }
-        if (params.output_destinations !== undefined) {
-            body['output_destinations'] = params.output_destinations
-        }
-        if (params.run_cron_schedule !== undefined) {
-            body['run_cron_schedule'] = params.run_cron_schedule
-        }
+        if (params.skill_name !== undefined) body["skill_name"] = params.skill_name
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.emit !== undefined) body["emit"] = params.emit
+        if (params.run_interval_minutes !== undefined) body["run_interval_minutes"] = params.run_interval_minutes
+        if (params.output_destinations !== undefined) body["output_destinations"] = params.output_destinations
+        if (params.run_cron_schedule !== undefined) body["run_cron_schedule"] = params.run_cron_schedule
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
@@ -1032,14 +729,11 @@ const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSch
 
 const SignalsScoutConfigListSchema = z.object({})
 
-const signalsScoutConfigList = (): ToolBase<
-    typeof SignalsScoutConfigListSchema,
-    WithPostHogUrl<Schemas.SignalScoutConfig[]>
-> => ({
+const signalsScoutConfigList = (): ToolBase<typeof SignalsScoutConfigListSchema, WithPostHogUrl<Schemas.SignalScoutConfig[]>> => ({
     name: 'signals-scout-config-list',
     schema: SignalsScoutConfigListSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigListSchema>) => {
+handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'GET',
@@ -1051,14 +745,11 @@ const signalsScoutConfigList = (): ToolBase<
 
 const SignalsScoutConfigSyncSchema = z.object({})
 
-const signalsScoutConfigSync = (): ToolBase<
-    typeof SignalsScoutConfigSyncSchema,
-    WithPostHogUrl<Schemas.SignalScoutConfig[]>
-> => ({
+const signalsScoutConfigSync = (): ToolBase<typeof SignalsScoutConfigSyncSchema, WithPostHogUrl<Schemas.SignalScoutConfig[]>> => ({
     name: 'signals-scout-config-sync',
     schema: SignalsScoutConfigSyncSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigSyncSchema>) => {
+handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigSyncSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'POST',
@@ -1068,34 +759,19 @@ const signalsScoutConfigSync = (): ToolBase<
     },
 })
 
-const SignalsScoutConfigUpdateSchema = SignalsScoutConfigUpdateParams.omit({ project_id: true }).extend(
-    SignalsScoutConfigUpdateBody.shape
-)
+const SignalsScoutConfigUpdateSchema = SignalsScoutConfigUpdateParams.omit({ project_id: true }).extend(SignalsScoutConfigUpdateBody.shape)
 
-const signalsScoutConfigUpdate = (): ToolBase<
-    typeof SignalsScoutConfigUpdateSchema,
-    WithPostHogUrl<Schemas.SignalScoutConfig>
-> => ({
+const signalsScoutConfigUpdate = (): ToolBase<typeof SignalsScoutConfigUpdateSchema, WithPostHogUrl<Schemas.SignalScoutConfig>> => ({
     name: 'signals-scout-config-update',
     schema: SignalsScoutConfigUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.emit !== undefined) {
-            body['emit'] = params.emit
-        }
-        if (params.run_interval_minutes !== undefined) {
-            body['run_interval_minutes'] = params.run_interval_minutes
-        }
-        if (params.run_cron_schedule !== undefined) {
-            body['run_cron_schedule'] = params.run_cron_schedule
-        }
-        if (params.output_destinations !== undefined) {
-            body['output_destinations'] = params.output_destinations
-        }
+        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.emit !== undefined) body["emit"] = params.emit
+        if (params.run_interval_minutes !== undefined) body["run_interval_minutes"] = params.run_interval_minutes
+        if (params.run_cron_schedule !== undefined) body["run_cron_schedule"] = params.run_cron_schedule
+        if (params.output_destinations !== undefined) body["output_destinations"] = params.output_destinations
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1105,9 +781,7 @@ const signalsScoutConfigUpdate = (): ToolBase<
     },
 })
 
-const SignalsScoutEditReportSchema = SignalsScoutEditReportParams.omit({ project_id: true }).extend(
-    SignalsScoutEditReportBody.shape
-)
+const SignalsScoutEditReportSchema = SignalsScoutEditReportParams.omit({ project_id: true }).extend(SignalsScoutEditReportBody.shape)
 
 const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema, Schemas.EditReportResponse> => ({
     name: 'signals-scout-edit-report',
@@ -1115,21 +789,11 @@ const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutEditReportSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.report_id !== undefined) {
-            body['report_id'] = params.report_id
-        }
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.summary !== undefined) {
-            body['summary'] = params.summary
-        }
-        if (params.append_note !== undefined) {
-            body['append_note'] = params.append_note
-        }
-        if (params.suggested_reviewers !== undefined) {
-            body['suggested_reviewers'] = params.suggested_reviewers
-        }
+        if (params.report_id !== undefined) body["report_id"] = params.report_id
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.summary !== undefined) body["summary"] = params.summary
+        if (params.append_note !== undefined) body["append_note"] = params.append_note
+        if (params.suggested_reviewers !== undefined) body["suggested_reviewers"] = params.suggested_reviewers
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -1139,9 +803,7 @@ const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema,
     },
 })
 
-const SignalsScoutEmitReportSchema = SignalsScoutEmitReportParams.omit({ project_id: true }).extend(
-    SignalsScoutEmitReportBody.shape
-)
+const SignalsScoutEmitReportSchema = SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
 
 const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema, Schemas.EmitReportResponse> => ({
     name: 'signals-scout-emit-report',
@@ -1149,36 +811,16 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutEmitReportSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.summary !== undefined) {
-            body['summary'] = params.summary
-        }
-        if (params.evidence !== undefined) {
-            body['evidence'] = params.evidence
-        }
-        if (params.actionability_explanation !== undefined) {
-            body['actionability_explanation'] = params.actionability_explanation
-        }
-        if (params.actionability !== undefined) {
-            body['actionability'] = params.actionability
-        }
-        if (params.already_addressed !== undefined) {
-            body['already_addressed'] = params.already_addressed
-        }
-        if (params.repository !== undefined) {
-            body['repository'] = params.repository
-        }
-        if (params.priority !== undefined) {
-            body['priority'] = params.priority
-        }
-        if (params.priority_explanation !== undefined) {
-            body['priority_explanation'] = params.priority_explanation
-        }
-        if (params.suggested_reviewers !== undefined) {
-            body['suggested_reviewers'] = params.suggested_reviewers
-        }
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.summary !== undefined) body["summary"] = params.summary
+        if (params.evidence !== undefined) body["evidence"] = params.evidence
+        if (params.actionability_explanation !== undefined) body["actionability_explanation"] = params.actionability_explanation
+        if (params.actionability !== undefined) body["actionability"] = params.actionability
+        if (params.already_addressed !== undefined) body["already_addressed"] = params.already_addressed
+        if (params.repository !== undefined) body["repository"] = params.repository
+        if (params.priority !== undefined) body["priority"] = params.priority
+        if (params.priority_explanation !== undefined) body["priority_explanation"] = params.priority_explanation
+        if (params.suggested_reviewers !== undefined) body["suggested_reviewers"] = params.suggested_reviewers
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-report/`,
@@ -1188,9 +830,7 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
     },
 })
 
-const SignalsScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(
-    SignalsScoutEmitSignalBody.shape
-)
+const SignalsScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(SignalsScoutEmitSignalBody.shape)
 
 const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema, Schemas.EmitFindingResponse> => ({
     name: 'signals-scout-emit-signal',
@@ -1198,36 +838,16 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutEmitSignalSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
-        }
-        if (params.evidence !== undefined) {
-            body['evidence'] = params.evidence
-        }
-        if (params.hypothesis !== undefined) {
-            body['hypothesis'] = params.hypothesis
-        }
-        if (params.severity !== undefined) {
-            body['severity'] = params.severity
-        }
-        if (params.dedupe_keys !== undefined) {
-            body['dedupe_keys'] = params.dedupe_keys
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.time_range !== undefined) {
-            body['time_range'] = params.time_range
-        }
-        if (params.mcp_trace_id !== undefined) {
-            body['mcp_trace_id'] = params.mcp_trace_id
-        }
-        if (params.finding_id !== undefined) {
-            body['finding_id'] = params.finding_id
-        }
+        if (params.description !== undefined) body["description"] = params.description
+        if (params.confidence !== undefined) body["confidence"] = params.confidence
+        if (params.evidence !== undefined) body["evidence"] = params.evidence
+        if (params.hypothesis !== undefined) body["hypothesis"] = params.hypothesis
+        if (params.severity !== undefined) body["severity"] = params.severity
+        if (params.dedupe_keys !== undefined) body["dedupe_keys"] = params.dedupe_keys
+        if (params.tags !== undefined) body["tags"] = params.tags
+        if (params.time_range !== undefined) body["time_range"] = params.time_range
+        if (params.mcp_trace_id !== undefined) body["mcp_trace_id"] = params.mcp_trace_id
+        if (params.finding_id !== undefined) body["finding_id"] = params.finding_id
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
@@ -1239,10 +859,7 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
 
 const SignalsScoutMembersListSchema = SignalsScoutMembersListQueryParams
 
-const signalsScoutMembersList = (): ToolBase<
-    typeof SignalsScoutMembersListSchema,
-    WithPostHogUrl<Schemas.ScoutMember[]>
-> => ({
+const signalsScoutMembersList = (): ToolBase<typeof SignalsScoutMembersListSchema, WithPostHogUrl<Schemas.ScoutMember[]>> => ({
     name: 'signals-scout-members-list',
     schema: SignalsScoutMembersListSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutMembersListSchema>) => {
@@ -1260,10 +877,7 @@ const signalsScoutMembersList = (): ToolBase<
 
 const SignalsScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
 
-const signalsScoutProjectProfileGet = (): ToolBase<
-    typeof SignalsScoutProjectProfileGetSchema,
-    Schemas.ProjectProfile
-> => ({
+const signalsScoutProjectProfileGet = (): ToolBase<typeof SignalsScoutProjectProfileGetSchema, Schemas.ProjectProfile> => ({
     name: 'signals-scout-project-profile-get',
     schema: SignalsScoutProjectProfileGetSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutProjectProfileGetSchema>) => {
@@ -1296,10 +910,7 @@ const signalsScoutRunNow = (): ToolBase<typeof SignalsScoutRunNowSchema, unknown
 
 const SignalsScoutRunsEmissionReportsSchema = SignalsScoutRunsEmissionReportsParams.omit({ project_id: true })
 
-const signalsScoutRunsEmissionReports = (): ToolBase<
-    typeof SignalsScoutRunsEmissionReportsSchema,
-    WithPostHogUrl<Schemas.ScoutEmissionReportLink[]>
-> => ({
+const signalsScoutRunsEmissionReports = (): ToolBase<typeof SignalsScoutRunsEmissionReportsSchema, WithPostHogUrl<Schemas.ScoutEmissionReportLink[]>> => ({
     name: 'signals-scout-runs-emission-reports',
     schema: SignalsScoutRunsEmissionReportsSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionReportsSchema>) => {
@@ -1314,10 +925,7 @@ const signalsScoutRunsEmissionReports = (): ToolBase<
 
 const SignalsScoutRunsEmissionsListSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
 
-const signalsScoutRunsEmissionsList = (): ToolBase<
-    typeof SignalsScoutRunsEmissionsListSchema,
-    WithPostHogUrl<Schemas.SignalScoutEmission[]>
-> => ({
+const signalsScoutRunsEmissionsList = (): ToolBase<typeof SignalsScoutRunsEmissionsListSchema, WithPostHogUrl<Schemas.SignalScoutEmission[]>> => ({
     name: 'signals-scout-runs-emissions-list',
     schema: SignalsScoutRunsEmissionsListSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionsListSchema>) => {
@@ -1332,10 +940,7 @@ const signalsScoutRunsEmissionsList = (): ToolBase<
 
 const SignalsScoutRunsListSchema = SignalsScoutRunsListQueryParams
 
-const signalsScoutRunsList = (): ToolBase<
-    typeof SignalsScoutRunsListSchema,
-    WithPostHogUrl<Schemas.SignalScoutRunSummary[]>
-> => ({
+const signalsScoutRunsList = (): ToolBase<typeof SignalsScoutRunsListSchema, WithPostHogUrl<Schemas.SignalScoutRunSummary[]>> => ({
     name: 'signals-scout-runs-list',
     schema: SignalsScoutRunsListSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsListSchema>) => {
@@ -1359,10 +964,7 @@ const signalsScoutRunsList = (): ToolBase<
 
 const SignalsScoutRunsRecentEmissionsSchema = SignalsScoutRunsRecentEmissionsQueryParams
 
-const signalsScoutRunsRecentEmissions = (): ToolBase<
-    typeof SignalsScoutRunsRecentEmissionsSchema,
-    WithPostHogUrl<Schemas.SignalScoutEmission[]>
-> => ({
+const signalsScoutRunsRecentEmissions = (): ToolBase<typeof SignalsScoutRunsRecentEmissionsSchema, WithPostHogUrl<Schemas.SignalScoutEmission[]>> => ({
     name: 'signals-scout-runs-recent-emissions',
     schema: SignalsScoutRunsRecentEmissionsSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsRecentEmissionsSchema>) => {
@@ -1398,18 +1000,13 @@ const signalsScoutRunsRetrieve = (): ToolBase<typeof SignalsScoutRunsRetrieveSch
 
 const SignalsScoutScratchpadForgetSchema = SignalsScoutScratchpadForgetBody
 
-const signalsScoutScratchpadForget = (): ToolBase<
-    typeof SignalsScoutScratchpadForgetSchema,
-    Schemas.ForgetResponse
-> => ({
+const signalsScoutScratchpadForget = (): ToolBase<typeof SignalsScoutScratchpadForgetSchema, Schemas.ForgetResponse> => ({
     name: 'signals-scout-scratchpad-forget',
     schema: SignalsScoutScratchpadForgetSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutScratchpadForgetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
+        if (params.key !== undefined) body["key"] = params.key
         const result = await context.api.request<Schemas.ForgetResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/forget/`,
@@ -1421,24 +1018,15 @@ const signalsScoutScratchpadForget = (): ToolBase<
 
 const SignalsScoutScratchpadRememberSchema = SignalsScoutScratchpadRememberBody
 
-const signalsScoutScratchpadRemember = (): ToolBase<
-    typeof SignalsScoutScratchpadRememberSchema,
-    Schemas.ScratchpadEntry
-> => ({
+const signalsScoutScratchpadRemember = (): ToolBase<typeof SignalsScoutScratchpadRememberSchema, Schemas.ScratchpadEntry> => ({
     name: 'signals-scout-scratchpad-remember',
     schema: SignalsScoutScratchpadRememberSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutScratchpadRememberSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.run_id !== undefined) {
-            body['run_id'] = params.run_id
-        }
+        if (params.key !== undefined) body["key"] = params.key
+        if (params.content !== undefined) body["content"] = params.content
+        if (params.run_id !== undefined) body["run_id"] = params.run_id
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -1450,10 +1038,7 @@ const signalsScoutScratchpadRemember = (): ToolBase<
 
 const SignalsScoutScratchpadSearchSchema = SignalsScoutScratchpadSearchQueryParams
 
-const signalsScoutScratchpadSearch = (): ToolBase<
-    typeof SignalsScoutScratchpadSearchSchema,
-    WithPostHogUrl<Schemas.ScratchpadEntry[]>
-> => ({
+const signalsScoutScratchpadSearch = (): ToolBase<typeof SignalsScoutScratchpadSearchSchema, WithPostHogUrl<Schemas.ScratchpadEntry[]>> => ({
     name: 'signals-scout-scratchpad-search',
     schema: SignalsScoutScratchpadSearchSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsScoutScratchpadSearchSchema>) => {
