@@ -8,14 +8,15 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError, CancelledError
+from temporalio.exceptions import ApplicationError, CancelledError, ChildWorkflowError, TerminatedError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _is_terminated_exception
 
 
 @dataclass
@@ -252,6 +253,38 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+def _child_workflow_error(cause: BaseException | None) -> ChildWorkflowError:
+    error = ChildWorkflowError(
+        "Child Workflow execution terminated",
+        namespace="default",
+        workflow_id="child-1",
+        run_id="run-1",
+        workflow_type="SomeChildWorkflow",
+        initiated_event_id=1,
+        started_event_id=2,
+        retry_state=None,
+    )
+    if cause is not None:
+        error.__cause__ = cause
+    return error
+
+
+@parameterized.expand(
+    [
+        # A terminate is an external operational action (operator, deploy, worker eviction), not a code defect,
+        # so it must be recognized and skipped by error tracking — mirror of is_cancelled_exception. A genuine
+        # child failure must still be reported, so the cause must be inspected, not just the wrapper type.
+        ("direct_terminated", TerminatedError("terminated"), True),
+        ("terminated_child", _child_workflow_error(TerminatedError("terminated")), True),
+        ("genuine_child_failure", _child_workflow_error(ApplicationError("real bug")), False),
+        ("plain_application_error", ApplicationError("real bug"), False),
+        ("child_without_cause", _child_workflow_error(None), False),
+    ]
+)
+def test_is_terminated_exception(_name: str, exception: BaseException, expected: bool) -> None:
+    assert _is_terminated_exception(exception) is expected
 
 
 @pytest.mark.asyncio
