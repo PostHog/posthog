@@ -1472,6 +1472,20 @@ class TestTaskAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertIsNone(task.signal_report_id)
 
+    def test_patch_cannot_set_signal_report_relationship(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = self.create_task("Mine")
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"signal_report": str(report.id), "signal_report_task_relationship": "implementation"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.signal_report_id)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 

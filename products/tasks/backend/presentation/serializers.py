@@ -619,23 +619,8 @@ class TaskWriteSerializer(serializers.Serializer):
                 {"origin_product": "origin_product cannot be changed after task creation."}
             )
 
-        rel = attrs.get("signal_report_task_relationship")
-        if rel is not None:
-            if not attrs.get("signal_report"):
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": "Requires signal_report when set."}
-                )
-            if attrs.get("origin_product") != tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
-                )
-        if (
-            attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
-            and attrs.get("github_user_integration") is not None
-        ):
-            raise serializers.ValidationError(
-                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
-            )
+        if attrs.get("signal_report_task_relationship") is not None and not attrs.get("signal_report"):
+            raise serializers.ValidationError({"signal_report_task_relationship": "Requires signal_report when set."})
         return attrs
 
 
@@ -697,6 +682,26 @@ class TaskCreateSerializer(TaskWriteSerializer):
         if value not in API_CREATABLE_ORIGIN_PRODUCTS:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-side flows")
         return value
+
+    # origin_product is create-only, so origin-dependent cross-field rules can only bind here;
+    # on update they would always read origin_product as absent and misfire.
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        if (
+            attrs.get("signal_report_task_relationship") is not None
+            and attrs.get("origin_product") != tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+        ):
+            raise serializers.ValidationError(
+                {"signal_report_task_relationship": "Requires origin_product signal_report when set."}
+            )
+        if (
+            attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+            and attrs.get("github_user_integration") is not None
+        ):
+            raise serializers.ValidationError(
+                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+            )
+        return attrs
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
