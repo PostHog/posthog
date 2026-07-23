@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -357,6 +358,7 @@ describe('savedInsightsLogic', () => {
             logic.actions.loadDraftQuery()
             logic.actions.discardDraftQuery()
             await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
+            await expectLogic(eventUsageLogic).toDispatchActions(['reportInsightDraftDiscarded'])
             expect(localStorage.getItem(draftKey)).toBeNull()
         })
     })

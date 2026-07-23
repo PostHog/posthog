@@ -730,6 +730,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             const storageKey = `draft-query-${values.currentTeamId}`
             localStorage.removeItem(storageKey)
             actions.setDraftQuery(null)
+            eventUsageLogic.actions.reportInsightDraftDiscarded(
+                Math.max(0, Math.round((Date.now() - draft.timestamp) / 1000))
+            )
             lemonToast.info('Draft discarded', {
                 button: {
                     label: 'Undo',
