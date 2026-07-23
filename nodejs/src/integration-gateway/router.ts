@@ -4,15 +4,22 @@ import express from 'ultimate-express'
 import { logger } from '~/common/utils/logger'
 
 import { emitAudit } from './audit'
-import { GatewayAuth } from './auth'
 import { IntegrationService } from './integration.service'
 import { recordFetch } from './metrics'
 import { DecryptedIntegration } from './types'
 
 export interface GatewayRouterDeps {
     service: IntegrationService
-    auth: GatewayAuth
     maxBatchSize: number
+}
+
+/** Best-effort observed source address for the audit trail (independent of the self-reported caller). */
+function sourceAddress(req: express.Request): string {
+    const forwarded = req.headers['x-forwarded-for']
+    if (typeof forwarded === 'string' && forwarded.length > 0) {
+        return forwarded.split(',')[0].trim()
+    }
+    return req.socket?.remoteAddress ?? 'unknown'
 }
 
 interface FetchResponseBody {
@@ -22,20 +29,32 @@ interface FetchResponseBody {
 }
 
 /**
- * Build the credential API router. `POST /api/v1/credentials/fetch` authenticates with a scoped
- * JWT (never the internal API secret) and returns every requested id, resolved or null.
+ * Build the credential API router. `POST /api/v1/credentials/fetch` returns every requested id,
+ * resolved or null.
+ *
+ * There is no application-level authentication: access is bounded at the network layer by a Cilium
+ * NetworkPolicy that only admits the allow-listed caller workloads. `team_id` and `caller` are
+ * therefore plain request fields — self-reported, and trustworthy precisely because the network
+ * policy guarantees the request came from a known caller. The observed source address is recorded
+ * in the audit trail as an independent (non-self-reported) corroborating signal; verified in-band
+ * caller identity (mTLS/SPIFFE) is a possible future hardening step.
  */
 export function createGatewayRouter(deps: GatewayRouterDeps): express.Router {
     const router = express.Router()
 
     router.post('/api/v1/credentials/fetch', async (req: express.Request, res: express.Response): Promise<void> => {
-        const caller = deps.auth.verify(req.headers['authorization'])
-        if (!caller) {
-            res.status(401).json({ error: 'unauthorized' })
+        const body = req.body ?? {}
+
+        const teamId = body.team_id
+        if (typeof teamId !== 'number' || !Number.isInteger(teamId)) {
+            res.status(400).json({ error: 'team_id must be an integer' })
             return
         }
 
-        const ids = (req.body ?? {}).integration_ids
+        // Self-reported label for the audit trail; defaults to 'unknown' when the caller omits it.
+        const caller = typeof body.caller === 'string' && body.caller.length > 0 ? body.caller : 'unknown'
+
+        const ids = body.integration_ids
         if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'number' && Number.isInteger(id))) {
             res.status(400).json({ error: 'integration_ids must be an array of integers' })
             return
@@ -48,10 +67,10 @@ export function createGatewayRouter(deps: GatewayRouterDeps): express.Router {
         const requestId = randomUUID()
         let outcome
         try {
-            outcome = await deps.service.getForTeam(caller.teamId, ids)
+            outcome = await deps.service.getForTeam(teamId, ids)
         } catch (error) {
             logger.error('🔑', '[integration_gateway] credential fetch failed', { requestId, error: String(error) })
-            recordFetch(caller.caller, 'error')
+            recordFetch(caller, 'error')
             res.status(500).json({ error: 'internal error' })
             return
         }
@@ -70,15 +89,16 @@ export function createGatewayRouter(deps: GatewayRouterDeps): express.Router {
         }
 
         emitAudit({
-            caller: caller.caller,
-            teamId: caller.teamId,
+            caller,
+            sourceAddress: sourceAddress(req),
+            teamId,
             requested: ids,
             resolved: resolvedIds,
             cacheHits: outcome.cacheHits,
             dbLoaded: outcome.dbLoaded,
             requestId,
         })
-        recordFetch(caller.caller, 'ok')
+        recordFetch(caller, 'ok')
 
         res.status(200).json({ integrations })
     })

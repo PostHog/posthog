@@ -1,5 +1,4 @@
 import { IntegrationType } from '~/cdp/types'
-import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { buildIntegerMatcherWithPercentage } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
@@ -7,28 +6,27 @@ import { ValueMatcher } from '~/types'
 
 export interface IntegrationGatewayServiceConfig {
     CDP_INTEGRATION_GATEWAY_URL: string
-    CDP_INTEGRATION_GATEWAY_JWT_SECRET: string
     CDP_INTEGRATION_GATEWAY_ROLLOUT: string
     CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: number
 }
 
-// Short-lived: the gateway only needs the token for the duration of a single request.
-const TOKEN_TTL_SECONDS = 60
+// Self-reported caller label recorded in the gateway's audit trail.
+const CALLER = 'cdp'
 
 /**
- * Client for the integration gateway service. Mints a team-scoped JWT and reads decrypted
- * credentials over `POST /api/v1/credentials/fetch`. Gated per team via a rollout matcher; the
- * caller (IntegrationManagerService) falls back to Postgres when this is disabled or errors.
+ * Client for the integration gateway service. Reads decrypted credentials over
+ * `POST /api/v1/credentials/fetch`, passing the team and caller in the request body — there is no
+ * auth secret; access is bounded by the gateway's Cilium NetworkPolicy. Gated per team via a
+ * rollout matcher; the caller (IntegrationManagerService) falls back to Postgres when this is
+ * disabled or errors.
  */
 export class IntegrationGatewayService {
     private baseUrl: string
-    private jwt: JWT
     private rollout: ValueMatcher<number>
     private timeoutMs: number
 
     constructor(config: IntegrationGatewayServiceConfig) {
         this.baseUrl = config.CDP_INTEGRATION_GATEWAY_URL.replace(/\/+$/, '')
-        this.jwt = new JWT(config.CDP_INTEGRATION_GATEWAY_JWT_SECRET)
         this.rollout = buildIntegerMatcherWithPercentage(config.CDP_INTEGRATION_GATEWAY_ROLLOUT)
         this.timeoutMs = config.CDP_INTEGRATION_GATEWAY_TIMEOUT_MS
     }
@@ -42,14 +40,10 @@ export class IntegrationGatewayService {
      * back to Postgres. Every requested id is present in the result, resolved or null.
      */
     async fetchMany(ids: number[], teamId: number): Promise<Record<string, IntegrationType | null>> {
-        const token = this.jwt.sign({ team_id: teamId, caller: 'cdp' }, PosthogJwtAudience.INTEGRATION_GATEWAY, {
-            expiresIn: TOKEN_TTL_SECONDS,
-        })
-
         const response = await internalFetch(`${this.baseUrl}/api/v1/credentials/fetch`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-            body: JSON.stringify({ integration_ids: ids }),
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ team_id: teamId, caller: CALLER, integration_ids: ids }),
             // Fast-fail so a slow/degraded gateway falls back to Postgres quickly instead of every
             // hot-path read blocking on the long default external-request timeout.
             timeoutMs: this.timeoutMs,
@@ -77,15 +71,14 @@ export class IntegrationGatewayService {
 }
 
 /**
- * Build the gateway client, or null when it isn't fully configured. Requiring all three settings
- * (url + secret + non-empty rollout) keeps the feature dark by default.
+ * Build the gateway client, or null when it isn't fully configured. Requiring both settings
+ * (url + non-empty rollout) keeps the feature dark by default.
  */
 export function createIntegrationGatewayService(
     config: IntegrationGatewayServiceConfig
 ): IntegrationGatewayService | null {
     const missing = [
         !config.CDP_INTEGRATION_GATEWAY_URL && 'CDP_INTEGRATION_GATEWAY_URL',
-        !config.CDP_INTEGRATION_GATEWAY_JWT_SECRET && 'CDP_INTEGRATION_GATEWAY_JWT_SECRET',
         !config.CDP_INTEGRATION_GATEWAY_ROLLOUT && 'CDP_INTEGRATION_GATEWAY_ROLLOUT',
     ].filter(Boolean)
     if (missing.length > 0) {

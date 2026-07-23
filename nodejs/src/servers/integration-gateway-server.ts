@@ -3,7 +3,6 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { logger } from '~/common/utils/logger'
-import { GatewayAuth } from '~/integration-gateway/auth'
 import { CredentialCache } from '~/integration-gateway/cache'
 import {
     IntegrationGatewayConfig,
@@ -22,8 +21,9 @@ import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 /**
  * Standalone deployment of the integration gateway: a hardened, isolated service that owns
  * third-party integration credential access (decrypt) and just-in-time OAuth token refresh, so
- * Fernet key material stops living in every consumer's environment. Callers authenticate with a
- * scoped JWT and read credentials through `POST /api/v1/credentials/fetch`.
+ * Fernet key material stops living in every consumer's environment. Callers read credentials
+ * through `POST /api/v1/credentials/fetch`; access is bounded at the network layer by a Cilium
+ * NetworkPolicy (no application-level auth secret), and the request carries the team and caller.
  */
 export type IntegrationGatewayServerConfig = PluginsServerConfig & IntegrationGatewayConfig
 
@@ -98,15 +98,11 @@ export class IntegrationGatewayServer implements NodeServer {
         }
 
         const service = new IntegrationService(repository, encryptedFields, cache, refreshManager)
-        const auth = new GatewayAuth(
-            `${this.config.INTEGRATION_GATEWAY_JWT_SECRET},${this.config.INTEGRATION_GATEWAY_JWT_SECRET_FALLBACKS}`
-        )
 
         this.lifecycle.expressApp.use(
             '/',
             createGatewayRouter({
                 service,
-                auth,
                 maxBatchSize: this.config.INTEGRATION_GATEWAY_MAX_BATCH_SIZE,
             })
         )

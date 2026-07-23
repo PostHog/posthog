@@ -95,10 +95,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     // Integration gateway (credential fetch): route integration reads through the gateway service
-    // behind a per-team rollout, falling back to Postgres. All three must be set for the client to
-    // activate (see createIntegrationGatewayService).
+    // behind a per-team rollout, falling back to Postgres. Both url + rollout must be set for the
+    // client to activate (see createIntegrationGatewayService).
     CDP_INTEGRATION_GATEWAY_URL: string
-    CDP_INTEGRATION_GATEWAY_JWT_SECRET: string
     CDP_INTEGRATION_GATEWAY_ROLLOUT: string
     // Hot-path timeout for the gateway credential fetch. Kept short so a degraded gateway fails fast
     // to the Postgres fallback instead of every read paying the long default external-request timeout.
@@ -268,7 +267,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_INTEGRATION_GATEWAY_URL: '',
-        CDP_INTEGRATION_GATEWAY_JWT_SECRET: isDevEnv() || isTestEnv() ? 'integration-gateway-dev-secret' : '',
         CDP_INTEGRATION_GATEWAY_ROLLOUT: '',
         CDP_INTEGRATION_GATEWAY_TIMEOUT_MS: 3000,
         CDP_FETCH_RETRIES: 3,

@@ -7,6 +7,8 @@ import { logger } from '~/common/utils/logger'
  */
 export interface AuditEvent {
     caller: string
+    // Observed network source of the request — independent of the self-reported `caller`.
+    sourceAddress: string
     teamId: number
     requested: number[]
     resolved: number[]
@@ -18,6 +20,7 @@ export interface AuditEvent {
 export function emitAudit(event: AuditEvent): void {
     logger.info('🔑', 'integration_gateway.audit credential_fetch', {
         caller: event.caller,
+        source_address: event.sourceAddress,
         team_id: event.teamId,
         requested: event.requested,
         resolved: event.resolved,
