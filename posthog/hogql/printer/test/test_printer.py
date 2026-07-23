@@ -1909,6 +1909,21 @@ class TestPrinter(BaseTest):
             "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))",
         )
 
+    @parameterized.expand(
+        [
+            ("gt", "'foo' > 5", "greater"),
+            ("gte", "'foo' >= 5", "greaterOrEquals"),
+            ("lt", "'foo' < 5", "less"),
+            ("lte", "'foo' <= 5", "lessOrEquals"),
+        ]
+    )
+    def test_mismatched_constant_type_comparison_does_not_crash(self, _name, expr, expected_op):
+        # Ordered comparison of two mismatched constant types (e.g. 'foo' >= 5) can't be folded
+        # in Python without raising TypeError. The printer must skip the fold shortcut and emit
+        # the operator for ClickHouse to evaluate, rather than crashing.
+        printed = self._expr(expr, HogQLContext(team_id=self.team.pk))
+        self.assertIn(expected_op, printed)
+
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr("event -- something", context), "events.event")
