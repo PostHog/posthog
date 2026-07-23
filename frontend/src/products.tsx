@@ -101,6 +101,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/accounts/:accountId': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
     '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
+    '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
     '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
@@ -962,6 +963,7 @@ export const productUrls = {
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
         `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
+    customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
@@ -1852,7 +1854,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.engineeringAnalytics(),
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
         tags: ['alpha'],
-        pinnedByDefault: true,
         sceneKey: 'EngineeringAnalytics',
         sceneKeys: [
             'EngineeringAnalytics',
@@ -2177,7 +2178,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.replayVision(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.REPLAY_VISION,
-        pinnedByDefault: true,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
@@ -2287,7 +2287,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.taskTracker(),
         sceneKey: 'TaskTracker',
         flag: FEATURE_FLAGS.TASKS,
-        pinnedByDefault: true,
         sceneKeys: ['TaskTracker'],
     },
     {

@@ -47,8 +47,12 @@ class AnthropicEndpointConfig:
     # Re-read window (seconds) applied to the incremental watermark by the pipeline before it reaches
     # the source, so each run re-pulls recently-restated buckets. Merge dedupes them on the primary key.
     default_incremental_lookback_seconds: Optional[int] = None
-    # workspace_members has no org-wide list endpoint; it fans out one request per workspace.
+    # workspace_members / service_accounts have no org-wide list endpoint; they fan out one request
+    # per workspace.
     fan_out_over_workspaces: bool = False
+    # Claude Code analytics takes a single `starting_at` day per request, so it fans out one windowed
+    # request per calendar day from the watermark (or launch floor) to today.
+    fan_out_over_days: bool = False
     # Extra static query params merged into every request (e.g. include_archived on workspaces).
     extra_params: dict[str, str] = field(default_factory=dict)
     should_sync_default: bool = True
@@ -115,6 +119,16 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         primary_keys=["workspace_id", "user_id"],
         fan_out_over_workspaces=True,
     ),
+    # Like workspace_members, service accounts are workspace-scoped with no org-wide list. Their ids
+    # resolve the `service_account_id` dimension on the usage report.
+    "service_accounts": AnthropicEndpointConfig(
+        name="service_accounts",
+        path="/v1/organizations/workspaces/{workspace_id}/service_accounts",
+        pagination=PaginationType.CURSOR,
+        primary_keys=["workspace_id", "id"],
+        partition_key="created_at",
+        fan_out_over_workspaces=True,
+    ),
     "usage_report": AnthropicEndpointConfig(
         name="usage_report",
         path="/v1/organizations/usage_report/messages",
@@ -143,6 +157,37 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         incremental_fields=[_datetime_incremental_field("starting_at")],
         bucket_width="1d",  # cost report only supports daily granularity
         group_by=_COST_GROUP_BY,
+        default_incremental_lookback_seconds=_REPORT_LOOKBACK_SECONDS,
+    ),
+    # Claude Code analytics: one record per user per day. The endpoint windows on a single `starting_at`
+    # day (page-cursored within the day), so the source fans out day by day. Split into two tables — the
+    # per-day productivity metrics here, the per-model token/cost breakdown below — because those two
+    # sit at different grains.
+    "claude_code_analytics": AnthropicEndpointConfig(
+        name="claude_code_analytics",
+        path="/v1/organizations/usage_report/claude_code",
+        pagination=PaginationType.PAGE,
+        # `id` is synthesized from the day and every actor/terminal dimension (see anthropic.py).
+        primary_keys=["id"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("date")],
+        fan_out_over_days=True,
+        limit=1000,
+        # The current day keeps accruing (up to a 1-hour delay), so re-pull the trailing day; merge
+        # dedupes the overlap on the synthesized `id`.
+        default_incremental_lookback_seconds=_REPORT_LOOKBACK_SECONDS,
+    ),
+    "claude_code_model_breakdown": AnthropicEndpointConfig(
+        name="claude_code_model_breakdown",
+        path="/v1/organizations/usage_report/claude_code",
+        pagination=PaginationType.PAGE,
+        primary_keys=["id"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("date")],
+        fan_out_over_days=True,
+        limit=1000,
         default_incremental_lookback_seconds=_REPORT_LOOKBACK_SECONDS,
     ),
 }
