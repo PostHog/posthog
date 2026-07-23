@@ -72,6 +72,24 @@ class TestClassifyBatch:
             assert r.score == e.score
 
     @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
+    def test_low_confidence_polar_score_resolves_to_neutral(self, mock_load: MagicMock):
+        # A near-tie that argmaxes to negative must come back neutral — guards the wiring
+        # of the neutral-margin gate into the model's result parsing.
+        mock_pipe = MagicMock()
+        mock_pipe.return_value = [
+            [
+                {"label": "negative", "score": 0.504},
+                {"label": "neutral", "score": 0.468},
+                {"label": "positive", "score": 0.028},
+            ]
+        ]
+        mock_load.return_value = mock_pipe
+
+        result = classify(["retention graph for these people"])
+
+        assert result[0].label == "neutral"
+
+    @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
     def test_missing_labels_filled_with_zero(self, mock_load: MagicMock):
         mock_pipe = MagicMock()
         mock_pipe.return_value = [[{"label": "positive", "score": 0.95}]]

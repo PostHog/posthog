@@ -58,11 +58,18 @@ def _load_for_writing(path: Path) -> core.LoadResult:
     type=click.Choice(core.MODES),
     default="run",
     show_default=True,
-    help="run = still executes but cannot fail CI (xfail); skip = not executed (hangs, state-polluters).",
+    help="run = still executes with tolerated failures; skip = not executed (hangs, state-polluters).",
+)
+@click.option(
+    "--runner",
+    type=click.Choice(core.ADAPTED_RUNNERS),
+    default=core.PYTEST_RUNNER,
+    show_default=True,
+    help="Which enforcement adapter interprets the selector.",
 )
 @click.pass_obj
-def add(path: Path, selector_id: str, reason: str, owner: str, issue: str, days: int, mode: str) -> None:
-    selector_problem = core.validate_selector(selector_id, core.DEFAULT_RUNNER)
+def add(path: Path, selector_id: str, reason: str, owner: str, issue: str, days: int, mode: str, runner: str) -> None:
+    selector_problem = core.validate_selector(selector_id, runner)
     if selector_problem is not None:
         raise click.ClickException(f"invalid selector '{selector_id}': {selector_problem}")
     result = _load_for_writing(path)
@@ -71,6 +78,7 @@ def add(path: Path, selector_id: str, reason: str, owner: str, issue: str, days:
         id=selector_id,
         added=today,
         expires=today + timedelta(days=days),
+        runner=runner,
         reason=reason,
         owner=owner,
         issue=issue,
@@ -78,7 +86,7 @@ def add(path: Path, selector_id: str, reason: str, owner: str, issue: str, days:
     )
     entries = [e for e in result.entries if (e.id, e.runner) != (entry.id, entry.runner)] + [entry]
     path.write_text(core.render(entries, result.extras))
-    click.echo(f"Quarantined '{selector_id}' (mode: {mode}) until {entry.expires.isoformat()}.")
+    click.echo(f"Quarantined '{selector_id}' ({runner}/{mode}) until {entry.expires.isoformat()}.")
 
 
 @quarantine.command(name="remove", help="Remove a quarantine entry for every runner (succeeds even if absent).")

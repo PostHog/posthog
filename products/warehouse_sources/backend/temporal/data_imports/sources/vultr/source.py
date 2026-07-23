@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VultrSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vultr import VultrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.vultr import (
     validate_credentials as validate_vultr_credentials,
@@ -32,6 +32,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class VultrSource(SimpleSource[VultrSourceConfig]):
     # get_schemas is a static endpoint catalog with no I/O, so the table list is safe for public docs.
     lists_tables_without_credentials = True
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.vultr.com/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -57,6 +60,7 @@ class VultrSource(SimpleSource[VultrSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every Vultr list endpoint is full-refresh: the API exposes no server-side timestamp filter.
         schemas = [
@@ -76,7 +80,7 @@ class VultrSource(SimpleSource[VultrSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: VultrSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: VultrSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_vultr_credentials(config.api_key, schema_name)
 

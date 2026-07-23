@@ -78,6 +78,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "NoSuchBucket",
     # Couldn't connect to custom S3 endpoint
     "EndpointConnectionError",
+    # TLS handshake failed against a custom S3 endpoint
+    "SSLError",
     # User provided an invalid S3 key
     "InvalidS3Key",
     # Invalid S3 endpoint URL
@@ -573,7 +575,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
 
             if isinstance(integration, AwsS3RoleBasedIntegration):
                 team = await Team.objects.aget(id=inputs.team_id)
-                organization_id = str(team.organization_id)
+                external_id = f"posthog-{team.organization_id}"
 
                 bucket_name = inputs.bucket_name
                 key_prefix = get_absolute_key_prefix(
@@ -620,7 +622,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
 
                 credentials = await get_credentials_using_user_aws_role(
                     integration.aws_role_arn,
-                    organization_id,
+                    external_id,
                     session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
                     policy_statements=policy_statements,
                 )

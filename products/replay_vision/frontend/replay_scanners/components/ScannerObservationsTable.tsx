@@ -3,17 +3,19 @@ import { useActions, useValues } from 'kea'
 import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -42,25 +44,19 @@ const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'inconclusive', label: 'Inconclusive' },
 ]
 
+// Empty values on "All time" clear the range, matching the unfiltered default.
+const OBSERVATION_DATE_OPTIONS: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
+    { key: 'All time', values: [] },
+    { key: 'Last 24 hours', values: ['-24h'] },
+    { key: 'Last 3 days', values: ['-3d'] },
+    { key: 'Last 7 days', values: ['-7d'] },
+    { key: 'Last 30 days', values: ['-30d'] },
+    { key: 'Last 90 days', values: ['-90d'] },
+]
+
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
 const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
-
-function Metric({
-    label,
-    value,
-    valueClass,
-}: {
-    label: string
-    value: number | string
-    valueClass?: string
-}): JSX.Element {
-    return (
-        <div className="text-center">
-            <div className={`font-semibold text-lg ${valueClass ?? ''}`}>{value}</div>
-            <div className="text-muted">{label}</div>
-        </div>
-    )
-}
 
 export function versionTag(
     obsVersion: number | null | undefined,
@@ -94,6 +90,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationVerdictFilter,
         observationTagFilter,
         observationSubjectFilter,
+        observationDateFrom,
+        observationDateTo,
         hasActiveObservationFilters,
         observationDetailLinkParams,
         availableTags,
@@ -112,6 +110,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationVerdictFilter,
         setObservationTagFilter,
         setObservationSubjectFilter,
+        setObservationDateRange,
         clearObservationFilters,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
@@ -132,7 +131,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             ),
         },
         {
-            title: 'Recording subject',
+            title: 'Person',
             key: 'recording_subject',
             sorter: true,
             render: (_, obs) =>
@@ -153,20 +152,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 <div className="flex items-center gap-1">
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
                     {obs.status === 'failed' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                onClick={() => retryObservation(obs.id)}
-                                loading={retryingObservationIds.includes(obs.id)}
-                                tooltip="Retry scan"
-                                data-attr="vision-observation-retry"
-                            />
-                        </AccessControlAction>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => retryObservation(obs.id)}
+                            loading={retryingObservationIds.includes(obs.id)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
+                            tooltip="Retry scan"
+                            data-attr="vision-observation-retry"
+                        />
                     )}
                 </div>
             ),
@@ -239,6 +234,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         <div className="space-y-2">
             <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
+                <span className="text-muted text-sm whitespace-nowrap">
+                    {observationStats.total.toLocaleString()} total ·{' '}
+                    <span className={observationStats.failed > 0 ? 'text-danger' : undefined}>
+                        {observationStats.failed.toLocaleString()} failed
+                    </span>{' '}
+                    · {observationStats.inFlight.toLocaleString()} in flight
+                </span>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
@@ -246,10 +248,17 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 <LemonInput
                                     type="search"
                                     size="small"
-                                    placeholder="Recording subject email"
+                                    placeholder="Person email"
                                     value={observationSubjectFilter}
                                     onChange={setObservationSubjectFilter}
                                     className="w-56"
+                                />
+                                <DateFilter
+                                    size="small"
+                                    dateFrom={observationDateFrom}
+                                    dateTo={observationDateTo}
+                                    dateOptions={OBSERVATION_DATE_OPTIONS}
+                                    onChange={(dateFrom, dateTo) => setObservationDateRange(dateFrom, dateTo)}
                                 />
                                 <FilterPill<ObservationStatusValue>
                                     label="Status"
@@ -308,22 +317,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 Refresh
                             </LemonButton>
                         </Tooltip>
-                    </div>
-                    {/* Always rendered (0 / N/A when empty) so a zero-match filter doesn't drop the metrics and shift the controls. */}
-                    <div className="flex gap-4 text-sm">
-                        <Metric label="Total" value={observationStats.total} />
-                        <Metric
-                            label="Success rate"
-                            value={observationStats.successRate !== null ? `${observationStats.successRate}%` : 'N/A'}
-                            valueClass={observationStats.successRate !== null ? 'text-success' : undefined}
-                        />
-                        <Metric
-                            label="Failed"
-                            value={observationStats.failed}
-                            valueClass={observationStats.failed > 0 ? 'text-danger' : undefined}
-                        />
-                        <Metric label="Ineligible" value={observationStats.ineligible} />
-                        <Metric label="In flight" value={observationStats.inFlight} />
                     </div>
                 </div>
             </div>

@@ -325,6 +325,7 @@ export class HogInvocationResultsService {
         status: 'running' | 'succeeded' | 'failed',
         opts: {
             error?: unknown
+            errorKind?: string
             startedAt?: Date
             finishedAt?: Date
         } = {}
@@ -333,9 +334,30 @@ export class HogInvocationResultsService {
             return
         }
 
+        const row = this.buildLifecycleRow(invocation, status, opts)
+        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+        this.queuedRows.push(row)
+        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
+    }
+
+    private buildLifecycleRow(
+        invocation: CyclotronJobInvocation,
+        status: 'running' | 'succeeded' | 'failed',
+        opts: {
+            error?: unknown
+            errorKind?: string
+            startedAt?: Date
+            finishedAt?: Date
+        }
+    ): HogInvocationResultRow {
         const now = new Date()
         const trigger = extractTriggerFields(invocation)
-        const { kind: errorKind, message: errorMessage } = classifyError(opts.error)
+        const classified = classifyError(opts.error)
+        // An explicit `errorKind` overrides the derived one so callers (e.g. the
+        // janitor giving up on a poison pill) can stamp a stable, filterable
+        // kind that the rerun tooling can target directly.
+        const errorKind = opts.errorKind ?? classified.kind
+        const errorMessage = classified.message
         const startedAt = opts.startedAt ?? (status === 'running' ? now : undefined)
         const finishedAt = opts.finishedAt ?? (status !== 'running' ? now : undefined)
         const durationMs =
@@ -399,9 +421,61 @@ export class HogInvocationResultsService {
             is_deleted: 0,
         }
 
-        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
-        this.queuedRows.push(row)
-        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
+        return row
+    }
+
+    /**
+     * Produce a single terminal `failed` lifecycle row and await the broker
+     * ack, returning `true` only once the row is durably enqueued. Bypasses the
+     * batched queue/flush path so the caller can establish a strict ordering —
+     * the janitor records a poison pill's give-up here BEFORE deleting the
+     * cyclotron row, closing the window where the row could be gone with no
+     * recovery record. Returns `false` (never throws) when recording is
+     * disabled or the produce fails, so the caller can keep the job instead of
+     * dropping it silently.
+     */
+    async recordTerminalFailureDurably(
+        invocation: CyclotronJobInvocation,
+        opts: { error?: unknown; errorKind?: string } = {}
+    ): Promise<boolean> {
+        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return false
+        }
+
+        // Build inside the try too — a malformed invocation (e.g. an unparseable
+        // date) must fail this record safely so the caller keeps the job, never
+        // crash the whole janitor cycle.
+        try {
+            const row = this.buildLifecycleRow(invocation, 'failed', opts)
+            await this.produceRow(row)
+            counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+            return true
+        } catch (error) {
+            counterHogInvocationResultProduceFailed.inc()
+            logger.error('⚠️', `failed to durably record terminal failure: ${error}`, {
+                error: String(error),
+                invocation_id: invocation.id,
+            })
+            captureException(error)
+            return false
+        }
+    }
+
+    private async produceRow(row: HogInvocationResultRow): Promise<void> {
+        const value = Buffer.from(
+            safeClickhouseString(
+                JSON.stringify({
+                    ...row,
+                    invocation_globals: await compressInvocationGlobals(row.invocation_globals),
+                })
+            )
+        )
+        await this.outputs.produce(HOG_INVOCATION_RESULTS_OUTPUT, {
+            // Partition by invocation_id so all rows for a single invocation
+            // land on the same Kafka partition (and the same ClickHouse shard).
+            key: Buffer.from(row.invocation_id),
+            value,
+        })
     }
 
     /**
@@ -515,36 +589,18 @@ export class HogInvocationResultsService {
         hogInvocationResultsPendingMessages.set(0)
 
         await Promise.all(
-            rows.map(async (row) => {
-                const value = Buffer.from(
-                    safeClickhouseString(
-                        JSON.stringify({
-                            ...row,
-                            invocation_globals: await compressInvocationGlobals(row.invocation_globals),
-                        })
-                    )
-                )
-                return this.outputs
-                    .produce(HOG_INVOCATION_RESULTS_OUTPUT, {
-                        // Partition by invocation_id so all rows for a single
-                        // invocation land on the same Kafka partition (and
-                        // therefore the same ClickHouse shard via
-                        // cityHash64(invocation_id) — keeping the
-                        // ReplacingMergeTree merge local).
-                        key: Buffer.from(row.invocation_id),
-                        value,
+            rows.map((row) =>
+                this.produceRow(row).catch((error) => {
+                    counterHogInvocationResultProduceFailed.inc()
+                    // Best-effort — never disrupt invocation processing for a
+                    // monitoring write.
+                    logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
+                        error: String(error),
+                        invocation_id: row.invocation_id,
                     })
-                    .catch((error) => {
-                        counterHogInvocationResultProduceFailed.inc()
-                        // Best-effort — never disrupt invocation processing
-                        // for a monitoring write.
-                        logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
-                            error: String(error),
-                            invocation_id: row.invocation_id,
-                        })
-                        captureException(error)
-                    })
-            })
+                    captureException(error)
+                })
+            )
         )
     }
 }

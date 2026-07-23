@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from posthog.schema import (
     CachedMCPToolDailyStatsQueryResponse,
     CachedMCPToolDescriptionsQueryResponse,
+    CachedMCPToolFailureOccurrencesQueryResponse,
     CachedMCPToolFailuresQueryResponse,
     CachedMCPToolNeighborsQueryResponse,
     CachedMCPToolSampleIntentsQueryResponse,
@@ -24,6 +25,9 @@ from posthog.schema import (
     MCPToolDescriptionsQuery,
     MCPToolDescriptionsQueryResponse,
     MCPToolFailureItem,
+    MCPToolFailureOccurrenceItem,
+    MCPToolFailureOccurrencesQuery,
+    MCPToolFailureOccurrencesQueryResponse,
     MCPToolFailuresQuery,
     MCPToolFailuresQueryResponse,
     MCPToolNeighborItem,
@@ -76,20 +80,17 @@ _EFFECTIVE_DESCRIPTION = (
 # token only has to be materialized once as `h`.
 _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
 
-# Human-readable failure label for an errored $mcp_tool_call. There is no free-text error
-# message on tool-call events — the SDK stamps a semantic bucket ($mcp_error_type: internal,
-# validation, api_4xx, api_5xx, permission, timeout, rate_limited, missing_context) plus an
-# optional HTTP status ($mcp_error_status). We compose the two into one label, falling back to
-# "unknown" when neither is present (older SDKs / server paths that only set $mcp_is_error).
-# Both properties are event-supplied and unbounded, so the query caps the label at 200 chars
-# before grouping on it.
-_FAILURE_LABEL = (
-    "concat("
-    "coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), "
-    "if(empty(coalesce(toString(properties.$mcp_error_status), '')), '', "
-    "concat(' (HTTP ', coalesce(toString(properties.$mcp_error_status), ''), ')'))"
-    ")"
-)
+# Raw failure-bucket parts of an errored $mcp_tool_call: the SDK stamps a semantic bucket
+# ($mcp_error_type: internal, validation, api_4xx, api_5xx, permission, timeout, rate_limited,
+# missing_context) plus an optional HTTP status ($mcp_error_status), falling back to "unknown"
+# when neither is present (older SDKs / server paths that only set $mcp_is_error). Both
+# properties are event-supplied and unbounded, so they are capped before grouping/filtering —
+# an attacker emitting huge unique values must not inflate the grouping key or response size.
+# The failures table groups on the raw parts and composes the display label from them, so the
+# occurrences drill-down can requery a bucket by the same normalized parts without label parsing.
+_RAW_ERROR_TYPE = "substring(coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), 1, 200)"
+_RAW_ERROR_STATUS = "substring(coalesce(toString(properties.$mcp_error_status), ''), 1, 20)"
+_COMPOSED_FAILURE_LABEL = "concat(error_type, if(empty(error_status), '', concat(' (HTTP ', error_status, ')')))"
 
 
 def _display_properties(*, email: str, name: str) -> str:
@@ -226,25 +227,30 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         return parse_select(
             """
             SELECT
-                message,
+                {_COMPOSED_FAILURE_LABEL} AS message,
+                error_type,
+                error_status,
                 count() AS occurrences,
                 max(timestamp) AS last_seen,
                 {_HARNESS_LABELS_AGG} AS harnesses
             FROM (
                 SELECT
-                    substring({_FAILURE_LABEL}, 1, 200) AS message,
+                    {_RAW_ERROR_TYPE} AS error_type,
+                    {_RAW_ERROR_STATUS} AS error_status,
                     timestamp,
                     {token} AS h
                 FROM events
                 WHERE {where}
             )
-            GROUP BY message
+            GROUP BY error_type, error_status
             ORDER BY occurrences DESC
             LIMIT 20
             """,
             placeholders={
                 "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
-                "_FAILURE_LABEL": parse_expr(_FAILURE_LABEL),
+                "_COMPOSED_FAILURE_LABEL": parse_expr(_COMPOSED_FAILURE_LABEL),
+                "_RAW_ERROR_TYPE": parse_expr(_RAW_ERROR_TYPE),
+                "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -269,9 +275,11 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         results = [
             MCPToolFailureItem(
                 message=str(row[0] or ""),
-                occurrences=int(row[1] or 0),
-                last_seen=str(row[2] or ""),
-                harnesses=[str(h) for h in (row[3] or [])],
+                error_type=str(row[1] or ""),
+                error_status=str(row[2] or ""),
+                occurrences=int(row[3] or 0),
+                last_seen=str(row[4] or ""),
+                harnesses=[str(h) for h in (row[5] or [])],
             )
             for row in (response.results or [])
         ]
@@ -284,6 +292,124 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
 
 
 _CONVERSATION_ID = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
+
+# Mirrors the capture-side MAX_ERROR_MESSAGE_LENGTH (services/mcp); event-supplied, so
+# re-capped here in case a non-PostHog server emits an unbounded value.
+_ERROR_MESSAGE = "substring(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
+
+
+class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOccurrencesQueryResponse]):
+    query: MCPToolFailureOccurrencesQuery
+    cached_response: CachedMCPToolFailureOccurrencesQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange)
+
+    def _where(self) -> ast.Expr:
+        # Bucket predicates normalize exactly like the failures table's grouping key, so a row
+        # from that table always round-trips to its own occurrences. Values are bound as
+        # ast.Constant, never interpolated.
+        extra: list[ast.Expr] = [
+            parse_expr("toBool(properties.$mcp_is_error)"),
+            parse_expr(
+                "{raw_type} = {error_type}",
+                placeholders={
+                    "raw_type": parse_expr(_RAW_ERROR_TYPE),
+                    "error_type": ast.Constant(value=self.query.errorType),
+                },
+            ),
+        ]
+        if self.query.errorStatus:
+            extra.append(
+                parse_expr(
+                    "{raw_status} = {error_status}",
+                    placeholders={
+                        "raw_status": parse_expr(_RAW_ERROR_STATUS),
+                        "error_status": ast.Constant(value=self.query.errorStatus),
+                    },
+                )
+            )
+        else:
+            extra.append(parse_expr("empty({raw_status})", placeholders={"raw_status": parse_expr(_RAW_ERROR_STATUS)}))
+        return _tool_call_where(self.query.toolName, self.query_date_range, extra=extra)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT
+                toString(timestamp) AS ts,
+                distinct_id,
+                session_id,
+                {harness_label} AS harness,
+                intent,
+                error_message,
+                error_status
+            FROM (
+                SELECT
+                    timestamp,
+                    distinct_id,
+                    substring({_CONVERSATION_ID}, 1, 200) AS session_id,
+                    if(toString(properties.$mcp_intent) = '{}', '', substring(toString(properties.$mcp_intent), 1, 1000)) AS intent,
+                    {_ERROR_MESSAGE} AS error_message,
+                    {_RAW_ERROR_STATUS} AS error_status,
+                    {token} AS h
+                FROM events
+                WHERE {where}
+            )
+            ORDER BY ts DESC
+            LIMIT 50
+            """,
+            placeholders={
+                "harness_label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "_ERROR_MESSAGE": parse_expr(_ERROR_MESSAGE),
+                "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
+                "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
+                "where": self._where(),
+            },
+        )
+
+    def _calculate(self) -> MCPToolFailureOccurrencesQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_failure_occurrences_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                user=self.user,
+                query_type="mcp_tool_failure_occurrences_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        results = [
+            MCPToolFailureOccurrenceItem(
+                timestamp=str(row[0] or ""),
+                distinct_id=str(row[1] or ""),
+                session_id=str(row[2] or ""),
+                harness=str(row[3] or ""),
+                intent=str(row[4] or ""),
+                error_message=str(row[5] or ""),
+                error_status=str(row[6] or ""),
+            )
+            for row in (response.results or [])
+        ]
+        return MCPToolFailureOccurrencesQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=response.hogql,
+            modifiers=self.modifiers,
+        )
+
+
 _IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
 _P50 = "round(quantile(0.5)(toFloat(properties.$mcp_duration_ms)))"
 _P95 = "round(quantile(0.95)(toFloat(properties.$mcp_duration_ms)))"
@@ -375,10 +501,17 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Bucket granularity comes from the frontend's getDefaultInterval, so a sub-day window buckets
+        # by hour/minute instead of collapsing to a single day point. dateTrunc respects the team
+        # timezone, so the buckets line up with the frontend's gap-fill keys. Defaults to day.
+        # Explicit generous LIMIT so a fine interval over a wide window (reachable via the interval
+        # field, e.g. hourly over a quarter from an MCP caller) isn't silently cut to the default 100
+        # rows — which, with ORDER BY day ASC, would drop the most recent buckets.
+        interval = self.query.interval.value if self.query.interval else "day"
         return parse_select(
             """
             SELECT
-                toString(toDate(timestamp)) AS day,
+                toString(dateTrunc({interval}, timestamp)) AS day,
                 count() AS calls,
                 {_IS_ERROR} AS errors,
                 {_P50} AS p50,
@@ -389,8 +522,10 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
             WHERE {where}
             GROUP BY day
             ORDER BY day
+            LIMIT 10000
             """,
             placeholders={
+                "interval": ast.Constant(value=interval),
                 "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),

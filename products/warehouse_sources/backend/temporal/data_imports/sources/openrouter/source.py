@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenRouterSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
+    OpenRouterSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
     OpenRouterResumeConfig,
     get_key_info,
@@ -38,10 +40,21 @@ _MANAGEMENT_KEY_REQUIRED = (
     "read the models and providers catalogs."
 )
 
+# The organization members and workspaces endpoints resolve only when the management key's account
+# belongs to an OpenRouter organization; an account without one gets a 404. Retrying can't create an
+# organization, so we stop and tell the customer.
+_NO_ORGANIZATION = (
+    "Your OpenRouter account isn't part of an organization, so the organization members and workspaces "
+    "tables can't be synced. Disable these tables, or reconnect with a management key that belongs to an "
+    "organization."
+)
+
 
 @SourceRegistry.register
 class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://openrouter.ai/docs/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -88,6 +101,11 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
             # status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://openrouter.ai": "Your OpenRouter API key is invalid or has been revoked. Create a new key in your OpenRouter dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://openrouter.ai": "Your OpenRouter API key is missing the management scope needed to sync this data. Use a management API key (Settings -> Management Keys), then reconnect.",
+            # Match the org-scoped paths specifically, not a bare host 404, so a genuine bad path on
+            # another endpoint still surfaces instead of being silently disabled. The query string is
+            # dropped as the volatile part.
+            "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/organization/members": _NO_ORGANIZATION,
+            "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/workspaces": _NO_ORGANIZATION,
         }
 
     def get_schemas(
@@ -97,6 +115,7 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "activity":
@@ -124,7 +143,11 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
         return schemas
 
     def validate_credentials(
-        self, config: OpenRouterSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenRouterSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         info = get_key_info(config.api_key)
         if info is None:
@@ -141,7 +164,7 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
         return True, None
 
     def get_endpoint_permissions(
-        self, config: OpenRouterSourceConfig, team_id: int, endpoints: list[str]
+        self, config: OpenRouterSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         info = get_key_info(config.api_key)
         # A None here is a transient /key failure, not a denial (the key was already validated at

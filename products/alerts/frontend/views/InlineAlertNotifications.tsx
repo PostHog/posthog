@@ -1,55 +1,161 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
-import { IconExternal, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-
-import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
-import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, SlackChannelType } from '~/types'
+import { HogFunctionType, IntegrationType } from '~/types'
 
+import {
+    AlertNotificationDestinationEditor,
+    AlertNotificationDestinationView,
+    AlertNotificationUrlInput,
+    PendingAlertNotificationDestinationView,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
+    AlertNotificationType,
     PendingAlertNotification,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
 
-function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
-    const channelId = channelValue.split('|')[0]
-    return slackChannels.find((c) => c.id === channelId)?.name ?? null
+// Fetched directly rather than through slackIntegrationLogic's loader: that loader keeps a
+// single last-result slot per workspace, so multiple destination rows in the same workspace
+// looking up different channels concurrently would cancel each other's requests.
+function SlackDestinationChannel({ workspaceId, channelId }: { workspaceId: number; channelId: string }): JSX.Element {
+    const [channelName, setChannelName] = useState<string | null>(null)
+
+    useEffect(() => {
+        let cancelled = false
+        api.integrations.slackChannelsById(workspaceId, channelId).then((res) => {
+            if (!cancelled) {
+                setChannelName(res.channels[0]?.name ?? null)
+            }
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [workspaceId, channelId])
+
+    return <>{channelName ? `#${channelName}` : 'channel'}</>
+}
+
+interface SlackDestinationInputs {
+    slack_workspace?: { value: number }
+    channel?: { value: string }
 }
 
 function getHogFunctionDestination(
-    hf: HogFunctionType,
-    slackChannels: SlackChannelType[]
-): { type: string; detail: string | null } {
-    const channelValue = hf.inputs?.channel?.value
-    if (channelValue && typeof channelValue === 'string') {
-        const channelName = resolveSlackChannelName(channelValue, slackChannels)
-        return { type: 'Slack', detail: channelName ? `#${channelName}` : null }
+    hogFunction: HogFunctionType,
+    slackIntegrations: IntegrationType[] | undefined
+): { type: string; detail: ReactNode } {
+    const inputs = hogFunction.inputs as SlackDestinationInputs | null | undefined
+    const channelId = inputs?.channel?.value
+    if (channelId) {
+        // Destinations from before `slack_workspace` existed can only be safely attributed to a
+        // workspace when exactly one is connected — with 2+, there's no way to know which one it
+        // was created against, so guessing would risk showing the wrong workspace/channel.
+        const workspaceId =
+            inputs?.slack_workspace?.value ?? (slackIntegrations?.length === 1 ? slackIntegrations[0].id : undefined)
+        if (workspaceId === undefined) {
+            return { type: 'Slack', detail: null }
+        }
+        const workspaceName = slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
+        return {
+            type: 'Slack',
+            detail: (
+                <>
+                    {workspaceName ?? 'Unknown workspace'} ·{' '}
+                    <SlackDestinationChannel workspaceId={workspaceId} channelId={channelId} />
+                </>
+            ),
+        }
     }
-    if (channelValue) {
-        return { type: 'Slack', detail: null }
-    }
-    if (hf.template_id === 'template-discord') {
-        const webhookUrl = hf.inputs?.webhookUrl?.value
+    if (hogFunction.template_id === 'template-discord') {
+        const webhookUrl = hogFunction.inputs?.webhookUrl?.value
         return { type: 'Discord', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
     }
-    if (hf.template_id === 'template-microsoft-teams') {
-        const webhookUrl = hf.inputs?.webhookUrl?.value
+    if (hogFunction.template_id === 'template-microsoft-teams') {
+        const webhookUrl = hogFunction.inputs?.webhookUrl?.value
         return { type: 'Microsoft Teams', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
     }
-    const urlValue = hf.inputs?.url?.value
+    const urlValue = hogFunction.inputs?.url?.value
     if (urlValue && typeof urlValue === 'string') {
         return { type: 'Webhook', detail: urlValue }
     }
-    return { type: hf.name, detail: null }
+    return { type: hogFunction.name, detail: null }
+}
+
+function getNotificationLabel(
+    notification: PendingAlertNotification,
+    slackIntegrations: IntegrationType[] | undefined
+): string {
+    switch (notification.type) {
+        case ALERT_NOTIFICATION_TYPE_SLACK: {
+            const workspaceName = slackIntegrations?.find(
+                (integration) => integration.id === notification.slackWorkspaceId
+            )?.display_name
+            return `Slack: ${workspaceName ?? 'Unknown workspace'} · #${notification.slackChannelName ?? 'channel'}`
+        }
+        case ALERT_NOTIFICATION_TYPE_DISCORD:
+            return `Discord: ${notification.webhookUrl}`
+        case ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS:
+            return `Microsoft Teams: ${notification.webhookUrl}`
+        case ALERT_NOTIFICATION_TYPE_WEBHOOK:
+            return `Webhook: ${notification.webhookUrl}`
+        default: {
+            const exhaustiveCheck: never = notification
+            return exhaustiveCheck
+        }
+    }
+}
+
+function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | undefined {
+    switch (type) {
+        case ALERT_NOTIFICATION_TYPE_DISCORD:
+            return { placeholder: 'https://discord.com/api/webhooks/...' }
+        case ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS:
+            return { placeholder: 'https://<region>.logic.azure.com:443/workflows/...' }
+        case ALERT_NOTIFICATION_TYPE_WEBHOOK:
+            return { placeholder: 'https://example.com/webhook' }
+        case ALERT_NOTIFICATION_TYPE_SLACK:
+            return undefined
+        default: {
+            const exhaustiveCheck: never = type
+            return exhaustiveCheck
+        }
+    }
+}
+
+function getAddDisabledReason(
+    selectedType: AlertNotificationType,
+    hasSlackIntegration: boolean,
+    slackChannelValue: string | null,
+    webhookUrl: string
+): string | undefined {
+    if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
+        if (!hasSlackIntegration) {
+            return 'Connect Slack first'
+        }
+        if (!slackChannelValue) {
+            return 'Select a Slack channel'
+        }
+        return undefined
+    }
+    if (webhookUrl) {
+        return undefined
+    }
+    if (selectedType === ALERT_NOTIFICATION_TYPE_DISCORD) {
+        return 'Enter a Discord webhook URL'
+    }
+    if (selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
+        return 'Enter a Microsoft Teams workflow URL'
+    }
+    return 'Enter a webhook URL'
 }
 
 interface InlineAlertNotificationsProps {
@@ -62,7 +168,8 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         existingHogFunctions,
         existingHogFunctionsLoading,
         pendingNotifications,
-        firstSlackIntegration,
+        slackIntegrations,
+        selectedSlackIntegration,
         selectedType,
         slackChannelValue,
         webhookUrl,
@@ -72,34 +179,24 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         removePendingNotification,
         deleteExistingHogFunction,
         setSelectedType,
+        setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
     } = useActions(logic)
 
-    const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
-    const { slackChannels } = useValues(slackLogic)
-    const { loadAllSlackChannels } = useActions(slackLogic)
-
-    useEffect(() => {
-        if (firstSlackIntegration) {
-            loadAllSlackChannels()
-        }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
-
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
-            if (!slackChannelValue || !firstSlackIntegration) {
+            if (!slackChannelValue || !selectedSlackIntegration) {
                 return null
             }
             const [channelId, channelLabel] = slackChannelValue.split('|')
             return {
                 type: ALERT_NOTIFICATION_TYPE_SLACK,
-                slackWorkspaceId: firstSlackIntegration.id,
+                slackWorkspaceId: selectedSlackIntegration.id,
                 slackChannelId: channelId,
                 slackChannelName: channelLabel?.replace('#', '') ?? channelId,
             }
         }
-        // Discord, Microsoft Teams, and the generic webhook are all just a single webhook URL
         if (!webhookUrl) {
             return null
         }
@@ -120,161 +217,72 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         addPendingNotification(notification)
         if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
             setSlackChannelValue(null)
-        } else {
-            setWebhookUrl('')
+            return
         }
+        setWebhookUrl('')
     }
 
-    const getNotificationLabel = (notification: PendingAlertNotification): string => {
-        if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
-            return `Slack: #${notification.slackChannelName ?? 'channel'}`
+    const existingDestinations: AlertNotificationDestinationView[] = existingHogFunctions.map((hogFunction) => {
+        const destination = getHogFunctionDestination(hogFunction, slackIntegrations)
+        return {
+            key: hogFunction.id,
+            title: destination.type,
+            detail: destination.detail,
+            tags: [
+                { label: hogFunction.enabled ? 'Active' : 'Paused', type: hogFunction.enabled ? 'success' : 'default' },
+            ],
+            viewAction: {
+                kind: 'icon',
+                url: urls.hogFunction(hogFunction.id),
+                tooltip: 'Open destination',
+                targetBlank: true,
+            },
+            onDelete: () => deleteExistingHogFunction(hogFunction),
         }
-        if (notification.type === ALERT_NOTIFICATION_TYPE_DISCORD) {
-            return `Discord: ${notification.webhookUrl}`
-        }
-        if (notification.type === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
-            return `Microsoft Teams: ${notification.webhookUrl}`
-        }
-        return `Webhook: ${notification.webhookUrl}`
-    }
+    })
+
+    const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
+        (notification, index) => ({
+            key: `${notification.type}-${index}`,
+            label: getNotificationLabel(notification, slackIntegrations),
+            status: '(pending, click Save to apply)',
+            onRemove: () => removePendingNotification(index),
+        })
+    )
+
+    const urlInput = getUrlInput(selectedType)
 
     return (
-        <div className="space-y-4">
-            {alertId && (
-                <div>
-                    {existingHogFunctionsLoading ? (
-                        <LemonSkeleton className="h-8" repeat={2} />
-                    ) : existingHogFunctions.length > 0 ? (
-                        <div className="space-y-2">
-                            {existingHogFunctions.map((hf) => {
-                                const { type: destType, detail } = getHogFunctionDestination(hf, slackChannels)
-                                return (
-                                    <div
-                                        key={hf.id}
-                                        className="flex items-center justify-between border rounded p-2 gap-2"
-                                    >
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">{destType}</span>
-                                                <LemonTag type={hf.enabled ? 'success' : 'default'} size="small">
-                                                    {hf.enabled ? 'Active' : 'Paused'}
-                                                </LemonTag>
-                                            </div>
-                                            {detail && (
-                                                <span className="text-xs text-muted-alt truncate block">{detail}</span>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <LemonButton
-                                                icon={<IconExternal />}
-                                                size="xsmall"
-                                                to={urls.hogFunction(hf.id)}
-                                                targetBlank
-                                                hideExternalLinkIcon
-                                                tooltip="Open destination"
-                                            />
-                                            <LemonButton
-                                                icon={<IconTrash />}
-                                                size="xsmall"
-                                                status="danger"
-                                                onClick={() => deleteExistingHogFunction(hf)}
-                                                tooltip="Delete notification"
-                                            />
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    ) : null}
-                </div>
-            )}
-
-            {pendingNotifications.length > 0 && (
-                <div className="space-y-2">
-                    {pendingNotifications.map((notification, index) => (
-                        <div key={index} className="flex items-center justify-between border rounded p-2 gap-2">
-                            <span className="text-sm min-w-0 truncate">
-                                {getNotificationLabel(notification)}{' '}
-                                <span className="text-muted-alt">(pending - click Save to apply)</span>
-                            </span>
-                            <LemonButton
-                                icon={<IconTrash />}
-                                size="xsmall"
-                                status="danger"
-                                onClick={() => removePendingNotification(index)}
-                                tooltip="Remove notification"
-                            />
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            <div className="space-y-3 border rounded p-3">
-                <div className="flex gap-2 items-end">
-                    <div className="flex-1">
-                        <LemonSelect
-                            fullWidth
-                            options={ALERT_NOTIFICATION_TYPE_OPTIONS}
-                            value={selectedType}
-                            onChange={(value) => setSelectedType(value)}
-                        />
-                    </div>
-                </div>
-
-                {selectedType === ALERT_NOTIFICATION_TYPE_SLACK && (
-                    <>
-                        {!firstSlackIntegration ? (
-                            <SlackNotConfiguredBanner />
-                        ) : (
-                            <SlackChannelPicker
-                                value={slackChannelValue ?? undefined}
-                                onChange={(value) => setSlackChannelValue(value)}
-                                integration={firstSlackIntegration}
-                            />
-                        )}
-                    </>
-                )}
-
-                {(selectedType === ALERT_NOTIFICATION_TYPE_WEBHOOK ||
-                    selectedType === ALERT_NOTIFICATION_TYPE_DISCORD ||
-                    selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) && (
-                    <LemonInput
-                        placeholder={
-                            selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
-                                ? 'https://discord.com/api/webhooks/...'
-                                : selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
-                                  ? 'https://<region>.logic.azure.com:443/workflows/...'
-                                  : 'https://example.com/webhook'
-                        }
-                        value={webhookUrl}
-                        onChange={setWebhookUrl}
-                        fullWidth
-                    />
-                )}
-
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={handleAdd}
-                    disabledReason={
-                        selectedType === ALERT_NOTIFICATION_TYPE_SLACK
-                            ? !firstSlackIntegration
-                                ? 'Connect Slack first'
-                                : !slackChannelValue
-                                  ? 'Select a Slack channel'
-                                  : undefined
-                            : !webhookUrl
-                              ? selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
-                                  ? 'Enter a Discord webhook URL'
-                                  : selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
-                                    ? 'Enter a Microsoft Teams workflow URL'
-                                    : 'Enter a webhook URL'
-                              : undefined
-                    }
-                >
-                    Add notification
-                </LemonButton>
-            </div>
-        </div>
+        <AlertNotificationDestinationEditor
+            destinations={{
+                showExisting: Boolean(alertId),
+                existingLoading: existingHogFunctionsLoading,
+                existing: existingDestinations,
+                pending: pendingDestinations,
+            }}
+            notificationType={{
+                options: ALERT_NOTIFICATION_TYPE_OPTIONS,
+                value: selectedType,
+                onChange: setSelectedType,
+            }}
+            slack={{
+                notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
+                integrations: slackIntegrations,
+                integration: selectedSlackIntegration,
+                onIntegrationChange: setSelectedSlackIntegrationId,
+                channelValue: slackChannelValue,
+                onChannelValueChange: setSlackChannelValue,
+            }}
+            url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+            add={{
+                onClick: handleAdd,
+                disabledReason: getAddDisabledReason(
+                    selectedType,
+                    Boolean(selectedSlackIntegration),
+                    slackChannelValue,
+                    webhookUrl
+                ),
+            }}
+        />
     )
 }

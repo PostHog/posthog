@@ -1208,42 +1208,6 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
-/**
- * Assign this key to evaluations and optionally re-enable them.
- */
-export const llmAnalyticsProviderKeysAssignCreateBodyNameMax = 255
-
-export const llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax = 20
-
-export const llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault = false
-
-export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.object({
-    provider: zod
-        .enum([
-            'openai',
-            'anthropic',
-            'gemini',
-            'openrouter',
-            'fireworks',
-            'azure_openai',
-            'together_ai',
-            'minimax',
-            'zeabur',
-        ])
-        .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
-        ),
-    name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
-    api_key: zod.string().optional(),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
-    api_version: zod
-        .string()
-        .max(llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax)
-        .optional()
-        .describe('Azure OpenAI API version'),
-    set_as_active: zod.boolean().default(llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault),
-})
-
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
@@ -1827,6 +1791,15 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
+        ),
+})
+
+export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
         ),
 })
 

@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshcalle
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshcallerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
+    FreshcallerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source.validate_freshcaller_credentials"

@@ -5,33 +5,32 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.cloud_utils import is_cloud
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.settings import (
-    UNLEASH_ENDPOINTS,
-    UnleashEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.settings import UNLEASH_ENDPOINTS
 
 # The feature search endpoint documents a default limit of 50; 100 verified working against a
 # live instance and keeps round trips low.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap list endpoint used to confirm the token is genuine. Every admin-capable token (personal
 # access token, service account token) can read projects.
 DEFAULT_PROBE_PATH = "/api/admin/projects"
 
 HOST_NOT_ALLOWED_ERROR = "Unleash instance URL is not allowed"
-
-
-class UnleashRetryableError(Exception):
-    pass
 
 
 class UnleashHostNotAllowedError(Exception):
@@ -116,118 +115,89 @@ def _check_host(instance_url: str, team_id: int) -> None:
         raise UnleashHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
 
-def _extract_rows(data: Any, config: UnleashEndpointConfig, url: str) -> list[dict[str, Any]]:
-    if config.data_selector is None:
-        if not isinstance(data, list):
-            raise UnleashRetryableError(f"Unleash returned an unexpected payload for {url}: {type(data).__name__}")
-        return data
-    if not isinstance(data, dict) or not isinstance(data.get(config.data_selector), list):
-        raise UnleashRetryableError(f"Unleash returned an unexpected payload for {url}: {type(data).__name__}")
-    return data[config.data_selector]
-
-
-@retry(
-    retry=retry_if_exception_type((UnleashRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(
-    session: requests.Session,
-    url: str,
-    params: Optional[dict[str, Any]],
-    logger: FilteringBoundLogger,
-) -> Any:
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # The session never follows redirects: a 3xx would move the sync off the validated host
-    # (SSRF), so refuse it rather than silently fetching an empty body.
-    if 300 <= response.status_code < 400:
-        raise UnleashHostNotAllowedError(HOST_NOT_ALLOWED_ERROR)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise UnleashRetryableError(f"Unleash API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Unleash API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def get_rows(
-    instance_url: str,
-    api_token: str,
-    endpoint: str,
-    team_id: int,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[UnleashResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = UNLEASH_ENDPOINTS[endpoint]
-    # Re-check at run time (not just at source-create) in case the instance URL was edited or now
-    # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    _check_host(instance_url, team_id)
-
-    base_url = normalize_instance_url(instance_url)
-    url = f"{base_url}{config.path}"
-    session = _get_session(api_token)
-
-    if not config.paginated:
-        rows = _extract_rows(_fetch(session, url, None, logger), config, url)
-        if rows:
-            yield rows
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume else 0
-    if resume:
-        logger.debug(f"Unleash: resuming {endpoint} from offset {offset}")
-
-    while True:
-        # Sort by createdAt ascending so page boundaries stay stable while we walk the offsets —
-        # flags created mid-sync land at the end instead of shifting earlier pages.
-        params: dict[str, Any] = {
-            "limit": PAGE_SIZE,
-            "offset": offset,
-            "sortBy": "createdAt",
-            "sortOrder": "asc",
-        }
-        data = _fetch(session, url, params, logger)
-        rows = _extract_rows(data, config, url)
-        if rows:
-            yield rows
-
-        offset += len(rows)
-        total = data.get("total") if isinstance(data, dict) else None
-        # Stop on a short/empty page, or once the reported total is reached.
-        if len(rows) < PAGE_SIZE or (isinstance(total, int) and offset >= total):
-            break
-
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(UnleashResumeConfig(offset=offset))
-
-
 def unleash_source(
     instance_url: str,
     api_token: str,
     endpoint: str,
     team_id: int,
-    logger: FilteringBoundLogger,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[UnleashResumeConfig],
 ) -> SourceResponse:
     config = UNLEASH_ENDPOINTS[endpoint]
+    base_url = normalize_instance_url(instance_url)
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        # A 200 whose body isn't the expected list shape (missing data key, wrong type) is treated
+        # as a transient upstream glitch and retried — the retryable counterpart of the old
+        # _extract_rows guard, which raised a retryable error on an unexpected payload.
+        "data_selector_malformed_retryable": True,
+    }
+    if config.data_selector is not None:
+        endpoint_config["data_selector"] = config.data_selector
+
+    if config.paginated:
+        # Sort by createdAt ascending so page boundaries stay stable while we walk the offsets —
+        # flags created mid-sync land at the end instead of shifting earlier pages.
+        endpoint_config["params"] = {"sortBy": "createdAt", "sortOrder": "asc"}
+        paginator: OffsetPaginator | SinglePagePaginator = OffsetPaginator(limit=PAGE_SIZE, total_path="total")
+    else:
+        paginator = SinglePagePaginator()
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            # Auth (raw token, no Bearer prefix) is supplied via the framework auth config so its
+            # value is redacted from logs and raised errors; only the non-secret Accept header here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_token, "name": "Authorization", "location": "header"},
+            "paginator": paginator,
+            # The instance URL is user-supplied: pin every request (including pagination) to the
+            # base host and refuse redirects so the credentialed request can't be bounced off-host.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": endpoint_config,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(UnleashResumeConfig(offset=int(state["offset"])))
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        # Re-check at run time (not just at source-create) in case the instance URL was edited or
+        # now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        _check_host(instance_url, team_id)
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint if config.paginated else None,
+            initial_paginator_state=initial_paginator_state,
+        )
+        for batch in resource:
+            # An empty collection/page must not push an empty batch into the pipeline.
+            if batch:
+                yield batch
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            instance_url=instance_url,
-            api_token=api_token,
-            endpoint=endpoint,
-            team_id=team_id,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

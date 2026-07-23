@@ -1,4 +1,7 @@
+import { UniversalFiltersGroup } from '~/types'
+
 import {
+    buildLogsSessionFilters,
     formatFilterGroupValues,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
@@ -145,6 +148,36 @@ describe('logs utils', () => {
             ['prefix.my.custom.key', ['my.custom.key'], false],
         ])('isSessionIdKey(%s, %j) returns %s', (key, configuredKeys, expected) => {
             expect(isSessionIdKey(key, configuredKeys)).toBe(expected)
+        })
+    })
+
+    describe('buildLogsSessionFilters', () => {
+        it.each([
+            ['defaults to the SDK convention key', undefined, ['posthogSessionId']],
+            ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
+            ['empty configured list falls back to default', [], ['posthogSessionId']],
+        ])('%s', (_, configuredKeys, expectedKeys) => {
+            const filters = buildLogsSessionFilters('sess-1', configuredKeys)
+
+            const innerGroup = filters.filterGroup!.values[0] as UniversalFiltersGroup
+            expect(innerGroup.type).toBe('OR')
+            expect(innerGroup.values).toEqual(
+                expectedKeys.map((key) => ({
+                    key,
+                    value: ['sess-1'],
+                    operator: 'exact',
+                    type: 'log_attribute',
+                }))
+            )
+            expect(filters.dateRange).toBeUndefined()
+        })
+
+        it('scopes the date range around the timestamp', () => {
+            const filters = buildLogsSessionFilters('sess-1', undefined, '2026-03-24T12:00:00.000Z')
+            expect(filters.dateRange).toEqual({
+                date_from: '2026-03-24T11:30:00.000Z',
+                date_to: '2026-03-24T12:30:00.000Z',
+            })
         })
     })
 
