@@ -251,7 +251,7 @@ function dimensionAliasBase(dim: InsightBuilderDimension): string {
 
 function measureAliasBase(measure: InsightBuilderMeasure): string {
     if (measure.column === '*') {
-        return 'count_star'
+        return 'count_rows'
     }
     return `${measure.aggregation}_${measure.column}`
 }

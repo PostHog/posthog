@@ -30,9 +30,15 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
     const { hasAnyField, wellProblems, builderDisplay } = useValues(insightBuilderLogic({ tabId }))
     const { sourceQuery, dataLogicKey } = useValues(sqlEditorLogic({ tabId }))
     const { setSourceQuery } = useActions(sqlEditorLogic({ tabId }))
-    const { responseError, hasMoreData } = useValues(dataNodeLogic)
+    const { response, responseError, hasMoreData } = useValues(dataNodeLogic)
 
     const capability = getChartCapability(builderDisplay)
+    // Some backends embed the failure in the response body rather than the error channel
+    const queryError =
+        responseError ??
+        (response && typeof response === 'object' && 'error' in response
+            ? (response as { error?: string }).error
+            : null)
 
     if (!hasAnyField) {
         return (
@@ -50,10 +56,14 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
             />
         )
     }
-    if (responseError) {
+    if (queryError) {
         return (
-            <div className="p-4">
-                <LemonBanner type="error">{responseError}</LemonBanner>
+            <div className="flex flex-col gap-2 p-4">
+                <LemonBanner type="error">{queryError}</LemonBanner>
+                <span className="text-sm text-secondary">
+                    If a field no longer exists in the query, remove its highlighted pill or refresh the fields in the
+                    Data column.
+                </span>
             </div>
         )
     }

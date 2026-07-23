@@ -1175,6 +1175,19 @@ const Content = ({
     }, [rows, sortColumns])
     const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
 
+    // The builder canvas stays mounted on query errors — the preview column surfaces the error
+    // inline so stale fields can be fixed from the wells. min-w-0 + overflow-hidden stop a wide
+    // table/heatmap from inflating the canvas past the viewport (flex min-width:auto).
+    if (activeTab === OutputTab.Visualization && builderLayout) {
+        return (
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden border-t">
+                <Suspense fallback={<LoadingBar />}>
+                    <BuilderCanvas tabId={tabId} />
+                </Suspense>
+            </div>
+        )
+    }
+
     if (hasError) {
         return (
             <ErrorState
@@ -1187,17 +1200,6 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Visualization) {
-        // The builder canvas owns its own empty/loading states. min-w-0 + overflow-hidden stop a
-        // wide table/heatmap from inflating the canvas past the viewport (flex min-width:auto).
-        if (builderLayout) {
-            return (
-                <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden border-t">
-                    <Suspense fallback={<LoadingBar />}>
-                        <BuilderCanvas tabId={tabId} />
-                    </Suspense>
-                </div>
-            )
-        }
         if (!response && !responseLoading && !insightLoading) {
             return (
                 <div
