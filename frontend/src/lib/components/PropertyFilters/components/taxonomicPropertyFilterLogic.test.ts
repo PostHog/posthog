@@ -171,13 +171,25 @@ describe('taxonomicPropertyFilterLogic', () => {
 
         it('creates EventMetadata filter from a bare-key recent that has no item.id', () => {
             // Key-only recents (e.g. the "Event" recent, key `event`) arrive without an `id`.
-            // Guarding the `$group_` check keeps the handler from throwing so setFilter still runs.
+            // Keying the $group_ check off propertyKey keeps the handler from throwing so setFilter runs.
             selectAndExpect(
                 TaxonomicFilterGroupType.EventMetadata,
                 'event',
                 PropertyFilterType.EventMetadata,
                 { type: PropertyFilterType.EventMetadata, key: 'event' },
                 { name: 'Event' }
+            )
+        })
+
+        it('keeps the group label when selecting a bare group-metadata recent without item.id', () => {
+            // Group-metadata recents (key `$group_0`) also surface without an `id` but must still
+            // carry their display name as the label, otherwise the pill renders "Group null".
+            selectAndExpect(
+                TaxonomicFilterGroupType.EventMetadata,
+                '$group_0',
+                PropertyFilterType.EventMetadata,
+                { type: PropertyFilterType.EventMetadata, key: '$group_0', label: 'Organization' },
+                { name: 'Organization' }
             )
         })
 

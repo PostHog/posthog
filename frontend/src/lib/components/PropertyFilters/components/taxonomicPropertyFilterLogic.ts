@@ -234,9 +234,11 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     featureFilter.label = item.key
                 }
 
-                if (propertyType === PropertyFilterType.EventMetadata && item?.id?.startsWith('$group_')) {
+                // Key off propertyKey, not item.id: bare-key recents surface without an `id`, so
+                // checking item.id would both throw and drop the label for group-metadata recents.
+                if (propertyType === PropertyFilterType.EventMetadata && String(propertyKey).startsWith('$group_')) {
                     const eventMetadataFilter = filter as EventMetadataPropertyFilter
-                    eventMetadataFilter.label = item.name
+                    eventMetadataFilter.label = item?.name
                 }
 
                 // The key is the definition id (a UUID), so keep the human-readable name for display
