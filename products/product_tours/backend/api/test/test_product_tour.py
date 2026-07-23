@@ -93,6 +93,25 @@ class TestProductTour(APIBaseTest):
         assert call_args[0][1] == ProductTourEventName.UPDATED
         assert call_args[0][2]["tour_name"] == "Updated name"
 
+    def test_can_update_archived_product_tour(self):
+        # The update path re-fetches the "before" state; a manager that hides archived rows
+        # used to raise DoesNotExist here and 500 the request.
+        tour = ProductTour.all_objects.create(
+            team=self.team,
+            name="Archived tour",
+            content={"steps": []},
+            created_by=self.user,
+            archived=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"name": "Renamed while archived"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Renamed while archived"
+
     @patch("products.product_tours.backend.api.product_tour.report_user_action")
     def test_delete_hard_deletes_tour(self, mock_report):
         tour = ProductTour.objects.create(
