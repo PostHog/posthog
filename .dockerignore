@@ -14,6 +14,7 @@
 !common/plugin_transpiler/src
 !common/tailwind
 !packages/quill
+!packages/llm-normalizer
 !dags
 !docs/onboarding
 !ee
@@ -95,6 +96,8 @@ common/*/*/dist
 common/*/dist
 packages/quill/**/node_modules
 packages/quill/**/dist
+packages/llm-normalizer/**/node_modules
+packages/llm-normalizer/**/dist
 products/**/node_modules
 nodejs/node_modules
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
