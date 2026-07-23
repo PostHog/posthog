@@ -96,21 +96,29 @@ async def test_normalizes_supported_reasoning_effort_for_anthropic_requests(effo
     }
 
 
-def test_drops_clear_thinking_when_thinking_is_not_enabled() -> None:
+@pytest.mark.parametrize(
+    ("edits", "expected_context_management"),
+    [
+        ([{"type": "clear_thinking_20251015", "keep": "all"}], None),
+        (
+            [
+                {"type": "clear_thinking_20251015", "keep": "all"},
+                {"type": "clear_tool_uses_20250919"},
+            ],
+            {"edits": [{"type": "clear_tool_uses_20250919"}]},
+        ),
+    ],
+)
+def test_drops_clear_thinking_when_thinking_is_not_enabled(
+    edits: list[dict[str, str]], expected_context_management: dict[str, Any] | None
+) -> None:
     request = {
         "model": GLM_MODEL,
         "messages": [{"role": "user", "content": "hi"}],
-        "context_management": {
-            "edits": [
-                {"type": "clear_thinking_20251015", "keep": "all"},
-                {"type": "clear_tool_uses_20250919"},
-            ]
-        },
+        "context_management": {"edits": edits},
     }
 
-    assert normalize_glm_anthropic_request(request)["context_management"] == {
-        "edits": [{"type": "clear_tool_uses_20250919"}]
-    }
+    assert normalize_glm_anthropic_request(request).get("context_management") == expected_context_management
 
 
 async def test_routes_to_modal_when_fraction_one_without_flag_roundtrip() -> None:
