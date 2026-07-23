@@ -17,13 +17,21 @@ any selector error. Over-selection silently drops coverage, so the only safe
 default is "run everything". A selection miss that slips through is caught by
 the post-merge full run on master (the backstop).
 
-The one carve-out is the map's `ignore` section: paths that provably cannot
-affect the app under test (docs, agent instructions, lint rules, workflows for
-other suites) contribute nothing to selection instead of forcing a full run.
-`force_full` outranks `ignore`, and a diff where EVERY file is ignored still
-falls closed to a full run (category `all_ignored`) — running nothing is a
-trust-model change this selector deliberately doesn't make; the category exists
-to measure how much a skip mode would save before anyone builds it.
+Two carve-outs soften fail-closed where the full suite provably adds nothing:
+
+- `ignore`: paths that cannot affect the app under test (docs, agent
+  instructions, lint rules, workflows for other suites) contribute nothing to
+  selection instead of forcing a full run. `force_full` outranks `ignore`, and
+  a diff where EVERY file is ignored still falls closed to a full run (category
+  `all_ignored`) — running nothing is a trust-model change this selector
+  deliberately doesn't make; the category exists to measure how much a skip
+  mode would save before anyone builds it.
+- `scenes_smoke_only` + `smoke_subset`: a scene listed here declares it has NO
+  direct e2e coverage — no spec navigates to it, so the full suite wouldn't
+  exercise it either. Changes there run the cheap `smoke_subset` (app boots,
+  auth works) instead of everything. A mapping in `scenes` outranks the
+  smoke-only list; writing a real spec for the scene means moving it to
+  `scenes`.
 
 Emits a single JSON object to stdout:
 
@@ -172,6 +180,8 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
     ignore = [_compile_glob(p) for p in area_map.get("ignore", [])]
     products = area_map.get("products", {})
     scenes = area_map.get("scenes", {})
+    scenes_smoke_only = set(area_map.get("scenes_smoke_only", []))
+    smoke_subset = area_map.get("smoke_subset", [])
     explicit = [(p, _compile_glob(p), targets) for p, targets in area_map.get("explicit", {}).items()]
 
     def explicit_match(path: str, selected: set[str]) -> bool:
@@ -210,12 +220,18 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 continue
             return full(f"{f}: product '{name}' has no spec mapping", "unmapped_product", name)
 
-        # 4. Frontend scene -> mapped specs.
+        # 4. Frontend scene -> mapped specs, or the smoke subset for scenes that
+        #    declared they have no direct e2e coverage (the full suite wouldn't
+        #    exercise them either, so it only buys the boot/auth smoke signal).
         sm = _SCENE_RE.match(f)
         if sm:
             area = sm.group(1)
             if area in scenes:
                 for t in scenes[area]:
+                    selected |= expand_target(t, all_specs)
+                continue
+            if area in scenes_smoke_only:
+                for t in smoke_subset:
                     selected |= expand_target(t, all_specs)
                 continue
             return full(f"{f}: scene '{area}' has no spec mapping", "unmapped_scene", area)

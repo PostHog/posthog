@@ -34,6 +34,8 @@ FAKE_SPECS = {
 FAKE_MAP = {
     "force_full": ["posthog/**", "pnpm-lock.yaml", "playwright/*.ts"],
     "ignore": ["docs/**", "**/*.md"],
+    "smoke_subset": ["playwright/e2e/auth.spec.ts"],
+    "scenes_smoke_only": ["inbox"],
     "products": {"surveys": ["products/surveys/frontend/e2e/"]},
     "scenes": {
         "billing": ["playwright/e2e/billing/"],
@@ -131,6 +133,15 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 "full",
                 ("force_full", "posthog/**"),
             ),
+            # A smoke-only scene (declared: no direct coverage) narrows to the smoke
+            # subset instead of forcing full — regressing this reverts the scene to
+            # paying for the whole suite that never exercises it.
+            (
+                "smoke-only scene narrows to the smoke subset",
+                ["frontend/src/scenes/inbox/components/Inbox.tsx"],
+                "selected",
+                {"playwright/e2e/auth.spec.ts"},
+            ),
         ]
         for name, changed, mode, expected in cases:
             with self.subTest(name):
@@ -156,7 +167,7 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         all_specs = selection.discover_specs(selection.REPO_ROOT)
         self.assertTrue(all_specs, "no Playwright specs discovered — wrong REPO_ROOT?")
 
-        targets: list[str] = []
+        targets: list[str] = list(area_map.get("smoke_subset", []))
         for spec_globs in area_map.get("products", {}).values():
             targets += spec_globs
         for spec_globs in area_map.get("scenes", {}).values():
@@ -172,6 +183,21 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                         spec.startswith("playwright/e2e/") or "/frontend/e2e/" in spec,
                         msg=f"{target} -> {spec} is outside the spec roots",
                     )
+
+    def test_smoke_only_scenes_are_consistent(self) -> None:
+        # A scene in both `scenes` and `scenes_smoke_only` is a contradiction — the
+        # mapped entry silently wins and the smoke declaration is dead weight. And a
+        # non-empty smoke-only list with an empty smoke_subset would send every
+        # smoke-only scene to the defensive no_specs full run, silently killing the
+        # mechanism.
+        area_map = selection.load_map(selection.MAP_PATH)
+        overlap = set(area_map.get("scenes_smoke_only", [])) & set(area_map.get("scenes", {}))
+        self.assertEqual(overlap, set(), msg="scene(s) listed in both scenes and scenes_smoke_only")
+        if area_map.get("scenes_smoke_only"):
+            self.assertTrue(
+                area_map.get("smoke_subset"),
+                msg="scenes_smoke_only requires a non-empty smoke_subset",
+            )
 
     def test_ignore_patterns_never_match_specs(self) -> None:
         # An over-broad ignore entry (e.g. "playwright/**") would make a directly-edited
@@ -208,6 +234,8 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         all_specs = selection.discover_specs(selection.REPO_ROOT)
 
         reachable: set[str] = set()
+        for target in area_map.get("smoke_subset", []):
+            reachable |= selection.expand_target(target, all_specs)
         for section in ("products", "scenes", "explicit"):
             for targets in area_map.get(section, {}).values():
                 for target in targets:
