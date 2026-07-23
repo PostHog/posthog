@@ -280,3 +280,46 @@ this file does not yet contain one.
   JSON node size and consider taking ownership of globals subtrees to move String leaves
   instead of cloning. (2) CallGlobal `Symbol` probe allocations. (3) `HogLiteral::size`
   walk on SetProperty (backlog 7).
+
+## 2026-07-23 — iteration 6: alloc-free CallGlobal symbol probe
+
+- Machine: same runner as iteration 5.
+- Baseline measurement deferred to the interleaved A/B (the HEAD binary from
+  iteration 5 is the base side).
+- Static op mix of the template (442 ops straight-line): String 111, GetLocal 101,
+  GetProperty 51, Pop 33, **CallGlobal 25** (empty, print x4, substring, geoipLookup,
+  keys x3, values x3, length x3, concat x9), SetProperty 22 — loops multiply the
+  write/call blocks at runtime.
+- Hypothesis (backlog item 5, hardened): every executed CallGlobal builds
+  `Symbol::new("stl", name)` — two String allocations — just to probe the symbol
+  table, and for native calls (the overwhelming majority here) the probe always
+  misses. Instead of flipping probe order (which would silently change semantics if a
+  name ever appeared in both the native-fn map and the symbol table — possible via
+  runtime `with_ext_fn` registrations), add an `Arc`-shared `HashSet<String>` of the
+  "stl"-module symbol names, probed by `&str` with zero allocation; construct the
+  `Symbol` only on a hit (an actual cross-module call — none in the geoip hot path).
+  Exact same resolution semantics. Gate >= 2%; predicted 1-3% (riskiest gate margin
+  so far — CallGlobal is ~25-80 executions/event vs the ~200 pushes iteration 3
+  removed for 3.2%).
+- Diff summary (implemented, then reverted): `Arc<HashSet<String>>` of stl-module names
+  in `ExecutionContext` (maintained by all constructors and module mutators),
+  `has_stl_symbol(&str)` probe, and CallGlobal building the `Symbol` only on a hit.
+  All gates were green (77+19 tests, parity, deps, lints).
+- Measurement (interleaved A/B, 10 rounds, 100k iters each): per-round ratios
+  0.907 / 0.964 / 0.995 / 1.044 / 1.027 / 0.985 / 1.016 / 0.935 / 1.038 / 0.962 —
+  median **0.990 (~1.0% improvement)**, spread ±5%. The runner became heavily
+  contended mid-measurement (absolute times rose from ~145 to ~225 us/op), but even
+  the quieter early rounds put the effect near ~1-2%, under the gate.
+- Verdict: **REVERTED** (below the 2% gate). The probe allocations are real but small:
+  ~25-80 CallGlobals/event x 2 tiny Strings is an order of magnitude less allocator
+  traffic than the wins that cleared the gate. Worth folding into a future batched
+  "small allocs" iteration if one forms, not worth a solo slot. Negative result
+  recorded so it is not re-tried alone.
+- Iteration score: 1 consecutive iteration with no committed improvement (stop at 3).
+- Next-iteration candidates: (1) `json_to_hog_impl` capacity reservation for maps/vecs
+  (targets `reserve_rehash` ~2% + some malloc) — similar risk profile to this
+  iteration, so consider pairing its measurement with a quiet-machine check first.
+  (2) The remaining big block is `step` dispatch + `get_token` (~12%) — a
+  frame-cached token-slice pointer (backlog item 6) skips the per-fetch
+  `Option<Symbol>` match + `HashMap` lookup for root-chunk execution; geoip runs
+  ~100% in the root chunk. (3) `hog_to_json` BTreeMap output path.
