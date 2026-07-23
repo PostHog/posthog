@@ -719,7 +719,9 @@ jobs:
                   # Keep attempt 1's artifact available so the reporter can identify same-job
                   # failures that pass when GitHub re-runs failed jobs on the same commit.
                   name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
-                  path: junit-results/junit-*.xml
+                  path: |
+                      junit-results/junit-*.xml
+                      junit-results/posthog-jest-quarantine-*.jsonl
                   if-no-files-found: ignore
                   retention-days: 1
 

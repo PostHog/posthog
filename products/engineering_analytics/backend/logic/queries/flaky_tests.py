@@ -56,7 +56,8 @@ _SELECT = """
         failed_pr_count DESC,
         failed_run_count DESC,
         last_signal_at DESC,
-        nodeid ASC
+        nodeid ASC,
+        runner ASC
     LIMIT {limit_plus_one}
 """
 

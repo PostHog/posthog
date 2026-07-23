@@ -82,7 +82,7 @@ graph LR
 
 - Job-level CI: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).
 - One write surface: test quarantine. The UI files a tracking issue plus a PR against the repo's checked-in `.test_quarantine.json` through the team's GitHub App. Everything else is read-only.
-- The test-health view is an active work queue, not a failure-rate leaderboard: the main pytest and Jest suites emit failures and same-job re-run recovery evidence. Evidence is counted per CI run, a test is called flaky only where one commit was seen both failing and passing it, and every other failure ranks as an honest suspected regression by blast radius.
+- The test-health view is an active work queue, not a failure-rate leaderboard: the main pytest and Jest suites emit failures and same-job re-run recovery evidence. Jest writes a small marker beside JUnit when quarantine tolerates a failure, so masking it does not erase the signal. Evidence is counted per CI run, a test is called flaky only where one commit was seen both failing and passing it, and every other failure ranks as an honest suspected regression by blast radius.
 - Access control: per-user warehouse RBAC at the source resolver, `engineering_analytics:read` scopes on tools, feature-flag gated.
 
 ## The goal: CI Signals for PostHog Code

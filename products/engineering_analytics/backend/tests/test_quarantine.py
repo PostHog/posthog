@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
     _canonical_entry,
     _lifecycle_for,
     _remove_entry,
+    _resolve_request_runner,
     _selector_kind,
     _upsert_entry,
     build_quarantine,
@@ -470,6 +471,39 @@ class TestQuarantineRender(TestCase):
         drop = _canonical_entry(_entry())
         result = _remove_entry([keep, drop], _entry()["id"])
         assert [e["id"] for e in result] == ["other"]
+
+    @parameterized.expand(
+        [
+            ("jest_extension", "frontend/src/x.test.ts::suite test", [], contracts.QuarantineRunner.JEST),
+            ("pytest_fallback", "product:surveys", [], contracts.QuarantineRunner.PYTEST),
+            (
+                "existing_entry",
+                "product:surveys",
+                [_canonical_entry(_entry(id="product:surveys", runner="jest"))],
+                contracts.QuarantineRunner.JEST,
+            ),
+        ]
+    )
+    def test_resolve_request_runner_for_older_clients(
+        self,
+        _name: str,
+        selector: str,
+        entries: list[dict],
+        expected: contracts.QuarantineRunner,
+    ) -> None:
+        request = _request(selector=selector, runner=None)
+        assert _resolve_request_runner(request, selector, entries) == expected
+
+    def test_resolve_request_runner_rejects_ambiguous_extend(self) -> None:
+        selector = "product:surveys"
+        entries = [
+            _canonical_entry(_entry(id=selector, runner="pytest")),
+            _canonical_entry(_entry(id=selector, runner="jest")),
+        ]
+        request = _request(operation=contracts.QuarantineRequestAction.EXTEND, selector=selector, runner=None)
+
+        with self.assertRaisesRegex(contracts.QuarantineWriteError, "multiple runners"):
+            _resolve_request_runner(request, selector, entries)
 
 
 class TestQuarantineRequest(BaseTest):

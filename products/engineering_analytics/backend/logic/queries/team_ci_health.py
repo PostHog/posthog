@@ -100,7 +100,7 @@ _TEST_SIGNAL_SELECT = f"""
     -- shows different rows than the summary that opened it.
     HAVING argMax(owner_team, run_signal_at) = {{owner_team}}
         AND (signal_count > 0 OR signal_count_prior > 0)
-    ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC
+    ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC, runner ASC
     LIMIT {{test_limit_plus_one}}
 """
 

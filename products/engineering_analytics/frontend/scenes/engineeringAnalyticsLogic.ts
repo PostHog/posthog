@@ -449,6 +449,11 @@ export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
 export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
 export type TestRunner = NonNullable<QuarantineRequestApi['runner']>
+export const TEST_RUNNERS: readonly TestRunner[] = ['pytest', 'jest', 'playwright']
+
+export function isTestRunner(runner: string): runner is TestRunner {
+    return TEST_RUNNERS.some((candidate) => candidate === runner)
+}
 
 export interface FlakyTestRow {
     runner: TestRunner
@@ -535,7 +540,7 @@ export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 export interface QuarantineSubmitInput {
     action: QuarantineRequestAction
     selector: string
-    runner: TestRunner
+    runner?: TestRunner
     reason: string
     owner: string
     /** Existing tracking issue, carried forward on extend/remove. */
@@ -592,7 +597,7 @@ function toRequestBody(input: QuarantineSubmitInput, repo: string | null): Quara
         // Wire field is 'operation' (a bare 'action' enum collides in the OpenAPI spec).
         operation: input.action,
         selector: input.selector,
-        runner: input.runner,
+        ...(input.runner ? { runner: input.runner } : {}),
         // The repo being viewed, so the PR lands there. Null in local dev.
         repo,
         reason: input.reason,

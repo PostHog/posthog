@@ -957,6 +957,29 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.quarantineSubmitLoading).toBe(false)
     })
 
+    it('omits the runner when removing a forward-compatible quarantine entry', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        logic.actions.submitQuarantine({
+            input: {
+                action: 'remove',
+                selector: 'future/runner/test',
+                reason: '',
+                owner: '',
+                issue: '',
+                expires: null,
+                mode: 'run',
+            },
+        })
+        await expectLogic(logic).toDispatchActions(['submitQuarantineSuccess'])
+
+        expect(mockQuarantineRequest).toHaveBeenCalledWith(
+            '1',
+            expect.not.objectContaining({ runner: expect.anything() })
+        )
+    })
+
     it('a failed submit keeps the modal open so the user can retry', async () => {
         silenceKeaLoadersErrors() // the submit failure is the scenario under test
         mockQuarantineRequest.mockRejectedValue({ detail: "The App isn't installed on PostHog." })

@@ -31577,7 +31577,7 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older pytest spans use a best-effort reconstruction from the nodeid. */
       selector: string;
-      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a tolerated failure was recorded while it was masked. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
        * * `confirmed_flake` - CONFIRMED_FLAKE
        * * `suspected_regression` - SUSPECTED_REGRESSION
@@ -31591,9 +31591,9 @@ export namespace Schemas {
       failed_pr_count: number;
       /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
       master_failed_run_count: number;
-      /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+      /** Runs where the test recorded a tolerated failure while quarantined: already masked in CI, still failing. */
       quarantined_failed_run_count: number;
-      /** Most recent failure, recovery, or xfail run for this test in the window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test in the window. */
       last_signal_at: string;
     }
 
@@ -56262,12 +56262,12 @@ export namespace Schemas {
       operation: OperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
-      /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Defaults to 'pytest'.
+      /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
        *
        * * `pytest` - PYTEST
        * * `jest` - JEST
        * * `playwright` - PLAYWRIGHT */
-      runner?: QuarantineRequestRunnerEnum;
+      runner?: QuarantineRequestRunnerEnum | null;
       /**
          * Optional 'owner/name' repository override; defaults to the team's most active repo.
          * @nullable
@@ -68526,11 +68526,11 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest or Jest selector; exact for newly emitted spans. */
       selector: string;
-      /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
+      /** Runs in the current window where the test failed, errored, or a retry recovered it (quarantined failures excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent failure, recovery, or xfail run for this test, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run for this test, either window. */
       last_seen_at: string;
     }
 
@@ -68562,11 +68562,11 @@ export namespace Schemas {
       same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
       same_commit_recovery_run_count_prior: number;
-      /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+      /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
-      /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
+      /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
       last_seen_at: string;
     }
 

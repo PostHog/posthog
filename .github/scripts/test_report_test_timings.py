@@ -224,6 +224,39 @@ def test_collect_jest_shard_reads_legacy_and_isolated_product_suites(tmp_path: P
     assert shard.end == datetime(2026, 5, 4, 10, 0, 4, tzinfo=UTC)
 
 
+def test_collect_jest_shard_marks_tolerated_failures_as_quarantined(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-FOSS-1"
+    _write_shard_xml(
+        artifact_dir,
+        filename="junit-FOSS-1.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body=(
+            '<testcase classname="suite flaky" name="suite flaky" time="0.1" '
+            'file="src/flaky.test.ts"/>'
+            '<testcase classname="suite healthy" name="suite healthy" time="0.1" '
+            'file="src/flaky.test.ts"/>'
+        ),
+    )
+    (artifact_dir / "posthog-jest-quarantine-123.jsonl").write_text(
+        f"{json.dumps({'test_id': 'frontend/src/flaky.test.ts::suite flaky'})}\n"
+    )
+
+    shard = report_test_timings.collect_shards(tmp_path, "jest")[0]
+
+    assert [test.outcome for test in shard.tests] == ["xfailed", "passed"]
+    assert report_test_timings.should_emit(shard.tests[0], float("inf")) is True
+
+
+def test_load_jest_quarantine_signals_rejects_oversized_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(report_test_timings, "MAX_QUARANTINE_SIGNAL_BYTES", 10)
+    (tmp_path / "posthog-jest-quarantine-123.jsonl").write_text('{"test_id":"too-large"}\n')
+
+    assert report_test_timings.load_jest_quarantine_signals(tmp_path) == frozenset()
+
+
 @pytest.mark.parametrize(
     "junit_file,expected",
     [

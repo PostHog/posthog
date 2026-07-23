@@ -75,6 +75,8 @@ DEFAULT_RUNNER: Runner = "pytest"
 SERVICE_NAMES: dict[Runner, str] = {"pytest": "ci-backend", "jest": "ci-frontend"}
 INSTRUMENTATION_NAME = "posthog-ci-test-timings"
 INSTRUMENTATION_VERSION = "0.1.0"
+JEST_QUARANTINE_SIGNAL_GLOB = "posthog-jest-quarantine-*.jsonl"
+MAX_QUARANTINE_SIGNAL_BYTES = 10 * 1024 * 1024
 # ~150 KB serialized at this size — well under capture-logs' 2 MiB body limit.
 SPAN_BATCH_SIZE = 1000
 
@@ -300,7 +302,36 @@ def parse_testsuite_properties(suite_elem: Any) -> dict[str, str]:
     return result
 
 
-def parse_shard(xml_path: Path, info: ArtifactInfo, runner: Runner = DEFAULT_RUNNER) -> Shard | None:
+def load_jest_quarantine_signals(artifact_path: Path) -> frozenset[str]:
+    """Read best-effort tolerated-failure markers emitted by Jest workers in this artifact."""
+    test_ids: set[str] = set()
+    bytes_read = 0
+    for signal_path in sorted(artifact_path.glob(JEST_QUARANTINE_SIGNAL_GLOB)):
+        try:
+            bytes_read += signal_path.stat().st_size
+            if bytes_read > MAX_QUARANTINE_SIGNAL_BYTES:
+                logger.warning("ignored oversized Jest quarantine signals in %s", artifact_path)
+                return frozenset(test_ids)
+            with signal_path.open() as signals:
+                for line in signals:
+                    try:
+                        signal = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    test_id = signal.get("test_id") if isinstance(signal, dict) else None
+                    if isinstance(test_id, str) and 0 < len(test_id) <= 16_384:
+                        test_ids.add(test_id)
+        except OSError as exc:
+            logger.warning("failed to read %s: %s", signal_path, exc)
+    return frozenset(test_ids)
+
+
+def parse_shard(
+    xml_path: Path,
+    info: ArtifactInfo,
+    runner: Runner = DEFAULT_RUNNER,
+    quarantined_test_ids: frozenset[str] = frozenset(),
+) -> Shard | None:
     """One Shard per junit XML file. Tolerant of malformed input."""
     try:
         root = ET.parse(xml_path).getroot()
@@ -336,6 +367,8 @@ def parse_shard(xml_path: Path, info: ArtifactInfo, runner: Runner = DEFAULT_RUN
             name = tc.get("name", "")
             file, nodeid, selector = test_identity(runner, tc.get("file", ""), classname, name)
             outcome, attempts = classify_testcase(tc)
+            if outcome == "passed" and nodeid in quarantined_test_ids:
+                outcome = "xfailed"
             try:
                 duration = max(0.0, float(tc.get("time", "0")))
             except ValueError:
@@ -380,8 +413,9 @@ def parse_shard(xml_path: Path, info: ArtifactInfo, runner: Runner = DEFAULT_RUN
 def collect_shards(artifacts_root: Path, runner: Runner = DEFAULT_RUNNER) -> list[Shard]:
     shards: list[Shard] = []
     for artifact in collect_artifact_infos(artifacts_root):
+        quarantined_test_ids = load_jest_quarantine_signals(artifact.path) if runner == "jest" else frozenset()
         for xml_path in sorted(artifact.path.rglob("junit*.xml")):
-            shard = parse_shard(xml_path, artifact, runner)
+            shard = parse_shard(xml_path, artifact, runner, quarantined_test_ids)
             if shard is not None:
                 shards.append(shard)
     return shards

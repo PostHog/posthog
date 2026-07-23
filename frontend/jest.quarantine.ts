@@ -171,6 +171,7 @@ const describeStack: string[] = []
 interface Decision {
     mode: 'run' | 'skip'
     label: string
+    testId: string
 }
 
 function todayIso(): string {
@@ -223,6 +224,7 @@ function toDecision(entry: QuarantineEntry, testId: string): Decision {
     return {
         mode: entry.mode,
         label: `${testId}: quarantined until ${entry.expires}: ${entry.reason} (${attribution})`,
+        testId,
     }
 }
 
@@ -296,7 +298,27 @@ function warnSkip(decision: Decision): void {
 }
 
 function warnTolerated(decision: Decision, error: unknown): void {
+    recordToleratedFailure(decision.testId)
     warn(`[quarantine] tolerated failure in ${decision.label}\n${errorText(error)}`)
+}
+
+const recordedToleratedFailures = new Set<string>()
+
+function recordToleratedFailure(testId: string): void {
+    const outputDirectory = process.env.JEST_JUNIT_OUTPUT_DIR
+    if (!outputDirectory || recordedToleratedFailures.has(testId)) {
+        return
+    }
+    try {
+        fs.mkdirSync(outputDirectory, { recursive: true })
+        fs.appendFileSync(
+            path.join(outputDirectory, `posthog-jest-quarantine-${process.pid}.jsonl`),
+            `${JSON.stringify({ test_id: testId })}\n`
+        )
+        recordedToleratedFailures.add(testId)
+    } catch {
+        // Telemetry is best-effort; quarantine enforcement must still work without it.
+    }
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
@@ -323,22 +345,35 @@ function tolerate(fn: (...args: unknown[]) => unknown, decision: Decision): (...
 }
 
 function runDoneStyle(
-    fn: (done: jest.DoneCallback) => void,
+    fn: jest.ProvidesCallback | ((...args: unknown[]) => unknown),
+    args: unknown[],
     decision: Decision,
     done: jest.DoneCallback,
     thisArg: unknown
 ): void {
-    const tolerantDone = function (): void {
-        done()
+    let finished = false
+    const finish = (): void => {
+        if (!finished) {
+            finished = true
+            done()
+        }
+    }
+    const tolerantDone = function (reason?: string | Error): void {
+        if (reason !== undefined) {
+            warnTolerated(decision, reason)
+        }
+        finish()
     } as jest.DoneCallback
-    tolerantDone.fail = function (): void {
-        done()
+    tolerantDone.fail = function (reason?: string | Error): void {
+        warnTolerated(decision, reason ?? new Error('done.fail() called'))
+        finish()
     }
     try {
-        fn.call(thisArg, tolerantDone)
+        const doneStyle = fn as (...callbackArgs: unknown[]) => unknown
+        doneStyle.call(thisArg, ...args, tolerantDone)
     } catch (error) {
         warnTolerated(decision, error)
-        done()
+        finish()
     }
 }
 
@@ -361,7 +396,7 @@ function tolerateProvidesWhen(
                 doneStyle.call(this, done)
                 return
             }
-            runDoneStyle(doneStyle, decision, done, this)
+            runDoneStyle(doneStyle, [], decision, done, this)
         }
     }
     return function (this: unknown): unknown {
@@ -371,13 +406,6 @@ function tolerateProvidesWhen(
         }
         return tolerate(fn as () => unknown, decision).call(this)
     } as jest.ProvidesCallback
-}
-
-function tolerateProvides(
-    fn: jest.ProvidesCallback | undefined,
-    decision: Decision
-): jest.ProvidesCallback | undefined {
-    return tolerateProvidesWhen(fn, () => decision)
 }
 
 /** Copy every own member (skip/only/todo/each/…) from a jest global onto its wrapper. */
@@ -396,17 +424,40 @@ function copyMembers(target: object, source: object): void {
 type EachFactory = (name: string, fn: (...args: unknown[]) => unknown, timeout?: number) => void
 type EachEntry = (...args: unknown[]) => EachFactory
 
+function eachArgumentCount(eachArgs: unknown[]): number | null {
+    const [table, ...templateValues] = eachArgs
+    if (templateValues.length > 0) {
+        return 1
+    }
+    if (!Array.isArray(table) || table.length === 0) {
+        return null
+    }
+    const counts = table.map((row) => (Array.isArray(row) ? row.length : 1))
+    return counts.every((count) => count === counts[0]) ? counts[0] : null
+}
+
 function tolerateEachWhen(
     fn: (...args: unknown[]) => unknown,
-    getDecision: () => Decision | null
+    getDecision: () => Decision | null,
+    argumentCount: number | null
 ): (...args: unknown[]) => unknown {
-    return function (this: unknown, ...args: unknown[]): unknown {
+    const wrapped = function (this: unknown, ...args: unknown[]): unknown {
         const decision = getDecision()
         if (decision === null || decision.mode !== 'run') {
             return fn.apply(this, args)
         }
+        if (argumentCount !== null && fn.length > argumentCount && args.length === argumentCount + 1) {
+            const done = args[argumentCount]
+            if (typeof done === 'function') {
+                runDoneStyle(fn, args.slice(0, argumentCount), decision, done as jest.DoneCallback, this)
+                return undefined
+            }
+        }
         return tolerate(fn, decision).apply(this, args)
     }
+    // jest-each compares callback arity with row width to decide whether to inject `done`.
+    Object.defineProperty(wrapped, 'length', { value: fn.length })
+    return wrapped
 }
 
 /** `.each`: collection-time file scopes can skip; runtime row identities can tolerate failures. */
@@ -418,9 +469,9 @@ function wrapEach(base: jest.It, skipBase: jest.It): jest.Each {
             warnSkip(decision)
             return (skipBase.each as unknown as EachEntry)(...eachArgs)
         }
-        const getDecision = decision === null ? decideForRunningTest : () => decision
+        const argumentCount = eachArgumentCount(eachArgs)
         return (name: string, fn: (...args: unknown[]) => unknown, timeout?: number): void =>
-            factory(name, tolerateEachWhen(fn, getDecision), timeout)
+            factory(name, tolerateEachWhen(fn, decideForRunningTest, argumentCount), timeout)
     }
     return wrapped as unknown as jest.Each
 }
@@ -428,16 +479,12 @@ function wrapEach(base: jest.It, skipBase: jest.It): jest.Each {
 function wrapIt(original: jest.It, wrapConcurrent = true): jest.It {
     const run = (source: jest.It, name: string, fn?: jest.ProvidesCallback, timeout?: number): void => {
         const decision = decideForTest(name)
-        if (decision === null) {
-            source(name, fn, timeout)
-            return
-        }
-        if (decision.mode === 'skip') {
+        if (decision?.mode === 'skip') {
             warnSkip(decision)
             original.skip(name, fn, timeout)
             return
         }
-        source(name, tolerateProvides(fn, decision), timeout)
+        source(name, tolerateProvidesWhen(fn, decideForRunningTest), timeout)
     }
 
     const wrapped = ((name: string, fn?: jest.ProvidesCallback, timeout?: number): void => {

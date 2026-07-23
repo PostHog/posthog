@@ -540,14 +540,14 @@ class FlakyTestClassification(StrEnum):
     CONFIRMED_FLAKE = "confirmed_flake"
     # Only failures recorded, which is absence of proof, not proof of a regression.
     SUSPECTED_REGRESSION = "suspected_regression"
-    # Failing while masked as xfail.
+    # A tolerated failure recorded while the test is masked by quarantine.
     QUARANTINED = "quarantined"
 
     @classmethod
     def from_run_evidence(
         cls, *, quarantined_failed_run_count: int, same_commit_recovery_run_count: int
     ) -> "FlakyTestClassification":
-        # Quarantine wins over a recovery proof: an xfail is already masked, so surface that first.
+        # Quarantine wins over a recovery proof: it is already masked, so surface that first.
         if quarantined_failed_run_count > 0:
             return cls.QUARANTINED
         if same_commit_recovery_run_count > 0:
@@ -589,7 +589,7 @@ class FlakyTestList:
     """The active test-health queue for a window: tests with a live failure signal, ranked by blast
     radius (trunk first, then PRs, then runs), capped at ``limit`` with an explicit truncation flag
     (same shape as ``PullRequestList``). A test qualifies on any same-commit recovery, any
-    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or an xfail.
+    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or a quarantined failure.
     """
 
     items: list[FlakyTestItem]
@@ -622,10 +622,10 @@ class TeamCIHealthItem:
     failed_run_count_prior: int
     same_commit_recovery_run_count: int
     same_commit_recovery_run_count_prior: int
-    # Runs where an owned test failed while quarantined (xfail): already masked, still failing.
+    # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
-    # Most recent failure, recovery, or xfail run across the team's owned tests, either window.
+    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window.
     last_seen_at: datetime
 
 
@@ -645,7 +645,7 @@ class TeamCIHealthList:
 class TeamTestSignal:
     """One owned test's flaky signal across the current window and its equal-length prior
     window, the pair behind a before-vs-after slope reading. Signal = failed + error +
-    pass-on-retry spans (xfail excluded: already-quarantined noise).
+    pass-on-retry spans (quarantined failures excluded: already-masked noise).
     """
 
     runner: CITestRunner
@@ -869,7 +869,7 @@ class QuarantineRequest:
     # serializers' 'action' enums in the OpenAPI spec and churns their generated types.
     operation: QuarantineRequestAction
     selector: str
-    runner: QuarantineRunner = QuarantineRunner.PYTEST
+    runner: QuarantineRunner | None = None
     repo: str | None = None
     reason: str = ""
     owner: str = ""

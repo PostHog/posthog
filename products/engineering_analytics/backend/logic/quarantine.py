@@ -48,6 +48,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequest,
     QuarantineRequestAction,
     QuarantineRequestResult,
+    QuarantineRunner,
     QuarantineSelectorKind,
     QuarantineWriteError,
     RepoRef,
@@ -415,6 +416,7 @@ def _open_quarantine_pr(
         commit_message = f"chore(ci): unquarantine {selector}"
         pr_body = _remove_pr_body(selector, request)
     else:
+        runner = _resolve_request_runner(request, selector, entries)
         today = datetime.now(UTC).date()
         expires = request.expires or today + timedelta(days=_DEFAULT_QUARANTINE_DAYS)
         _validate_quarantine_inputs(request, today=today, expires=expires)
@@ -428,7 +430,7 @@ def _open_quarantine_pr(
         new_entry = _canonical_entry(
             {
                 "id": selector,
-                "runner": request.runner.value,
+                "runner": runner.value,
                 "reason": request.reason.strip(),
                 "owner": request.owner.strip(),
                 "issue": issue_url,
@@ -619,6 +621,26 @@ def _upsert_entry(entries: list[dict], new_entry: dict) -> list[dict]:
     return [e for e in entries if (e["id"], e["runner"]) != key] + [new_entry]
 
 
+def _resolve_request_runner(request: QuarantineRequest, selector: str, entries: list[dict]) -> QuarantineRunner:
+    """Preserve old clients while refusing to guess across ambiguous existing entries."""
+    if request.runner is not None:
+        return request.runner
+    matching_runners = {entry["runner"] for entry in entries if entry["id"] == selector}
+    if len(matching_runners) == 1:
+        try:
+            return QuarantineRunner(next(iter(matching_runners)))
+        except ValueError as exc:
+            raise QuarantineWriteError(
+                f"'{selector}' uses an unsupported runner; update it in the quarantine file."
+            ) from exc
+    if request.operation == QuarantineRequestAction.EXTEND and matching_runners:
+        raise QuarantineWriteError(f"'{selector}' is quarantined for multiple runners; choose which runner to extend.")
+    test_file = selector.partition("::")[0]
+    if PurePosixPath(test_file).suffix in (".js", ".jsx", ".ts", ".tsx"):
+        return QuarantineRunner.JEST
+    return QuarantineRunner.PYTEST
+
+
 def _remove_entry(entries: list[dict], selector: str) -> list[dict]:
     """Drop the selector for every runner, matching the CLI's `remove`."""
     return [e for e in entries if e["id"] != selector]
@@ -644,7 +666,7 @@ _GATE_FRESHNESS_NOTE = (
 
 def _issue_body(selector: str, request: QuarantineRequest, expires: date) -> str:
     mode_line = (
-        "runs but cannot fail the suite (xfail)"
+        "runs, but tolerated failures do not fail the suite"
         if request.mode == QuarantineMode.RUN
         else "is skipped entirely (not collected)"
     )
