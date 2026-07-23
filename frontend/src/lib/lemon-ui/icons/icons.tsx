@@ -434,9 +434,8 @@ export function IconTableChart(props: LemonIconProps): JSX.Element {
  * chart's real status colors. The palette lives in `--insight-icon-*` variables (icons.scss):
  * the charts' real hexes in light mode, brightened equivalents in dark mode, where the chart
  * hexes are too dark to read at icon size. The vars must be applied via `style` (SVG
- * presentation attributes can't resolve `var()`). The SQL brackets follow `currentColor`
- * like a regular icon; the lifecycle axis follows it at half opacity, visible in both
- * themes without competing with the bars.
+ * presentation attributes can't resolve `var()`). Structural parts (SQL brackets,
+ * lifecycle axis) follow `currentColor` like regular icons.
  */
 const INSIGHT_BLUE = 'var(--insight-icon-blue)'
 const INSIGHT_PURPLE = 'var(--insight-icon-purple)'
@@ -535,13 +534,7 @@ export function IconInsightStickiness(props: LemonIconProps): JSX.Element {
 export function IconInsightLifecycle(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
-            <path
-                d="M3.75 12.1h16.5"
-                stroke="currentColor"
-                strokeOpacity="0.5"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-            />
+            <path d="M3.75 12.1h16.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <rect x="3.9" y="5" width="2.6" height="6.25" rx="0.65" style={{ fill: INSIGHT_BLUE }} />
             <rect x="8.3" y="6.75" width="2.6" height="4.5" rx="0.65" style={{ fill: LIFECYCLE_RETURNING }} />
             <rect x="12.7" y="13" width="2.6" height="4.5" rx="0.65" style={{ fill: LIFECYCLE_DORMANT }} />
