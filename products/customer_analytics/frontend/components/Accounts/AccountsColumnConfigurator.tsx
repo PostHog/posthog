@@ -7,7 +7,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconPencil, IconX } from '@posthog/icons'
+import { IconPencil, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSearchableSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -20,6 +20,7 @@ import {
     AccountColumnGroup,
     AccountColumnGroupKey,
     accountsColumnConfigLogic,
+    isCustomPropertyAlias,
 } from './accountsColumnConfigLogic'
 
 const HOGQL_DOCS_URL = 'https://posthog.com/docs/hogql'
@@ -127,12 +128,18 @@ function SelectedAccountColumn({
     onEdit: (column: string, index: number) => void
     onRemove: (column: string) => void
 }): JSX.Element {
-    const { aliasToDefinition, aliasToRelationshipDefinition } = useValues(accountsColumnConfigLogic)
+    const { aliasToDefinition, aliasToRelationshipDefinition, customPropertyDefinitionsLoaded } =
+        useValues(accountsColumnConfigLogic)
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
     const alias = extractDisplayLabel(column)
+    const definition = aliasToDefinition[alias] ?? aliasToRelationshipDefinition[alias]
+    // A `cp_<id>` alias that no longer resolves to a definition is a column left behind by a
+    // deleted custom property — flag it so the opaque alias isn't a mystery, and the remove
+    // button below is the quick way to clean it up.
+    const isDeletedCustomProperty = !definition && customPropertyDefinitionsLoaded && isCustomPropertyAlias(alias)
     // Custom-property and relationship columns are aliased to opaque `cp_<id>` / `rel_<id>`
     // (or legacy role keys); show the definition name instead.
-    const label = aliasToDefinition[alias]?.name ?? aliasToRelationshipDefinition[alias]?.name ?? alias
+    const label = definition?.name ?? (isDeletedCustomProperty ? 'Deleted property' : alias)
     // `name` carries the row identity (account id) and external_id for the
     // Account cell — removing it would break row expansion and role updates.
     const isMandatory = column === ACCOUNTS_NAME_COLUMN
@@ -148,6 +155,13 @@ function SelectedAccountColumn({
                 <span {...listeners} className="drag-handle">
                     <SortableDragIcon />
                 </span>
+                {isDeletedCustomProperty && (
+                    <Tooltip title="This custom property was deleted. Remove this column to clean it up.">
+                        <span className="ml-1 flex items-center text-warning">
+                            <IconWarning />
+                        </span>
+                    </Tooltip>
+                )}
                 <span className="ml-1 truncate font-mono text-sm" title={column}>
                     {label}
                 </span>

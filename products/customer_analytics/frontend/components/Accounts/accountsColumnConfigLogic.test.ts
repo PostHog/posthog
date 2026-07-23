@@ -8,6 +8,7 @@ import type {
 import {
     buildAccountColumnGroups,
     customPropertyAlias,
+    isCustomPropertyAlias,
     relationshipAlias,
     roleKeyToDefinitionMap,
     translateSelectColumns,
@@ -106,6 +107,23 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
 
     it('omits the relationships group when the team has no definitions', () => {
         expect(buildAccountColumnGroups({}, [], [], []).map((group) => group.key)).not.toContain('relationships')
+    })
+
+    // A deleted custom property is detected by its `cp_<id>` alias no longer resolving to a
+    // definition — so the alias shape must stay in lock-step with `customPropertyAlias`, and must
+    // not swallow real columns (freeform SQL, joins, relationship aliases) as "deleted".
+    it('isCustomPropertyAlias matches the alias customPropertyAlias emits', () => {
+        expect(isCustomPropertyAlias(customPropertyAlias('abcdabcd-1234-5678-9abc-def012345678'))).toBe(true)
+    })
+
+    it.each([
+        ['relationship alias', relationshipAlias('abcdabcd-1234-5678-9abc-def012345678')],
+        ['legacy role column', 'csm'],
+        ['base column', 'tag_names'],
+        ['freeform SQL alias', 'industry'],
+        ['cp_ prefix but not a hex id', 'cp_industry'],
+    ])('isCustomPropertyAlias treats %s as a real column', (_label, column) => {
+        expect(isCustomPropertyAlias(column)).toBe(false)
     })
 
     it('translateSelectColumns resolves legacy roles through the lazy join and drops unmatched ones', () => {

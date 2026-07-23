@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonColorGlyph, LemonSelect } from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
 
@@ -42,7 +43,18 @@ export default function CyclotronJobInputAccountProperties({
                 return (
                     <div className="flex gap-2 items-center" key={id}>
                         <div className="flex-1 min-w-50 font-medium truncate" title={definition?.name ?? id}>
-                            {definition?.name ?? <span className="text-secondary italic">Unknown property</span>}
+                            {definition ? (
+                                definition.name
+                            ) : definitionsLoading ? (
+                                <span className="text-secondary italic">Loading…</span>
+                            ) : (
+                                <Tooltip title="This custom property was deleted. Remove it from this action.">
+                                    <span className="inline-flex items-center gap-1 text-warning italic">
+                                        <IconWarning />
+                                        Deleted property
+                                    </span>
+                                </Tooltip>
+                            )}
                         </div>
                         {definition?.display_type === 'select' ? (
                             <LemonSelect

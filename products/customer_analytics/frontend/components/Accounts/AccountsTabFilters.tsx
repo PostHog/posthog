@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
+import { IconChevronDown, IconRefresh, IconWarning, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -13,6 +13,7 @@ import {
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -46,10 +47,23 @@ export function AccountsTabFilters(): JSX.Element {
         reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
-    const { customPropertyTaxonomicOptions } = useValues(accountsColumnConfigLogic)
+    const { customPropertyTaxonomicOptions, customPropertyDefinitionsById, customPropertyDefinitionsLoaded } =
+        useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
         tagsFilter.length === 0 ? 'All tags' : tagsFilter.length === 1 ? tagsFilter[0] : `${tagsFilter.length} tags`
+
+    // Filters key by definition id, so one whose definition no longer resolves points at a deleted
+    // custom property — it's silently dropped at query time (see accountsCustomPropertyFilters.ts),
+    // so surface it here with a one-click way to clear the dead filters.
+    const deletedCustomPropertyFilters = customPropertyDefinitionsLoaded
+        ? customPropertyFilters.filter((filter) => filter.key && !customPropertyDefinitionsById[filter.key])
+        : []
+    const clearDeletedCustomPropertyFilters = (): void => {
+        const deletedKeys = new Set(deletedCustomPropertyFilters.map((filter) => filter.key))
+        setCustomPropertyFilters(customPropertyFilters.filter((filter) => !deletedKeys.has(filter.key)))
+        reportFilterChange('custom_property')
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -157,6 +171,23 @@ export function AccountsTabFilters(): JSX.Element {
                             buttonSize="small"
                             hasRowOperator={false}
                         />
+                    )}
+
+                    {deletedCustomPropertyFilters.length > 0 && (
+                        <Tooltip title="These filters reference custom properties that were deleted, so they no longer affect the results. Remove them to clean up.">
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                icon={<IconWarning />}
+                                onClick={clearDeletedCustomPropertyFilters}
+                                data-attr="accounts-clear-deleted-custom-property-filters"
+                            >
+                                {deletedCustomPropertyFilters.length === 1
+                                    ? 'Remove 1 deleted filter'
+                                    : `Remove ${deletedCustomPropertyFilters.length} deleted filters`}
+                            </LemonButton>
+                        </Tooltip>
                     )}
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">

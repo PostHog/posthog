@@ -98,6 +98,15 @@ export function customPropertyAlias(id: string): string {
     return `cp_${id.replace(/-/g, '')}`
 }
 
+// A visible column matching the `cp_<32 hex>` shape (see `customPropertyAlias`) that no longer
+// resolves to a definition points at a deleted custom property — the alias survives in saved
+// columns and shared URLs, but the definition (and its values) are gone.
+const CUSTOM_PROPERTY_ALIAS_RE = /^cp_[0-9a-f]{32}$/
+
+export function isCustomPropertyAlias(alias: string): boolean {
+    return CUSTOM_PROPERTY_ALIAS_RE.test(alias)
+}
+
 export function relationshipAlias(id: string): string {
     return `rel_${id.replace(/-/g, '')}`
 }
@@ -323,6 +332,7 @@ export interface accountsColumnConfigLogicValues {
     columnConfiguratorVisible: boolean
     customPropertyDefinitions: CustomPropertyDefinitionApi[]
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+    customPropertyDefinitionsLoaded: boolean
     customPropertyDefinitionsLoading: boolean
     customPropertyTaxonomicOptions: (SimpleOption & {
         id: string
@@ -515,6 +525,14 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 loadRelationshipDefinitionsSuccess: () => true,
                 loadRelationshipDefinitionsFailure: () => true,
+            },
+        ],
+        // Only set once the definitions have loaded successfully, so a missing alias is treated as a
+        // deleted custom property (show the warning) rather than one that simply hasn't loaded yet.
+        customPropertyDefinitionsLoaded: [
+            false,
+            {
+                loadCustomPropertyDefinitionsSuccess: () => true,
             },
         ],
     }),
