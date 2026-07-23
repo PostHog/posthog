@@ -195,6 +195,18 @@ func printJSON(v any) {
 	_ = json.NewEncoder(os.Stdout).Encode(v)
 }
 
+// printDockerTeardownHint reminds the user that docker containers outlive
+// phrocs: docker compose runs detached (`up -d`) and the stack is shared
+// across worktrees, so stopping phrocs never stops them. In a sandbox the
+// infra is managed externally, so the hint would be wrong there.
+func printDockerTeardownHint() {
+	if os.Getenv("POSTHOG_SANDBOX") == "1" {
+		return
+	}
+	fmt.Println("Docker services keep running after phrocs stops (the compose stack is shared across worktrees).")
+	fmt.Println("Full teardown: hogli docker:services:down (also wipe volumes: hogli docker:services:remove)")
+}
+
 // runStop sends a quit command to the detached phrocs, waits for the socket
 // to disappear, and falls back to SIGTERM → SIGKILL via the pidfile if needed.
 func runStop(timeoutSec int) int {
@@ -227,6 +239,7 @@ func runStop(timeoutSec int) int {
 				// false-positive cleanup on transient failures.
 				if cleaned, lerr := cleanIfStale(""); lerr == nil && cleaned {
 					fmt.Println("phrocs stopped")
+					printDockerTeardownHint()
 					return 0
 				}
 			}
@@ -237,6 +250,7 @@ func runStop(timeoutSec int) int {
 		// between our last dial and this check.
 		if cleaned, lerr := cleanIfStale(sock); lerr == nil && cleaned {
 			fmt.Println("phrocs stopped")
+			printDockerTeardownHint()
 			return 0
 		}
 		fmt.Fprintln(os.Stderr, "phrocs: detached phrocs did not exit in time; escalating")
@@ -267,6 +281,7 @@ func stopViaPidfile(sock string, deadline time.Time) int {
 		// and report success rather than a confusing "file not found".
 		_ = os.Remove(sock)
 		fmt.Println("phrocs stopped")
+		printDockerTeardownHint()
 		return 0
 	}
 	if err != nil {
@@ -285,6 +300,7 @@ func stopViaPidfile(sock string, deadline time.Time) int {
 			_ = os.Remove(pidFilePath())
 			_ = os.Remove(sock)
 			fmt.Println("phrocs stopped (SIGTERM)")
+			printDockerTeardownHint()
 			return 0
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -296,6 +312,7 @@ func stopViaPidfile(sock string, deadline time.Time) int {
 	_ = os.Remove(pidFilePath())
 	_ = os.Remove(sock)
 	fmt.Fprintln(os.Stderr, "phrocs killed (SIGKILL)")
+	printDockerTeardownHint()
 	return 0
 }
 
