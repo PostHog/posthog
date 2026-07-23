@@ -6,6 +6,12 @@ from semantic_version import Version
 FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted version, just for backwards compat now
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
+# Project token of the PostHog Cloud US "hobby experience" project. Self-hosted deployments route
+# exception autocapture and admin-UI session replay there (see posthog/apps.py and posthog/utils.py)
+# so that PostHog's internal product analytics project only receives lifecycle/usage telemetry.
+# While empty, that routing is disabled and self-hosted instances behave as before.
+HOBBY_EXPERIENCE_API_KEY = ""
+
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service

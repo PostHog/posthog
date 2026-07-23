@@ -25,6 +25,9 @@
             window.JS_POSTHOG_HOST = window.location.origin;
         }
         window.JS_POSTHOG_UI_HOST = "{{ js_posthog_ui_host|escapejs }}";
+        {% if js_posthog_hobby_experience_api_key %}
+            window.JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY = "{{ js_posthog_hobby_experience_api_key|escapejs }}";
+        {% endif %}
         window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
         window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
         window.IMPERSONATED_SESSION = {{is_impersonated_session | yesno:"true,false"}};

@@ -24,6 +24,7 @@ const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 const isInterview = exportedData?.type === ExportType.Interview && !!exportedData?.interview
 if (!isInterview) {
     window.JS_POSTHOG_API_KEY = undefined
+    window.JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY = undefined
 }
 
 // The interview URL embeds the SharingConfiguration access token (/interview/<token>/) and the
