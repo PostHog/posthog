@@ -143,6 +143,7 @@ const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'cdp-functions-create',
     'workflows-create',
     'workflows-create-email-template',
+    'llma-parser-recipe-create',
 ])
 
 /** Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`. */

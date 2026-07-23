@@ -4,8 +4,6 @@ import { Rule } from '../ast/rule'
 import { Recipe } from '../spec/recipe'
 import { NO_MATCH, RecipePipeline } from './pipeline'
 
-jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-
 const MATCH_ALL = new Pattern({})
 const MATCH_NONE = new Pattern({ __absent: new ExistsPredicate(true) })
 
