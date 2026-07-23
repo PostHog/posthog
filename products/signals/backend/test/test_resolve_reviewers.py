@@ -18,6 +18,7 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.models import SignalRepositoryAreaActivity
 from products.signals.backend.report_generation.repo_activity import ACTIVITY_WINDOW_DAYS, ContributorActivity
 from products.signals.backend.report_generation.resolve_reviewers import (
+    MAX_AREA_CONTRIBUTORS_FOR_OWNERSHIP,
     RECENCY_DECAY_FLOOR,
     RECENCY_FULL_WEIGHT_DAYS,
     STALE_BLAME_MULTIPLIER,
@@ -225,46 +226,61 @@ class TestRecencyScoring:
         assert scores["long-gone"] >= scores["half-stale"]
 
 
+def _seed_area_row(team: Team, area: str, logins: list[str]) -> None:
+    SignalRepositoryAreaActivity.objects.create(
+        team=team,
+        repository="acme/app",
+        area=area,
+        contributors=[
+            {
+                "login": login,
+                "name": login.title(),
+                "commit_count": 3,
+                "last_commit_at": timezone.now().isoformat(),
+                "last_commit_sha": "a" * 7,
+                "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
+            }
+            for login in logins
+        ],
+        refreshed_at=timezone.now(),
+    )
+
+
 @pytest.mark.django_db
 class TestAreaWalkUp:
-    def test_empty_area_falls_back_to_parent_then_repo_wide(self, team):
-        def _row(area: str, logins: list[str]) -> None:
-            SignalRepositoryAreaActivity.objects.create(
-                team=team,
-                repository="acme/app",
-                area=area,
-                contributors=[
-                    {
-                        "login": login,
-                        "name": login.title(),
-                        "commit_count": 3,
-                        "last_commit_at": timezone.now().isoformat(),
-                        "last_commit_sha": "a" * 7,
-                        "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
-                    }
-                    for login in logins
-                ],
-                refreshed_at=timezone.now(),
-            )
-
+    def test_empty_area_falls_back_to_parent_not_repo_wide(self, team):
         with team_scope(team.id, canonical=True):
-            _row("products/dead", [])  # refreshed, nobody active
-            _row("products", ["parent-owner"])
-            _row("*", ["repo-regular"])
+            _seed_area_row(team, "products/dead", [])  # refreshed, nobody active
+            _seed_area_row(team, "products", ["parent-owner"])
+            _seed_area_row(team, "*", ["repo-regular"])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
 
-        # the dead area walks up to its parent; repo-wide stays in reserve
+        # the dead area walks up to its parent
         assert set(merged) == {"parent-owner"}
         assert merged["parent-owner"].area == "products"
 
+        # with the parent empty too, the repo-wide bucket is not a fallback: no ownership signal
         with team_scope(team.id, canonical=True):
             SignalRepositoryAreaActivity.objects.filter(area="products").update(contributors=[])
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
 
-        assert set(merged) == {"repo-regular"}
+        assert merged == {}
+
+    def test_broad_area_is_skipped_as_a_catch_all(self, team):
+        # A source root with more committers than an area can meaningfully be owned by.
+        busy = [f"gen{i}" for i in range(MAX_AREA_CONTRIBUTORS_FOR_OWNERSHIP + 1)]
+        with team_scope(team.id, canonical=True):
+            _seed_area_row(team, "frontend/src", busy)
+            _seed_area_row(team, "frontend", ["frontend-owner"])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            merged = _relevant_area_activity(team.id, "acme/app", ["frontend/src/lib/api.ts"])
+
+        # none of the catch-all committers are ownership candidates; it walks up to the parent
+        assert set(merged) == {"frontend-owner"}
 
 
 @pytest.mark.django_db
