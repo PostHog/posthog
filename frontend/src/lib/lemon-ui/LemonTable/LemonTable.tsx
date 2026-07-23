@@ -18,7 +18,7 @@ import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
-import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
+import { determineColumnKey, getStickyColumnInfo } from './columnLayoutUtils'
 import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { TableRow } from './TableRow'
@@ -64,6 +64,11 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     showHeader?: boolean
     /** Whether header titles should be uppercased. The default value is `true`. */
     uppercaseHeader?: boolean
+    /**
+     * Table layout algorithm. Defaults to `auto` (columns size to their content). Use `fixed` to size
+     * columns from the container so wide content truncates within its cell instead of overflowing the table.
+     */
+    tableLayout?: 'auto' | 'fixed'
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -127,6 +132,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     expandable,
     showHeader = true,
     uppercaseHeader = true,
+    tableLayout = 'auto',
     noSortingCancellation: disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
@@ -385,7 +391,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     scrollRef={scrollRef}
                 >
                     <div className="LemonTable__content">
-                        <table ref={tableRef}>
+                        <table ref={tableRef} className={tableLayout === 'fixed' ? 'table-fixed' : undefined}>
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (

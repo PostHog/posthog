@@ -44,6 +44,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertyOption,
     CustomPropertyReference,
     CustomPropertySourceView,
+    CustomPropertySyncRunView,
     EventStreamView,
 )
 
@@ -307,6 +308,71 @@ class CustomPropertyReferenceSerializer(DataclassSerializer):
         fields = ["id", "name", "status", "type"]
 
 
+class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the person-property sync/backfill trigger actions."""
+
+    status = serializers.ChoiceField(
+        choices=[("triggered", "triggered"), ("started", "started"), ("already_running", "already_running")],
+        help_text=(
+            "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or "
+            "'already_running' (a backfill for this table was already in flight, so this was a no-op)."
+        ),
+    )
+    already_running = serializers.BooleanField(
+        required=False,
+        help_text="Backfill only: true when a backfill for this table was already running and this call coalesced.",
+    )
+
+
+class CustomPropertySyncRunSerializer(DataclassSerializer):
+    """One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
+    pipeline, never through the API."""
+
+    id = serializers.UUIDField(read_only=True)
+    trigger = serializers.CharField(
+        read_only=True,
+        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+    )
+    status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")
+    finished_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the run ended, or null while running."
+    )
+    rows_read = serializers.IntegerField(read_only=True, help_text="Warehouse rows scanned this run.")
+    changed = serializers.IntegerField(read_only=True, help_text="Rows whose mapped values changed since the last run.")
+    existing = serializers.IntegerField(
+        read_only=True, help_text="Person profiles updated (changed rows that matched an existing person)."
+    )
+    produced = serializers.IntegerField(
+        read_only=True, help_text="Property-update intents produced to the ingestion pipeline."
+    )
+    skipped_missing_person = serializers.IntegerField(
+        read_only=True, help_text="Changed rows dropped because no existing person matched the distinct id."
+    )
+    error = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error summary if the run failed, else null."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the run row was recorded.")
+
+    class Meta:
+        dataclass = CustomPropertySyncRunView
+        ref_name = "CustomPropertySyncRun"
+        fields = [
+            "id",
+            "trigger",
+            "status",
+            "started_at",
+            "finished_at",
+            "rows_read",
+            "changed",
+            "existing",
+            "produced",
+            "skipped_missing_person",
+            "error",
+            "created_at",
+        ]
+
+
 class CustomPropertySourceSerializer(DataclassSerializer):
     """Binds a materialized data-warehouse view column to a custom property definition; the view's
     values are synced onto matching accounts on each materialization."""
@@ -316,13 +382,41 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         help_text="UUID of the custom property definition this source feeds. One source per definition."
     )
     saved_query = serializers.UUIDField(
-        help_text="UUID of the data-warehouse saved query (materialized view) to read values from."
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Account sources only: UUID of the data-warehouse saved query (materialized view) to read "
+            "values from. Mutually exclusive with external_data_schema."
+        ),
+    )
+    external_data_schema = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person sources only: UUID of the warehouse schema (raw incremental table) to read from. "
+            "Mutually exclusive with saved_query."
+        ),
     )
     source_column = serializers.CharField(
-        max_length=400, help_text="Column in the view whose value is written to the property."
+        max_length=400,
+        required=False,
+        allow_null=True,
+        help_text="Account sources only: column in the view whose value is written to the property.",
+    )
+    column_property_map = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person sources only: {warehouse_column: person_property_name} mapping the columns this "
+            "source writes onto the person."
+        ),
     )
     key_column = serializers.CharField(
-        max_length=400, help_text="Column in the view whose value matches an account's external_id."
+        max_length=400,
+        help_text=(
+            "Column whose value identifies the target: an account's external_id for account sources, "
+            "or the person's distinct_id for person sources."
+        ),
     )
     is_enabled = serializers.BooleanField(
         required=False,
@@ -344,6 +438,27 @@ class CustomPropertySourceSerializer(DataclassSerializer):
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    sync_frequency_interval_seconds = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person sources only: how often the underlying warehouse schema syncs, in seconds. Null "
+            "for account sources or when unavailable."
+        ),
+    )
+    next_sync_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person sources only: approximate time of the next scheduled sync (last synced + interval). "
+            "Approximate — drifts if the schedule was paused. Null for account sources or if never synced."
+        ),
+    )
+    latest_run = CustomPropertySyncRunSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Person sources only: the most recent sync/backfill run, or null if none yet.",
+    )
 
     class Meta:
         dataclass = CustomPropertySourceView
@@ -352,7 +467,9 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "id",
             "definition",
             "saved_query",
+            "external_data_schema",
             "source_column",
+            "column_property_map",
             "key_column",
             "is_enabled",
             "consecutive_failures",
@@ -361,6 +478,9 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "sync_frequency_interval_seconds",
+            "next_sync_at",
+            "latest_run",
         ]
 
 
@@ -415,6 +535,16 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "'percent', 'date', 'datetime', 'boolean', or 'select'."
         ),
     )
+    target_type = serializers.ChoiceField(
+        choices=[("account", "account"), ("person", "person")],
+        required=False,
+        default="account",
+        help_text=(
+            "What entity this property is attached to: 'account' (default) or 'person'. Person "
+            "properties are populated from a warehouse schema and become usable like any other "
+            "person property (feature flags, cohorts, insights)."
+        ),
+    )
     is_big_number = serializers.BooleanField(
         required=False,
         default=False,
@@ -451,6 +581,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "name",
             "description",
             "display_type",
+            "target_type",
             "is_big_number",
             "options",
             "source",

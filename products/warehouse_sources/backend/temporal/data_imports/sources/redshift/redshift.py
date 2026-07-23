@@ -65,7 +65,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     and_join,
     render_psycopg_row_filter_conditions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
@@ -165,6 +167,15 @@ def filter_redshift_incremental_fields(
             results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
+
+
+def get_connection_metadata(config: RedshiftSourceConfig) -> dict[str, str | None]:
+    """Connection metadata persisted on a direct-query source for the HogQL executor."""
+    return {
+        "engine": "redshift",
+        "database": config.database,
+        "schema": config.schema or None,
+    }
 
 
 class JsonAsStringLoader(Loader):

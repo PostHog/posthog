@@ -270,7 +270,7 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
-    it('auth.provider unlinked → ref fails to open in the auth category', async () => {
+    it('auth.provider unlinked → lookup-only failure without initiating authorization', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
@@ -282,26 +282,59 @@ describe('openMcpClients', () => {
                 auth: { provider: 'github' },
             },
         ]
+        const resolve = vi.fn(async () => ({
+            kind: 'unavailable' as const,
+            provider: 'github',
+            reason: 'identity_not_connected',
+        }))
         const { clients, failures, close } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: factory,
-            identity: {
-                resolve: async () => ({ kind: 'link_required', provider: 'github', authorizeUrl: 'https://gh/oauth' }),
-            },
+            identity: { resolve },
+            linkableProviders: new Set(['github']),
         })
         expect(clients).toEqual([])
         expect(failures[0].category).toBe('auth')
-        expect(failures[0].devReason).toMatch(/mcp_identity_link_required: github/)
-        // The authorize URL rides on the failure so the system prompt can relay it.
-        expect(failures[0].authorizeUrl).toBe('https://gh/oauth')
+        expect(failures[0].provider).toBe('github')
+        expect(failures[0].devReason).toMatch(/mcp_identity_unavailable: github \(identity_not_connected\)/)
+        expect(failures[0]).not.toHaveProperty('authorizeUrl')
+        expect(resolve).toHaveBeenCalledWith('github', [], { initiate: false })
         await close()
         await closePairs(pairs)
     })
 
-    it('auth.provider linked-but-rejected (e.g. missing scope) → offers a reconnect link via relink', async () => {
-        // Resolve succeeds (the asker IS linked), but the MCP rejects the grant
-        // at open with a scope error. The failure must carry a reconnect URL so
-        // the agent can relay it — not dead-end as "unavailable".
+    it('does not advertise a seed-only provider auth failure as reconnectable', async () => {
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'posthog',
+                url: 'https://example.com/mcp',
+                secrets: [],
+                auth: { provider: 'posthog' },
+            },
+        ]
+        const { clients, failures, close } = await openMcpClients(refs, {
+            secrets: {},
+            transportFactory: factory,
+            identity: {
+                resolve: async () => ({
+                    kind: 'unavailable',
+                    provider: 'posthog',
+                    reason: 'identity_not_connected',
+                }),
+            },
+            linkableProviders: new Set(),
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].provider).toBeUndefined()
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('auth.provider linked-but-rejected does not initiate reconnect during startup', async () => {
         const failingFactory: McpTransportFactory = () =>
             ({
                 async start() {
@@ -322,24 +355,22 @@ describe('openMcpClients', () => {
                 auth: { provider: 'posthog' },
             },
         ]
-        const relink = vi.fn(async () => 'https://app.posthog.test/oauth/authorize/?reconnect=1')
         const { clients, failures } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: failingFactory,
+            linkableProviders: new Set(['posthog']),
             identity: {
                 resolve: async () => ({
                     kind: 'ok',
                     credential: { kind: 'posthog_bearer', token: 'linked-but-underscoped' },
                     allowedHosts: ['example.com'],
                 }),
-                relink,
             },
         })
         expect(clients).toEqual([])
-        // Scope rejection classifies as auth (not unknown), which gates the reconnect offer.
         expect(failures[0].category).toBe('auth')
-        expect(failures[0].authorizeUrl).toBe('https://app.posthog.test/oauth/authorize/?reconnect=1')
-        expect(relink).toHaveBeenCalledWith('posthog')
+        expect(failures[0].provider).toBe('posthog')
+        expect(failures[0]).not.toHaveProperty('authorizeUrl')
     })
 
     it('auth.provider refuses a host outside the resolved credential allowlist', async () => {

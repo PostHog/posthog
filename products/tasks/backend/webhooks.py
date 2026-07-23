@@ -302,6 +302,23 @@ def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, fai
 _TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
 
 
+def _account_type(payload: dict) -> str | None:
+    """Whether the webhook's repo is owned by a GitHub org or a personal account.
+
+    ``repository.owner.type`` is "Organization" or "User"; the top-level
+    ``organization`` object is present only for org-owned repos and backs it up
+    when the owner block is missing. Returns None when neither signal is present.
+    """
+    owner_type = ((payload.get("repository") or {}).get("owner") or {}).get("type")
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    if payload.get("organization"):
+        return "organization"
+    return None
+
+
 def _pr_payload_properties(payload: dict) -> dict:
     pull_request = payload.get("pull_request") or {}
     return {
@@ -314,6 +331,8 @@ def _pr_payload_properties(payload: dict) -> dict:
         "pr_deletions": pull_request.get("deletions"),
         "pr_changed_files": pull_request.get("changed_files"),
         "pr_commits": pull_request.get("commits"),
+        "account_type": _account_type(payload),
+        "repo_owner_type": ((payload.get("repository") or {}).get("owner") or {}).get("type"),
     }
 
 

@@ -11,9 +11,12 @@ import type { Credential } from './credential-broker'
 import type { HttpFetcher } from './http-client'
 import type { IdentityCredentialStore, StoredCredential } from './identity-credential-store'
 import type { IdentityLinkStateStore } from './identity-link-state-store'
+import { IdentityProviderUnavailableError } from './identity-provider'
 import type {
+    BearerVerification,
     IdentityCompleteInput,
     IdentityCompleteResult,
+    IdentityExchangeResult,
     IdentityInitiateInput,
     IdentityInitiateResult,
     IdentityProvider,
@@ -55,14 +58,74 @@ interface TokenResponse {
 
 const b64url = (buf: Buffer): string => buf.toString('base64url')
 
+/** Bearer verification blocks the chat request — far tighter than the 30s fetch default. */
+const VERIFY_BEARER_TIMEOUT_MS = 5_000
+
 export class Oauth2AuthProvider implements IdentityProvider {
     // Typed `boolean` (not the literal `false`) so an identity-establishing
     // subclass can override it to `true`.
     readonly establishesIdentity: boolean = false
 
+    /**
+     * Per-request bearer verification via userinfo. Assigned in the constructor
+     * (not a prototype method) so it is genuinely `undefined` when the provider
+     * has no `userinfoUrl` — admission treats a present `verifyBearer` as "this
+     * provider can judge bearers", and a present-but-invalid bearer forces
+     * re-auth WITHOUT consulting the durable binding. A stub that always
+     * returned null would therefore lock bound users out.
+     */
+    readonly verifyBearer?: (token: string) => Promise<BearerVerification | null>
+
     // `protected` (not `private`) so an identity-establishing subclass
     // (PostHogAuthProvider) can reach the config + http to derive a subject.
-    constructor(protected readonly deps: Oauth2ProviderDeps) {}
+    constructor(protected readonly deps: Oauth2ProviderDeps) {
+        if (deps.config.userinfoUrl) {
+            const userinfoUrl = deps.config.userinfoUrl
+            this.verifyBearer = async (token: string): Promise<BearerVerification | null> => {
+                // Runs on the chat hot path (every request), so: a tight
+                // timeout instead of the fetcher's 30s default, and only the
+                // provider's actual judgement on the token (401/403) reads as
+                // "invalid". Transport failures, timeouts, and server errors
+                // say nothing about the token — surface them as
+                // `IdentityProviderUnavailableError` so admission fails closed
+                // but RETRYABLE instead of demanding re-auth.
+                let res: Response
+                try {
+                    res = await this.deps.http.fetch(userinfoUrl, {
+                        method: 'GET',
+                        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+                        signal: AbortSignal.timeout(VERIFY_BEARER_TIMEOUT_MS),
+                    })
+                } catch (err) {
+                    throw new IdentityProviderUnavailableError(
+                        this.id,
+                        err instanceof Error ? err.message : 'userinfo_fetch_failed'
+                    )
+                }
+                if (res.status === 401 || res.status === 403) {
+                    return null
+                }
+                if (!res.ok) {
+                    throw new IdentityProviderUnavailableError(this.id, `userinfo_status_${res.status}`)
+                }
+                let json: { sub?: string }
+                try {
+                    json = (await res.json()) as { sub?: string }
+                } catch {
+                    throw new IdentityProviderUnavailableError(this.id, 'userinfo_malformed_body')
+                }
+                const subject = typeof json.sub === 'string' && json.sub.length > 0 ? json.sub : undefined
+                if (!subject) {
+                    // 200 but no provable subject — the provider can't establish
+                    // who this is, which for admission is the same as invalid.
+                    return null
+                }
+                // The bearer is the credential — no refresh token and no known
+                // expiry; admission re-verifies it on every request anyway.
+                return { subject, stored: { access_token: token }, scopes: [] }
+            }
+        }
+    }
 
     get id(): string {
         return this.deps.config.id
@@ -112,7 +175,12 @@ export class Oauth2AuthProvider implements IdentityProvider {
         return { authorizeUrl: u.toString(), stateId }
     }
 
-    async complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult> {
+    /**
+     * Exchange the authorization code for a token and derive the subject, but do
+     * NOT persist. Both `complete()` (per-asker linking) and the admission engine
+     * build on this — they differ only in WHERE the credential lands.
+     */
+    async exchange(input: IdentityCompleteInput): Promise<IdentityExchangeResult> {
         if (input.query.error) {
             throw new Error(`oauth_error: ${input.query.error}`)
         }
@@ -131,27 +199,52 @@ export class Oauth2AuthProvider implements IdentityProvider {
             redirect_uri: state.redirectUri,
             code_verifier: state.codeVerifier,
         })
-        const subject = await this.deriveSubject(token.access_token)
+        return {
+            state,
+            stored: this.toStored(token),
+            // The discoverable subject (for admission/canonical identity), regardless
+            // of `establishesIdentity` — which only gates secondary-credential stamping.
+            subject: await this.fetchSubject(token.access_token),
+            scopes: token.scope ? token.scope.split(' ') : state.scopes,
+        }
+    }
+
+    async complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult> {
+        const { state, stored, subject, scopes } = await this.exchange(input)
         await this.deps.credentials.put({
             teamId: state.teamId,
             applicationId: state.applicationId,
             agentUserId: state.agentUserId,
             provider: this.id,
-            credential: this.toStored(token),
-            scopes: token.scope ? token.scope.split(' ') : state.scopes,
-            subject,
+            credential: stored,
+            scopes,
+            // A capability-only link makes no identity claim — stamp a subject only
+            // when this provider establishes identity.
+            subject: this.establishesIdentity ? subject : undefined,
         })
         return { agentUserId: state.agentUserId, provider: this.id }
     }
 
-    /**
-     * The external subject this link proves, if any. Base provider establishes
-     * no identity → undefined. An identity-establishing subclass overrides this
-     * (e.g. PostHog reads /oauth/userinfo `sub`) so `complete()` stamps it on
-     * the stored credential. Runs once, at link time, with a fresh access token.
-     */
-    protected async deriveSubject(_accessToken: string): Promise<string | undefined> {
-        return undefined
+    /** Read the provider's stable subject from userinfo, if configured. Best-effort:
+     *  a hiccup just yields no subject, never blocks the link. */
+    protected async fetchSubject(accessToken: string): Promise<string | undefined> {
+        const url = this.deps.config.userinfoUrl
+        if (!url) {
+            return undefined
+        }
+        try {
+            const res = await this.deps.http.fetch(url, {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+            })
+            if (!res.ok) {
+                return undefined
+            }
+            const json = (await res.json()) as { sub?: string }
+            return typeof json.sub === 'string' && json.sub.length > 0 ? json.sub : undefined
+        } catch {
+            return undefined
+        }
     }
 
     async resolve(input: IdentityResolveInput): Promise<Credential | null> {

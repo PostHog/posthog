@@ -9,7 +9,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StatuspageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
+    StatuspageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.source import StatuspageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.statuspage import (
@@ -31,7 +33,6 @@ class TestStatuspageSource:
         assert config.label == "Statuspage"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
 
     def test_source_config_has_secret_api_key_field(self):
         fields = self.source.get_source_config.fields
@@ -85,13 +86,15 @@ class TestStatuspageSource:
         manager = mock.MagicMock()
         inputs = mock.MagicMock()
         inputs.schema_name = "incidents"
-        inputs.logger = mock.MagicMock()
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
 
         self.source.source_for_pipeline(config, manager, inputs)
 
         mock_statuspage_source.assert_called_once_with(
             api_key="key",
             endpoint="incidents",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
             resumable_source_manager=manager,
         )

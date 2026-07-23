@@ -1,32 +1,70 @@
+import json
 from typing import Any
 
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import WRIKE_ENDPOINTS
+from requests import Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike import (
     WrikeResumeConfig,
     _build_url,
-    get_rows,
     is_host_valid,
     validate_credentials,
     wrike_source,
 )
 
-
-def _mock_response(status_code: int = 200, json_body: dict[str, Any] | None = None) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.json.return_value = json_body or {}
-    response.text = ""
-    return response
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the wrike module.
+WRIKE_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session"
+)
 
 
-def _mock_session_returning(responses: list[mock.MagicMock]) -> mock.MagicMock:
-    session = mock.MagicMock()
-    session.get.side_effect = responses
-    return session
+def _response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _make_manager(resume_state: WrikeResumeConfig | None = None, can_resume: bool = False) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = can_resume or resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared instead of reading it after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        # The client host-pins every request URL (allowed_hosts), so the prepared request must
+        # carry a real Wrike URL rather than a bare MagicMock.
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, host: str = "www.wrike.com", **kwargs: Any):
+    manager = kwargs.pop("manager", None) or _make_manager()
+    return wrike_source("token", host, endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
 
 class TestIsHostValid:
@@ -87,9 +125,7 @@ class TestBuildUrl:
 
 class TestValidateCredentials:
     def test_rejects_non_wrike_host_without_request(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session"
-        ) as make_session:
+        with mock.patch(WRIKE_SESSION_PATCH) as make_session:
             is_valid, error = validate_credentials("token", "evil.com")
         assert is_valid is False
         assert error is not None and "Wrike domain" in error
@@ -105,113 +141,103 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_error: str | None) -> None:
-        session = _mock_session_returning([_mock_response(status_code)])
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session",
-            return_value=session,
-        ):
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=status_code)
+        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
             is_valid, error = validate_credentials("token", "www.wrike.com")
         assert is_valid is expected_valid
         assert error == expected_error
 
+    def test_swallows_transport_errors(self) -> None:
+        session = mock.MagicMock()
+        session.get.side_effect = Exception("boom")
+        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
+            is_valid, _error = validate_credentials("token", "www.wrike.com")
+        assert is_valid is False
+
     def test_probes_current_user_endpoint(self) -> None:
-        session = _mock_session_returning([_mock_response(200)])
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session",
-            return_value=session,
-        ):
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
             validate_credentials("token", "www.wrike.com")
         called_url = session.get.call_args.args[0]
         assert called_url == "https://www.wrike.com/api/v4/contacts?me=true"
 
 
-class TestGetRows:
-    def _manager(self, can_resume: bool = False, resume_state: WrikeResumeConfig | None = None) -> mock.MagicMock:
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = can_resume
-        manager.load_state.return_value = resume_state
-        return manager
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_paginated_endpoint_single_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"kind": "contacts", "data": [{"id": "a"}, {"id": "b"}]})])
+        manager = _make_manager()
 
-    def test_non_paginated_endpoint_single_page(self) -> None:
-        session = _mock_session_returning(
-            [_mock_response(200, {"kind": "contacts", "data": [{"id": "a"}, {"id": "b"}]})]
-        )
-        manager = self._manager()
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("token", "www.wrike.com", "contacts", mock.MagicMock(), manager))
+        rows = _rows(_source("contacts", manager=manager))
 
-        assert batches == [[{"id": "a"}, {"id": "b"}]]
-        assert session.get.call_count == 1
+        assert rows == [{"id": "a"}, {"id": "b"}]
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    def test_paginated_endpoint_follows_next_page_token(self) -> None:
-        session = _mock_session_returning(
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginated_endpoint_follows_next_page_token(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
             [
-                _mock_response(200, {"data": [{"id": 1}], "nextPageToken": "tok2"}),
-                _mock_response(200, {"data": [{"id": 2}]}),
-            ]
+                _response({"data": [{"id": 1}], "nextPageToken": "tok2"}),
+                _response({"data": [{"id": 2}]}),
+            ],
         )
-        manager = self._manager()
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("token", "www.wrike.com", "tasks", mock.MagicMock(), manager))
+        manager = _make_manager()
 
-        assert batches == [[{"id": 1}], [{"id": 2}]]
-        # First request carries pageSize; second carries only the token.
-        first_url, second_url = session.get.call_args_list[0].args[0], session.get.call_args_list[1].args[0]
-        assert "pageSize=1000" in first_url
-        assert "nextPageToken=tok2" in second_url
+        rows = _rows(_source("tasks", manager=manager))
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        # First request carries pageSize; second carries the resume token.
+        assert params[0]["pageSize"] == 1000
+        assert "nextPageToken" not in params[0]
+        assert params[1]["nextPageToken"] == "tok2"
         # State saved once, after yielding the first page, before fetching the next.
         manager.save_state.assert_called_once_with(WrikeResumeConfig(next_page_token="tok2"))
 
-    def test_resumes_from_saved_state(self) -> None:
-        session = _mock_session_returning([_mock_response(200, {"data": [{"id": 3}]})])
-        manager = self._manager(can_resume=True, resume_state=WrikeResumeConfig(next_page_token="resume_tok"))
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("token", "www.wrike.com", "tasks", mock.MagicMock(), manager))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"data": [{"id": 3}]})])
+        manager = _make_manager(WrikeResumeConfig(next_page_token="resume_tok"))
 
-        assert batches == [[{"id": 3}]]
-        assert "nextPageToken=resume_tok" in session.get.call_args.args[0]
+        rows = _rows(_source("tasks", manager=manager))
+
+        assert rows == [{"id": 3}]
+        assert params[0]["nextPageToken"] == "resume_tok"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_data_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"data": []})])
+
+        rows = _rows(_source("tasks"))
+
+        assert rows == []
 
     def test_rejects_non_wrike_host_before_any_request(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session"
-        ) as make_session:
+        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
             with pytest.raises(ValueError, match="non-Wrike host"):
-                list(get_rows("token", "evil.com", "tasks", mock.MagicMock(), self._manager()))
-        make_session.assert_not_called()
-
-    def test_empty_data_yields_nothing(self) -> None:
-        session = _mock_session_returning([_mock_response(200, {"data": []})])
-        manager = self._manager()
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("token", "www.wrike.com", "tasks", mock.MagicMock(), manager))
-        assert batches == []
+                _source("tasks", host="evil.com")
+        MockSession.assert_not_called()
 
 
 class TestWrikeSource:
     def test_tasks_partition_on_created_date(self) -> None:
-        response = wrike_source("token", "www.wrike.com", "tasks", mock.MagicMock(), mock.MagicMock())
+        response = _source("tasks")
         assert response.name == "tasks"
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["createdDate"]
 
-    @pytest.mark.parametrize("endpoint", [name for name, cfg in WRIKE_ENDPOINTS.items() if cfg.partition_key is None])
+    @pytest.mark.parametrize("endpoint", ["folders", "contacts", "workflows", "custom_fields", "spaces"])
     def test_unpartitioned_endpoints(self, endpoint: str) -> None:
-        response = wrike_source("token", "www.wrike.com", endpoint, mock.MagicMock(), mock.MagicMock())
+        response = _source(endpoint)
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
         assert response.partition_keys is None

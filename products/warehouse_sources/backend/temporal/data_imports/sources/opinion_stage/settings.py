@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class OpinionStageEndpointConfig:
@@ -22,3 +24,8 @@ OPINION_STAGE_ENDPOINTS: dict[str, OpinionStageEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(OPINION_STAGE_ENDPOINTS.keys())
+
+# Every endpoint is full refresh only — the documented date-range filter has no parameter names in
+# the OpenAPI spec, so there is no incremental cursor to advance safely. No endpoint has tracking
+# fields, so build_endpoint_schemas marks them all full-refresh.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

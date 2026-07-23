@@ -67,7 +67,21 @@ if (empty(eventType)) {
   }
 }
 
-let schemaId := inputs.schema_mapping?.[eventType]
+// Multi-repo sources key their mapping by 'owner/repo.event' (the payload's
+// repository.full_name, lowercased) so two repos' events route to their own schemas.
+// The bare event-type key remains as the fallback for legacy single-repo mappings.
+let repoFullName := request.body?.repository?.full_name
+let schemaId := null
+if (not empty(repoFullName)) {
+  schemaId := inputs.schema_mapping?.[concat(lower(repoFullName), '.', eventType)]
+}
+// The bare event-type key belongs to the legacy repository only. Restricting the fallback to the
+// legacy repo (or to functions with no legacy binding — pure multi-repo mappings have no bare key,
+// and pre-multi-repo functions predate this input) stops a secondary repo whose qualified schema
+// is disabled/removed from leaking its events into the legacy repo's schema.
+if (empty(schemaId) and (empty(inputs.legacy_repository) or lower(repoFullName) = lower(inputs.legacy_repository))) {
+  schemaId := inputs.schema_mapping?.[eventType]
+}
 
 if (empty(schemaId)) {
   return {
@@ -83,6 +97,41 @@ if (empty(schemaId)) {
 // than the whole event envelope. GitHub uses one object schema per resource, so the
 // nested webhook object matches the REST "list jobs for a workflow run" response shape.
 let row := request.body?.[eventType]
+
+// pull_request_review does not nest the object under the event-type key: the review is at
+// body.review and its PR at body.pull_request. Reshape so webhook rows match poll rows, which
+// carry pr_number injected from the parent PR. The source-webhooks consumer substitutes the
+// current template bytecode by template_id at request time, so existing functions run this code
+// too; a source whose schema_mapping predates an event type no-ops on it above.
+if (eventType = 'pull_request_review') {
+  let review := request.body?.review
+  let pullRequest := request.body?.pull_request
+  if (empty(review) or empty(pullRequest)) {
+    return {
+      'httpResponse': {
+        'status': 200,
+        'body': 'No review or pull_request object in payload, skipping'
+      }
+    }
+  }
+  // The poll path drops reviews without submitted_at (unsubmitted drafts); mirror it so
+  // the partition/cursor column stays non-null.
+  if (empty(review?.submitted_at)) {
+    return {
+      'httpResponse': {
+        'status': 200,
+        'body': 'Review has no submitted_at, skipping'
+      }
+    }
+  }
+  // REST returns uppercase review states ('APPROVED') while webhook payloads use lowercase
+  // ('approved'); normalize to the REST shape so a fallback poll never mixes casings in one column.
+  if (not empty(review?.state)) {
+    review.state := upper(review.state)
+  }
+  review.pr_number := pullRequest?.number
+  row := review
+}
 
 if (empty(row)) {
   return {
@@ -117,7 +166,7 @@ produceToWarehouseWebhooks(row, schemaId)""",
             "type": "json",
             "key": "schema_mapping",
             "label": "Schema mapping",
-            "description": "Maps GitHub event types (workflow_job, workflow_run) to ExternalDataSchema IDs",
+            "description": "Maps GitHub event types to ExternalDataSchema IDs. Keys are either a bare event type (workflow_job, workflow_run, pull_request_review) for legacy single-repo sources, or 'owner/repo.event_type' for multi-repo sources.",
             "required": True,
             "secret": False,
             "hidden": True,
@@ -128,6 +177,15 @@ produceToWarehouseWebhooks(row, schemaId)""",
             "label": "Source ID",
             "description": "The ExternalDataSource ID this webhook is associated with",
             "required": True,
+            "secret": False,
+            "hidden": True,
+        },
+        {
+            "type": "string",
+            "key": "legacy_repository",
+            "label": "Legacy repository",
+            "description": "For multi-repo GitHub sources, the 'owner/repo' whose schema rows keep bare event keys. The bare-key fallback only routes events from this repository, so other repos can't leak into it. Empty for single-repo or pure multi-repo sources.",
+            "required": False,
             "secret": False,
             "hidden": True,
         },

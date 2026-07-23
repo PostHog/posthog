@@ -61,6 +61,90 @@ export const SignalReportStatusEnumApi = {
     Suppressed: 'suppressed',
 } as const
 
+/**
+ * * `pr_incorrect` - PR incorrect
+ * * `pr_not_useful` - PR not useful
+ * * `duplicate` - Duplicate
+ * * `other` - Other
+ */
+export type SignalReportRefundReasonEnumApi =
+    (typeof SignalReportRefundReasonEnumApi)[keyof typeof SignalReportRefundReasonEnumApi]
+
+export const SignalReportRefundReasonEnumApi = {
+    PrIncorrect: 'pr_incorrect',
+    PrNotUseful: 'pr_not_useful',
+    Duplicate: 'duplicate',
+    Other: 'other',
+} as const
+
+/**
+ * * `excluded` - Excluded
+ * * `credited` - Credited
+ */
+export type BillingPathEnumApi = (typeof BillingPathEnumApi)[keyof typeof BillingPathEnumApi]
+
+export const BillingPathEnumApi = {
+    Excluded: 'excluded',
+    Credited: 'credited',
+} as const
+
+export interface SignalReportRefundApi {
+    readonly id: string
+    /** Why the user refunded this PR (feeds the refund review).
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    readonly reason: SignalReportRefundReasonEnumApi
+    /** Optional free-form note captured with the refund. */
+    readonly note: string
+    /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+     *
+     * * `excluded` - Excluded
+     * * `credited` - Credited */
+    readonly billing_path: BillingPathEnumApi
+    /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+    readonly credits: number
+    /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+    readonly pr_url: string
+    /** When the first billable PR run was created — the charge this reverses. */
+    readonly pr_run_created_at: string
+    /**
+     * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    readonly credit_amount_usd: string | null
+    /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+    readonly billing_synced: boolean
+    /** When the refund was created. */
+    readonly created_at: string
+}
+
+export type RefundIneligibilityReasonEnumApi =
+    (typeof RefundIneligibilityReasonEnumApi)[keyof typeof RefundIneligibilityReasonEnumApi]
+
+export const RefundIneligibilityReasonEnumApi = {
+    AlreadyRefunded: 'already_refunded',
+    BillingExempt: 'billing_exempt',
+    NoBillablePr: 'no_billable_pr',
+    OutOfPeriod: 'out_of_period',
+} as const
+
+/**
+ * * `posthog_health_check` - PostHog health check
+ * * `posthog_onboarding` - PostHog onboarding
+ * * `posthog_system` - PostHog system
+ */
+export type BillingExemptReasonEnumApi = (typeof BillingExemptReasonEnumApi)[keyof typeof BillingExemptReasonEnumApi]
+
+export const BillingExemptReasonEnumApi = {
+    PosthogHealthCheck: 'posthog_health_check',
+    PosthogOnboarding: 'posthog_onboarding',
+    PosthogSystem: 'posthog_system',
+} as const
+
 export interface SignalReportApi {
     readonly id: string
     /** @nullable */
@@ -112,6 +196,18 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+    readonly implementation_pr_merged: boolean
+    /** The report's PR refund, when one exists. One refund per report, ever. */
+    readonly refund: SignalReportRefundApi | null
+    /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+    readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
+    /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+     *
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system */
+    readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
 }
 
 export interface PaginatedSignalReportListApi {
@@ -145,11 +241,63 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
+export interface SignalReportRefundRequestApi {
+    /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    reason: SignalReportRefundReasonEnumApi
+    /**
+     * Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
+export interface SignalReportRefundResponseApi {
+    readonly id: string
+    /** Why the user refunded this PR (feeds the refund review).
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    readonly reason: SignalReportRefundReasonEnumApi
+    /** Optional free-form note captured with the refund. */
+    readonly note: string
+    /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+     *
+     * * `excluded` - Excluded
+     * * `credited` - Credited */
+    readonly billing_path: BillingPathEnumApi
+    /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+    readonly credits: number
+    /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+    readonly pr_url: string
+    /** When the first billable PR run was created — the charge this reverses. */
+    readonly pr_run_created_at: string
+    /**
+     * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    readonly credit_amount_usd: string | null
+    /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+    readonly billing_synced: boolean
+    /** When the refund was created. */
+    readonly created_at: string
+    /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
+    readonly already_refunded: boolean
+}
+
 /**
  * * `session_replay` - session_replay
  * * `llm_analytics` - llm_analytics
  * * `github` - github
  * * `linear` - linear
+ * * `jira` - jira
  * * `zendesk` - zendesk
  * * `conversations` - conversations
  * * `error_tracking` - error_tracking
@@ -159,6 +307,40 @@ export interface PatchedSignalReportContentUpdateApi {
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
+ * * `analytics` - analytics
+ * * `freshdesk` - freshdesk
+ * * `freshservice` - freshservice
+ * * `front` - front
+ * * `gorgias` - gorgias
+ * * `kustomer` - kustomer
+ * * `dixa` - dixa
+ * * `plain` - plain
+ * * `gitlab` - gitlab
+ * * `gitea` - gitea
+ * * `shortcut` - shortcut
+ * * `sentry` - sentry
+ * * `rollbar` - rollbar
+ * * `bugsnag` - bugsnag
+ * * `honeybadger` - honeybadger
+ * * `raygun` - raygun
+ * * `snyk` - snyk
+ * * `sonarqube` - sonarqube
+ * * `semgrep` - semgrep
+ * * `rapid7_insightvm` - rapid7_insightvm
+ * * `featurebase` - featurebase
+ * * `frill` - frill
+ * * `aha` - aha
+ * * `uservoice` - uservoice
+ * * `productboard` - productboard
+ * * `canny` - canny
+ * * `asknicely` - asknicely
+ * * `retently` - retently
+ * * `appfigures` - appfigures
+ * * `appfollow` - appfollow
+ * * `judgeme_reviews` - judgeme_reviews
+ * * `intercom` - intercom
+ * * `hubspot` - hubspot
+ * * `engineering_analytics` - engineering_analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -167,6 +349,7 @@ export const SignalSourceProductApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
@@ -176,6 +359,40 @@ export const SignalSourceProductApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
+    Freshdesk: 'freshdesk',
+    Freshservice: 'freshservice',
+    Front: 'front',
+    Gorgias: 'gorgias',
+    Kustomer: 'kustomer',
+    Dixa: 'dixa',
+    Plain: 'plain',
+    Gitlab: 'gitlab',
+    Gitea: 'gitea',
+    Shortcut: 'shortcut',
+    Sentry: 'sentry',
+    Rollbar: 'rollbar',
+    Bugsnag: 'bugsnag',
+    Honeybadger: 'honeybadger',
+    Raygun: 'raygun',
+    Snyk: 'snyk',
+    Sonarqube: 'sonarqube',
+    Semgrep: 'semgrep',
+    Rapid7Insightvm: 'rapid7_insightvm',
+    Featurebase: 'featurebase',
+    Frill: 'frill',
+    Aha: 'aha',
+    Uservoice: 'uservoice',
+    Productboard: 'productboard',
+    Canny: 'canny',
+    Asknicely: 'asknicely',
+    Retently: 'retently',
+    Appfigures: 'appfigures',
+    Appfollow: 'appfollow',
+    JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -194,6 +411,12 @@ export const SignalSourceProductApi = {
  * * `alert_state_change` - alert_state_change
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
+ * * `anomaly_investigation` - anomaly_investigation
+ * * `feedback` - feedback
+ * * `review` - review
+ * * `ci_flaky_check` - ci_flaky_check
+ * * `ci_broken_default_branch` - ci_broken_default_branch
+ * * `ci_duration_regression` - ci_duration_regression
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -213,6 +436,12 @@ export const SignalSourceTypeApi = {
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
+    Feedback: 'feedback',
+    Review: 'review',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -298,6 +527,17 @@ export interface LinearIssueSignalExtraApi {
     team_name: string | null
     created_at: string
     updated_at: string
+}
+
+export interface JiraIssueSignalExtraApi {
+    key: string
+    url: string | null
+    status: string | null
+    priority: string | null
+    assignee: string | null
+    labels: string[]
+    created: string | null
+    updated: string | null
 }
 
 export interface ConversationsTicketSignalExtraApi {
@@ -432,6 +672,33 @@ export interface ReplayVisionScannerFindingSignalExtraApi {
     recording_active_seconds?: number | null
 }
 
+/**
+ * * `true_positive` - true_positive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
+ */
+export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
+
+export const InvestigationVerdictEnumApi = {
+    TruePositive: 'true_positive',
+    FalsePositive: 'false_positive',
+    Inconclusive: 'inconclusive',
+} as const
+
+export interface AnalyticsAnomalyInvestigationSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    alert_check_id: string
+    insight_id: string
+    detector_type: string
+    verdict: InvestigationVerdictEnumApi
+    url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
+    notebook_short_id?: string | null
+}
+
 export type HealthCheckSignalExtraSeverityEnumApi =
     (typeof HealthCheckSignalExtraSeverityEnumApi)[keyof typeof HealthCheckSignalExtraSeverityEnumApi]
 
@@ -454,6 +721,288 @@ export interface HealthCheckSignalExtraApi {
     payload: HealthCheckSignalExtraApiPayload
 }
 
+/**
+ * One immutable flaky observation: failed then passed on a later attempt of the same run,
+ * so only non-determinism can explain the flip.
+ */
+export interface EngineeringAnalyticsCIFlakyCheckSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    job_name: string
+    run_id: number
+    head_sha: string
+    failed_attempt: number
+    passed_attempt: number
+    flaky_count: number
+    window_days: number
+}
+
+export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    branch: string
+    conclusive_success_rate: number
+    conclusive_run_count: number
+    latest_conclusion: string
+    window_hours: number
+}
+
+export interface EngineeringAnalyticsCIDurationRegressionSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    current_p95_seconds: number
+    baseline_p95_seconds: number
+    pct_increase: number
+    current_p50_seconds: number
+    baseline_p50_seconds: number
+    window_days: number
+}
+
+export interface FreshdeskTicketSignalExtraApi {
+    status: string | null
+    priority: string | null
+    type: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface FreshserviceTicketSignalExtraApi {
+    status: string | null
+    priority: string | null
+    type: string | null
+    category: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface FrontConversationSignalExtraApi {
+    status: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface GorgiasTicketSignalExtraApi {
+    status: string | null
+    priority: string | null
+    channel: string | null
+    tags: unknown[]
+    created_datetime: string | null
+}
+
+export interface KustomerConversationSignalExtraApi {
+    status: string | null
+    priority: string | null
+    tags: unknown[]
+    createdAt: string | null
+}
+
+export interface DixaConversationSignalExtraApi {
+    status: string | null
+    channel: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface PlainThreadSignalExtraApi {
+    status: string | null
+    priority: string | null
+    labels: unknown[]
+    createdAt: string | null
+}
+
+export interface GitlabIssueSignalExtraApi {
+    state: string | null
+    labels: unknown[]
+    iid: string | null
+    project_id: string | null
+    created_at: string | null
+}
+
+export interface GiteaIssueSignalExtraApi {
+    state: string | null
+    labels: unknown[]
+    html_url: string | null
+    number: string | null
+    created_at: string | null
+}
+
+export interface ShortcutStorySignalExtraApi {
+    story_type: string | null
+    labels: unknown[]
+    workflow_state_id: string | null
+    created_at: string | null
+}
+
+export interface SentryIssueSignalExtraApi {
+    level: string | null
+    status: string | null
+    permalink: string | null
+    shortId: string | null
+    firstSeen: string | null
+}
+
+export interface RollbarItemSignalExtraApi {
+    level: string | null
+    status: string | null
+    environment: string | null
+    framework: string | null
+    last_occurrence_timestamp: string | null
+}
+
+export interface BugsnagErrorSignalExtraApi {
+    severity: string | null
+    status: string | null
+    context: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface HoneybadgerFaultSignalExtraApi {
+    environment: string | null
+    component: string | null
+    action: string | null
+    tags: unknown[]
+    url: string | null
+    created_at: string | null
+}
+
+export interface RaygunErrorGroupSignalExtraApi {
+    status: string | null
+    applicationUrl: string | null
+    lastOccurredAt: string | null
+    createdAt: string | null
+}
+
+export interface SnykScannerFindingSignalExtraApi {
+    effective_severity_level: string | null
+    status: string | null
+    type: string | null
+    created_at: string | null
+}
+
+export interface SonarqubeScannerFindingSignalExtraApi {
+    severity: string | null
+    type: string | null
+    status: string | null
+    component: string | null
+    rule: string | null
+    creationDate: string | null
+}
+
+export interface SemgrepScannerFindingSignalExtraApi {
+    severity: string | null
+    confidence: string | null
+    status: string | null
+    state: string | null
+    created_at: string | null
+}
+
+export interface Rapid7InsightvmScannerFindingSignalExtraApi {
+    severity: string | null
+    cvss_v3_score: string | null
+    published: string | null
+    added: string | null
+}
+
+export interface FeaturebaseFeedbackSignalExtraApi {
+    status: string | null
+    tags: unknown[]
+    upvotes: string | null
+    createdAt: string | null
+}
+
+export interface FrillFeedbackSignalExtraApi {
+    status: string | null
+    vote_count: string | null
+    topics: unknown[]
+    created_at: string | null
+}
+
+export interface AhaFeedbackSignalExtraApi {
+    workflow_status: string | null
+    score: string | null
+    votes: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface UservoiceFeedbackSignalExtraApi {
+    state: string | null
+    vote_count: string | null
+    category_name: string | null
+    created_at: string | null
+}
+
+export interface ProductboardFeedbackSignalExtraApi {
+    state: string | null
+    tags: unknown[]
+    displayUrl: string | null
+    createdAt: string | null
+}
+
+export interface CannyFeedbackSignalExtraApi {
+    status: string | null
+    tags: unknown[]
+    score: string | null
+    voteCount: string | null
+    url: string | null
+    created: string | null
+}
+
+export interface AsknicelyFeedbackSignalExtraApi {
+    score: string | null
+    status: string | null
+    question_type: string | null
+    segment: string | null
+    created: string | null
+}
+
+export interface RetentlyFeedbackSignalExtraApi {
+    score: string | null
+    ratingCategory: string | null
+    feedbackTopics: unknown[]
+    resolved: string | null
+    createdDate: string | null
+}
+
+export interface AppfiguresReviewSignalExtraApi {
+    stars: string | null
+    version: string | null
+    product: string | null
+    date: string | null
+}
+
+export interface AppfollowReviewSignalExtraApi {
+    rating: string | null
+    store: string | null
+    app_version: string | null
+    date: string | null
+}
+
+export interface JudgemeReviewsReviewSignalExtraApi {
+    rating: string | null
+    product_title: string | null
+    verified: string | null
+    created_at: string | null
+}
+
+export interface IntercomTicketSignalExtraApi {
+    state: string | null
+    priority: string | null
+    admin_assignee_id: string | null
+    created_at: string | null
+}
+
+export interface HubspotTicketSignalExtraApi {
+    hs_ticket_priority: string | null
+    hs_pipeline_stage: string | null
+    hs_ticket_category: string | null
+    createdate: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -461,6 +1010,7 @@ export type SignalExtraApi =
     | ZendeskTicketSignalExtraApi
     | GithubIssueSignalExtraApi
     | LinearIssueSignalExtraApi
+    | JiraIssueSignalExtraApi
     | ConversationsTicketSignalExtraApi
     | ErrorTrackingSignalExtraApi
     | PgAnalyzeIssueSignalExtraApi
@@ -469,7 +1019,43 @@ export type SignalExtraApi =
     | SignalsScoutSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
+    | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
+    | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
+    | EngineeringAnalyticsCIDurationRegressionSignalExtraApi
+    | FreshdeskTicketSignalExtraApi
+    | FreshserviceTicketSignalExtraApi
+    | FrontConversationSignalExtraApi
+    | GorgiasTicketSignalExtraApi
+    | KustomerConversationSignalExtraApi
+    | DixaConversationSignalExtraApi
+    | PlainThreadSignalExtraApi
+    | GitlabIssueSignalExtraApi
+    | GiteaIssueSignalExtraApi
+    | ShortcutStorySignalExtraApi
+    | SentryIssueSignalExtraApi
+    | RollbarItemSignalExtraApi
+    | BugsnagErrorSignalExtraApi
+    | HoneybadgerFaultSignalExtraApi
+    | RaygunErrorGroupSignalExtraApi
+    | SnykScannerFindingSignalExtraApi
+    | SonarqubeScannerFindingSignalExtraApi
+    | SemgrepScannerFindingSignalExtraApi
+    | Rapid7InsightvmScannerFindingSignalExtraApi
+    | FeaturebaseFeedbackSignalExtraApi
+    | FrillFeedbackSignalExtraApi
+    | AhaFeedbackSignalExtraApi
+    | UservoiceFeedbackSignalExtraApi
+    | ProductboardFeedbackSignalExtraApi
+    | CannyFeedbackSignalExtraApi
+    | AsknicelyFeedbackSignalExtraApi
+    | RetentlyFeedbackSignalExtraApi
+    | AppfiguresReviewSignalExtraApi
+    | AppfollowReviewSignalExtraApi
+    | JudgemeReviewsReviewSignalExtraApi
+    | IntercomTicketSignalExtraApi
+    | HubspotTicketSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -513,6 +1099,7 @@ export interface SignalNodeApi {
      * * `llm_analytics` - llm_analytics
      * * `github` - github
      * * `linear` - linear
+     * * `jira` - jira
      * * `zendesk` - zendesk
      * * `conversations` - conversations
      * * `error_tracking` - error_tracking
@@ -521,7 +1108,41 @@ export interface SignalNodeApi {
      * * `signals_scout` - signals_scout
      * * `logs` - logs
      * * `health_checks` - health_checks
-     * * `replay_vision` - replay_vision */
+     * * `replay_vision` - replay_vision
+     * * `analytics` - analytics
+     * * `freshdesk` - freshdesk
+     * * `freshservice` - freshservice
+     * * `front` - front
+     * * `gorgias` - gorgias
+     * * `kustomer` - kustomer
+     * * `dixa` - dixa
+     * * `plain` - plain
+     * * `gitlab` - gitlab
+     * * `gitea` - gitea
+     * * `shortcut` - shortcut
+     * * `sentry` - sentry
+     * * `rollbar` - rollbar
+     * * `bugsnag` - bugsnag
+     * * `honeybadger` - honeybadger
+     * * `raygun` - raygun
+     * * `snyk` - snyk
+     * * `sonarqube` - sonarqube
+     * * `semgrep` - semgrep
+     * * `rapid7_insightvm` - rapid7_insightvm
+     * * `featurebase` - featurebase
+     * * `frill` - frill
+     * * `aha` - aha
+     * * `uservoice` - uservoice
+     * * `productboard` - productboard
+     * * `canny` - canny
+     * * `asknicely` - asknicely
+     * * `retently` - retently
+     * * `appfigures` - appfigures
+     * * `appfollow` - appfollow
+     * * `judgeme_reviews` - judgeme_reviews
+     * * `intercom` - intercom
+     * * `hubspot` - hubspot
+     * * `engineering_analytics` - engineering_analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -539,7 +1160,13 @@ export interface SignalNodeApi {
      * * `cross_source_issue` - cross_source_issue
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
-     * * `scanner_finding` - scanner_finding */
+     * * `scanner_finding` - scanner_finding
+     * * `anomaly_investigation` - anomaly_investigation
+     * * `feedback` - feedback
+     * * `review` - review
+     * * `ci_flaky_check` - ci_flaky_check
+     * * `ci_broken_default_branch` - ci_broken_default_branch
+     * * `ci_duration_regression` - ci_duration_regression */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -566,12 +1193,14 @@ export interface ReportSignalsResponseApi {
 /**
  * * `suppressed` - suppressed
  * * `potential` - potential
+ * * `resolved` - resolved
  */
 export type SignalReportStateEnumApi = (typeof SignalReportStateEnumApi)[keyof typeof SignalReportStateEnumApi]
 
 export const SignalReportStateEnumApi = {
     Suppressed: 'suppressed',
     Potential: 'potential',
+    Resolved: 'resolved',
 } as const
 
 /**
@@ -594,12 +1223,13 @@ export const DismissalReasonEnumApi = {
 } as const
 
 export interface SignalReportStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
      *
      * * `suppressed` - suppressed
-     * * `potential` - potential */
+     * * `potential` - potential
+     * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -636,6 +1266,8 @@ export interface SignalReportStateRequestApi {
  * * `note` - Note
  * * `title_change` - Title Change
  * * `summary_change` - Summary Change
+ * * `code_review` - Code Review
+ * * `related_to` - Related To
  */
 export type SignalReportArtefactTypeEnumApi =
     (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
@@ -655,6 +1287,8 @@ export const SignalReportArtefactTypeEnumApi = {
     Note: 'note',
     TitleChange: 'title_change',
     SummaryChange: 'summary_change',
+    CodeReview: 'code_review',
+    RelatedTo: 'related_to',
 } as const
 
 export interface _UserApi {
@@ -700,7 +1334,7 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -754,12 +1388,13 @@ export interface CommitDiffResponseApi {
 }
 
 export interface SignalReportBulkStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
      *
      * * `suppressed` - suppressed
-     * * `potential` - potential */
+     * * `potential` - potential
+     * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -816,6 +1451,15 @@ export interface SignalReportBulkStateResponseApi {
     not_found_count: number
 }
 
+export interface SignalReportRefundSummaryResponseApi {
+    /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
+    credited_refund_count: number
+    /** Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat per-PR charge to get the number of PRs to subtract from billing usage. */
+    credited_credits: number
+    /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
+    period_billable_credits: number
+}
+
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
 
 export const ScoutOriginEnumApi = {
@@ -838,15 +1482,20 @@ export interface SignalScoutConfigApi {
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-    enabled?: boolean
+    readonly enabled: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-    emit?: boolean
+    readonly emit: boolean
     /**
      * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
      * @minimum 30
      * @maximum 43200
      */
-    run_interval_minutes?: number
+    readonly run_interval_minutes: number
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+     * @nullable
+     */
+    readonly run_cron_schedule: string | null
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -877,38 +1526,34 @@ export interface SignalScoutConfigCreateApi {
      * @maximum 43200
      */
     run_interval_minutes?: number
+    /**
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
 }
 
 /**
- * Per-(team, skill) scout config: schedule, enablement, and emit posture.
- *
- * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
- * when it discovers a scout skill; this serializer lets agents tune the row.
+ * Editable schedule, enablement, and emit posture for one scout config.
  */
-export interface PatchedSignalScoutConfigApi {
-    readonly id?: string
-    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-    readonly skill_name?: string
-    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-    readonly description?: string
-    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-    readonly scout_origin?: ScoutOriginEnumApi
+export interface PatchedSignalScoutConfigUpdateApi {
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
     /**
-     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * Minutes between runs (30–43200). Use 1440 for a daily schedule.
      * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
     /**
-     * When the coordinator last dispatched this scout. Null if it has never run.
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule.
+     * @maxLength 100
      * @nullable
      */
-    readonly last_run_at?: string | null
-    readonly created_at?: string
+    run_cron_schedule?: string | null
 }
 
 /**
@@ -916,7 +1561,7 @@ export interface PatchedSignalScoutConfigApi {
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
  * row yet at response time — the bridge row is created once the run's first turn starts.
- * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ * Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
  */
 export interface SignalScoutManualRunApi {
     /** The `signals-scout-*` skill that was dispatched. */
@@ -1602,6 +2247,11 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunSummaryApiMetadata = { [key: string]: string }
+
+/**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
  *
  * Status and timestamps flow from the linked `tasks.TaskRun`.
@@ -1659,7 +2309,14 @@ export interface SignalScoutRunSummaryApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunSummaryApiMetadata
 }
+
+/**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunDetailApiMetadata = { [key: string]: string }
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
@@ -1719,6 +2376,8 @@ export interface SignalScoutRunDetailApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunDetailApiMetadata
 }
 
 /**
@@ -1731,12 +2390,18 @@ export interface SignalScoutRunDetailApi {
  */
 export interface SuggestedReviewerApi {
     /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
+    /**
+     * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
+     * @maxLength 500
+     * @nullable
+     */
+    reason?: string | null
 }
 
 /**
@@ -1798,7 +2463,7 @@ export const AutonomyPriorityEnumApi = {
 
 /**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
- * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+ * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
  * back into the underlying signal store.
  */
@@ -2088,16 +2753,21 @@ export interface ScoutRunIdsBatchRequestApi {
 }
 
 /**
- * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
- * renders from one cheap query instead of the client walking the whole paginated runs window.
+ * Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+ * authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+ * from one cheap query instead of the client walking the whole paginated runs window.
  */
 export interface FleetFindingsSummaryApi {
-    /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+    /** Total findings the fleet emitted in the window — the sum of each run's `emitted_count`, over the most recent 120 runs that produced output. */
     count: number
-    /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+    /** Number of distinct scouts (skills) that produced output in the window — emitted a finding, or authored/edited an inbox report that survives the 50-report cap (a report-only scout whose touched reports all fell outside the cap is not counted, matching the findings page's scout filter). */
     scout_count: number
+    /** Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists). */
+    authored_report_count: number
+    /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
+    edited_report_count: number
     /**
-     * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+     * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
      * @nullable
      */
     latest_at: string | null
@@ -2180,6 +2850,7 @@ export interface ForgetResponseApi {
  * * `llm_analytics` - LLM analytics
  * * `github` - GitHub
  * * `linear` - Linear
+ * * `jira` - Jira
  * * `zendesk` - Zendesk
  * * `conversations` - Conversations
  * * `error_tracking` - Error tracking
@@ -2189,6 +2860,40 @@ export interface ForgetResponseApi {
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
+ * * `analytics` - Product analytics
+ * * `freshdesk` - Freshdesk
+ * * `freshservice` - Freshservice
+ * * `front` - Front
+ * * `gorgias` - Gorgias
+ * * `kustomer` - Kustomer
+ * * `dixa` - Dixa
+ * * `plain` - Plain
+ * * `gitlab` - GitLab
+ * * `gitea` - Gitea
+ * * `shortcut` - Shortcut
+ * * `sentry` - Sentry
+ * * `rollbar` - Rollbar
+ * * `bugsnag` - Bugsnag
+ * * `honeybadger` - Honeybadger
+ * * `raygun` - Raygun
+ * * `snyk` - Snyk
+ * * `sonarqube` - SonarQube
+ * * `semgrep` - Semgrep
+ * * `rapid7_insightvm` - Rapid7 InsightVM
+ * * `featurebase` - Featurebase
+ * * `frill` - Frill
+ * * `aha` - Aha
+ * * `uservoice` - UserVoice
+ * * `productboard` - Productboard
+ * * `canny` - Canny
+ * * `asknicely` - AskNicely
+ * * `retently` - Retently
+ * * `appfigures` - Appfigures
+ * * `appfollow` - AppFollow
+ * * `judgeme_reviews` - Judge.me
+ * * `intercom` - Intercom
+ * * `hubspot` - HubSpot
+ * * `engineering_analytics` - Engineering analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2198,6 +2903,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
@@ -2207,6 +2913,40 @@ export const SignalSourceConfigSourceProductEnumApi = {
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
+    Freshdesk: 'freshdesk',
+    Freshservice: 'freshservice',
+    Front: 'front',
+    Gorgias: 'gorgias',
+    Kustomer: 'kustomer',
+    Dixa: 'dixa',
+    Plain: 'plain',
+    Gitlab: 'gitlab',
+    Gitea: 'gitea',
+    Shortcut: 'shortcut',
+    Sentry: 'sentry',
+    Rollbar: 'rollbar',
+    Bugsnag: 'bugsnag',
+    Honeybadger: 'honeybadger',
+    Raygun: 'raygun',
+    Snyk: 'snyk',
+    Sonarqube: 'sonarqube',
+    Semgrep: 'semgrep',
+    Rapid7Insightvm: 'rapid7_insightvm',
+    Featurebase: 'featurebase',
+    Frill: 'frill',
+    Aha: 'aha',
+    Uservoice: 'uservoice',
+    Productboard: 'productboard',
+    Canny: 'canny',
+    Asknicely: 'asknicely',
+    Retently: 'retently',
+    Appfigures: 'appfigures',
+    Appfollow: 'appfollow',
+    JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -2224,6 +2964,10 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
+ * * `anomaly_investigation` - Anomaly investigation
+ * * `ci_flaky_check` - CI flaky check
+ * * `ci_broken_default_branch` - CI broken default branch
+ * * `ci_duration_regression` - CI duration regression
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2243,6 +2987,10 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -2328,6 +3076,10 @@ export type SignalsReportsListParams = {
      */
     has_implementation_pr?: boolean
     /**
+     * When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.
+     */
+    include_all_statuses?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -2343,6 +3095,10 @@ export type SignalsReportsListParams = {
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string
     /**
      * Case-insensitive substring match against report title and summary.
      */
@@ -2474,13 +3230,18 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     date_to?: string
     /**
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * @minLength 1
+     */
+    key?: string
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean
     /**
-     * Max rows to return (default 20, hard cap 500).
+     * Max rows to return (default 20, hard cap 1000).
      * @minimum 1
-     * @maximum 500
+     * @maximum 1000
      */
     limit?: number
     /**

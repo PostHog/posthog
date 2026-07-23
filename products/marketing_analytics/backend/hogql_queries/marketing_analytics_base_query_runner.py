@@ -29,13 +29,16 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    LazyComputationTable,
-    ensure_precomputed,
-)
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
+from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.constants import (
     DRILL_DOWN_LEVEL_CONFIG,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+)
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    BACKGROUND_WARMING_TRIGGERS,
+    handle_stale_served,
+    marketing_ensure_precomputed,
 )
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -78,6 +81,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         self._costs_precompute_used: bool = False
         self._costs_sources_materialized: int = 0
         self._costs_grain: Optional[str] = None
+        # Set when any read-path ensure (costs, touchpoints, conversions) was served from
+        # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
+        self._precompute_stale: bool = False
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
@@ -153,6 +159,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         filtering). Built with the runner's user+modifiers so it's valid for resolving the final
         query, not just the factory's warehouse-name lookup."""
         modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
+        # Background materialization (Dagster warmer, stale-while-revalidate task) runs userless, so under
+        # warehouse access control a userless database fails closed and hides every warehouse table — the
+        # cost adapters then enumerate empty and the ensure never fires, so warehouse-backed costs would
+        # never refresh. Bypass access control for these background writers exactly as the warmer does
+        # (the materialization INSERT is printed userless either way); user-facing reads keep self.user and
+        # the access-controlled path.
+        bypass_access_control = is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
         # Pass the runner's timings so create_for's internal spans (data_warehouse_tables,
         # filter_system_tables_for_user, saved queries, revenue views, …) surface in the query's
         # timings instead of a discarded HogQLTimings — otherwise this whole build shows as an
@@ -163,6 +176,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             modifiers=modifiers,
             timings=self.timings,
             build_postgres_foreign_keys=False,
+            bypass_warehouse_access_control=bypass_access_control,
         )
 
     @cached_property
@@ -269,7 +283,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 s3_fallback_adapters.append(adapter)
                 continue
             with self.timings.measure("ma_precompute_ensure"):
-                result = ensure_precomputed(
+                result = marketing_ensure_precomputed(
                     team=self.team,
                     insert_query=insert_query,
                     time_range_start=date_range.date_from(),
@@ -277,6 +291,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     ttl_seconds=ttl_seconds,
                     table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
                 )
+            if result.stale:
+                self._precompute_stale = True
             if not result.ready:
                 logger.info(
                     "marketing_costs_precompute",
@@ -721,7 +737,14 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             if should_create:
                 processor = ConversionGoalProcessor(
-                    goal=conversion_goal, index=index, team=self.team, config=self.config, user=self.user
+                    goal=conversion_goal,
+                    index=index,
+                    team=self.team,
+                    config=self.config,
+                    user=self.user,
+                    # Goals are built in parallel and HogQLTimings is not thread safe, so hand each
+                    # processor its own clone. Merged back in _build_complete_query_ast once joined.
+                    timings=self.timings.clone_for_subquery(index),
                 )
                 processors.append(processor)
         return processors
@@ -817,16 +840,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         conversion_aggregator = ConversionGoalsAggregator(processors, self.config) if processors else None
 
         # Build the main SELECT query
-        main_query = self._build_main_select_query(conversion_aggregator)
+        with self.timings.measure("ma_main_select"):
+            main_query = self._build_main_select_query(conversion_aggregator)
 
         # Build CTEs as a dictionary
         ctes: dict[str, ast.CTE] = {}
 
         # Add campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_subquery)
-        campaign_cost_cte = ast.CTE(
-            name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
-        )
+        with self.timings.measure("ma_campaign_cost_cte"):
+            campaign_cost_select = self._build_campaign_cost_select(union_subquery)
+            campaign_cost_cte = ast.CTE(
+                name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
+            )
         ctes[self.config.campaign_costs_cte_name] = campaign_cost_cte
 
         # Add unified conversion goal CTE if any. Skip building it entirely at levels
@@ -836,14 +861,22 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # win at hierarchy levels.
         level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.config.drill_down_level, {})
         if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
-            # Check if this is an aggregated query (no GROUP BY)
-            group_by_exprs = self._get_group_by_expressions()
-            if not group_by_exprs:
-                # For aggregated queries, create aggregated conversion goals CTE
-                unified_cte = self._generate_aggregated_conversion_goals_cte(conversion_aggregator, date_range)
-            else:
-                # For table queries, use the normal conversion goals CTE
-                unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
+            with self.timings.measure("ma_unified_conversion_cte"):
+                # Check if this is an aggregated query (no GROUP BY)
+                group_by_exprs = self._get_group_by_expressions()
+                if not group_by_exprs:
+                    # For aggregated queries, create aggregated conversion goals CTE
+                    unified_cte = self._generate_aggregated_conversion_goals_cte(conversion_aggregator, date_range)
+                else:
+                    # For table queries, use the normal conversion goals CTE
+                    unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
+
+            # The per-goal pool has joined, so folding each processor's cloned timings — and whether its
+            # precompute was served stale — back in is safe here.
+            for processor in processors:
+                self.timings.timings.update(processor.timings.timings)
+                if processor.precompute_stale:
+                    self._precompute_stale = True
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
@@ -899,6 +932,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def to_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_base_query"):
+            # Reset per build. Any read-path ensure served from expired-within-grace rows flips this, and
+            # the read schedules exactly one background revalidation once the query is built.
+            self._precompute_stale = False
+
             # Apply drill-down level from query to config
             self._apply_drill_down_level()
 
@@ -944,7 +981,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
             # Build the complete query with CTEs using AST
             with self.timings.measure("ma_build_complete_query"):
-                return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
+                query = self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
+
+        # One revalidation per read, not per stale ensure: costs, touchpoints and conversions all expire
+        # together, and rebuilding the query refreshes every one of them.
+        if self._precompute_stale:
+            handle_stale_served(team=self.team, query=self.query)
+        return query
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""

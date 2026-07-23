@@ -25,3 +25,6 @@ CODA_ENDPOINTS: dict[str, CodaEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(CODA_ENDPOINTS.keys())
+
+# Coda's list endpoints have no updated-since filters, so no stream is incremental.
+INCREMENTAL_FIELDS: dict[str, list] = {}

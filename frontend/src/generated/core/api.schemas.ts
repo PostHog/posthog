@@ -117,50 +117,12 @@ export interface OrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** @nullable */
-    readonly scim_bearer_token: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -191,50 +153,12 @@ export interface PatchedOrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml?: boolean
-    /**
-     * SAML IdP entity ID (issuer).
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * SAML single sign-on (ACS) URL.
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /**
-     * SAML IdP X.509 signing certificate (PEM).
-     * @nullable
-     */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim?: boolean
-    /** Whether SCIM provisioning is enabled for this domain. */
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** @nullable */
-    readonly scim_bearer_token?: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag?: boolean
-    /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
     /**
      * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
@@ -2786,6 +2710,9 @@ export interface SharePasswordApi {
     readonly is_active: boolean
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -2794,6 +2721,11 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface FileSystemApi {
@@ -2863,9 +2795,32 @@ export interface PatchedFileSystemApi {
  * Payload for publishing a freeform canvas's React source via the agent.
  */
 export interface PatchedCanvasPublishApi {
+    /** The complete single-file React source for the canvas. */
     code?: string
+    /** Short description of the change, stored on the appended version history entry. */
     prompt?: string
+    /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
     name?: string
+    /**
+     * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
+}
+
+/**
+ * 409 body for a guarded canvas publish based on a stale version.
+ */
+export interface CanvasPublishConflictApi {
+    /** Human-readable description of the conflict and how to recover. */
+    detail: string
+    /** Always "version_conflict". */
+    code: string
+    /**
+     * The canvas's live currentVersionId at rejection time (null when the canvas has no versions).
+     * @nullable
+     */
+    current_version_id: string | null
 }
 
 export interface ContextGenerationApi {
@@ -3199,6 +3154,8 @@ export interface EnterprisePropertyDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin: unknown
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -3231,6 +3188,8 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin?: unknown
 }
 
 /**
@@ -3375,6 +3334,8 @@ export interface OrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -3497,6 +3458,7 @@ export const ShortcutPositionEnumApi = {
  * * `delegated` - Delegated to teammate
  * * `later` - Skipped for later
  * * `other` - Other
+ * * `provisioned` - Account provisioned by a partner
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -3505,6 +3467,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Delegated: 'delegated',
     Later: 'later',
     Other: 'other',
+    Provisioned: 'provisioned',
 } as const
 
 /**
@@ -3558,6 +3521,11 @@ export interface UserApi {
     readonly is_impersonated_until: string | null
     /** @nullable */
     readonly is_impersonated_read_only: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
@@ -3660,6 +3628,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_until?: string | null
     /** @nullable */
     readonly is_impersonated_read_only?: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi

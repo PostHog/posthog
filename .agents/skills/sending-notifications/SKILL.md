@@ -59,13 +59,14 @@ Returns a `NotificationEvent` on success, or `None` if the feature flag is disab
 
 **Optional:**
 
-| Field           | Type                               | Default  | Description                                                                               |
-| --------------- | ---------------------------------- | -------- | ----------------------------------------------------------------------------------------- |
-| `resource_type` | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access |
-| `resource_id`   | `str`                              | `""`     | ID of the resource for linking                                                            |
-| `source_url`    | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                        |
-| `priority`      | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                          |
-| `resolver`      | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                   |
+| Field           | Type                               | Default  | Description                                                                                                                                                                                   |
+| --------------- | ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resource_type` | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access                                                                                                     |
+| `resource_id`   | `str`                              | `""`     | ID of the resource for linking                                                                                                                                                                |
+| `source_url`    | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                                                                                            |
+| `priority`      | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                                                                                                                              |
+| `archivable`    | `bool`                             | `False`  | Opt in to a per-recipient "archive" (dismiss) action that moves the notification to the recipient's Archived tab. When `False`, recipients can only mark it read/unread (the default pattern) |
+| `resolver`      | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                                                                                                                       |
 
 ## Choosing parameters
 
@@ -114,10 +115,9 @@ Kafka publish happens on `transaction.on_commit` — won't fire if the transacti
 ## Adding a new notification type
 
 1. Add enum value in `products/notifications/backend/facade/enums.py`
-2. Add icon mapping in `frontend/src/lib/components/NotificationsMenu/NotificationRow.tsx` (`NOTIFICATION_TYPE_ICONS`)
-3. Add the same icon in the toast handler in `frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx` (`iconMap`)
-4. Add sample data in `SAMPLE_NOTIFICATIONS` in `products/notifications/backend/presentation/views.py`
-5. Run `python manage.py makemigrations notifications`
+2. Add icon mapping in `frontend/src/lib/components/NotificationsMenu/notificationToasts.tsx` (`NOTIFICATION_TYPE_ICONS`) — the single icon source, read by `getNotificationIcon`, which only `NotificationRow` calls; the side panel gets the icon by rendering that row
+3. Add a label + description entry in `frontend/src/lib/components/NotificationsMenu/NotificationRow.tsx` (`REALTIME_NOTIFICATION_TYPE_META`) — drives the per-type notification preferences UI
+4. Run `python manage.py makemigrations notifications`
 
 ## Testing
 

@@ -57,6 +57,7 @@ from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -114,10 +115,31 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "your pipeline emits a different attribute."
         ),
     )
+    logs_session_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Ordered list of log attribute keys whose values hold the PostHog session ID. "
+            "Detection checks keys in order; the first key with a value wins. Defaults to "
+            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
+            "auto-attach. Add keys only if your pipeline emits the session ID under "
+            "different attributes."
+        ),
+    )
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key"]
+        fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
+
+    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        # The child CharField already trims whitespace and rejects blanks; only
+        # cross-item uniqueness needs checking here.
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Attribute keys must be unique.")
+        return value
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -733,6 +755,7 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
+    _group_types_cache: list[dict[str, Any]] | None = None
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -829,11 +852,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.has_group_types")
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(cached_group_types_for_team(team))
+        return bool(self._get_group_types(team))
 
     @tracer.start_as_current_span("team_serializer.group_types")
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return cached_group_types_for_team(team)
+        return self._get_group_types(team)
+
+    def _get_group_types(self, team: Team) -> list[dict[str, Any]]:
+        group_types = self._group_types_cache
+        if group_types is None:
+            group_types = cached_group_types_for_team(team)
+            self._group_types_cache = group_types
+        return group_types
 
     @extend_schema_field(serializers.BooleanField())
     @tracer.start_as_current_span("team_serializer.events_retention_enforced")
@@ -1595,7 +1625,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["modifiers"],
             }
 
-        updated_team = super().update(instance, validated_data)
+        # Persist only the fields this request changes. A full-row save() writes back every
+        # column from this request's snapshot of the team, so two concurrent PATCHes clobber
+        # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
+        # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
+        # bouncing freshly onboarded users back into onboarding.
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if validated_data:
+            # auto_now fields only refresh when included in update_fields
+            instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        # Snapshot before the cache refresh below so the audit diff only reflects this
+        # request's writes, not fields a concurrent request changed.
+        after_update = instance.__dict__.copy()
+        if validated_data:
+            # The in-memory instance may hold stale values for fields a concurrent request
+            # changed, and the post-save receiver has already cached that snapshot. Reload
+            # and re-cache so the team cache reflects the merged row.
+            instance.refresh_from_db()
+            set_team_in_cache(instance.api_token, instance)
+        updated_team = instance
 
         if "proactive_tasks_enabled" in validated_data:
             # Backward compat for old proactive tasks enabled field, remove after February 2026
@@ -1613,7 +1662,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
                 ).delete()
 
-        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+        changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
             organization_id=cast(UUIDT, instance.organization_id),
@@ -1962,6 +2011,18 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         organization_id = team.organization_id
         team_name = team.name
 
+        # Remove the team from the org's managed warehouse first (no-op for orgs without
+        # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
+        # requires deprovisioning the warehouse (or deleting the organization) instead.
+        # Keep the product API off the core import path.
+        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
+            block_team_deletion,
+        )
+
+        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        if warehouse_block_reason:
+            raise exceptions.ValidationError(warehouse_block_reason)
+
         user = cast(User, self.request.user)
 
         # Hand off all deletion work (bulky postgres, batch exports, team record,
@@ -2088,11 +2149,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="logs_config",
     )
     def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage logs product configuration for this environment."""
+        """Manage logs product configuration for this environment. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         return handle_logs_config(request, self.get_object())
 
     @action(

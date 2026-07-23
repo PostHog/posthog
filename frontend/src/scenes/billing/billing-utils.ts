@@ -1,10 +1,11 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -498,6 +499,12 @@ export function buildTrackingProperties(
         interval: values.filters.interval || 'day',
     }
 }
+
+// The Replay vision entry stays hidden until the replay-vision flag rolls out with the pricing launch
+export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
+    USAGE_TYPES.filter(
+        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
+    ).map((opt) => ({ key: opt.value, label: opt.label }))
 
 export const isAddonVisible = (
     product: BillingProductV2Type,

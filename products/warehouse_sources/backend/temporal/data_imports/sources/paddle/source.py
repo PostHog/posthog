@@ -18,8 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PaddleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paddle import PaddleSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
@@ -35,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
+    api_docs_url = "https://developer.paddle.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Paddle schema in external_table_definitions
 
@@ -76,13 +81,21 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
             "400 Client Error: Bad Request for url: https://api.paddle.com": "Paddle rejected the request parameters. Please check your source configuration and incremental sync state, then try again.",
             "401 Client Error: Unauthorized for url: https://api.paddle.com": "Your Paddle API key is invalid or expired. Please check your API key in Paddle and reconnect.",
             "403 Client Error: Forbidden for url: https://api.paddle.com": "Your Paddle API key does not have the required permissions. Please check your API key permissions in Paddle and try again.",
+            # 404 on a list endpoint we know exists means the resource isn't reachable for this
+            # account — Paddle Billing isn't enabled, or the API key belongs to a different
+            # environment (sandbox vs. production) than the data. Retrying can't change that.
+            "404 Client Error: Not Found for url: https://api.paddle.com": "Paddle couldn't find the requested data. This usually means Paddle Billing isn't enabled for your account, or your API key is for a different environment (sandbox vs. production). Check your Paddle account and reconnect with a matching API key.",
         }
 
     def should_retry_non_retryable_errors(self) -> bool:
         return False
 
     def validate_credentials(
-        self, config: PaddleSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PaddleSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             if validate_paddle_credentials(config.paddle_api_key, schema_name):
@@ -101,22 +114,9 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(PADDLE_INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(PADDLE_INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=PADDLE_INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in PADDLE_ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(PADDLE_ENDPOINTS, PADDLE_INCREMENTAL_FIELDS, names)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PaddleResumeConfig]:
         return ResumableSourceManager[PaddleResumeConfig](inputs, PaddleResumeConfig)
@@ -130,8 +130,9 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         return paddle_source(
             api_key=config.paddle_api_key,
             endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-            logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
         )

@@ -246,7 +246,7 @@ class PgOutputDecoder:
         if relation is None:
             return
 
-        columns = _decode_tuple(tuple_data, relation)
+        columns, omitted = _decode_tuple(tuple_data, relation)
 
         self._buffer_event(
             ChangeEvent(
@@ -256,6 +256,7 @@ class PgOutputDecoder:
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
                 column_types=relation.column_arrow_types,
+                omitted_columns=frozenset(omitted),
             )
         )
 
@@ -263,7 +264,6 @@ class PgOutputDecoder:
         """U message: relation_id(4) + ['K'|'O' + old_tuple] + 'N' + new_tuple
 
         The old tuple is optional (depends on REPLICA IDENTITY setting).
-        We only need the new tuple for CDC upserts.
         """
         relation_id = struct.unpack("!I", payload[0:4])[0]
         offset = 4
@@ -272,11 +272,12 @@ class PgOutputDecoder:
         if relation is None:
             return
 
-        # Skip optional old key/old tuple
+        # Optional old key ('K') / old full row ('O', REPLICA IDENTITY FULL)
+        old_columns: dict[str, Any] = {}
         marker = chr(payload[offset])
         if marker in ("K", "O"):
             offset += 1
-            _, offset = _skip_tuple(payload, offset, relation)
+            old_columns, offset = _skip_tuple(payload, offset, relation)
 
         # New tuple starts with 'N'
         if chr(payload[offset]) != "N":
@@ -284,7 +285,14 @@ class PgOutputDecoder:
             return
         offset += 1
 
-        columns = _decode_tuple(payload[offset:], relation)
+        columns, omitted = _decode_tuple(payload[offset:], relation)
+
+        # An unchanged-TOAST column holds its previous value by definition, so any
+        # old-tuple value for it (REPLICA IDENTITY FULL) is the current value.
+        for col_name in list(omitted):
+            if col_name in old_columns:
+                columns[col_name] = old_columns[col_name]
+                omitted.discard(col_name)
 
         self._buffer_event(
             ChangeEvent(
@@ -294,6 +302,7 @@ class PgOutputDecoder:
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
                 column_types=relation.column_arrow_types,
+                omitted_columns=frozenset(omitted),
             )
         )
 
@@ -315,7 +324,7 @@ class PgOutputDecoder:
         # marker = chr(payload[offset])
         offset += 1
 
-        columns = _decode_tuple(payload[offset:], relation)
+        columns, omitted = _decode_tuple(payload[offset:], relation)
 
         self._buffer_event(
             ChangeEvent(
@@ -325,6 +334,7 @@ class PgOutputDecoder:
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
                 column_types=relation.column_arrow_types,
+                omitted_columns=frozenset(omitted),
             )
         )
 
@@ -376,12 +386,14 @@ def _read_cstring(data: bytes, offset: int) -> tuple[str, int]:
     return data[offset:end].decode("utf-8"), end + 1
 
 
-def _decode_tuple(data: bytes, relation: Relation) -> dict[str, Any]:
-    """Decode a pgoutput tuple into a dict of column_name → Python value.
+def _decode_tuple(data: bytes, relation: Relation) -> tuple[dict[str, Any], set[str]]:
+    """Decode a pgoutput tuple into (column_name → Python value, unchanged-TOAST column names).
 
     Tuple format: n_cols(2) + for each column: type_byte + [data]
       - 'n': NULL
-      - 'u': unchanged TOAST value (skipped)
+      - 'u': unchanged TOAST value — not sent; the column still holds its previous
+        value, so it must be tracked separately from NULL or the pipeline would
+        overwrite the real value with NULL downstream
       - 't': text value → int32 length + UTF-8 bytes
     """
     offset = 0
@@ -389,6 +401,7 @@ def _decode_tuple(data: bytes, relation: Relation) -> dict[str, Any]:
     offset += 2
 
     columns: dict[str, Any] = {}
+    omitted: set[str] = set()
 
     for i in range(n_cols):
         if i >= len(relation.columns):
@@ -401,8 +414,7 @@ def _decode_tuple(data: bytes, relation: Relation) -> dict[str, Any]:
         if col_type == "n":
             columns[col_meta.name] = None
         elif col_type == "u":
-            # Unchanged TOAST — value not sent. Skip.
-            pass
+            omitted.add(col_meta.name)
         elif col_type == "t":
             length = struct.unpack("!I", data[offset : offset + 4])[0]
             offset += 4
@@ -412,7 +424,7 @@ def _decode_tuple(data: bytes, relation: Relation) -> dict[str, Any]:
         else:
             logger.warning("Unknown tuple column type '%s' for column %s", col_type, col_meta.name)
 
-    return columns
+    return columns, omitted
 
 
 def _skip_tuple(data: bytes, offset: int, relation: Relation) -> tuple[dict[str, Any], int]:
@@ -437,7 +449,7 @@ def _skip_tuple(data: bytes, offset: int, relation: Relation) -> tuple[dict[str,
             offset += 4 + length
 
     # Decode the tuple we just skipped for return value
-    columns = _decode_tuple(data[start:offset], relation)
+    columns, _ = _decode_tuple(data[start:offset], relation)
     return columns, offset
 
 

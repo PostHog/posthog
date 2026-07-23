@@ -9,6 +9,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
@@ -19,7 +20,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
-import { DashboardSubscribeExperiment } from './DashboardSubscribeExperiment'
+import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
     dashboardId,
@@ -215,10 +216,9 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
-            <DashboardSubscribeExperiment placement="button" />
+            <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
             <DashboardAddTileButton />
-            <DashboardSubscribeExperiment placement="menu" />
         </>
     )
 }
@@ -248,16 +248,25 @@ export function ViewModeActions(): JSX.Element {
         return <></>
     }
 
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
+
     return (
         <>
-            <DashboardSubscribeExperiment placement="button" />
+            <DashboardSubscribeButton />
             <LemonButton
                 type="secondary"
                 data-attr="dashboard-share-button"
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
-                disabledReason={tiles.length === 0 ? 'Add at least one tile before sharing this dashboard' : undefined}
+                disabledReason={
+                    tiles.length === 0
+                        ? 'Add at least one tile before sharing this dashboard'
+                        : (sharingDisabledReason ?? undefined)
+                }
             >
                 Share
             </LemonButton>
@@ -285,7 +294,6 @@ export function ViewModeActions(): JSX.Element {
                 </Shortcut>
             )}
             <DashboardAddTileButton />
-            <DashboardSubscribeExperiment placement="menu" />
         </>
     )
 }

@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+import requests
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -19,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PolarSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.polar import (
     PolarPermissionError,
     PolarResumeConfig,
@@ -32,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.polar.sh/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -85,13 +91,31 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         }
 
     def validate_credentials(
-        self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             validate_polar_credentials(config.polar_api_key, schema_name)
             return True, None
         except PolarPermissionError as e:
             return False, f"Polar Organization Access Token lacks permissions: {e}"
+        except requests.exceptions.HTTPError as e:
+            # A failed probe surfaces via raise_for_status(): its str() leaks the full request URL
+            # (with query params) and tells the user nothing to act on. Map the status instead.
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code == 401:
+                return (
+                    False,
+                    "Your Polar Organization Access Token is invalid or expired. Please generate a new token in Polar and reconnect.",
+                )
+            if status_code == 403:
+                return (
+                    False,
+                    "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
+                )
+            return (
+                False,
+                f"Polar returned an unexpected error (HTTP {status_code}) while validating your token. Please try again.",
+            )
         except Exception as e:
             return False, str(e)
 
@@ -102,6 +126,7 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Full refresh only — Polar's list endpoints accept no server-side timestamp filter,
         # so an "incremental" sync would still fetch every page. We surface that honestly by

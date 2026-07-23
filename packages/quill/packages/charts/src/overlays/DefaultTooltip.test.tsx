@@ -129,6 +129,22 @@ describe('DefaultTooltip', () => {
             expect(screen.queryByText((1035).toLocaleString())).toBeNull()
         })
 
+        it('excludes visibility.total: false series from the sum but still renders its row', () => {
+            // A percentage column alongside counts: its 2.4 must not leak into the counts' total.
+            const withPercent: TooltipContext['seriesData'] = [
+                ...TWO_SERIES,
+                {
+                    series: { key: 'pct', label: 'Rate', data: [], visibility: { total: false } },
+                    value: 2.4,
+                    color: '#222',
+                },
+            ]
+            renderTooltip({ showTotal: true }, withPercent)
+            expect(screen.getAllByText('Rate').length).toBeGreaterThan(0)
+            screen.getByText((35).toLocaleString())
+            expect(screen.queryByText((37.4).toLocaleString())).toBeNull()
+        })
+
         it('is suppressed when only one non-overlay series remains', () => {
             const oneRealOneOverlay: TooltipContext['seriesData'] = [
                 { series: { key: 'a', label: 'A', data: [] }, value: 10, color: '#000' },
@@ -217,6 +233,17 @@ describe('DefaultTooltip', () => {
             fireEvent.click(rows[1])
             expect(onRowClick).toHaveBeenCalledTimes(1)
             expect(onRowClick.mock.calls[0][0].series.key).toBe('b')
+        })
+
+        it('onRowClick does not fire when the click completes a text selection', () => {
+            const onRowClick = jest.fn()
+            renderTooltip({ onRowClick }, TWO_SERIES)
+            const spy = jest
+                .spyOn(window, 'getSelection')
+                .mockReturnValue({ toString: () => 'copied text' } as Selection)
+            fireEvent.click(document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')[1])
+            expect(onRowClick).not.toHaveBeenCalled()
+            spy.mockRestore()
         })
 
         it('sorts rows by yPixel ascending (visual top-to-bottom) when not sortedByValue', () => {

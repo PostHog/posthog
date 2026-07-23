@@ -5,7 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.source import FastlySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FastlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fastly import FastlySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -24,7 +24,6 @@ class TestFastlySource:
         assert config.name.value == "Fastly"
         assert config.label == "Fastly"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/fastly.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/fastly"
 

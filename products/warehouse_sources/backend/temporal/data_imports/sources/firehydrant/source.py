@@ -33,12 +33,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firehydran
     FIREHYDRANT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FireHydrantSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firehydrant import (
+    FireHydrantSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FireHydrantSource(ResumableSource[FireHydrantSourceConfig, FireHydrantResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.firehydrant.com/reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -115,6 +121,7 @@ You can create a bot token or personal API key in your [FireHydrant API keys set
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FIREHYDRANT_ENDPOINTS[endpoint]
@@ -136,7 +143,11 @@ You can create a bot token or personal API key in your [FireHydrant API keys set
         return schemas
 
     def validate_credentials(
-        self, config: FireHydrantSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FireHydrantSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_firehydrant_credentials(config.api_key, config.region)
 
@@ -152,7 +163,8 @@ You can create a bot token or personal API key in your [FireHydrant API keys set
         return firehydrant_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             region=config.region,
         )

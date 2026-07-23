@@ -28,13 +28,19 @@ export const validateExperimentSubmission = ({
     }
 
     // Check variants
+    const variants = getExperimentVariants(experiment)
     const variantErrors = getVariantValidationErrors({
         flagKey: experiment.feature_flag_key,
-        variants: getExperimentVariants(experiment),
+        variants,
         featureFlagKeyValidation,
         mode,
     })
     errors.push(...variantErrors)
+
+    // The toolbar editor hard-requires 'control', so the backend rejects web experiments without it
+    if (experiment.type === 'web' && variants.length > 0 && !variants.some(({ key }) => key === 'control')) {
+        errors.push("Web experiments require a variant with key 'control'")
+    }
 
     // Include any other experiment errors
     Object.values(experimentErrors).forEach((error) => {

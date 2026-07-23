@@ -68,7 +68,7 @@ ANTHROPIC_TO_BEDROCK_MODEL_MAP: Final[dict[str, dict[str, str]]] = {
     },
     "claude-fable-5": {
         "us": "us.anthropic.claude-fable-5",
-        "eu": "eu.anthropic.claude-fable-5",
+        "eu": "global.anthropic.claude-fable-5",
     },
     "claude-sonnet-4-5": {
         "us": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -334,6 +334,25 @@ def _strip_regional_inference_prefix(model: str) -> str:
     """Drop the regional inference-profile prefix ("us.anthropic.", "eu.anthropic.") so the
     bare foundation-model id ("anthropic.<model>") is used for token counting."""
     return model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
+
+
+# Models bedrock-runtime CountTokens rejects outright with "The provided model doesn't support
+# counting tokens." — verified against production traffic, not inferred from the id shape: the
+# CRIS-only claude-sonnet-4-6 has no dated foundation-model id yet counts fine on runtime (its
+# only failures are request-content validation errors like oversized prompts). Models not listed
+# here keep the try-runtime-first behavior and fall back to mantle if AWS rejects them; re-verify
+# against the live CountTokens API before adding an entry.
+BEDROCK_RUNTIME_COUNT_TOKENS_UNSUPPORTED: Final[frozenset[str]] = frozenset(
+    {
+        "anthropic.claude-opus-4-8",
+        "anthropic.claude-fable-5",
+    }
+)
+
+
+def supports_bedrock_runtime_count_tokens(model: str) -> bool:
+    """Whether the bedrock-runtime CountTokens API can count tokens for this model."""
+    return _strip_regional_inference_prefix(model) not in BEDROCK_RUNTIME_COUNT_TOKENS_UNSUPPORTED
 
 
 def get_bedrock_mantle_count_tokens_url(region_name: str) -> str:

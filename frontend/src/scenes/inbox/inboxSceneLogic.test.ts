@@ -1,4 +1,5 @@
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { mergeSignalRuns } from './inboxSceneLogic'
 import { SignalScoutRunSummary } from './types'
@@ -30,6 +31,7 @@ function signalTask(overrides: Partial<Task> = {}): Task {
         title: 'Crash on login',
         description: '',
         origin_product: OriginProduct.SIGNAL_REPORT,
+        runtime: RuntimeEnumApi.Acp,
         repository: null,
         github_integration: null,
         signal_report: 'report-1',

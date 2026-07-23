@@ -21,9 +21,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ServiceNowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicenow import (
+    ServiceNowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.servicenow import (
+    SERVICENOW_API_VERSION_V1,
+    SERVICENOW_API_VERSION_V2,
     ServiceNowAuth,
     ServiceNowResumeConfig,
     servicenow_source,
@@ -39,6 +46,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeConfig]):
+    api_docs_url = "https://www.servicenow.com/docs/r/washingtondc/api-reference/rest-apis/c_TableAPI.html"
+
+    # Both Table API versions stay supported; new sources default to v2 (stable since Geneva).
+    # Every existing source already carries an explicit "v1" pin — stamped at creation
+    # (`default_version` was the inherited "v1" before this flip) or backfilled onto pre-stamp
+    # rows by migration 0075 — so no ServiceNow row has a NULL `api_version` that would now
+    # resolve to v2. The default flip therefore never reaches them: they stay on v1 (the
+    # versionless path) and their syncs are byte-for-byte unchanged.
+    supported_versions = (SERVICENOW_API_VERSION_V1, SERVICENOW_API_VERSION_V2)
+    default_version = SERVICENOW_API_VERSION_V2
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -154,23 +172,16 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ServiceNowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ServiceNowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             auth = self._auth_for_config(config)
@@ -178,7 +189,9 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
             return False, str(exc)
 
         table = SERVICENOW_ENDPOINTS[schema_name].table if schema_name in SERVICENOW_ENDPOINTS else None
-        return validate_servicenow_credentials(config.instance_url, auth, team_id, table=table)
+        return validate_servicenow_credentials(
+            config.instance_url, auth, team_id, table=table, api_version=self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ServiceNowResumeConfig]:
         return ResumableSourceManager[ServiceNowResumeConfig](inputs, ServiceNowResumeConfig)
@@ -193,9 +206,10 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
             instance_url=config.instance_url,
             auth=self._auth_for_config(config),
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

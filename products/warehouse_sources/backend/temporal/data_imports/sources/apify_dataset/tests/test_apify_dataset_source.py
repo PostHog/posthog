@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.source import ApifyDatasetSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ApifyDatasetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apifydataset import (
+    ApifyDatasetSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -92,7 +94,8 @@ class TestApifyDatasetSource:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = mock.Mock()
         inputs.schema_name = "dataset_items"
-        inputs.logger = mock.Mock()
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         manager = mock.Mock()
         with mock.patch.object(source_module, "apify_dataset_source", return_value="sentinel") as build:
             result = self.source.source_for_pipeline(_config(), manager, inputs)
@@ -101,6 +104,8 @@ class TestApifyDatasetSource:
             api_token="apify_api_token",
             dataset_id="ds1",
             endpoint="dataset_items",
-            logger=inputs.logger,
+            team_id=7,
+            job_id="job-1",
             resumable_source_manager=manager,
+            db_incremental_field_last_value=None,
         )

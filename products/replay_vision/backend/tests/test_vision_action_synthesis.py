@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -13,7 +14,13 @@ from products.replay_vision.backend.models import ReplayObservation, ReplayScann
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionActionRunStatus
-from products.replay_vision.backend.temporal.vision_actions.synthesis import _markdown_to_slack, _synthesize
+from products.replay_vision.backend.temporal.vision_actions.synthesis import (
+    SLACK_BLOCK_TEXT_LIMIT,
+    _markdown_to_slack,
+    _slack_blocks,
+    _split_long_line,
+    _synthesize,
+)
 from products.replay_vision.backend.temporal.vision_actions.types import SynthesisStatus, SynthesizeGroupSummaryInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -47,7 +54,7 @@ class TestVisionActionSynthesis(BaseTest):
             name="summarizer",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "summarize"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def _observation(self, summary: str, title: str | None = None, session_id: str = "s1") -> ReplayObservation:
@@ -114,6 +121,10 @@ class TestVisionActionSynthesis(BaseTest):
         # Slack conversion: heading + bold → *...* — stored under output["slack"]
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
+        # Delivery renders the pre-split blocks; a short report is one section block of the same text.
+        self.assertEqual(
+            run.output["slack_blocks"], [{"type": "section", "text": {"type": "mrkdwn", "text": run.output["slack"]}}]
+        )
 
     def test_labels_each_observation_line_for_citation(self) -> None:
         # Every fed observation line is prefixed with a 1-based `[obs N]` label so the model can cite the
@@ -159,16 +170,23 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertNotIn("[9]", run.output["slack"])
         self.assertNotIn("[obs 9]", run.output["slack"])
 
-    def test_caps_runaway_citation_lists(self) -> None:
+    @parameterized.expand(
+        [
+            ("space_separated", " "),
+            ("comma_separated", ", "),
+        ]
+    )
+    def test_caps_runaway_citation_lists(self, _label: str, separator: str) -> None:
         # A theme the model backs with many recordings must not render a wall of citations: an adjacent run
         # is trimmed to a representative handful, keeping the first few. Guards both the in-app markdown and
-        # (once it renders links) the Slack payload, since the cap runs on the stored report.
+        # (once it renders links) the Slack payload, since the cap runs on the stored report. The model
+        # separates citations with commas as often as spaces — both shapes must count as one run.
         for i in range(10):
             self._observation(f"obs {i}", session_id=f"s{i}")
         action = self._action()
         run = self._run_for(action)
 
-        citations = " ".join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
+        citations = separator.join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
         self._synthesize(action, run, llm_content=f"Users hit friction across this flow {citations}.")
 
         run.refresh_from_db()
@@ -177,7 +195,8 @@ class TestVisionActionSynthesis(BaseTest):
 
     def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
         # The report must always state which scanner it's for, how many recordings it covers, and the
-        # window start — prepended in code so it's present regardless of what the LLM returns.
+        # window start — prepended in code so it's present regardless of what the LLM returns. The
+        # scanner name links to this run's page so both the in-app report and Slack can jump back to it.
         self._observation("Users churned at checkout", title="Checkout")
         self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
         action = self._action()
@@ -186,12 +205,13 @@ class TestVisionActionSynthesis(BaseTest):
         self._synthesize(action, run, llm_content="# Summary\nThemes.")
 
         run.refresh_from_db()
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.id}"
         self.assertTrue(
-            run.synthesized_markdown.startswith("**Summary for summarizer** — 2 recordings since "),
+            run.synthesized_markdown.startswith(f"**Summary for [summarizer]({run_url})** — 2 recordings since "),
             run.synthesized_markdown,
         )
-        # The header rides into the Slack payload too (bold header → *bold*).
-        self.assertIn("*Summary for summarizer*", run.output["slack"])
+        # The linked header rides into the Slack payload too (**bold** → *bold*, [name](url) → <url|name>).
+        self.assertIn(f"*Summary for <{run_url}|summarizer>*", run.output["slack"])
 
     def test_header_flags_sampling_when_window_exceeds_cap(self) -> None:
         # When the period holds more observations than the cap, the header must say the summary covers
@@ -218,7 +238,7 @@ class TestVisionActionSynthesis(BaseTest):
         self._synthesize(action, run)
 
         run.refresh_from_db()
-        self.assertIn("**Summary for Checkoutflow**", run.synthesized_markdown)
+        self.assertIn("**Summary for [Checkoutflow](", run.synthesized_markdown)
 
     def test_summary_header_defangs_links_in_scanner_name(self) -> None:
         # A scanner name is free text and lands in the header; a name with link/image markdown must not
@@ -234,6 +254,28 @@ class TestVisionActionSynthesis(BaseTest):
         run.refresh_from_db()
         self.assertNotIn("](https://evil.example", run.synthesized_markdown)
         self.assertNotIn("](https://evil.example", run.output["slack"])
+
+    def test_summary_header_name_cannot_break_out_of_the_run_link(self) -> None:
+        # _linkify_summary_header wraps the name in [name](run_url) AFTER the external-link strip pass.
+        # A name carrying `](url)` would break out of that link and plant a header link to an attacker
+        # domain (the "]" arms the injected link once linkify supplies the opening "["). The name's
+        # bracket/paren chars must be stripped so the only link the header can point to is the run page.
+        self.scanner.name = "Checkout](//attacker.example/)"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.id}"
+        # The header still links, but only to the run page — the attacker domain can't be a link
+        # target. It may survive as inert label text; what must not exist is a link pointing at it.
+        self.assertIn(f"]({run_url})", run.synthesized_markdown)
+        self.assertNotIn("](//attacker.example", run.synthesized_markdown)
+        self.assertNotIn("attacker.example|", run.output["slack"])
+        self.assertNotIn("<//attacker.example", run.output["slack"])
 
     def test_persists_only_included_observation_ids(self) -> None:
         # observation_ids must track the summaries actually included — a blank-summary observation is
@@ -414,7 +456,7 @@ class TestVisionActionSynthesis(BaseTest):
             name="hidden",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "classify"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         self._observation("visible scanner output", session_id="visible")
         ReplayObservation.objects.create(
@@ -615,10 +657,27 @@ class TestMarkdownToSlack(BaseTest):
         self.assertNotIn("#", out)
         self.assertNotIn("**", out)
 
-    def test_truncates_long_text(self) -> None:
+    def test_truncates_only_past_the_api_cap(self) -> None:
+        # Truncation is a last resort against Slack's ~40k chat.postMessage rejection; display
+        # splitting is handled by `_slack_blocks`, so ordinary long reports must NOT be cut.
         out = _markdown_to_slack("x" * 50_000, team_id=self.team.id, observation_ids=[])
         self.assertLessEqual(len(out), 39_000)
         self.assertIn("truncated", out)
+        untouched = _markdown_to_slack("line\n" * 1_500, team_id=self.team.id, observation_ids=[])
+        self.assertNotIn("truncated", untouched)
+
+    def test_truncation_does_not_split_a_citation_link(self) -> None:
+        # A citation link straddling the cut point must be dropped whole, not cut in half — a dangling
+        # `<https://…` renders as garbage in Slack. The cut backs up to the previous line break.
+        from products.replay_vision.backend.temporal.vision_actions.synthesis import SLACK_TEXT_MAX
+
+        obs_id = str(uuid4())
+        text = "a" * (SLACK_TEXT_MAX - 50) + "\n" + "More friction at checkout [obs 1] and beyond. " * 5
+        out = _markdown_to_slack(text, team_id=self.team.id, observation_ids=[obs_id])
+        self.assertLessEqual(len(out), SLACK_TEXT_MAX + 100)
+        self.assertIn("truncated", out)
+        self.assertEqual(out.count("<"), out.count(">"))
+        self.assertNotIn(obs_id[:8], out)  # the straddling link is gone entirely, not half-emitted
 
     def test_truncation_does_not_re_expose_defanged_url(self) -> None:
         # A non-PostHog URL straddling SLACK_TEXT_MAX must stay defanged after truncation.
@@ -631,3 +690,36 @@ class TestMarkdownToSlack(BaseTest):
         # The host must not appear as a live (unquoted) URL in the output.
         sanitized = out.replace("`https://evil.example.com/exfil`", "")
         self.assertNotIn("https://evil.example.com/exfil", sanitized)
+
+    def test_slack_blocks_split_at_line_boundaries_and_keep_links_whole(self) -> None:
+        # Slack auto-splits `text` over ~4k at arbitrary positions, cutting <url|[N]> links in half —
+        # the pre-split blocks are what delivery renders instead, so every block must fit Slack's
+        # 3,000-char section limit, split only at line breaks, and carry the whole report.
+        link = f"<https://us.posthog.com/project/1/replay-vision/observations/{uuid4()}|[1]>"
+        paragraph = f"Users hit friction at checkout and abandoned their carts repeatedly. {link}"
+        text = "\n".join(paragraph for _ in range(80))  # ~11k characters
+
+        blocks = _slack_blocks(text)
+
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            self.assertEqual(block["type"], "section")
+            self.assertLessEqual(len(block["text"]["text"]), SLACK_BLOCK_TEXT_LIMIT)
+            # No half links: every < has its closing > within the same block.
+            self.assertEqual(block["text"]["text"].count("<"), block["text"]["text"].count(">"))
+        # Nothing dropped: rejoining the blocks reproduces the full report.
+        self.assertEqual("\n".join(b["text"]["text"] for b in blocks), text)
+
+    @parameterized.expand(
+        [
+            ("leading_token", "<https://evil.example/" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+            ("whitespace_then_token", "   <" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+        ]
+    )
+    def test_split_long_line_consumes_unterminated_leading_token(self, _label: str, line: str) -> None:
+        # A line opening with an unterminated `<` token longer than the block limit used to make
+        # the back-up-before-the-token cut resolve to position 0 — zero forward progress, spinning
+        # the synthesis activity forever. The hard-cut guard must always consume input.
+        parts = _split_long_line(line)
+        self.assertTrue(all(len(p) <= SLACK_BLOCK_TEXT_LIMIT for p in parts))
+        self.assertEqual("".join(parts).replace(" ", ""), line.replace(" ", ""))

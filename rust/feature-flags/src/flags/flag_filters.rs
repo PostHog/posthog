@@ -10,6 +10,12 @@ impl FlagFilters {
         format!("$feature_enrollment/{}", flag_key)
     }
 
+    /// Whether an enrollment property value means "opted in": `"true"` or boolean `true`. Any
+    /// other present value means opted out.
+    pub fn is_enrolled(value: &Value) -> bool {
+        value == "true" || value == &Value::Bool(true)
+    }
+
     pub fn requires_db_properties(
         &self,
         overrides: &HashMap<String, Value>,

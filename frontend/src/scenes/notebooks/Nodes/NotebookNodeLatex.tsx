@@ -154,11 +154,4 @@ export const NotebookNodeLatex = createPostHogWidgetNode<NotebookNodeLatexAttrib
     resizeable: true, // Allow resizing if content is large when not editing
     attributes: DEFAULT_ATTRIBUTES_WITH_DEFAULTS,
     serializedText: (attrs) => attrs.content,
-    inputOptions: {
-        find: /(?:^|\s)\$\$([^$\n]+?)\$\$(?=\s|$)/,
-        getAttributes: (match) => {
-            const latex = match[1].trim()
-            return { content: latex, editing: false }
-        },
-    },
 })

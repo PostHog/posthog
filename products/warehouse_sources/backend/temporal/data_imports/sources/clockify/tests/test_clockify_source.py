@@ -17,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source import ClockifySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClockifySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
+    ClockifySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -34,7 +36,6 @@ class TestClockifySource:
         assert config.label == "Clockify"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
 
     def test_source_config_has_secret_api_key_field(self) -> None:
         fields = self.source.get_source_config.fields

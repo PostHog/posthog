@@ -54,6 +54,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     global_rate_limit_redis_reader_url: None,
     global_rate_limit_redis_response_timeout_ms: None,
     global_rate_limit_redis_connection_timeout_ms: None,
+    global_rate_limit_custom_threshold_key: None,
+    global_rate_limit_custom_threshold_refresh_secs: 60,
     event_restrictions_enabled: false,
     event_restrictions_redis_url: None,
     event_restrictions_refresh_interval_secs: 30,
@@ -85,6 +87,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        capture_analytics_ai_events_topic: None,
+        capture_analytics_ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
         kafka_tls: false,
@@ -156,6 +160,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_secondary_kafka_topic: None,
     ai_secondary_kafka_tls: false,
     ai_secondary_kafka_client_id: String::new(),
+    capture_analytics_ai_events_mode: capture::config::AiSinkMode::Primary,
+    capture_analytics_ai_events_allowlist_tokens: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -169,6 +175,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
     capture_v1_scatter_gather_min_batch: 8,
+    capture_ingestion_warnings_enabled: false,
+    capture_ingestion_warnings_kafka_queue_mib: 16,
+    capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every

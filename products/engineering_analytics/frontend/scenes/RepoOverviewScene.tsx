@@ -2,7 +2,7 @@
 // attention, workflows, and cost as sections on one page.
 
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
@@ -29,33 +29,45 @@ import type { MasterFailureGroupApi } from '../generated/api.schemas'
 import { compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
 import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
+import { withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
 
 function withSource(url: string, sourceId: string | null): string {
-    return combineUrl(url, sourceId ? { source: sourceId } : {}).url
+    return withCurrentScope(url, sourceId)
 }
 
 /** The page's thesis: is the pipeline healthy right now? Default-branch verdict plus open-PR backlog
  *  pressure, both current-state, so it sits above the date filter that scopes everything below. */
 function PipelineVerdictHero({
-    failingCount,
-    failingWorkflows,
+    summary,
     loading,
+    failed,
     defaultBranch,
     backlog,
 }: {
-    failingCount: number
-    failingWorkflows: string[]
+    summary: { settledWorkflows: number; failingNow: number; failingWorkflowNames: string[] }
     loading: boolean
+    failed: boolean
     defaultBranch: string
     backlog: { open: number | null; failingCi: number | null; stuck: number | null }
 }): JSX.Element {
-    const failing = failingCount > 0
-    const dotColor = loading ? 'var(--muted)' : failing ? 'var(--danger)' : 'var(--success)'
-    const status = loading ? 'Checking' : failing ? `${failingCount} failing` : 'Passing'
+    const failingCount = summary.failingNow
+    const failing = !loading && !failed && summary.settledWorkflows > 0 && failingCount > 0
+    const unknown = failed || summary.settledWorkflows === 0
+    const dotColor = loading || unknown ? 'var(--muted)' : failing ? 'var(--danger)' : 'var(--success)'
+    const status = loading
+        ? 'Checking'
+        : failed
+          ? 'Unavailable'
+          : summary.settledWorkflows === 0
+            ? 'No completed runs'
+            : failing
+              ? `${failingCount} failing`
+              : 'Passing'
     // Only the failing state earns a subline (which workflows broke). "Passing" already says the rest.
-    const failingNames = failingWorkflows.slice(0, 3).join(', ') + (failingCount > 3 ? ` +${failingCount - 3}` : '')
+    const failingNames =
+        summary.failingWorkflowNames.slice(0, 3).join(', ') + (failingCount > 3 ? ` +${failingCount - 3}` : '')
     return (
         <LemonCard
             hoverEffect={failing}
@@ -66,7 +78,7 @@ function PipelineVerdictHero({
             )}
         >
             <div className="flex min-w-0 flex-col gap-1.5">
-                <Tooltip title="Default-branch workflow runs failing in the last 24 hours.">
+                <Tooltip title="Default-branch workflows whose latest completed run failed in the last 24 hours.">
                     <span className="w-fit cursor-default font-mono text-xs text-tertiary">{defaultBranch}</span>
                 </Tooltip>
                 <span className="flex items-baseline gap-2.5">
@@ -78,7 +90,7 @@ function PipelineVerdictHero({
                     <span
                         className={cn(
                             'text-3xl font-bold leading-none tracking-tight',
-                            loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
+                            loading || unknown ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
                         )}
                     >
                         {status}
@@ -97,13 +109,13 @@ function PipelineVerdictHero({
 }
 
 function MasterFailuresSection(): JSX.Element {
-    const { masterFailures, masterFailuresLoading, failureLogs, failureLogsLoading, defaultBranch } =
+    const { masterFailures, masterFailuresLoading, failureLogs, failureLogsLoading, currentDefaultBranch } =
         useValues(repoOverviewLogic)
     const { loadLogsForRun } = useActions(repoOverviewLogic)
     const { sourceId } = useValues(engineeringAnalyticsLogic)
 
     return (
-        <Section id="now" title={`Failing on ${defaultBranch}`} note="Last 24 hours">
+        <Section id="now" title={`Failing on ${currentDefaultBranch}`} note="Last 24 hours">
             <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                 <LemonTable<MasterFailureGroupApi>
                     dataSource={masterFailures}
@@ -206,7 +218,7 @@ function MasterFailuresSection(): JSX.Element {
                             ),
                         },
                     ]}
-                    emptyState={`Nothing failing on ${defaultBranch} in the last 24 hours.`}
+                    emptyState={`Nothing failing on ${currentDefaultBranch} in the last 24 hours.`}
                     nouns={['failure group', 'failure groups']}
                 />
                 <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
@@ -230,20 +242,27 @@ export function RepoOverviewScene(): JSX.Element {
         passRateSeries,
         openToMergeSeries,
         jobsAvailable,
-        defaultBranch,
+        overviewDefaultBranch,
+        currentDefaultBranch,
         notConnected,
         overviewFailed,
         overviewLoading,
-        failingWorkflowCount,
-        masterFailures,
-        masterFailuresLoading,
+        currentHealthSummary,
+        currentBranchHealthFailed,
+        currentBranchHealthLoading,
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
     const { cards, pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
         useValues(engineeringAnalyticsLogic)
-    const { loadOverview, loadMasterFailures, loadRepoActivity, showMorePrs, showMoreWorkflows } =
-        useActions(repoOverviewLogic)
+    const {
+        loadOverview,
+        loadCurrentBranchHealth,
+        loadMasterFailures,
+        loadRepoActivity,
+        showMorePrs,
+        showMoreWorkflows,
+    } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
     const { timezone } = useValues(teamLogic)
     const chartTheme = useChartTheme()
@@ -256,8 +275,6 @@ export function RepoOverviewScene(): JSX.Element {
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
     // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
     // table then displays them failing-first-then-name. attentionPrs is already ordered failing-first.
-    // Distinct workflow names failing on the default branch — the hero's "what's broken" subline.
-    const failingWorkflows = Array.from(new Set(masterFailures.map((group) => group.workflow_name)))
     const shownPrs = attentionPrs.slice(0, prPreviewCount)
     const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
     // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
@@ -279,6 +296,7 @@ export function RepoOverviewScene(): JSX.Element {
             <CIAnalyticsLoadError
                 onRetry={() => {
                     loadOverview()
+                    loadCurrentBranchHealth()
                     loadMasterFailures()
                     loadRepoActivity()
                 }}
@@ -294,10 +312,10 @@ export function RepoOverviewScene(): JSX.Element {
 
             {/* The thesis: is the pipeline healthy right now? Current-state, above the date filter. */}
             <PipelineVerdictHero
-                failingCount={failingWorkflowCount}
-                failingWorkflows={failingWorkflows}
-                loading={masterFailuresLoading}
-                defaultBranch={defaultBranch}
+                summary={currentHealthSummary}
+                loading={currentBranchHealthLoading}
+                failed={currentBranchHealthFailed}
+                defaultBranch={currentDefaultBranch}
                 backlog={{
                     open: cards?.openPrs ?? null,
                     failingCi: cards?.failingCi ?? null,
@@ -428,7 +446,7 @@ export function RepoOverviewScene(): JSX.Element {
 
             <Section
                 id="master"
-                title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}
+                title={`${overviewDefaultBranch === 'main' ? 'Main' : 'Master'} health`}
                 busy={repoActivityLoading}
             >
                 {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict — the
@@ -455,8 +473,8 @@ export function RepoOverviewScene(): JSX.Element {
                         {repoActivityLoading
                             ? 'Loading…'
                             : repoActivityFailed
-                              ? `Couldn't load ${defaultBranch} activity. Refresh to retry.`
-                              : `Not enough completed runs on ${defaultBranch} in the window to chart yet.`}
+                              ? `Couldn't load ${overviewDefaultBranch} activity. Refresh to retry.`
+                              : `Not enough completed runs on ${overviewDefaultBranch} in the window to chart yet.`}
                     </LemonCard>
                 )}
             </Section>
@@ -499,14 +517,9 @@ export function RepoOverviewScene(): JSX.Element {
                             )}
                             <Link
                                 to={
-                                    // A bare link would reset the shared window/branch scope (the filters logic
-                                    // re-hydrates from the URL on every route) — carry it, plus the source.
-                                    combineUrl(urls.engineeringAnalyticsWorkflows(), {
-                                        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
-                                        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
-                                        ...(searchParams.q ? { q: searchParams.q } : {}),
-                                        ...(sourceId ? { source: sourceId } : {}),
-                                    }).url
+                                    // A bare link would reset the shared window / branch / repo scope (the filters
+                                    // logic re-hydrates from the URL on every route) — carry it, plus the source.
+                                    withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
                                 }
                             >
                                 View all →

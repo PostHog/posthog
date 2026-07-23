@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconArrowRight, IconBell, IconGithub, IconHeartPlus, IconLinear } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconGithub, IconGraph, IconHeartPlus, IconLinear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
@@ -148,6 +148,7 @@ export function SourcesList(): JSX.Element {
         pgAnalyzeIssuesConfig,
         errorTrackingIsFullyEnabled,
         healthChecksConfig,
+        anomalyInvestigationConfig,
         isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
@@ -155,6 +156,7 @@ export function SourcesList(): JSX.Element {
         isPgAnalyzeIssuesToggling,
         isErrorTrackingToggling,
         isHealthChecksToggling,
+        isAnomalyInvestigationToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
@@ -163,6 +165,7 @@ export function SourcesList(): JSX.Element {
         initiateDataWarehouseSourceToggle,
         toggleErrorTracking,
         toggleHealthChecks,
+        toggleAnomalyInvestigation,
     } = useActions(signalSourcesLogic)
 
     const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
@@ -219,6 +222,16 @@ export function SourcesList(): JSX.Element {
                 checked={!!healthChecksConfig?.enabled}
                 loading={isHealthChecksToggling}
                 onToggle={() => toggleHealthChecks()}
+            />
+
+            <Source
+                icon={<IconGraph className="size-5 text-accent" />}
+                title="PostHog Product Analytics"
+                description="Anomalies in your tracked metrics, investigated automatically → Signals"
+                variant="available"
+                checked={!!anomalyInvestigationConfig?.enabled}
+                loading={isAnomalyInvestigationToggling}
+                onToggle={() => toggleAnomalyInvestigation()}
             />
 
             <Source

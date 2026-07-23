@@ -6,16 +6,13 @@ from uuid import uuid4
 from django.db.models import Case, F, QuerySet, TextField, Value, When
 
 from products.customer_analytics.backend.constants import CUSTOM_PROPERTY_OPTION_COLORS
+from products.customer_analytics.backend.facade.contracts import InvalidCustomPropertyOptions
 from products.customer_analytics.backend.models import (
     DATA_TYPE_BY_DISPLAY_TYPE,
     CustomPropertyValue,
     DataType,
     DisplayType,
 )
-
-
-class InvalidCustomPropertyOptions(ValueError):
-    """Raised when a select property's options fail validation; the viewset maps it to a 400."""
 
 
 def coerce_is_big_number(display_type: str, is_big_number: bool) -> bool:

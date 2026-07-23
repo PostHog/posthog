@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewYorkTimesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newyorktimes import (
+    NewYorkTimesSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
     NewYorkTimesResumeConfig,
     new_york_times_source,
@@ -37,6 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.nytimes.com/apis"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +54,6 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="New York Times",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption=(
                 "Enter your New York Times API key to pull New York Times content into the PostHog Data warehouse.\n\n"
                 "Create a free developer account and register an app at the "
@@ -106,6 +110,7 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = NEW_YORK_TIMES_ENDPOINTS[endpoint]
@@ -125,7 +130,11 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
         return schemas
 
     def validate_credentials(
-        self, config: NewYorkTimesSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NewYorkTimesSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_nyt_credentials(config.api_key):
             return True, None

@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source import CloudbedsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CloudbedsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudbeds import (
+    CloudbedsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -27,8 +29,6 @@ class TestCloudbedsSource:
         assert config.name.value == "Cloudbeds"
         assert config.label == "Cloudbeds"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately still hidden while endpoint behavior is verified against a live account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cloudbeds"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

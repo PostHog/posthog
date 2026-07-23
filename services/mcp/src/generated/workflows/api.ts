@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 13 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -44,6 +44,8 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyActionsItemIdMax = 200
+
 export const hogFlowsCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
@@ -187,7 +189,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsCreateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsCreateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -347,7 +352,9 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
@@ -386,6 +393,8 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
+
 export const hogFlowsPartialUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsPartialUpdateBodyActionsItemDescriptionDefault = ``
@@ -524,7 +533,10 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsPartialUpdateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -684,7 +696,9 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .optional()
@@ -701,6 +715,15 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 export const HogFlowsBatchJobsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const HogFlowsDiscardDraftCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -735,7 +758,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                         '* `update_action` - update_action\n* `add_action` - add_action\n* `remove_action` - remove_action\n* `add_edge` - add_edge\n* `remove_edge` - remove_edge\n* `replace_action_edges` - replace_action_edges'
                     )
                     .describe(
-                        "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.\n\n* `update_action` - update_action\n* `add_action` - add_action\n* `remove_action` - remove_action\n* `add_edge` - add_edge\n* `remove_edge` - remove_edge\n* `replace_action_edges` - replace_action_edges"
+                        "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.\n\n* `update_action` - update_action\n* `add_action` - add_action\n* `remove_action` - remove_action\n* `add_edge` - add_edge\n* `remove_edge` - remove_edge\n* `replace_action_edges` - replace_action_edges"
                     ),
                 id: zod
                     .string()
@@ -793,7 +816,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                     )
                     .optional()
                     .describe(
-                        "replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved."
+                        "replace_action_edges: the complete set of the action's outgoing edges (incoming edges are preserved). add_action: optional edges to wire the new node in the same op."
                     ),
             })
         )
@@ -868,6 +891,7 @@ export const HogFlowsInvocationsCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
+export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
 export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     globals: zod
@@ -883,6 +907,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.'
+        ),
+    use_draft: zod
+        .boolean()
+        .default(hogFlowsInvocationsCreateBodyUseDraftDefault)
+        .describe(
+            "Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override."
         ),
 })
 
@@ -959,6 +989,77 @@ export const HogFlowsMetricsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
     kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+})
+
+export const HogFlowsPublishCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const hogFlowsPublishCreateBodyConfirmDefault = false
+
+export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
+    confirm: zod
+        .boolean()
+        .default(hogFlowsPublishCreateBodyConfirmDefault)
+        .describe(
+            'False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow.'
+        ),
+    confirm_token: zod
+        .string()
+        .optional()
+        .describe(
+            'From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
+        ),
+})
+
+export const HogFlowsRevisionsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const HogFlowsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const HogFlowsRevisionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    version: zod.number().describe('Workflow version to fetch.'),
+})
+
+export const HogFlowsRevisionsRestoreCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    version: zod.number().describe('Workflow version to restore.'),
+})
+
+export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
+
+export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409."
+        ),
 })
 
 export const HogFlowsSchedulesPartialUpdateParams = /* @__PURE__ */ zod.object({

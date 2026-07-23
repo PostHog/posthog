@@ -52,6 +52,22 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
+            # Catalog-enriched information_schema tables partition the cache by data_catalog access,
+            # so an allowed user's cached certification/confidence/reasoning rows can't leak to a
+            # denied user on a cache hit.
+            (
+                "information_schema_tables",
+                "select certification from system.information_schema.tables",
+                {"data_catalog"},
+            ),
+            (
+                "information_schema_relationships",
+                "select reasoning from system.information_schema.relationships",
+                {"data_catalog"},
+            ),
+            ("information_schema_metrics", "select name from system.information_schema.metrics", {"data_catalog"}),
+            # The plain schema tables expose no catalog-gated data, so they don't partition on it.
+            ("information_schema_columns", "select * from system.information_schema.columns", set()),
         ]
     )
     def test_hogql_query_system_scopes(self, _name, sql, expected):
@@ -59,6 +75,13 @@ class TestQueriedAccessControlledResources(BaseTest):
 
     def test_unparseable_hogql_fails_closed(self):
         assert queried_access_controlled_resources(HogQLQuery(query="select from from"), self.team) is None
+
+    def test_connection_query_partitions_on_source_and_warehouse_scopes(self):
+        # A connection query reads virtual tables named by ExternalDataSchema.name, which the
+        # warehouse-table name lookup can't match — without these scopes a user denied the source
+        # (or its backing table) would replay an allowed user's cached upstream rows.
+        query = HogQLQuery(query="select * from public.users", connectionId="00000000-0000-0000-0000-000000000001")
+        assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
 
     def test_structured_query_reads_no_system_table(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])

@@ -155,7 +155,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         # To activate we need at least 2 filter groups across all flags
         total_groups = 0
         for flag in feature_flags:
-            total_groups += len(flag.filters.get("groups", []))
+            total_groups += len(flag.conditions)
 
         return total_groups >= 2
 

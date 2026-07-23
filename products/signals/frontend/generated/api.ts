@@ -25,7 +25,7 @@ import type {
     PaginatedSignalSourceConfigListApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
-    PatchedSignalScoutConfigApi,
+    PatchedSignalScoutConfigUpdateApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
@@ -43,6 +43,9 @@ import type {
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
+    SignalReportRefundRequestApi,
+    SignalReportRefundResponseApi,
+    SignalReportRefundSummaryResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -212,6 +215,28 @@ export const signalsReportsPartialUpdate = async (
     })
 }
 
+export const getSignalsReportsRefundCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/refund/`
+}
+
+/**
+ * Refund the flat charge for this report's implementation PR and archive the report. Refunds auto-approve: the charge is either excluded from usage before it is ever reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe customer-balance credit on the next invoice. A refunded PR does not count toward the free monthly PR allowance. One refund per report, ever — repeat calls return the existing refund with already_refunded=true. The report is archived as part of the refund (a resolved report stays resolved) and can't be restored afterwards.
+ * @summary Refund a report's implementation PR
+ */
+export const signalsReportsRefundCreate = async (
+    projectId: string,
+    id: string,
+    signalReportRefundRequestApi: SignalReportRefundRequestApi,
+    options?: RequestInit
+): Promise<SignalReportRefundResponseApi> => {
+    return apiMutator<SignalReportRefundResponseApi>(getSignalsReportsRefundCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportRefundRequestApi),
+    })
+}
+
 export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/signals/`
 }
@@ -244,8 +269,8 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
  *
  * Body: {
- *     "state": "suppressed" | "potential",
- *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+ *     "state": "suppressed" | "potential" | "resolved",
+ *     # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
  *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
@@ -439,12 +464,30 @@ export const signalsReportsBulkStateCreate = async (
     })
 }
 
+export const getSignalsReportsRefundSummaryRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/refund-summary/`
+}
+
+/**
+ * Aggregate credited-path refunds across the whole organization for the current billing period — counts only, no per-team detail. The billing usage widget needs this because billing usage is org-wide while reports (and their refunds) are team-scoped: subtract the refunded credits from billing usage to show the net PR count. Excluded-path refunds never reach billing usage, so no adjustment is needed for them. Also carries the org's live billable credits for the period (billing's recorded usage lags by up to a day), so the widget can count just-created PRs and react to same-day refunds.
+ * @summary Summarize credited PR refunds for the billing period
+ */
+export const signalsReportsRefundSummaryRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalReportRefundSummaryResponseApi> => {
+    return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsScoutConfigListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/`
 }
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
+ * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, and `emit` posture. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (
@@ -462,7 +505,7 @@ export const getSignalsScoutConfigCreateUrl = (projectId: string) => {
 }
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, and `emit`. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreate = async (
@@ -483,20 +526,20 @@ export const getSignalsScoutConfigUpdateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdate = async (
     projectId: string,
     id: string,
-    patchedSignalScoutConfigApi?: NonReadonly<PatchedSignalScoutConfigApi>,
+    patchedSignalScoutConfigUpdateApi?: PatchedSignalScoutConfigUpdateApi,
     options?: RequestInit
 ): Promise<SignalScoutConfigApi> => {
     return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSignalScoutConfigApi),
+        body: JSON.stringify(patchedSignalScoutConfigUpdateApi),
     })
 }
 
@@ -886,8 +929,8 @@ export const getSignalsScoutRunsFindingsSummaryUrl = (
 }
 
 /**
- * Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — the total count, the number of distinct scouts behind them, and the latest emission time. Backs the 'Scout findings' callout so it renders from one query instead of the client paging through the whole runs window. Counts only runs that emitted at least one finding (`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent 120 emitted runs so the count matches what the findings list renders. Strictly team-scoped.
- * @summary Summarise recently emitted findings across the fleet
+ * Return a cheap fleet-wide tally of the output the scout troop produced in the recent window — the finding count, the distinct reports authored/edited via the report channel, the number of distinct scouts behind them, and the latest output time. Backs the 'Scout findings' callout so it renders from one query instead of the client paging through the whole runs window. Counts runs that emitted at least one finding (`emitted_count > 0`) or authored/edited an inbox report within the last `window_hours` (default 72), capped to the most recent 120 such runs so the count matches what the findings list renders. Strictly team-scoped.
+ * @summary Summarise recent scout output across the fleet
  */
 export const signalsScoutRunsFindingsSummary = async (
     projectId: string,
@@ -917,7 +960,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (

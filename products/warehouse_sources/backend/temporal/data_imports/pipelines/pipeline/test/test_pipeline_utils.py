@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pyarrow as pa
 import deltalake
 import structlog
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
+    align_incoming_decimals_to_delta,
     append_partition_key_to_table,
     apply_enabled_columns_projection,
     evolve_pyarrow_schema,
@@ -129,6 +131,40 @@ def test_table_from_py_list_inconsistent_types_with_str_and_dict():
             ]
         )
     )
+
+
+# A source may declare a non-string type for a column that arrives as dicts; the serialized
+# column must coerce the schema field to string or from_pydict fails.
+_STRING_DATA_FIELDS: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("data", pa.string())]
+_STRUCT_DATA_FIELDS: list[pa.Field] = [
+    pa.field("id", pa.int64()),
+    pa.field("data", pa.struct([pa.field("a", pa.int64())])),
+]
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        None,
+        pa.schema(_STRING_DATA_FIELDS),
+        pa.schema(_STRUCT_DATA_FIELDS),
+    ],
+)
+def test_table_from_py_list_dict_column_preserves_original_documents(schema):
+    # Heterogeneous nested documents (each row's structure differs, as in a MongoDB collection).
+    # Routing these through a unified pyarrow struct made conversion superlinear in batch size
+    # and injected null-filled union fields from other rows into every serialized document.
+    docs = [
+        {"a": 1, "nested": {"x": [{"k": 1, "verbs": ["led"]}]}},
+        {"b": "two", "nested": {"y": {"deep": True}}, "extra": [1, 2]},
+        None,
+        {"c": [{"only": "here"}]},
+    ]
+    table = table_from_py_list([{"id": i, "data": doc} for i, doc in enumerate(docs)], schema)
+
+    assert table.schema.field("data").type == pa.string()
+    stored = [None if v is None else orjson.loads(v) for v in table.column("data").to_pylist()]
+    assert stored == docs
 
 
 @pytest.mark.parametrize(
@@ -351,6 +387,10 @@ def test_table_from_py_list_with_schema_and_too_small_decimal_type():
         ([decimal.Decimal("1.0100000")], pa.decimal128(8, 7)),
         # That is 1 followed by 37 zeroes to go over the pa.Decimal128 precision limit of 38.
         ([decimal.Decimal("10000000000000000000000000000000000000.1")], pa.decimal256(39, 1)),
+        # The big integer and the high-scale fraction live in different rows: precision must reserve
+        # room for both (7 integer digits + 4 scale), not take max-precision and max-scale
+        # independently (which would infer decimal128(7, 4), too narrow for 1000000).
+        ([decimal.Decimal("1000000"), decimal.Decimal("0.0001")], pa.decimal128(11, 4)),
     ],
 )
 def test_get_max_decimal_type_returns_correct_decimal_type(
@@ -647,14 +687,17 @@ def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_wide
         (pa.int32(), pa.int64(), 6178466636),  # > int32 max (2147483647)
         (pa.int16(), pa.int64(), 6178466636),  # > int16 max, fits int64
         (pa.int16(), pa.int32(), 100000),  # > int16 max (32767), fits int32
+        (pa.int64(), pa.float64(), 19.99),  # fractional float into an int column
+        (pa.int64(), pa.decimal128(4, 2), decimal.Decimal("19.99")),  # fractional decimal into an int column
     ],
 )
 def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
-    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int
+    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int | float | decimal.Decimal
 ):
-    """An incoming integer value that overflows the stored (narrower) Delta type raises a
-    clear, actionable error instructing the user to reset and re-sync — rather than a raw
-    pyarrow ArrowInvalid."""
+    """An incoming value that doesn't fit the stored integer Delta type — a wider integer
+    that overflows, or a fractional float/decimal that would be truncated — raises a clear,
+    actionable error instructing the user to reset and re-sync, rather than a raw pyarrow
+    ArrowInvalid."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),
@@ -686,6 +729,56 @@ def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():
 
     assert evolved_table.schema.field("val").type == pa.int32()
     assert evolved_table.column("val").to_pylist() == [10, 20]
+
+
+def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_column():
+    # The type-changed error must only fire on genuine truncation: a float column whose
+    # values are all whole numbers still casts losslessly into a stored integer column.
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array([10.0, 20.0], type=pa.float64()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.int64(), nullable=True)])
+    )
+
+    evolved_table = evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("val").type == pa.int64()
+    assert evolved_table.column("val").to_pylist() == [10, 20]
+
+
+@pytest.mark.parametrize(
+    "delta_type, incoming_column",
+    [
+        # Non-numeric text arriving for a column stored as int (Failed to parse string).
+        (pa.int32(), pa.array(["80", "80-150"], type=pa.string())),
+        # Non-boolean text arriving for a column stored as bool (Failed to parse value).
+        (pa.bool_(), pa.array(["true", "processed"], type=pa.string())),
+        # A value that overflows the stored decimal precision (Cannot convert ... overflow).
+        (pa.decimal128(3, 1), pa.array([1.0, 999999999.0], type=pa.float64())),
+    ],
+)
+def test_evolve_pyarrow_schema_incompatible_cast_raises_actionable_error(
+    delta_type: pa.DataType, incoming_column: pa.Array
+):
+    """Incoming data that can't be cast into the stored Delta type — non-numeric text into a
+    numeric/boolean column, or a value that overflows the stored decimal precision — raises the
+    actionable reset-and-re-sync error rather than a raw pyarrow ArrowInvalid that gets retried."""
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": incoming_column,
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])
+    )
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
+        evolve_pyarrow_schema(arrow_table, delta_schema)
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
@@ -886,6 +979,54 @@ def test_append_partition_key_to_table_does_not_type_error(name: str, data: list
         )
     except TypeError:
         pytest.fail(f"raised TypeError for case {name} with data: {data}")
+
+
+def test_append_partition_key_numerical_handles_null_key():
+    # Numerical partitioning is only selected when partition_size is set, so the general
+    # does-not-type-error test (partition_size=None) never reaches the `key // partition_size`
+    # path. Pipedrive *_fields endpoints partition by `id` with partition_size=1 and can emit
+    # rows with a null id, which used to crash with `NoneType // int`.
+    partition_key = "id"
+    table = pa.table({partition_key: [1, 2, None, 4]})
+    logger: FilteringBoundLogger = structlog.get_logger()
+
+    result = append_partition_key_to_table(
+        table,
+        partition_keys=[partition_key],
+        partition_mode=None,
+        partition_count=None,
+        partition_size=1,
+        partition_format=None,
+        logger=logger,
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
+
+
+def test_append_partition_key_numerical_handles_non_int_key():
+    # Numerical mode is persisted per source and passed back in on later batches, skipping the
+    # detection guard that requires an integer key column. If the source's key column has since
+    # changed type, the values arrive as strings and used to crash the batch on `str // int`.
+    # Numeric strings must keep their original bucket; non-numeric ones fall into the null bucket.
+    table = pa.table({"id": pa.array(["250", "10", "not-a-number"], type=pa.string())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=100,
+        partition_keys=["id"],
+        partition_mode="numerical",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
 
 
 def _mock_schema(**overrides: Any) -> MagicMock:
@@ -1198,3 +1339,85 @@ def test_merge_observed_columns_unions_and_refreshes():
 )
 def test_source_uses_delta_write_column_selection(source_type, expected):
     assert source_uses_delta_write_column_selection(source_type) is expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Parseable date strings bucket by their actual date.
+        ("2024-03-15", "2024-03"),
+        ("2024-06-01T12:00:00", "2024-06"),
+        # Non-date-like strings (e.g. a UUIDv7 primary key) must not crash the repartition —
+        # they fall back to the unknown-date sentinel.
+        ("0198d26d-134b-713a-84f7-24d78a416d9c", "1970-01"),
+        ("not a date at all", "1970-01"),
+        # Empty / whitespace-only strings also fall back to the sentinel.
+        ("", "1970-01"),
+        ("   ", "1970-01"),
+    ],
+)
+def test_append_partition_key_datetime_string_column(value, expected):
+    table = pa.table({"id": pa.array([value], type=pa.string())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=None,
+        partition_keys=["id"],
+        partition_mode="datetime",
+        partition_format="month",
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "datetime"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]
+
+
+@pytest.mark.parametrize(
+    "batch_type, batch_values, delta_type",
+    [
+        # A value that fits the stored column's integer capacity is rounded to its scale so the
+        # subsequent merge cast is a no-op instead of overflowing.
+        (pa.decimal128(10, 2), [decimal.Decimal("123.45")], pa.decimal128(38, 32)),
+        (pa.decimal128(38, 18), [decimal.Decimal("0.0000000416000606")], pa.decimal128(38, 32)),
+        (pa.decimal128(38, 30), [decimal.Decimal("999999.99"), None], pa.decimal128(38, 32)),
+        # A decimal widened past decimal128 arrives as text (decimal256 → string); it must be
+        # parsed back and fitted rather than failing the merge with "Cannot cast string '0E-19'".
+        (pa.string(), ["0E-19", None], pa.decimal128(38, 10)),
+    ],
+)
+def test_align_incoming_decimals_to_delta_fits(batch_type, batch_values, delta_type):
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1] * len(batch_values), type=pa.int64()),
+            "amount": pa.array(batch_values, type=batch_type),
+        }
+    )
+    delta_fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("amount", delta_type)]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    aligned = align_incoming_decimals_to_delta(arrow_table, delta_schema)
+
+    assert aligned.schema.field("amount").type == delta_type
+    for original, got in zip(batch_values, aligned.column("amount").to_pylist()):
+        expected = None if original is None else decimal.Decimal(str(original))
+        assert got == expected
+
+
+def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
+    # 1234567.5 has 7 integer digits; a decimal128(38, 32) column holds only 6, so it can't be
+    # stored no matter the rounding. delta-rs can't widen the column in place, so this must surface
+    # as the non-retryable reset signal rather than an opaque merge overflow.
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1], type=pa.int64()),
+            "amount": pa.array([decimal.Decimal("1234567.5")], type=pa.decimal128(10, 2)),
+        }
+    )
+    delta_fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("amount", pa.decimal128(38, 32))]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    with pytest.raises(SchemaColumnTypeChangedException):
+        align_incoming_decimals_to_delta(arrow_table, delta_schema)

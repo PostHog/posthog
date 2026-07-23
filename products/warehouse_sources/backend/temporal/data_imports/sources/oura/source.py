@@ -19,8 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OuraSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oura import OuraSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura.oura import (
     OuraResumeConfig,
     oura_source,
@@ -36,6 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OuraSource(ResumableSource[OuraSourceConfig, OuraResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://cloud.ouraring.com/v2/docs"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.OURA
@@ -91,28 +98,14 @@ You can create a personal access token in the [Oura developer portal](https://cl
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = OURA_ENDPOINTS[endpoint]
-            # Only endpoints with a server-side date filter can sync incrementally; the others
-            # (personal_info, ring_configuration) are full refresh only.
-            has_incremental = endpoint_config.date_filter is not None
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=has_incremental,
-                supports_append=has_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only endpoints with incremental fields (i.e. a server-side date filter) sync
+        # incrementally; the others (personal_info, ring_configuration) are full refresh only.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: OuraSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: OuraSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # Probe the requested endpoint when validating a specific schema, otherwise the cheap
         # single-document personal_info endpoint at source-create.
@@ -144,7 +137,8 @@ You can create a personal access token in the [Oura developer portal](https://cl
         return oura_source(
             token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

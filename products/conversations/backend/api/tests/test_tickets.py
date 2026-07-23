@@ -555,6 +555,21 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
+    def test_search_by_ticket_number_with_hash_prefix(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=%23{self.ticket.ticket_number}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit):
+        # "²" passes str.isdigit() but int() rejects it; it must fall through to text search
+        # rather than 500.
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=%C2%B2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
     @parameterized.expand(
         [
             ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
@@ -997,6 +1012,43 @@ class TestTicketAssignment(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    @parameterized.expand(
+        [
+            ("user_and_role", "user:{user_id},role:{role_id}", {"user", "role"}),
+            ("unassigned_and_user", "unassigned,user:{user_id}", {"user", "unassigned"}),
+            ("multiple_users", "user:{user_id},user:{other_user_id}", {"user", "other_user"}),
+            ("invalid_entries_ignored", "user:abc,role:not-a-uuid,user:{user_id}", {"user"}),
+            ("all_invalid_applies_no_filter", "user:abc,bogus", {"user", "role", "other_user", "unassigned"}),
+        ]
+    )
+    def test_filter_by_multiple_assignees(self, _name: str, assignee_template: str, expected_keys: set[str]) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other-assignee@posthog.com", None)
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        tickets = {"user": self.ticket}
+        for key, assignment in (
+            ("role", {"role": self.role}),
+            ("other_user", {"user": other_user}),
+            ("unassigned", None),
+        ):
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"session-{key}",
+                distinct_id=f"distinct-{key}",
+            )
+            if assignment:
+                TicketAssignment.objects.create(ticket=ticket, **assignment)
+            tickets[key] = ticket
+
+        assignee_param = assignee_template.format(
+            user_id=self.user.id, other_user_id=other_user.id, role_id=self.role.id
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee={assignee_param}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {result["id"] for result in response.json()["results"]}
+        self.assertEqual(returned_ids, {str(tickets[key].id) for key in expected_keys})
 
     def test_assignment_logs_activity(self):
         """Test that assignment changes are logged in activity log."""
@@ -1494,6 +1546,30 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["person"] is None
 
+    def test_lookup_prefers_identified_person_when_email_is_shared(self, mock_on_commit):
+        # The stub is inserted first so that, without deterministic ordering, an
+        # unordered read would return it first and win the first-match pick. Its only
+        # distinct_id is the email address itself, which resolves no membership or
+        # analytics groups downstream — the identified person must win.
+        _create_person(
+            team=self.team,
+            distinct_ids=["shared@example.com"],
+            properties={"email": "shared@example.com"},
+            immediate=True,
+        )
+        identified = _create_person(
+            team=self.team,
+            distinct_ids=["real-app-distinct-id"],
+            properties={"email": "shared@example.com"},
+            is_identified=True,
+            immediate=True,
+        )
+
+        person = _get_persons_by_email(self.team, ["shared@example.com"]).get("shared@example.com")
+
+        assert person is not None
+        assert str(person.uuid) == str(identified.uuid)
+
     @snapshot_clickhouse_queries
     def test_email_fallback_uses_bloom_filter_lower_skip_index(self, mock_on_commit):
         _create_person(
@@ -1860,14 +1936,45 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", "Bob"),
-            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", "bob@example.com"),
-            ("customer_default", {}, "customer", "Customer"),
-            ("ai_author", {}, "AI", "PostHog Assistant"),
-            ("support_without_user", {}, "support", "Support"),
+            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", {}, "Bob"),
+            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", {}, "bob@example.com"),
+            ("customer_default", {}, "customer", {}, "Customer"),
+            ("ai_author", {}, "AI", {}, "PostHog Assistant"),
+            ("support_without_user", {}, "support", {}, "Support"),
+            # Per-comment author overrides the ticket requester (thread replies from other participants)
+            (
+                "teams_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "slack_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"slack_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "zendesk_import_author",
+                {"name": "Mark"},
+                "customer",
+                {"author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "context_author_on_support_comment",
+                {},
+                "support",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
         ]
     )
-    def test_messages_author_name_resolution(self, mock_on_commit, _name, traits, author_type, expected_name):
+    def test_messages_author_name_resolution(
+        self, mock_on_commit, _name, traits, author_type, extra_context, expected_name
+    ):
         self.ticket.anonymous_traits = traits
         self.ticket.save(update_fields=["anonymous_traits"])
         Comment.objects.create(
@@ -1875,7 +1982,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="msg",
-            item_context={"author_type": author_type},
+            item_context={"author_type": author_type, **extra_context},
         )
 
         response = self.client.get(self.url)

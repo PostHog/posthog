@@ -2,7 +2,7 @@
 
 import pytest
 
-from gateway import AI_PRODUCT, gateway_env, resolve_gateway_config
+from gateway import AI_PRODUCT, analytics_extra_properties, gateway_env, resolve_gateway_config
 
 
 @pytest.fixture(autouse=True)
@@ -103,3 +103,25 @@ def test_header_values_are_single_line():
 def test_none_attribution_values_dropped():
     env = gateway_env("https://host", "phs_secret", {"stamphog_commit_type": None})
     assert "stamphog_commit_type" not in env["ANTHROPIC_CUSTOM_HEADERS"]
+
+
+def test_extra_properties_parses_server_injected_json(monkeypatch):
+    monkeypatch.setenv("STAMPHOG_EXTRA_PROPERTIES", '{"stamphog_runtime":"hosted","stamphog_team_id":2}')
+    assert analytics_extra_properties() == {"stamphog_runtime": "hosted", "stamphog_team_id": 2}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(None, id="absent-action-path"),
+        pytest.param("{not json", id="malformed-json"),
+        pytest.param('["not", "a", "dict"]', id="non-dict-json"),
+    ],
+)
+def test_extra_properties_degrade_to_empty(monkeypatch, raw):
+    # Telemetry must never fail a review: anything but a JSON object degrades to {}.
+    if raw is None:
+        monkeypatch.delenv("STAMPHOG_EXTRA_PROPERTIES", raising=False)
+    else:
+        monkeypatch.setenv("STAMPHOG_EXTRA_PROPERTIES", raw)
+    assert analytics_extra_properties() == {}

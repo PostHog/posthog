@@ -150,6 +150,9 @@ jobs:
                     - release: cohort-event-shuffler
                       digest_key: cohort-event-shuffler
                       values_key: image
+                    - release: cohort-seeder
+                      digest_key: cohort-seeder
+                      values_key: image
                     - release: cohort-stream-processor
                       digest_key: cohort-stream-processor
                       values_key: image
@@ -167,6 +170,9 @@ jobs:
                       values_key: image
                     - release: ingestion-consumer
                       digest_key: ingestion-consumer
+                      values_key: image
+                    - release: ingestion-control-plane
+                      digest_key: ingestion-control-plane
                       values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator

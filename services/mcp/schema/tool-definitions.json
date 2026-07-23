@@ -14,14 +14,13 @@
         }
     },
     "agent-feedback": {
-        "description": "Send feedback about anything PostHog to the PostHog team. Set `feedback_type` to route it: `product` (any PostHog product or feature — insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.; put the area in `product_area`), `mcp` (this MCP server itself — a tool, input schema, response format, error, or these instructions; set `category`), `docs`, or `other`. ALL sentiments are welcome via `sentiment` (`positive`/`neutral`/`negative`/`mixed`) — praise and feature requests are useful signal, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you worked around, a feature request, an unhelpful error, or something that worked really well. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting the product surface, tool name, parameter, or error text where possible. Include a concrete `suggested_improvement` whenever you can name one. Do not include user PII or sensitive query content. The user can also ask you to send feedback directly (e.g. 'make a PostHog feedback for this'). IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is a side channel to the PostHog team, not a way to end the conversation.",
+        "description": "Send feedback about anything PostHog to the PostHog team. Set `feedback_type` to route it: `product` (any PostHog product or feature — insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.; put the area in `product_area`), `mcp` (this MCP server itself — a tool, input schema, response format, error, or these instructions; set `category`), `docs`, `scout` (reserved for scheduled scout runs reporting an improvement opportunity in the canonical PostHog scout skill steering the run; set `scout_skill_name`, `scout_skill_version`, and `scout_category`, and generalize — describe the pattern, never the project's data), or `other`. ALL sentiments are welcome via `sentiment` (`positive`/`neutral`/`negative`/`mixed`) — praise and feature requests are useful signal, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you worked around, a feature request, an unhelpful error, or something that worked really well. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting the product surface, tool name, parameter, or error text where possible. Include a concrete `suggested_improvement` whenever you can name one. Do not include user PII or sensitive query content. The user can also ask you to send feedback directly (e.g. 'make a PostHog feedback for this'). IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is a side channel to the PostHog team, not a way to end the conversation.",
         "category": "Feedback",
         "feature": "feedback",
         "summary": "Send feedback about any PostHog product, this MCP, or the docs.",
         "title": "Submit PostHog feedback",
         "required_scopes": [],
         "always_available": true,
-        "feature_flag": "mcp-feedback-tool",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -352,8 +351,22 @@
             "readOnlyHint": true
         }
     },
+    "organizations-get": {
+        "description": "Fetches the organizations that the user has access to, with their id, name, and membership level. Use this to discover organizations — including ones other than the active organization — and to resolve an organization name to the id you pass to `switch-organization`.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Fetches the organizations that the user has access to.",
+        "title": "Get organizations",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "switch-organization": {
-        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-list` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
+        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-get` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog organization for subsequent tool calls.",
@@ -394,8 +407,36 @@
             "readOnlyHint": false
         }
     },
+    "path-cleaning-rules-update": {
+        "description": "Safely add, replace, remove, or reorder a project's path cleaning rules (Team.path_cleaning_filters) without hand-managing the whole list. Reads the current rules, applies your ordered operations, auto-numbers them, and (unless confirm:true) returns a PREVIEW of the resulting rules — plus how they rewrite any sample_paths — without saving. Path cleaning normalizes $pathname/$entry_pathname so pages sharing a template (/users/123, /users/456) collapse into one row (/users/<id>) in Web analytics, Paths, and apply_path_cleaning HogQL. Prefer this over project-settings-update for path cleaning: it avoids clobbering existing rules and renumbering by hand. Rules apply sequentially (order matters) and globally wherever cleaning is enabled, changing historical numbers — surface the preview to the user, then re-run with confirm:true.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Edit path cleaning rules with granular ops, a preview step, and safe read-modify-write.",
+        "title": "Update path cleaning rules",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flag-get-definition-by-key": {
+        "description": "Get a feature flag by its string key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the key but not the numeric ID; use `feature-flag-get-definition` when you have the numeric ID.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get a feature flag by its key.",
+        "title": "Get feature flag definition by key",
+        "required_scopes": ["feature_flag:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "switch-project": {
-        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-get` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog project for subsequent tool calls.",
@@ -520,6 +561,21 @@
             "readOnlyHint": true
         }
     },
+    "loops-review": {
+        "description": "Show the user an interactive review card for a loop that is about to be created, then let them create it. Call this once you have gathered the loop's details, passing the SAME arguments you would pass to loops-create (name, instructions, runtime_adapter, triggers, behaviors, notifications, context_target, etc.). This renders a card summarizing the loop with a 'Create loop' button. Do NOT call loops-create yourself — the card's button creates the loop after the user confirms.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "feature_flag": "loops",
+        "summary": "Review a loop with the user before creating it.",
+        "title": "Review loop before creating",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "external-data-sources-db-schema": {
         "description": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
         "category": "Data warehouse",
@@ -621,7 +677,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish; if draft editing isn't enabled for the project yet, a live change means recreating the workflow as a new draft.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",

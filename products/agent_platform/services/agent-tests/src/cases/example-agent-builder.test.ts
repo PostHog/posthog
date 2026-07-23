@@ -2,9 +2,8 @@
  * Example bundle wiring check — `services/agent-tests/src/examples/agent-builder/`.
  *
  * The Agent Builder authors + operates other agents through the PostHog MCP
- * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
- * as the asking user — the same pattern as `posthog-ai`, applied to the
- * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`
+ * (one `spec.mcps[]` entry authed by the trigger-edge PostHog bearer), acting
+ * as the asking user. It keeps only its own runtime natives (`@posthog/memory-*`
  * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
  * via `level: 'approve'` + `approval_policy`, so the platform — not
@@ -14,15 +13,26 @@
  * Faux net — wiring, not inference quality.
  */
 
-import { readdir, readFile } from 'node:fs/promises'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { execFile } from 'node:child_process'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import request from 'supertest'
 
+import type { McpTransportFactory } from '@posthog/agent-runner'
 import { AgentSpecSchema } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
+import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider, fauxText } from '../harness'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-builder')
+const execFileAsync = promisify(execFile)
 
 async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Record<string, string> }> {
     const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as Record<string, unknown>
@@ -55,14 +65,20 @@ describe('example: agent-builder bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(500)
     })
 
-    it('authors via ONE PostHog MCP authed by the posthog identity provider', async () => {
-        const { spec } = await loadBundle()
+    it('authors through one direct-tools PostHog MCP authed by the trigger-edge bearer', async () => {
+        const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         expect(parsed.mcps).toHaveLength(1)
         expect(parsed.mcps[0].id).toBe('posthog')
         expect(parsed.mcps[0].auth?.provider).toBe('posthog')
+        // Unknown MCP clients default to the single `exec` tool. The builder
+        // allow-lists direct authoring operations, so it must request tools mode.
+        expect(parsed.mcps[0].headers?.['x-posthog-mcp-mode']).toBe('tools')
         // The curated allow-list keeps the surface to authoring + data tools.
         expect(parsed.mcps[0].tools?.length ?? 0).toBeGreaterThan(20)
+        expect(files['agent.md']).toContain('top-level `posthog__<name>` tools')
+        expect(files['agent.md']).toContain('There is no `posthog__call_tool`')
+        expect(files['agent.md']).not.toContain('pass them to `call_tool`')
     })
 
     it('keeps only its own runtime natives (memory + web-search) — no native agent-applications tools', async () => {
@@ -80,26 +96,31 @@ describe('example: agent-builder bundle', () => {
         }
     })
 
-    it('declares chat + mcp + slack triggers (console, MCP, and now Slack)', async () => {
+    it('declares chat + mcp triggers and NO slack trigger', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const types = parsed.triggers.map((t) => t.type)
-        expect(types).toEqual(expect.arrayContaining(['chat', 'mcp', 'slack']))
-        // Slack must be owner-only so the asker's identity resolves (shared
-        // threads fail closed — you can't act as the owner for someone else).
-        const slack = parsed.triggers.find((t) => t.type === 'slack')
-        expect(slack?.type === 'slack' && slack.config.allow_workspace_participants).toBe(false)
+        expect(types).toEqual(expect.arrayContaining(['chat', 'mcp']))
+        // No Slack: the canonical Agent Builder has no dedicated Slack app, and
+        // a slack trigger makes promote refuse until SLACK_SIGNING_SECRET +
+        // SLACK_BOT_TOKEN are set — re-adding it breaks the seeded deployment.
+        expect(types).not.toContain('slack')
     })
 
-    it('declares a posthog identity provider with the scopes authoring needs', async () => {
-        const { spec } = await loadBundle()
+    it('uses trigger-edge PostHog auth without provisioning a second OAuth connection', async () => {
+        const { spec, files } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        const posthog = parsed.identity_providers.find((p) => p.kind === 'posthog')
-        expect(posthog).not.toBeUndefined()
-        const scopes = posthog?.scopes ?? []
-        // user:read backs the MCP's /api/users/@me/ bootstrap; agents:write backs
-        // authoring other agents. Both are load-bearing — pin them.
-        expect(scopes).toEqual(expect.arrayContaining(['user:read', 'agents:read', 'agents:write']))
+        // PostHog Code already seeds `posthog_api` from trigger auth. An empty
+        // list selects the implicit seed-only provider instead of offering a
+        // redundant OAuth connection that cannot improve the session identity.
+        expect(parsed.identity_providers).toEqual([])
+        const chat = parsed.triggers.find((trigger) => trigger.type === 'chat')
+        const posthogMode = chat?.type === 'chat' ? chat.auth?.modes.find((mode) => mode.type === 'posthog') : undefined
+        expect(posthogMode?.type === 'posthog' ? posthogMode.scopes : []).toEqual(
+            expect.arrayContaining(['agents:read', 'agents:write', 'agent_session:read'])
+        )
+        expect(files['agent.md']).toContain('Never ask the user to connect or reconnect PostHog')
+        expect(files['agent.md']).toMatch(/Never claim\s+the PostHog MCP is disconnected/)
     })
 
     it('declares the client tools the console UI implements', async () => {
@@ -122,15 +143,139 @@ describe('example: agent-builder bundle', () => {
         ])
     })
 
-    it('accepts posthog + posthog_internal auth on its chat and mcp triggers', async () => {
+    it('requires the user PostHog bearer on both entrypoints', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const modesFor = (type: string): string[] => {
             const t = parsed.triggers.find((x) => x.type === type)
             return t && 'auth' in t && t.auth ? (t.auth.modes?.map((m) => m.type) ?? []) : []
         }
-        expect(modesFor('chat')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
-        expect(modesFor('mcp')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
+        expect(modesFor('chat')).toEqual(['posthog'])
+        expect(modesFor('mcp')).toEqual(['posthog'])
+    })
+
+    describe('entrypoint auth behavior', () => {
+        const userBearer = 'phx_builder_user'
+        const internalSecret = 'builder-internal-secret'
+        let cluster: Cluster
+        let mcpTargets: Array<{ url: string; headers: Record<string, string> }>
+
+        beforeEach(async () => {
+            mcpTargets = []
+            const mcpTransportFactory: McpTransportFactory = (target): Transport => {
+                mcpTargets.push(target)
+                const server = new McpServer({ name: 'posthog', version: '1.0.0' })
+                server.registerTool(
+                    'agent-applications-list',
+                    { description: 'List agents', inputSchema: {} },
+                    async () => ({ content: [{ type: 'text' as const, text: JSON.stringify({ results: [] }) }] })
+                )
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+                void server.server.connect(serverTransport)
+                return clientTransport
+            }
+            cluster = await buildCluster({
+                authProvider: fakeAuthProvider({ posthog: userBearer, internal: internalSecret }),
+                mcpTransportFactory,
+            })
+            cluster.setScript([fauxText('ready')])
+        })
+
+        afterEach(async () => {
+            if (cluster) {
+                await cluster.teardown()
+            }
+        })
+
+        afterAll(async () => {
+            await closeSharedPool()
+        })
+
+        it('rejects service-only auth and opens the nested MCP in direct tools mode', async () => {
+            const { spec, files } = await loadBundle()
+            await cluster.deployAgent({ slug: 'agent-builder-auth', spec, files })
+
+            const internalChat = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/run')
+                .set('x-posthog-internal', internalSecret)
+                .send({ message: 'create an agent' })
+            expect(internalChat.status).toBe(401)
+
+            const userChat = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/run')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({ message: 'create an agent' })
+            expect(userChat.status).toBe(200)
+            expect(userChat.body.principal.kind).toBe('posthog')
+            await cluster.drain()
+            expect(mcpTargets).toHaveLength(1)
+            expect(mcpTargets[0].headers.Authorization).toBe(`Bearer ${userBearer}`)
+
+            const internalMcp = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('x-posthog-internal', internalSecret)
+                .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+            expect(internalMcp.body.error?.code).toBe(-32001)
+
+            const userMcp = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
+            expect(userMcp.body.result?.tools).toEqual(
+                expect.arrayContaining([expect.objectContaining({ name: 'ask' })])
+            )
+
+            const userMcpCall = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({
+                    jsonrpc: '2.0',
+                    id: 3,
+                    method: 'tools/call',
+                    params: { name: 'ask', arguments: { message: 'create another agent' } },
+                })
+            expect(userMcpCall.body.error).toBeUndefined()
+            await cluster.drain()
+            expect(mcpTargets).toHaveLength(2)
+
+            const resumableMcpCall = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({
+                    jsonrpc: '2.0',
+                    id: 4,
+                    method: 'tools/call',
+                    params: { name: 'ask', arguments: { message: 'start editing' } },
+                })
+            expect(resumableMcpCall.body.error).toBeUndefined()
+            const resumableMcpSession = JSON.parse(resumableMcpCall.body.result.content[0].text) as {
+                session_id: string
+            }
+            await cluster.queue.update(resumableMcpSession.session_id, { state: 'running' })
+            await cluster.credentialBroker.clear(resumableMcpSession.session_id)
+            const userMcpContinuation = await request(cluster.ingress)
+                .post('/agents/agent-builder-auth/mcp')
+                .set('authorization', `Bearer ${userBearer}`)
+                .send({
+                    jsonrpc: '2.0',
+                    id: 5,
+                    method: 'tools/call',
+                    params: {
+                        name: 'ask',
+                        arguments: { message: 'continue editing', session_id: resumableMcpSession.session_id },
+                    },
+                })
+            expect(userMcpContinuation.body.error).toBeUndefined()
+            await cluster.drain()
+            expect(mcpTargets).toHaveLength(3)
+            expect(
+                mcpTargets.every(
+                    (target) =>
+                        target.headers.Authorization === `Bearer ${userBearer}` &&
+                        target.headers['x-posthog-mcp-mode'] === 'tools'
+                )
+            ).toBe(true)
+        })
     })
 
     it('enables resume so multi-step flows can span days', async () => {
@@ -182,5 +327,23 @@ describe('example: agent-builder bundle', () => {
         expect(src).toContain('def per_file_sha256(')
         // The bundle now SHIPS an MCP — the seeder must never blank mcps[].
         expect(src).not.toContain('spec["mcps"] = []')
+    })
+
+    it('the shared example seeder starts from the production sparse checkout', async () => {
+        const tempRoot = await mkdtemp(join(tmpdir(), 'agent-builder-seed-'))
+        const sparseExamplesRoot = join(tempRoot, 'products/agent_platform/services/agent-tests/src/examples')
+
+        try {
+            await mkdir(dirname(sparseExamplesRoot), { recursive: true })
+            await cp(resolve(__dirname, '../examples'), sparseExamplesRoot, { recursive: true })
+
+            const { stdout } = await execFileAsync('python3', [join(sparseExamplesRoot, 'seed.py'), '--list'], {
+                env: { ...process.env, SEED_DUMMY_SECRETS: '0' },
+            })
+
+            expect(stdout).toContain('agent-builder')
+        } finally {
+            await rm(tempRoot, { recursive: true, force: true })
+        }
     })
 })

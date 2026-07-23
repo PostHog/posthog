@@ -332,7 +332,7 @@ class TestEventStreamViewSet(APIBaseTest):
         function = self._destination(stream)
         self.assertTrue(function.enabled)
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/accounts/{account.id}/")
+        response = self.client.delete(f"/api/projects/{self.team.id}/accounts/{account.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         function.refresh_from_db()
@@ -345,7 +345,7 @@ class TestEventStreamViewSet(APIBaseTest):
         self.client.post(f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(account.id)}, format="json")
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/accounts/{account.id}/", {"external_id": "org-acme-2"}, format="json"
+            f"/api/projects/{self.team.id}/accounts/{account.id}/", {"external_id": "org-acme-2"}, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())

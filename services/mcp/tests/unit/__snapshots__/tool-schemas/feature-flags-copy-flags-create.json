@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "copy_dependencies": {
+            "default": false,
+            "description": "Whether to also copy missing feature flags that this flag depends on",
+            "type": "boolean"
+        },
         "copy_schedule": {
             "default": false,
             "description": "Whether to also copy scheduled changes for this flag",
@@ -25,6 +30,7 @@
                 "type": "number"
             },
             "maxItems": 50,
+            "minItems": 1,
             "type": "array"
         }
     },

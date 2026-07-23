@@ -49,10 +49,12 @@ import { NotificationsSection } from 'products/conversations/frontend/scenes/set
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
+import { WarehousePersonPropertiesSetting } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
@@ -102,6 +104,7 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
+import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
@@ -147,6 +150,7 @@ import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonal
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
+import { OrganizationVariables } from './organization/OrgVariables'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -271,6 +275,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Set the timezone and week start day used for displaying and bucketing time-series data in insights and dashboards. You may need to refresh insights for changes to apply.',
                 component: <TeamTimezone />,
                 keywords: ['timezone', 'utc', 'locale', 'week start'],
+            },
+            {
+                // Project-wide, not product analytics specific: these filters apply to insights,
+                // web analytics, revenue analytics, session replay, and CDP destinations alike.
+                id: 'internal-user-filtering',
+                title: 'Filter out internal and test users',
+                description:
+                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
+                docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
+                component: <ProjectAccountFiltersSetting />,
+                keywords: ['test account', 'internal', 'exclude', 'filter'],
             },
             {
                 id: 'business-model',
@@ -436,6 +451,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
             },
+            {
+                id: 'customer-analytics-person-properties',
+                title: 'Person properties from the warehouse',
+                description:
+                    'Sync warehouse table columns onto matching people as person properties, and manage their schedule, backfills, and run history.',
+                component: <WarehousePersonPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'person', 'properties', 'sync', 'backfill'],
+            },
         ],
     },
     {
@@ -443,6 +467,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-error-tracking',
         title: 'Error tracking',
         group: 'Products',
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'banner',
@@ -474,6 +502,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Error tracking',
         group: 'Products',
         hideFromNavigation: true,
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',
@@ -778,6 +810,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
+                id: 'logs-session-id-attribute-keys',
+                title: 'Link to session',
+                description: (
+                    <>
+                        The log attributes PostHog reads to identify which session a log belongs to, checked in order
+                        with the first match winning. Defaults to <code>posthogSessionId</code>, the key the JavaScript
+                        and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under
+                        different attributes.
+                    </>
+                ),
+                searchDescription:
+                    'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning. Defaults to posthogSessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
+                component: <LogsSessionIdAttributeKeys />,
+                flag: 'LOGS_SETTINGS',
+                keywords: ['log', 'session', 'replay', 'attribute', 'link'],
+            },
+            {
                 id: 'logs-retention',
                 title: 'Retention',
                 description: (
@@ -799,6 +848,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsSamplingSection />,
                 flag: LogsFeatureFlagKeys.dropRules,
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
+            },
+            {
+                id: 'logs-metric-rules',
+                title: 'Metric rules',
+                description:
+                    'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
+                component: <LogsMetricRulesSection />,
+                flag: LogsFeatureFlagKeys.metricRules,
+                keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
                 id: 'logs-alerting',
@@ -833,15 +891,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Product analytics',
         group: 'Products',
         settings: [
-            {
-                id: 'internal-user-filtering',
-                title: 'Filter out internal and test users',
-                description:
-                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
-                docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
-                component: <ProjectAccountFiltersSetting />,
-                keywords: ['test account', 'internal', 'exclude', 'filter'],
-            },
             {
                 id: 'data-theme',
                 title: 'Chart color themes',
@@ -1149,8 +1198,15 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'conversations-imports',
-                title: 'Imports',
-                description: 'Import historical support data from external tools into Conversations.',
+                title: (
+                    <>
+                        Imports
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                description: 'Import historical support data from external tools into Support.',
                 component: <ZendeskImportSection />,
                 flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
@@ -1578,6 +1634,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Your organization's name and logo are shown across the PostHog interface. Click the avatar to upload a custom logo.",
                 component: <OrganizationDisplayName />,
                 keywords: ['name', 'rename', 'label', 'organization', 'logo', 'image', 'brand', 'icon', 'avatar'],
+            },
+            {
+                id: 'organization-id',
+                title: 'Organization ID',
+                description: "Your organization's unique identifier, used in the PostHog API.",
+                component: <OrganizationVariables />,
+                keywords: ['organization', 'id', 'uuid', 'identifier', 'copy'],
             },
             {
                 id: 'organization-ai-consent',

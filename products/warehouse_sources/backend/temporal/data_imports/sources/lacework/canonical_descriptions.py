@@ -1,0 +1,137 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+    CanonicalEndpoint,
+)
+
+_COMPLIANCE_COLUMNS = {
+    "account": "The evaluated cloud account or project (id and alias).",
+    "evalType": "The evaluation type, such as LW_SA (Lacework security assessment).",
+    "id": "The identifier of the evaluated recommendation, such as LW_AWS_IAM_7.",
+    "reason": "Why the resource is non-compliant with the recommendation.",
+    "recommendation": "The recommendation the resource was evaluated against.",
+    "region": "The cloud region of the evaluated resource.",
+    "reportTime": "When the compliance evaluation ran.",
+    "resource": "The identifier (e.g. ARN) of the evaluated resource.",
+    "section": "The compliance report section the recommendation belongs to.",
+    "severity": "The severity of the recommendation.",
+    "status": "The evaluation result, such as Compliant or NonCompliant.",
+}
+
+
+def _compliance_entry(provider: str) -> CanonicalEndpoint:
+    return {
+        "description": f"{provider} compliance evaluations: one row per resource per recommendation per report, with the compliance status, reason, and severity.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Configs",
+        "columns": _COMPLIANCE_COLUMNS,
+    }
+
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "alerts": {
+        "description": "Alerts raised by Lacework FortiCNAPP for potential threats, anomalies, and policy violations across your cloud environments.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Alerts",
+        "columns": {
+            "alertId": "Unique identifier for the alert.",
+            "alertType": "The alert type, such as MaliciousFile.",
+            "alertName": "The alert name, such as 'Service called GCP API'.",
+            "alertInfo": "Details of the alert (subject and description).",
+            "severity": "The alert's severity level, such as Critical, High, Medium, Low, or Info.",
+            "internetExposure": "Whether any entity involved in the alert is exposed to the internet.",
+            "reachability": "Whether any entity in the alert is reachable.",
+            "derivedFields": "The alert category, subcategory, and source.",
+            "startTime": "When the potential threat started.",
+            "endTime": "When the potential threat ended.",
+            "lastUserUpdatedTime": "When a user last updated the alert.",
+            "status": "The current status of the alert, such as Open or Closed.",
+        },
+    },
+    "audit_logs": {
+        "description": "Lacework console audit log: one row per action a user performed in the Lacework FortiCNAPP account.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/AuditLogs",
+        "columns": {
+            "createdTime": "When the logged action happened.",
+            "accountName": "The account name associated with the logged action.",
+            "userName": "The username of the user associated with the logged action.",
+            "eventName": "The name of the logged event, such as User Login.",
+            "userAction": "Summary of the action, such as 'Login with OAuth Succeeded' or 'Alert Channel Created'.",
+            "eventDescription": "Human-readable summary of the event.",
+        },
+    },
+    "agent_info": {
+        "description": "Inventory of Lacework agents: one row per agent with its version, host, status, and tags.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/AgentInfo",
+        "columns": {
+            "agentVersion": "The version of the installed Lacework agent.",
+            "createdTime": "When the agent was first seen.",
+            "hostname": "The hostname of the machine the agent runs on.",
+            "ipAddr": "The IP address of the machine the agent runs on.",
+            "lastUpdate": "When the agent last reported in.",
+            "mid": "The machine identifier the agent is installed on.",
+            "mode": "The agent mode, such as normal.",
+            "os": "The operating system of the machine the agent runs on.",
+            "status": "The agent status, such as ACTIVE.",
+            "tags": "Cloud provider and custom tags of the machine the agent runs on.",
+        },
+    },
+    "vulnerabilities_hosts": {
+        "description": "Host vulnerability assessment results: one row per CVE per machine per assessment, with severity, fix, and risk information.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Vulnerabilities",
+        "columns": {
+            "startTime": "When the assessment window started.",
+            "endTime": "When the assessment window ended.",
+            "vulnId": "The vulnerability identifier, such as a CVE id.",
+            "mid": "The machine identifier the vulnerability was found on.",
+            "machineTags": "Cloud provider and custom tags of the machine.",
+            "evalCtx": "Evaluation context for the assessment, such as hostname and scan batch.",
+            "evalGuid": "Unique identifier of the assessment run.",
+            "featureKey": "The affected package (name, namespace, installed version).",
+            "packageStatus": "The package status, such as ACTIVE.",
+            "severity": "The severity of the vulnerability.",
+            "fixInfo": "Fix availability and the fixed version.",
+            "status": "The vulnerability status, such as New, Active, or Fixed.",
+            "cveProps": "CVE metadata, including description, link, and CVSS scores.",
+            "riskScore": "Lacework's risk score for this vulnerability on this machine.",
+            "riskInfo": "Factors contributing to the risk score.",
+            "cveRiskScore": "Risk score of the CVE itself.",
+            "hostRiskScore": "Risk score of the affected host.",
+        },
+    },
+    "vulnerabilities_containers": {
+        "description": "Container image vulnerability assessment results: one row per CVE per image per assessment, with severity, fix, and risk information.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Vulnerabilities",
+        "columns": {
+            "startTime": "When the assessment ran.",
+            "vulnId": "The vulnerability identifier, such as a CVE id.",
+            "imageId": "The identifier of the affected container image.",
+            "evalCtx": "Evaluation context for the assessment, such as the image registry, repo, and tags.",
+            "evalGuid": "Unique identifier of the assessment run.",
+            "featureKey": "The affected package (name, namespace, version).",
+            "featureProps": "Additional properties of the affected package, such as the introducing layer.",
+            "packageStatus": "The package status, such as ACTIVE.",
+            "fixInfo": "Fix availability and the fixed version.",
+            "severity": "The severity of the vulnerability.",
+            "status": "The vulnerability status, such as New, Active, or Fixed.",
+            "riskScore": "Lacework's risk score for this vulnerability in this image.",
+            "riskInfo": "Factors contributing to the risk score.",
+            "cveRiskScore": "Risk score of the CVE itself.",
+            "imageRiskScore": "Risk score of the affected image.",
+        },
+    },
+    "compliance_evaluations_aws": _compliance_entry("AWS"),
+    "compliance_evaluations_azure": _compliance_entry("Azure"),
+    "compliance_evaluations_gcp": _compliance_entry("GCP"),
+    "compliance_evaluations_k8s": _compliance_entry("Kubernetes"),
+    "entities_machines": {
+        "description": "Machines observed online in your environment: one row per machine per activity segment.",
+        "docs_url": "https://api.lacework.net/api/v2/docs#tag/Entities",
+        "columns": {
+            "startTime": "When the machine's activity segment started.",
+            "endTime": "When the machine's activity segment ended.",
+            "mid": "The machine identifier.",
+            "hostname": "The hostname of the machine.",
+            "machineTags": "Cloud provider and custom tags of the machine.",
+            "primaryIpAddr": "The primary IP address of the machine.",
+            "entityType": "The entity type (Machine).",
+        },
+    },
+}

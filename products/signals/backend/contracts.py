@@ -162,6 +162,26 @@ class LinearIssueSignalInput(SignalInputBase):
     extra: LinearIssueSignalExtra
 
 
+# ── Jira ────────────────────────────────────────────────────────────────────────
+
+
+class JiraIssueSignalExtra(SignalExtraBase):
+    key: str
+    url: str | None
+    status: str | None
+    priority: str | None
+    assignee: str | None
+    labels: list[str]
+    created: str | None
+    updated: str | None
+
+
+class JiraIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.JIRA]
+    extra: JiraIssueSignalExtra
+
+
 # ── Conversations ───────────────────────────────────────────────────────────────
 
 
@@ -339,6 +359,29 @@ class ReplayVisionScannerFindingSignalInput(SignalInputBase):
     extra: ReplayVisionScannerFindingSignalExtra
 
 
+# ── Product analytics ───────────────────────────────────────────────────────────
+
+
+class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
+    alert_id: str
+    alert_name: str
+    alert_check_id: str
+    insight_id: str
+    detector_type: str
+    verdict: Literal["true_positive", "false_positive", "inconclusive"]
+    url: str
+    insight_name: str | None = None
+    insight_short_id: str | None = None
+    triggered_dates: list[str] | None = None
+    notebook_short_id: str | None = None
+
+
+class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ANOMALY_INVESTIGATION]
+    source_product: Literal[SignalSourceProduct.ANALYTICS]
+    extra: AnalyticsAnomalyInvestigationSignalExtra
+
+
 # ── Health checks ───────────────────────────────────────────────────────────────
 
 HealthCheckSeverity = Literal["critical", "warning", "info"]
@@ -359,6 +402,72 @@ class HealthCheckSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.HEALTH_ISSUE]
     source_product: Literal[SignalSourceProduct.HEALTH_CHECKS]
     extra: HealthCheckSignalExtra
+
+
+# ── Engineering analytics ───────────────────────────────────────────────────────
+# CI signals; detection lives in products/engineering_analytics/backend/logic/signals.
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalExtra(SignalExtraBase):
+    """One immutable flaky observation: failed then passed on a later attempt of the same run,
+    so only non-determinism can explain the flip."""
+
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    job_name: str
+    run_id: int
+    head_sha: str
+    failed_attempt: int
+    passed_attempt: int
+    # Runs this job flapped on within the window.
+    flaky_count: int
+    window_days: int
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_FLAKY_CHECK]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIFlakyCheckSignalExtra
+
+
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(SignalExtraBase):
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    branch: str
+    # Success rate in [0, 1] over runs that reached a verdict (success / failure / timed_out).
+    # Cancelled and skipped runs are excluded: they decided nothing, and counting them makes any
+    # workflow whose concurrency group cancels superseded trunk runs read as permanently failing.
+    conclusive_success_rate: float
+    conclusive_run_count: int
+    latest_conclusion: str
+    window_hours: int
+
+
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_BROKEN_DEFAULT_BRANCH]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalExtra(SignalExtraBase):
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    current_p95_seconds: float
+    baseline_p95_seconds: float
+    # Fractional increase of current p95 over baseline (0.5 = +50%).
+    pct_increase: float
+    current_p50_seconds: float
+    baseline_p50_seconds: float
+    window_days: int
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_DURATION_REGRESSION]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIDurationRegressionSignalExtra
 
 
 # ── Report reviewer types ───────────────────────────────────────────────────────
@@ -383,6 +492,450 @@ class EnrichedReviewer(ContractModel):
     github_name: str | None
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
+    reason: str | None = None
+
+
+# ── Tier-1 data-warehouse inbox sources ──────────────────────────────────────────
+
+
+class FreshdeskTicketSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    type: str | None
+    tags: list
+    created_at: str | None
+
+
+class FreshdeskTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.FRESHDESK]
+    extra: FreshdeskTicketSignalExtra
+
+
+class FreshserviceTicketSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    type: str | None
+    category: str | None
+    tags: list
+    created_at: str | None
+
+
+class FreshserviceTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.FRESHSERVICE]
+    extra: FreshserviceTicketSignalExtra
+
+
+class FrontConversationSignalExtra(SignalExtraBase):
+    status: str | None
+    tags: list
+    created_at: str | None
+
+
+class FrontConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.FRONT]
+    extra: FrontConversationSignalExtra
+
+
+class GorgiasTicketSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    channel: str | None
+    tags: list
+    created_datetime: str | None
+
+
+class GorgiasTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.GORGIAS]
+    extra: GorgiasTicketSignalExtra
+
+
+class KustomerConversationSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    tags: list
+    createdAt: str | None
+
+
+class KustomerConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.KUSTOMER]
+    extra: KustomerConversationSignalExtra
+
+
+class DixaConversationSignalExtra(SignalExtraBase):
+    status: str | None
+    channel: str | None
+    tags: list
+    created_at: str | None
+
+
+class DixaConversationSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.DIXA]
+    extra: DixaConversationSignalExtra
+
+
+class PlainThreadSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    labels: list
+    createdAt: str | None
+
+
+class PlainThreadSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.PLAIN]
+    extra: PlainThreadSignalExtra
+
+
+class GitlabIssueSignalExtra(SignalExtraBase):
+    state: str | None
+    labels: list
+    iid: str | None
+    project_id: str | None
+    created_at: str | None
+
+
+class GitlabIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.GITLAB]
+    extra: GitlabIssueSignalExtra
+
+
+class GiteaIssueSignalExtra(SignalExtraBase):
+    state: str | None
+    labels: list
+    html_url: str | None
+    number: str | None
+    created_at: str | None
+
+
+class GiteaIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.GITEA]
+    extra: GiteaIssueSignalExtra
+
+
+class ShortcutStorySignalExtra(SignalExtraBase):
+    story_type: str | None
+    labels: list
+    workflow_state_id: str | None
+    created_at: str | None
+
+
+class ShortcutStorySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.SHORTCUT]
+    extra: ShortcutStorySignalExtra
+
+
+class SentryIssueSignalExtra(SignalExtraBase):
+    level: str | None
+    status: str | None
+    permalink: str | None
+    shortId: str | None
+    firstSeen: str | None
+
+
+class SentryIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.SENTRY]
+    extra: SentryIssueSignalExtra
+
+
+class RollbarItemSignalExtra(SignalExtraBase):
+    level: str | None
+    status: str | None
+    environment: str | None
+    framework: str | None
+    last_occurrence_timestamp: str | None
+
+
+class RollbarItemSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.ROLLBAR]
+    extra: RollbarItemSignalExtra
+
+
+class BugsnagErrorSignalExtra(SignalExtraBase):
+    severity: str | None
+    status: str | None
+    context: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class BugsnagErrorSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.BUGSNAG]
+    extra: BugsnagErrorSignalExtra
+
+
+class HoneybadgerFaultSignalExtra(SignalExtraBase):
+    environment: str | None
+    component: str | None
+    action: str | None
+    tags: list
+    url: str | None
+    created_at: str | None
+
+
+class HoneybadgerFaultSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.HONEYBADGER]
+    extra: HoneybadgerFaultSignalExtra
+
+
+class RaygunErrorGroupSignalExtra(SignalExtraBase):
+    status: str | None
+    applicationUrl: str | None
+    lastOccurredAt: str | None
+    createdAt: str | None
+
+
+class RaygunErrorGroupSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.RAYGUN]
+    extra: RaygunErrorGroupSignalExtra
+
+
+# ── Tier-2 security scanners + Tier-3 feedback/reviews ────────────────────────────
+
+
+class SnykScannerFindingSignalExtra(SignalExtraBase):
+    effective_severity_level: str | None
+    status: str | None
+    type: str | None
+    created_at: str | None
+
+
+class SnykScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.SNYK]
+    extra: SnykScannerFindingSignalExtra
+
+
+class SonarqubeScannerFindingSignalExtra(SignalExtraBase):
+    severity: str | None
+    type: str | None
+    status: str | None
+    component: str | None
+    rule: str | None
+    creationDate: str | None
+
+
+class SonarqubeScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.SONARQUBE]
+    extra: SonarqubeScannerFindingSignalExtra
+
+
+class SemgrepScannerFindingSignalExtra(SignalExtraBase):
+    severity: str | None
+    confidence: str | None
+    status: str | None
+    state: str | None
+    created_at: str | None
+
+
+class SemgrepScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.SEMGREP]
+    extra: SemgrepScannerFindingSignalExtra
+
+
+class Rapid7InsightvmScannerFindingSignalExtra(SignalExtraBase):
+    severity: str | None
+    cvss_v3_score: str | None
+    published: str | None
+    added: str | None
+
+
+class Rapid7InsightvmScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.RAPID7_INSIGHTVM]
+    extra: Rapid7InsightvmScannerFindingSignalExtra
+
+
+class FeaturebaseFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    tags: list
+    upvotes: str | None
+    createdAt: str | None
+
+
+class FeaturebaseFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.FEATUREBASE]
+    extra: FeaturebaseFeedbackSignalExtra
+
+
+class FrillFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    vote_count: str | None
+    topics: list
+    created_at: str | None
+
+
+class FrillFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.FRILL]
+    extra: FrillFeedbackSignalExtra
+
+
+class AhaFeedbackSignalExtra(SignalExtraBase):
+    workflow_status: str | None
+    score: str | None
+    votes: str | None
+    url: str | None
+    created_at: str | None
+
+
+class AhaFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.AHA]
+    extra: AhaFeedbackSignalExtra
+
+
+class UservoiceFeedbackSignalExtra(SignalExtraBase):
+    state: str | None
+    vote_count: str | None
+    category_name: str | None
+    created_at: str | None
+
+
+class UservoiceFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.USERVOICE]
+    extra: UservoiceFeedbackSignalExtra
+
+
+class ProductboardFeedbackSignalExtra(SignalExtraBase):
+    state: str | None
+    tags: list
+    displayUrl: str | None
+    createdAt: str | None
+
+
+class ProductboardFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.PRODUCTBOARD]
+    extra: ProductboardFeedbackSignalExtra
+
+
+class CannyFeedbackSignalExtra(SignalExtraBase):
+    status: str | None
+    tags: list
+    score: str | None
+    voteCount: str | None
+    url: str | None
+    created: str | None
+
+
+class CannyFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.CANNY]
+    extra: CannyFeedbackSignalExtra
+
+
+class AsknicelyFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    status: str | None
+    question_type: str | None
+    segment: str | None
+    created: str | None
+
+
+class AsknicelyFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.ASKNICELY]
+    extra: AsknicelyFeedbackSignalExtra
+
+
+class RetentlyFeedbackSignalExtra(SignalExtraBase):
+    score: str | None
+    ratingCategory: str | None
+    feedbackTopics: list
+    resolved: str | None
+    createdDate: str | None
+
+
+class RetentlyFeedbackSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.FEEDBACK]
+    source_product: Literal[SignalSourceProduct.RETENTLY]
+    extra: RetentlyFeedbackSignalExtra
+
+
+class AppfiguresReviewSignalExtra(SignalExtraBase):
+    stars: str | None
+    version: str | None
+    product: str | None
+    date: str | None
+
+
+class AppfiguresReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.APPFIGURES]
+    extra: AppfiguresReviewSignalExtra
+
+
+class AppfollowReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    store: str | None
+    app_version: str | None
+    date: str | None
+
+
+class AppfollowReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.APPFOLLOW]
+    extra: AppfollowReviewSignalExtra
+
+
+class JudgemeReviewsReviewSignalExtra(SignalExtraBase):
+    rating: str | None
+    product_title: str | None
+    verified: str | None
+    created_at: str | None
+
+
+class JudgemeReviewsReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.REVIEW]
+    source_product: Literal[SignalSourceProduct.JUDGEME_REVIEWS]
+    extra: JudgemeReviewsReviewSignalExtra
+
+
+# ── OAuth-connected support sources ───────────────────────────────────────────────
+
+
+class IntercomTicketSignalExtra(SignalExtraBase):
+    state: str | None
+    priority: str | None
+    admin_assignee_id: str | None
+    created_at: str | None
+
+
+class IntercomTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM]
+    extra: IntercomTicketSignalExtra
+
+
+class HubspotTicketSignalExtra(SignalExtraBase):
+    hs_ticket_priority: str | None
+    hs_pipeline_stage: str | None
+    hs_ticket_category: str | None
+    createdate: str | None
+
+
+class HubspotTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.HUBSPOT]
+    extra: HubspotTicketSignalExtra
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────
@@ -398,6 +951,7 @@ SignalInput = Annotated[
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
+    | JiraIssueSignalInput
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
@@ -405,8 +959,44 @@ SignalInput = Annotated[
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput
-    | ReplayVisionScannerFindingSignalInput,
+    | ReplayVisionScannerFindingSignalInput
+    | FreshdeskTicketSignalInput
+    | FreshserviceTicketSignalInput
+    | FrontConversationSignalInput
+    | GorgiasTicketSignalInput
+    | KustomerConversationSignalInput
+    | DixaConversationSignalInput
+    | PlainThreadSignalInput
+    | GitlabIssueSignalInput
+    | GiteaIssueSignalInput
+    | ShortcutStorySignalInput
+    | SentryIssueSignalInput
+    | RollbarItemSignalInput
+    | BugsnagErrorSignalInput
+    | HoneybadgerFaultSignalInput
+    | RaygunErrorGroupSignalInput
+    | SnykScannerFindingSignalInput
+    | SonarqubeScannerFindingSignalInput
+    | SemgrepScannerFindingSignalInput
+    | Rapid7InsightvmScannerFindingSignalInput
+    | FeaturebaseFeedbackSignalInput
+    | FrillFeedbackSignalInput
+    | AhaFeedbackSignalInput
+    | UservoiceFeedbackSignalInput
+    | ProductboardFeedbackSignalInput
+    | CannyFeedbackSignalInput
+    | AsknicelyFeedbackSignalInput
+    | RetentlyFeedbackSignalInput
+    | AppfiguresReviewSignalInput
+    | AppfollowReviewSignalInput
+    | JudgemeReviewsReviewSignalInput
+    | IntercomTicketSignalInput
+    | HubspotTicketSignalInput
+    | EngineeringAnalyticsCIFlakyCheckSignalInput
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
+    | EngineeringAnalyticsCIDurationRegressionSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -417,6 +1007,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,
     LinearIssueSignalInput,
+    JiraIssueSignalInput,
     ConversationsTicketSignalInput,
     ErrorTrackingSignalInput,
     EndpointExecutionFailedSignalInput,
@@ -424,8 +1015,44 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     PgAnalyzeIssueSignalInput,
     SignalsScoutSignalInput,
     LogsAlertStateChangeSignalInput,
+    AnalyticsAnomalyInvestigationSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
+    FreshdeskTicketSignalInput,
+    FreshserviceTicketSignalInput,
+    FrontConversationSignalInput,
+    GorgiasTicketSignalInput,
+    KustomerConversationSignalInput,
+    DixaConversationSignalInput,
+    PlainThreadSignalInput,
+    GitlabIssueSignalInput,
+    GiteaIssueSignalInput,
+    ShortcutStorySignalInput,
+    SentryIssueSignalInput,
+    RollbarItemSignalInput,
+    BugsnagErrorSignalInput,
+    HoneybadgerFaultSignalInput,
+    RaygunErrorGroupSignalInput,
+    SnykScannerFindingSignalInput,
+    SonarqubeScannerFindingSignalInput,
+    SemgrepScannerFindingSignalInput,
+    Rapid7InsightvmScannerFindingSignalInput,
+    FeaturebaseFeedbackSignalInput,
+    FrillFeedbackSignalInput,
+    AhaFeedbackSignalInput,
+    UservoiceFeedbackSignalInput,
+    ProductboardFeedbackSignalInput,
+    CannyFeedbackSignalInput,
+    AsknicelyFeedbackSignalInput,
+    RetentlyFeedbackSignalInput,
+    AppfiguresReviewSignalInput,
+    AppfollowReviewSignalInput,
+    JudgemeReviewsReviewSignalInput,
+    IntercomTicketSignalInput,
+    HubspotTicketSignalInput,
+    EngineeringAnalyticsCIFlakyCheckSignalInput,
+    EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
+    EngineeringAnalyticsCIDurationRegressionSignalInput,
 )
 
 

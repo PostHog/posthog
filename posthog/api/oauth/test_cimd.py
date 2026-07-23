@@ -36,7 +36,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
-from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
+from posthog.scopes import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
@@ -971,7 +971,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     # (c) Only UNPRIVILEGED_SCOPES pass — privileged, hidden, and unknown strings are all dropped.
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_non_grantable_scopes_stripped(self, mock_get, _url_mock):
-        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
+        hidden_scope = next(iter(OAUTH_SCOPES_HIDDEN)) if OAUTH_SCOPES_HIDDEN else None
         input_scopes = [
             *sorted(PRIVILEGED_SCOPES),
             "not_a_real_scope:write",  # unknown / garbage string
@@ -1080,7 +1080,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
         real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
-        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
+        hidden_scope = next(iter(OAUTH_SCOPES_HIDDEN)) if OAUTH_SCOPES_HIDDEN else None
         escalated = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write", "insight:read"]
         if hidden_scope:
             escalated.append(hidden_scope)

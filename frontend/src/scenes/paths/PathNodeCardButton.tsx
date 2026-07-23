@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PathsFilter } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
-import { pathsDataLogicType } from './pathsDataLogicType'
+import type { pathsDataLogicType } from './pathsDataLogic'
 import { PathNodeData, pageUrl } from './pathUtils'
 
 type PathNodeCardButton = {

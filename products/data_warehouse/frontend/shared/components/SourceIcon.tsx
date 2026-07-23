@@ -13,6 +13,7 @@ import IconAwsS3 from 'public/services/aws-s3.png'
 import Iconazure from 'public/services/azure.png'
 import IconCloudflare from 'public/services/cloudflare.png'
 import IconDuckDB from 'public/services/duckdb.svg'
+import IconFileUpload from 'public/services/file-upload.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
@@ -25,7 +26,10 @@ import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
  * heuristic to guess, then fallback to a shrugging hedgehog.
  * @param url
  */
-export function mapUrlToProvider(url: string): string {
+export function mapUrlToProvider(url: string | undefined): string {
+    if (!url) {
+        return 'BlushingHog'
+    }
     if (url.includes('amazonaws.com')) {
         return 'aws'
     } else if (url.startsWith('https://storage.googleapis.com')) {
@@ -83,6 +87,8 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     'google-cloud': IconGoogleCloudStorage,
     'cloudflare-r2': IconCloudflare,
     azure: Iconazure,
+    // File upload has no backend SourceConfig (its `iconPath`), so map its icon here directly.
+    FileUpload: IconFileUpload,
     BlushingHog: BlushingHog, // fallback, we don't know what this is
     PostHog: IconPostHog,
 }
@@ -99,7 +105,7 @@ export function SourceIcon({
     disableTooltip = false,
 }: {
     type: string
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     size?: 'xsmall' | 'small' | 'medium'
     sizePx?: number
     disableTooltip?: boolean

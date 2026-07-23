@@ -9,6 +9,7 @@ categories.
 """
 
 import uuid
+from dataclasses import dataclass
 from typing import Literal
 
 from django.conf import settings
@@ -34,7 +35,8 @@ from ee.hogai.utils.untrusted import neutralize_markup
 logger = structlog.get_logger(__name__)
 
 # Cheap, fast model — this is an interactive form helper, not a recording scan.
-_SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_SUGGESTION_MODEL = "gemini-3.5-flash-lite"
+_MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_SUGGESTIONS = 8
 # Bounds on assembled context so a large team/scanner can't blow up the prompt.
 _MAX_REASONING_SAMPLES = 15
@@ -96,7 +98,13 @@ def _observation_signal(scanner: ReplayScanner) -> tuple[list[tuple[str, int]], 
     return freeform, samples
 
 
-def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
+@dataclass(frozen=True)
+class _ProductTaxonomy:
+    events: list[str]
+    screens: list[str]
+
+
+def _product_taxonomy(team: Team) -> _ProductTaxonomy:
     """Custom product events and the screens sessions cover — grounds suggestions in how THIS product works."""
     events: list[str] = []
     try:
@@ -116,7 +124,7 @@ def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
         screens = [str(row[0]) for row in rows if row and row[0]][:_MAX_TOP_SCREENS]
     except Exception:
         logger.warning("replay_vision.suggest_tags.screens_failed", team_id=team.id, exc_info=True)
-    return events, screens
+    return _ProductTaxonomy(events=events, screens=screens)
 
 
 def _sibling_vocabularies(
@@ -186,9 +194,10 @@ def _build_user_content(
     return "\n".join(lines)
 
 
-_SYSTEM_PROMPT = """You help a PostHog user build the tag vocabulary for a session-replay classifier. The \
-classifier watches one session recording and assigns it tags from a fixed vocabulary, along the single \
-dimension described by the user's goal.
+_SYSTEM_PROMPT = """
+You help a PostHog user build the tag vocabulary for a session-replay classifier. The classifier
+watches one session recording and assigns it tags from a fixed vocabulary, along the single dimension
+described by the user's goal.
 
 Suggest a focused set of tags to ADD to their vocabulary, grounded ONLY in the evidence provided. Each tag must be:
 - a distinct category along the dimension the goal describes (not overlapping the other tags or the current vocabulary)
@@ -208,6 +217,68 @@ Rules:
 - Output strictly matches the provided JSON schema."""
 
 
+def _assemble_grounding_evidence(
+    *,
+    team: Team,
+    prompt: str,
+    current_tags: list[str],
+    multi_label: bool,
+    allow_freeform_tags: bool,
+    scanner: ReplayScanner | None,
+    user_access_control: UserAccessControl | None,
+) -> str:
+    """Gather the emitted-tag, product-taxonomy, and sibling-vocabulary evidence and format it as briefing
+    text. Shared by the standalone suggest_tags endpoint and the classifier config proposer's grounding."""
+    freeform: list[tuple[str, int]] = []
+    reasoning_samples: list[str] = []
+    if scanner is not None:
+        try:
+            freeform, reasoning_samples = _observation_signal(scanner)
+        except Exception:
+            logger.warning(
+                "replay_vision.suggest_tags.observation_signal_failed", scanner_id=str(scanner.id), exc_info=True
+            )
+
+    taxonomy = _product_taxonomy(team)
+    sibling_tags: list[str] = []
+    if user_access_control is not None:
+        sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
+
+    return _build_user_content(
+        prompt=prompt,
+        current_tags=current_tags,
+        multi_label=multi_label,
+        allow_freeform_tags=allow_freeform_tags,
+        freeform=freeform,
+        reasoning_samples=reasoning_samples,
+        events=taxonomy.events,
+        screens=taxonomy.screens,
+        sibling_tags=sibling_tags,
+    )
+
+
+def grounding_briefing(scanner: ReplayScanner) -> str:
+    """The same emitted-tag + product-taxonomy evidence `suggest_classifier_tags` uses, assembled for a
+    scanner's own persisted config. Lets the classifier config proposer ground its prompt and tag-vocabulary
+    suggestions without a second copy of this evidence gathering.
+
+    Omits sibling-scanner vocabularies on purpose: this suggestion is shown to everyone with access to the
+    scanner, so grounding it with any single principal's access would leak the tag vocabularies of
+    object-level-restricted sibling scanners to viewers who cannot see those scanners. The interactive
+    suggest_classifier_tags path keeps sibling evidence, filtered by the requesting user's own access.
+    """
+    config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
+    return _assemble_grounding_evidence(
+        team=scanner.team,
+        prompt=str(config.get("prompt", "")),
+        current_tags=list(config.get("tags", [])),
+        multi_label=bool(config.get("multi_label", True)),
+        allow_freeform_tags=bool(config.get("allow_freeform_tags", False)),
+        scanner=scanner,
+        user_access_control=None,
+    )
+
+
 def suggest_classifier_tags(
     *,
     team: Team,
@@ -220,29 +291,14 @@ def suggest_classifier_tags(
     user_access_control: UserAccessControl,
 ) -> list[TagSuggestion]:
     """Assemble grounding evidence and synthesize tag suggestions. Raises SuggestionError on model failure."""
-    freeform: list[tuple[str, int]] = []
-    reasoning_samples: list[str] = []
-    if scanner is not None:
-        try:
-            freeform, reasoning_samples = _observation_signal(scanner)
-        except Exception:
-            logger.warning(
-                "replay_vision.suggest_tags.observation_signal_failed", scanner_id=str(scanner.id), exc_info=True
-            )
-
-    events, screens = _product_taxonomy(team)
-    sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
-
-    user_content = _build_user_content(
+    user_content = _assemble_grounding_evidence(
+        team=team,
         prompt=prompt,
         current_tags=current_tags,
         multi_label=multi_label,
         allow_freeform_tags=allow_freeform_tags,
-        freeform=freeform,
-        reasoning_samples=reasoning_samples,
-        events=events,
-        screens=screens,
-        sibling_tags=sibling_tags,
+        scanner=scanner,
+        user_access_control=user_access_control,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
     return _finalize(parsed, current_tags)
@@ -251,7 +307,17 @@ def suggest_classifier_tags(
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmSuggestions:
     # Inline the key resolution (rather than importing the temporal helper) to keep this off the temporal import path.
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    client = genai.Client(api_key=api_key, posthog_client=posthoganalytics.default_client)
+    # Runs inline on the interactive request path, so a hung provider call must time out.
+    try:
+        client = genai.Client(
+            api_key=api_key,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
+    except Exception as e:
+        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # the friendly 503 instead of a 500.
+        raise SuggestionError("model client unavailable") from e
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",

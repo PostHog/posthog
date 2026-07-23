@@ -303,12 +303,19 @@ export const processLogMessageBuffer = instrumented({
     ...logRecordProcessInstrumentOpts,
 })(async function processLogMessageBufferImpl(
     buffer: Buffer,
-    settings: LogsSettings
+    settings: LogsSettings,
+    onRecordsDecoded?: (records: LogRecord[]) => void
 ): Promise<{ value: Buffer; pii: PiiScrubStats }> {
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
 
     if (!jsonParse && !piiScrub) {
+        // Passthrough: the buffer is forwarded untouched. Decode only when a visitor
+        // (metric-rule extraction) needs the records — skipping the re-encode either way.
+        if (onRecordsDecoded) {
+            const [, , records] = await decodeLogRecordsInstrumented(buffer)
+            onRecordsDecoded(records)
+        }
         return { value: buffer, pii: EMPTY_PII }
     }
 
@@ -324,6 +331,7 @@ export const processLogMessageBuffer = instrumented({
         }
 
         const pii = await transformDecodedLogRecordsInPlace(records, settings)
+        onRecordsDecoded?.(records)
 
         const value = await encodeLogRecordsInstrumented(logRecordType, codec, records)
         return { value, pii }
@@ -337,4 +345,8 @@ export const processLogMessageBuffer = instrumented({
         logProcessingDurationHistogram.observe(durationLabels, durationSeconds)
         recordLogProcessingDuration(durationSeconds, durationLabels)
     }
-}) as (buffer: Buffer, settings: LogsSettings) => Promise<{ value: Buffer; pii: PiiScrubStats }>
+}) as (
+    buffer: Buffer,
+    settings: LogsSettings,
+    onRecordsDecoded?: (records: LogRecord[]) => void
+) => Promise<{ value: Buffer; pii: PiiScrubStats }>

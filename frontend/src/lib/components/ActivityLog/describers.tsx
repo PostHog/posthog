@@ -6,6 +6,7 @@ import { ActivityLogItem, Describer, defaultDescriber } from 'lib/components/Act
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { userActivityDescriber } from 'scenes/authentication/shared/activityDescriptions'
+import { billingActivityDescriber } from 'scenes/billing/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
@@ -37,6 +38,7 @@ import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescribe
 
 import { ActivityScope } from '~/types'
 
+import { promptLabelActivityDescriber } from 'products/ai_observability/frontend/prompts/promptLabelActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/components/activityDescriptions'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
@@ -56,6 +58,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return batchExportActivityDescriber
         case ActivityScope.BATCH_IMPORT:
             return batchImportActivityDescriber
+        case ActivityScope.BILLING:
+            return billingActivityDescriber
         case ActivityScope.EXPORTED_ASSET:
             return exportedAssetActivityDescriber
         case ActivityScope.DASHBOARD:
@@ -126,6 +130,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return ticketActivityDescriber
         case ActivityScope.SIGNAL_SCOUT_CONFIG:
             return signalScoutConfigActivityDescriber
+        case ActivityScope.LLM_PROMPT_LABEL:
+            return promptLabelActivityDescriber
         default:
             return defaultDescriber
     }

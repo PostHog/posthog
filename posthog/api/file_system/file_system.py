@@ -3,13 +3,14 @@ import time
 import shlex
 import builtins
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -47,6 +48,7 @@ from posthog.api.file_system.folder_instructions_service import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.decorators import disallow_if_impersonated
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
@@ -61,7 +63,10 @@ from posthog.models.file_system.file_system_view_log import get_recent_file_syst
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import str_to_bool
+
+from products.tasks.backend.facade import api as tasks_facade
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
@@ -1027,9 +1032,45 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class CanvasPublishSerializer(serializers.Serializer):
     """Payload for publishing a freeform canvas's React source via the agent."""
 
-    code = serializers.CharField(allow_blank=True, trim_whitespace=False)
-    prompt = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
-    name = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True)
+    code = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The complete single-file React source for the canvas.",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the appended version history entry.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Optional new display name for the canvas (rewrites the leaf segment of its path).",
+    )
+    expected_current_version_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        help_text=(
+            "Optimistic-concurrency guard: the currentVersionId the publisher based its edits on "
+            "(null when it read a canvas with no versions yet). When provided and the canvas has since "
+            "moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 "
+            "version_conflict instead of overwriting the newer head. Omit to publish unguarded."
+        ),
+    )
+
+
+class CanvasPublishConflictSerializer(serializers.Serializer):
+    """409 body for a guarded canvas publish based on a stale version."""
+
+    detail = serializers.CharField(help_text="Human-readable description of the conflict and how to recover.")
+    code = serializers.CharField(help_text='Always "version_conflict".')
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="The canvas's live currentVersionId at rejection time (null when the canvas has no versions).",
+    )
 
 
 @extend_schema(extensions={"x-product": "core"})
@@ -1095,7 +1136,13 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
     @extend_schema(
         operation_id="desktop_file_system_canvas_partial_update",
         request=CanvasPublishSerializer,
-        responses={200: FileSystemSerializer},
+        responses={
+            200: FileSystemSerializer,
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id (a concurrent publish or an undo).",
+            ),
+        },
     )
     @action(methods=["PATCH"], detail=True, url_path="canvas")
     def publish_canvas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1104,7 +1151,10 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         Merges into the dashboard row's `meta` (never replaces it), so existing
         keys like `channelId`/`templateId` survive. Appends a full-file version
         snapshot and points `currentVersionId` at it — the server-side mirror of
-        the app's dashboardsService.saveFreeform.
+        the app's dashboardsService.saveFreeform, including the linear-discard of
+        any redo tail left behind by an undo. When the publisher passes
+        `expected_current_version_id`, a publish based on a stale version is
+        rejected with 409 `version_conflict` instead of overwriting the newer head.
         """
         dashboard = self._get_dashboard_or_400()
         if isinstance(dashboard, Response):
@@ -1115,6 +1165,8 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         code = payload.validated_data["code"]
         prompt = payload.validated_data.get("prompt")
         name = payload.validated_data.get("name")
+        has_expected_version = "expected_current_version_id" in payload.validated_data
+        expected_version_id = payload.validated_data.get("expected_current_version_id")
 
         now_ms = int(time.time() * 1000)
         version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
@@ -1127,11 +1179,39 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         with transaction.atomic():
             dashboard = FileSystem.objects.select_for_update().get(pk=dashboard.pk)
             meta = dict(dashboard.meta or {})
+            current_version_id = meta.get("currentVersionId")
+
+            if has_expected_version and current_version_id != expected_version_id:
+                return Response(
+                    {
+                        "detail": "The canvas changed since it was read (a concurrent publish or an undo). "
+                        "Re-fetch the canvas, re-apply the edits to the fresh source, and publish again.",
+                        "code": "version_conflict",
+                        "current_version_id": current_version_id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
             # Snapshot the live author context onto the version (reverting restores it).
             existing_context = meta.get("context")
             if isinstance(existing_context, str):
                 version["context"] = existing_context
             versions = list(meta.get("versions") or [])
+            first_publish = not versions and not meta.get("code")
+            # Linear-discard: a publish always becomes the new head, so a redo tail past
+            # the live pointer (left by an undo) is dropped rather than kept as
+            # unreachable history — mirroring the client's undo/redo semantics.
+            if current_version_id:
+                pointer = next(
+                    (
+                        index
+                        for index, existing in enumerate(versions)
+                        if isinstance(existing, dict) and existing.get("id") == current_version_id
+                    ),
+                    None,
+                )
+                if pointer is not None:
+                    versions = versions[: pointer + 1]
             versions.append(version)
 
             meta.update(
@@ -1156,7 +1236,72 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
             dashboard.save(update_fields=update_fields)
 
+        if first_publish:
+            self._announce_canvas_created(request, dashboard)
+
         return Response(self.get_serializer(dashboard).data)
+
+    def _announce_canvas_created(self, request: Request, dashboard: FileSystem) -> None:
+        """Announce a canvas's first publish in the generating task's thread.
+
+        The task sandbox stamps every MCP call with an X-PostHog-Task-Id header, so
+        a publish is attributable to the task that made it. The header alone is
+        forgeable, so two checks bind the announcement to a real sandbox run: the
+        request must carry an OAuth token minted under a sandbox app (those tokens
+        are only created server-side), and the facade only accepts a task created
+        by the requesting user (the sandbox authenticates with the task creator's
+        credentials). No header (a human or app save) means no announcement.
+        """
+        raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
+        try:
+            task_id = UUID(raw_task_id)
+        except ValueError:
+            return
+        if not self._is_sandbox_authenticated(request):
+            return
+        user = request.user if isinstance(request.user, User) else None
+        segments = split_path(dashboard.path)
+        tasks_facade.post_canvas_created_thread_update(
+            task_id,
+            self.team_id,
+            acting_user_id=user.id if user else None,
+            canvas_name=segments[-1] if segments else "Canvas",
+            canvas_url=self._canvas_share_url(dashboard),
+        )
+
+    @staticmethod
+    def _is_sandbox_authenticated(request: Request) -> bool:
+        """True when the request bears an OAuth token minted under a sandbox app —
+        the credential a task sandbox (via the MCP server) calls this API with."""
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        application = authenticator.access_token.application
+        return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+    def _canvas_share_url(self, dashboard: FileSystem) -> str | None:
+        """The web interstitial link that deep-links into the desktop app's canvas view:
+        `/code/canvas/<channel folder id>/<dashboard id>`. The channel id is stamped on
+        the row's meta by the desktop app at create time; fall back to the parent folder
+        row for rows that predate the stamp.
+        """
+        channel_id = (dashboard.meta or {}).get("channelId")
+        if not channel_id:
+            parent_path = join_path(split_path(dashboard.path)[:-1])
+            folder = (
+                FileSystem.objects.filter(
+                    surface_q(self.file_system_surface),
+                    team_id=dashboard.team_id,
+                    type="folder",
+                    path=parent_path,
+                ).first()
+                if parent_path
+                else None
+            )
+            channel_id = str(folder.id) if folder else None
+        if not channel_id:
+            return None
+        return f"{settings.SITE_URL}/code/canvas/{channel_id}/{dashboard.id}"
 
     @extend_schema(responses={200: FolderInstructionsSerializer})
     @action(methods=["GET"], detail=True)

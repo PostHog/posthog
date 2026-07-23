@@ -20,6 +20,10 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.temporal.ai.checkpoint_compaction.schedule import (
+    create_checkpoint_compaction_schedule,
+    should_register_checkpoint_compaction_schedule,
+)
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -52,7 +56,10 @@ from posthog.temporal.health_checks.schedule import create_health_check_schedule
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
-from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
+from posthog.temporal.messaging.schedule import (
+    create_all_realtime_cohort_calculation_schedules,
+    create_reconcile_precalculated_data_schedule,
+)
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
@@ -94,7 +101,6 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
-from products.tasks.backend.facade.temporal import create_evaluate_code_workstreams_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -810,6 +816,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_all_realtime_cohort_calculation_schedules,
+    create_reconcile_precalculated_data_schedule,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
@@ -827,7 +834,6 @@ schedules = [
     create_support_reply_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
-    create_evaluate_code_workstreams_schedule,
     create_github_job_logs_coordinator_schedule,
 ]
 
@@ -838,6 +844,8 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    if should_register_checkpoint_compaction_schedule():
+        schedules.append(create_checkpoint_compaction_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

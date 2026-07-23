@@ -72,6 +72,10 @@
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 
+- image: cohort-seeder
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
@@ -87,6 +91,12 @@
 - image: ingestion-consumer
   dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
+
+# Internal web tool for the ingestion team (lag analysis, consumer debug
+# visualizer).
+- image: ingestion-control-plane
+  dockerfile: ./rust/Dockerfile
+  project: x5whcmg6rl
 
 - image: kafka-deduplicator
   dockerfile: ./rust/Dockerfile

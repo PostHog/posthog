@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "IssuePriority": {
+      "description": "Priority levels for code review issues.",
+      "enum": [
+        "must_fix",
+        "should_fix",
+        "consider"
+      ],
+      "title": "IssuePriority",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "is_valid": {
+      "description": "Whether the suggested change should be implemented (true) or dismissed (false)",
+      "title": "Is Valid",
+      "type": "boolean"
+    },
+    "argumentation": {
+      "description": "Your verification delta as labeled markdown bullets, never a restatement of the issue description (the full description always travels with your verdict, so restating it only buries your evidence). Your bullets may be read first, right under the finding title, so they must stand on their own as evidence for that titled claim. Bullets: '- **Checked:**' what you investigated (files, call sites, types, guards); '- **Found:**' the decisive evidence, with file:line anchors; '- **Impact:**' the confirmed consequence (for a dismissal, why it does not meet the bar); '- **Priority:**' only when setting adjusted_priority, the reason. Repeat a label for several distinct points. Keep every fact needed to justify the verdict; cut only restatement.",
+      "title": "Argumentation",
+      "type": "string"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "enum": [
+            "bug",
+            "security",
+            "performance",
+            "code_quality",
+            "best_practice",
+            "documentation",
+            "testing",
+            "accessibility",
+            "compatibility"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Category of the issue",
+      "title": "Category"
+    },
+    "adjusted_priority": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IssuePriority"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set this only if your investigation shows the reviewer's priority is wrong \u2014 raise or lower it to the correct severity. Leave null to keep the reviewer's priority. Lowering to `consider` keeps the finding on record but stops it being surfaced."
+    }
+  },
+  "required": [
+    "is_valid",
+    "argumentation"
+  ],
+  "title": "IssueValidation",
+  "type": "object"
+}

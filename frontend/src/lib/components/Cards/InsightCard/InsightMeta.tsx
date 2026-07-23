@@ -40,7 +40,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
+import { DashboardFilter, Node, ProductKey, TileFilters } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -52,6 +52,7 @@ import {
     InsightLogicProps,
     InsightShortId,
     QueryBasedInsightModel,
+    InsightFilterOverrideContext,
 } from '~/types'
 
 import {
@@ -103,6 +104,24 @@ interface InsightMetaProps extends Pick<
     onCreateAlert?: () => void
     onEditAlert?: (alertId: AlertType['id']) => void
     onCreateAnomalyAlert?: () => void
+}
+
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
 export function InsightMeta({
@@ -185,13 +204,17 @@ export function InsightMeta({
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
+    const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
+    // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
+    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
+    const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
-        hasTileOverrides: Object.keys(tileFiltersOverride ?? {}).length > 0,
+        hasTileOverrides,
+        ignoresDashboardFilters,
         resolvedDateRange: insightData?.resolved_date_range,
-        dateFromOverride: tileFiltersOverride?.date_from ?? filtersOverride?.date_from,
-        dateToOverride: tileFiltersOverride?.date_to ?? filtersOverride?.date_to,
+        ...dateOverride,
     }
 
     const summary = useSummarizeInsight()(insight.query)
@@ -210,12 +233,9 @@ export function InsightMeta({
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-        funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
+        metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
-    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-    })
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
@@ -349,6 +369,7 @@ export function InsightMeta({
             variablesOverride={variablesOverride}
             filtersOverride={filtersOverride}
             tileFiltersOverride={tileFiltersOverride ?? null}
+            filterOverrideContext={insight.filter_override_context}
             hasDataWarehouseSeries={hasDataWarehouseSeries}
         />
     ) : null

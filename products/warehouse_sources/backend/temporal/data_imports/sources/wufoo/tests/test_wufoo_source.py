@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WufooSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source import WufooSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.wufoo import WufooResumeConfig

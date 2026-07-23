@@ -1,11 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { cloneElement, ReactElement } from 'react'
 
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -13,15 +14,23 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import type { VisionActionApi } from '../../generated/api.schemas'
+import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
 
 const HedgehogXRay = pngHoggie(xRayPng)
 
 function humanizeSchedule(action: VisionActionApi): string {
+    // Alerts don't run on their stored rrule: every_match checks ride each scanner sweep, and
+    // on_breach thresholds are re-checked hourly.
+    if (action.mode === 'alert') {
+        return action.alert_config?.frequency === 'every_match'
+            ? 'Continuous (checked every few minutes)'
+            : 'Continuous (hourly checks)'
+    }
     const rrule = action.trigger_config?.rrule
     if (!rrule) {
         return '—'
@@ -36,16 +45,26 @@ function humanizeSchedule(action: VisionActionApi): string {
     return humanizeCadence(parseRruleToCadence(rrule))
 }
 
-// Every write control on this tab gates on the same session-recording Editor access — wrap once.
-function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.SessionRecording}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            {children}
-        </AccessControlAction>
-    )
+// Every write control on this tab needs replay_scanner editor access; all but delete also need
+// session_recording viewer access, since they configure or trigger processing of recording-derived
+// data (delete doesn't). Pass `userAccessLevel` when a specific action's effective level is known, for
+// object-level overrides. Can't use `AccessControlAction` here since it only checks one resource.
+function EditorGate({
+    children,
+    userAccessLevel,
+    requireSessionRecording = true,
+}: {
+    children: ReactElement<AccessControlActionChildrenProps>
+    userAccessLevel?: AccessControlLevel
+    requireSessionRecording?: boolean
+}): JSX.Element {
+    const disabledReason = requireSessionRecording
+        ? getReplayVisionEditDisabledReason(userAccessLevel)
+        : getReplayVisionDeleteDisabledReason(userAccessLevel)
+    return cloneElement(children, {
+        disabled: children.props.disabled ?? !!disabledReason,
+        disabledReason: children.props.disabledReason ?? disabledReason,
+    })
 }
 
 function deliverySummary(action: VisionActionApi): string {
@@ -63,37 +82,67 @@ function deliverySummary(action: VisionActionApi): string {
         .join(', ')
 }
 
-export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Element {
+export function VisionActionsTab({
+    scannerId,
+    scannerUserAccessLevel,
+}: {
+    scannerId: string
+    scannerUserAccessLevel?: AccessControlLevel | null
+}): JSX.Element {
     return (
         <BindLogic logic={visionActionsLogic} props={{ scannerId }}>
-            <VisionActionsTable scannerId={scannerId} />
+            <VisionActionsTable scannerId={scannerId} scannerUserAccessLevel={scannerUserAccessLevel} />
         </BindLogic>
     )
 }
 
-function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
+function VisionActionsTable({
+    scannerId,
+    scannerUserAccessLevel,
+}: {
+    scannerId: string
+    scannerUserAccessLevel?: AccessControlLevel | null
+}): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
-    if (!visionActionsLoading && visionActions.length === 0) {
+    // The scanner's built-in daily digest lives on the Observations tab (ScannerDigestCard), not this
+    // table — so this table lists only the summaries and alerts a user created, and its empty state is
+    // meaningful again. Filtered here, not in visionActionsLogic, so the digest stays in the shared
+    // list the card reads from.
+    const rows = visionActions.filter((a) => !a.is_scanner_digest)
+
+    if (!visionActionsLoading && rows.length === 0) {
         return (
             <ProductIntroduction
-                productName="Scheduled summaries"
-                thingName="summary"
+                productName="Summaries and alerts"
+                thingName="summary or alert"
                 isEmpty
                 customHog={HedgehogXRay}
-                description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
+                description="Get scheduled summaries of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
-                    <EditorGate>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            to={urls.replayVisionActionNew(scannerId)}
-                            data-attr="vision-action-new-empty"
-                        >
-                            New summary
-                        </LemonButton>
-                    </EditorGate>
+                    <div className="flex gap-2">
+                        <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                                data-attr="vision-action-new-empty"
+                            >
+                                New summary
+                            </LemonButton>
+                        </EditorGate>
+                        <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                to={urls.replayVisionActionNew(scannerId, 'alert')}
+                                data-attr="vision-action-new-alert-empty"
+                            >
+                                New alert
+                            </LemonButton>
+                        </EditorGate>
+                    </div>
                 }
             />
         )
@@ -112,7 +161,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                     >
                         {action.name}
                     </Link>
-                    {action.is_scanner_digest && <LemonTag type="highlight">Default</LemonTag>}
+                    {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),
         },
@@ -131,7 +180,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
             key: 'enabled',
             render: (_, action) => (
                 <div className="flex items-center gap-2">
-                    <EditorGate>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                         <LemonSwitch
                             checked={!!action.enabled}
                             onChange={() => toggleActionEnabled(action.id)}
@@ -170,7 +219,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
             width: 0, // shrink to content so the buttons hug the right instead of floating in a wide column
             render: (_, action) => (
                 <div className="flex gap-1">
-                    <EditorGate>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -180,7 +229,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                             to={urls.replayVisionActionEdit(action.id)}
                         />
                     </EditorGate>
-                    <EditorGate>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined} requireSessionRecording={false}>
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -210,25 +259,35 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-                <EditorGate>
+            <div className="flex justify-end gap-2">
+                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                     <LemonButton
-                        type="primary"
+                        type="secondary"
                         icon={<IconPlus />}
-                        to={urls.replayVisionActionNew(scannerId)}
+                        to={urls.replayVisionActionNew(scannerId, 'group_summary')}
                         data-attr="vision-action-new"
                     >
                         New summary
                     </LemonButton>
                 </EditorGate>
+                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPlus />}
+                        to={urls.replayVisionActionNew(scannerId, 'alert')}
+                        data-attr="vision-action-new-alert"
+                    >
+                        New alert
+                    </LemonButton>
+                </EditorGate>
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={visionActions}
+                dataSource={rows}
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No summaries scheduled for this scanner yet."
+                emptyState="No summaries or alerts set up for this scanner yet."
             />
         </div>
     )

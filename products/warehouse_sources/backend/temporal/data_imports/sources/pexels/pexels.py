@@ -1,15 +1,18 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.settings import (
     PEXELS_ENDPOINTS,
     PexelsEndpointConfig,
@@ -19,10 +22,6 @@ PEXELS_BASE_URL = "https://api.pexels.com"
 # Pexels caps `per_page` at 80; request the max to minimise round trips.
 PER_PAGE = 80
 REQUEST_TIMEOUT = 30
-
-
-class PexelsRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -40,110 +39,90 @@ def _build_url(base_url: str, params: dict[str, Any]) -> str:
     return f"{base_url}?{urlencode(params)}" if params else base_url
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (
-            PexelsRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-
-    # 429 (rate limited) and 5xx are transient; retry with backoff. Pexels also exposes
-    # X-Ratelimit-Reset, but exponential backoff is sufficient given the retry cap.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise PexelsRetryableError(f"Pexels API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Pexels API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
 def validate_credentials(api_key: str) -> bool:
     # The curated endpoint needs no query params and a single row is the cheapest authenticated probe.
-    url = _build_url(f"{PEXELS_BASE_URL}/v1/curated", {"per_page": 1})
-    try:
-        # Pexels sends the key as a raw Authorization value the sampler's name-based scrubber can't
-        # recognise, so register it for redaction to keep it out of captured HTTP samples.
-        session = make_tracked_session(redact_values=(api_key,))
-        response = session.get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PexelsResumeConfig],
-    search_query: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = PEXELS_ENDPOINTS[endpoint]
-    # `get_schemas` only offers the search tables when a query is set, but fail loudly here rather
-    # than let a missing query become a literal `?query=None` if that guard ever regresses.
-    if config.requires_query and not search_query:
-        raise ValueError(f"Endpoint '{endpoint}' requires a search query but none was provided.")
-
-    headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive. The raw
-    # Authorization key is redacted from captured samples — the sampler can't infer that format.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume and resume.page else 1
-
-    while True:
-        params: dict[str, Any] = {"per_page": PER_PAGE, "page": page}
-        if config.requires_query:
-            params["query"] = search_query
-        url = _build_url(f"{PEXELS_BASE_URL}{config.path}", params)
-
-        data = _fetch_page(session, url, headers, logger)
-        items = data.get(config.data_key, [])
-        if not items:
-            break
-
-        yield items
-
-        # Save the just-yielded page as the resume point so a crash re-fetches it rather than
-        # skipping it; the re-fetched rows dedupe on the `id` primary key when merged.
-        resumable_source_manager.save_state(PexelsResumeConfig(page=page))
-
-        # `next_page` is present only while more pages remain; absence terminates pagination.
-        if not data.get("next_page"):
-            break
-        page += 1
+    # Pexels sends the key as a raw Authorization value the sampler's name-based scrubber can't
+    # recognise, so register it for redaction to keep it out of captured HTTP samples.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        _build_url(f"{PEXELS_BASE_URL}/v1/curated", {"per_page": 1}),
+        headers=_get_headers(api_key),
+        timeout=REQUEST_TIMEOUT,
+    )
+    return ok
 
 
 def pexels_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PexelsResumeConfig],
     search_query: str | None = None,
 ) -> SourceResponse:
-    endpoint_config: PexelsEndpointConfig = PEXELS_ENDPOINTS[endpoint]
+    config: PexelsEndpointConfig = PEXELS_ENDPOINTS[endpoint]
+    # `get_schemas` only offers the search tables when a query is set, but fail loudly here rather
+    # than let a missing query become a literal `?query=None` if that guard ever regresses.
+    if config.requires_query and not search_query:
+        raise ValueError(f"Endpoint '{endpoint}' requires a search query but none was provided.")
+
+    params: dict[str, Any] = {"per_page": PER_PAGE}
+    if config.requires_query:
+        params["query"] = search_query
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": PEXELS_BASE_URL,
+            # Only the non-secret Accept header goes here; the raw-key Authorization is supplied via
+            # the framework auth config (api_key in the Authorization header, no "Bearer " prefix) so
+            # its value is redacted from logs and captured samples automatically.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+            # Pexels exposes no total-pages field; termination is the first empty page (the paginator
+            # requests one page past the last populated one, whose rows dedupe on `id` if re-run).
+            "paginator": PageNumberPaginator(base_page=1, page=1, total_path=None),
+        },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # "photos", "videos" or "collections" depending on the endpoint; a 200 body
+                    # missing the key yields an empty page and stops (Pexels never omits it mid-run).
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.page:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash resumes at
+        # the next unfetched page (any re-fetched rows dedupe on the `id` primary key when merged).
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(PexelsResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every Pexels endpoint is full refresh — no incremental last value
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            search_query=search_query,
-        ),
-        primary_keys=endpoint_config.primary_keys,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
         # Full refresh only — Pexels resources carry no stable datetime to partition on.
         partition_count=1,
         partition_size=1,

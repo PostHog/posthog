@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BreezometerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
+    BreezometerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -37,6 +39,7 @@ class BreezometerSource(SimpleSource[BreezometerSourceConfig]):
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://developers.google.com/maps/documentation/air-quality"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class BreezometerSource(SimpleSource[BreezometerSourceConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="BreezoMeter",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your API key and the locations you want to track to pull air-quality and pollen data into the PostHog Data warehouse.
 
 BreezoMeter is now part of **Google Maps Platform** — this source uses the [Air Quality API](https://developers.google.com/maps/documentation/air-quality) and the [Pollen API](https://developers.google.com/maps/documentation/pollen). Create an API key in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) and enable both APIs for your project.
@@ -114,6 +116,7 @@ Each sync polls every location once per table. To accumulate a history of point-
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -135,7 +138,11 @@ Each sync polls every location once per table. To accumulate a history of point-
         return schemas
 
     def validate_credentials(
-        self, config: BreezometerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BreezometerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_breezometer_credentials(config.api_key, config.locations)
 

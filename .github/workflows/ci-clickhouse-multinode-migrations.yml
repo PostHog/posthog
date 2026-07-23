@@ -15,7 +15,6 @@ on:
             - 'tools/infra-scripts/clickhouse-multinode/**'
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
-    merge_group:
     workflow_dispatch:
 
 concurrency:
@@ -55,9 +54,9 @@ jobs:
             # of running a full `manage.py migrate`. Cache miss → file absent →
             # script falls back to migrate automatically.
             PRIME_POSTGRES_FROM: schema.sql.gz
-            # Pinned chschema build used by the live-schema convergence gate
-            # (verify-live.sh). Keep in sync with posthog/clickhouse/hcl/bin/hclexp.
-            HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-0409212' }}
+            # The chschema build used by the live-schema convergence gate is pinned in
+            # posthog/clickhouse/hcl/bin/image.txt; the repo variable overrides it when set.
+            HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -88,7 +87,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
 
@@ -97,27 +96,18 @@ jobs:
 
             - name: Compute Postgres schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+              if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-                  # On merge_group the queue branch is built directly on top of
-                  # this base SHA (latest master), so it is exactly the SHA the
-                  # cache producer keyed off — no merge-base computation needed.
-                  MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
               run: |
                   # ci-backend.yml's "Validate migrations" job dumps the post-PR
                   # schema and caches it keyed by master SHA. PR jobs key off the
                   # merge base so they restore the dump produced by the commit
-                  # their branch diverged from; merge_group jobs key off the
-                  # queue's base SHA directly.
-                  if [ "${GITHUB_EVENT_NAME}" = "merge_group" ]; then
-                      BASE_SHA="${MERGE_GROUP_BASE_SHA}"
-                  else
-                      # fetch-depth: 1000 on checkout bounds how far back the
-                      # merge base can be found; older divergence yields an empty
-                      # result and the graceful fallback to `migrate` below.
-                      BASE_SHA=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  fi
+                  # their branch diverged from.
+                  # fetch-depth: 1000 on checkout bounds how far back the
+                  # merge base can be found; older divergence yields an empty
+                  # result and the graceful fallback to `migrate` below.
+                  BASE_SHA=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
                   # Always emit a key so the restore runs; when the exact branch-point
                   # SHA is unknown, the bare prefix lets restore-keys fall back to the
                   # most recent cached master schema (any valid schema works — the smoke
@@ -125,7 +115,7 @@ jobs:
                   echo "key=posthog-schema-master-${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
             - name: Restore Postgres schema cache
-              if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+              if: github.event_name == 'pull_request'
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -140,8 +130,8 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Pull hclexp image
-              run: docker pull "$HCLEXP_IMAGE"
+            - name: Install hclexp
+              run: bash posthog/clickhouse/hcl/bin/install-hclexp
 
             - name: Run smoke test
               run: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
