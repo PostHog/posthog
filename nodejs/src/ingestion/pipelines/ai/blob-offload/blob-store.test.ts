@@ -1,6 +1,5 @@
 import {
     CopyObjectCommand,
-    HeadBucketCommand,
     HeadObjectCommand,
     NoSuchKey,
     NotFound,
@@ -211,19 +210,32 @@ describe('S3BlobStore', () => {
         expect(send.mock.calls[3][0]).toBeInstanceOf(PutObjectCommand)
     })
 
-    it('healthcheck resolves when the bucket responds', async () => {
-        send.mockResolvedValueOnce({})
+    it('healthcheck self-tests every operation ensureStored performs against the sentinel key', async () => {
+        send.mockResolvedValue({})
         await expect(store().healthcheck()).resolves.toBeUndefined()
-        expect(send.mock.calls[0][0]).toBeInstanceOf(HeadBucketCommand)
-        expect(send.mock.calls[0][0].input).toMatchObject({ Bucket: 'blobs' })
+        expect(send.mock.calls).toHaveLength(3)
+        const [put, head, copy] = send.mock.calls.map((call) => call[0])
+        expect(put).toBeInstanceOf(PutObjectCommand)
+        expect(put.input).toMatchObject({ Bucket: 'blobs', Key: 'p/_health/probe' })
+        expect(head).toBeInstanceOf(HeadObjectCommand)
+        expect(head.input).toMatchObject({ Key: 'p/_health/probe' })
+        expect(copy).toBeInstanceOf(CopyObjectCommand)
+        expect(copy.input).toMatchObject({ Key: 'p/_health/probe', CopySource: 'blobs/p/_health/probe' })
     })
 
-    it('healthcheck rejects with a retriable store error naming the bucket', async () => {
+    it.each([
+        ['put', 0],
+        ['head', 1],
+        ['copy', 2],
+    ])('healthcheck surfaces a %s failure as a retriable store error naming the op', async (op, failingCall) => {
         const cause = s3Error('AccessDenied')
+        for (let i = 0; i < failingCall; i++) {
+            send.mockResolvedValueOnce({})
+        }
         send.mockRejectedValueOnce(cause)
         const error = await captureError(store().healthcheck())
         expect(error).toBeInstanceOf(BlobStoreError)
-        expect(error.message).toBe('AI blob store healthcheck failed for bucket "blobs"')
+        expect(error.message).toBe(`AI blob store healthcheck failed (${op}) for bucket "blobs"`)
         expect(error.isRetriable).toBe(true)
         expect(error.cause).toBe(cause)
     })

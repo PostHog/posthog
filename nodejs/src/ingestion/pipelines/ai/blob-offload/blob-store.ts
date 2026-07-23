@@ -1,6 +1,5 @@
 import {
     CopyObjectCommand,
-    HeadBucketCommand,
     HeadObjectCommand,
     NotFound,
     PutObjectCommand,
@@ -115,22 +114,48 @@ export class S3BlobStore implements BlobStore {
     }
 
     /**
-     * Startup probe: one cheap HeadBucket verifying bucket existence,
-     * credentials, and connectivity. Run at consumer scope start (like the
-     * Kafka consumer's connect) so environment-wide S3 problems fail the
-     * deployment before it consumes traffic, instead of crash-looping the
-     * lane on the first blob-carrying event.
+     * Startup self-test: exercises every S3 operation `ensureStored` performs
+     * (PUT, HEAD, self-COPY) against a sentinel key under the configured
+     * prefix, so missing permissions, a bad bucket, or no connectivity fail
+     * the deployment at scope start — before any traffic — instead of
+     * crash-looping the lane on the first blob-carrying event. Sentinel
+     * collisions between pods are harmless, and the bucket lifecycle cleans
+     * the object up like any blob.
      */
     async healthcheck(): Promise<void> {
-        try {
-            await this.s3.send(new HeadBucketCommand({ Bucket: this.config.bucket }), {
-                abortSignal: AbortSignal.timeout(this.config.timeoutMs),
-            })
-        } catch (error) {
-            throw new BlobStoreError(`AI blob store healthcheck failed for bucket "${this.config.bucket}"`, true, {
-                cause: error,
-            })
+        const Bucket = this.config.bucket
+        const Key = `${this.config.prefix}_health/probe`
+        const abort = (): { abortSignal: AbortSignal } => ({
+            abortSignal: AbortSignal.timeout(this.config.timeoutMs),
+        })
+        const probe = async (op: string, fn: () => Promise<unknown>): Promise<void> => {
+            try {
+                await fn()
+            } catch (error) {
+                throw new BlobStoreError(`AI blob store healthcheck failed (${op}) for bucket "${Bucket}"`, true, {
+                    cause: error,
+                })
+            }
         }
+        await probe('put', () =>
+            this.s3.send(
+                new PutObjectCommand({ Bucket, Key, Body: Buffer.from('ok'), ContentType: 'text/plain' }),
+                abort()
+            )
+        )
+        await probe('head', () => this.s3.send(new HeadObjectCommand({ Bucket, Key }), abort()))
+        await probe('copy', () =>
+            this.s3.send(
+                new CopyObjectCommand({
+                    Bucket,
+                    Key,
+                    CopySource: `${Bucket}/${Key.split('/').map(encodeURIComponent).join('/')}`,
+                    MetadataDirective: 'REPLACE',
+                    ContentType: 'text/plain',
+                }),
+                abort()
+            )
+        )
     }
 
     async ensureStored(
