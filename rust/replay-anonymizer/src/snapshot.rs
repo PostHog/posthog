@@ -258,7 +258,9 @@ pub fn anonymize_kafka_payload_timed(
     timings: Option<&PhaseTimings>,
     image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
-    contain_panics(|| anonymize_kafka_payload_opts_impl(allow, payload, opts, timings, image_collection))
+    contain_panics(|| {
+        anonymize_kafka_payload_opts_impl(allow, payload, opts, timings, image_collection)
+    })
 }
 
 fn anonymize_kafka_payload_opts_impl(
@@ -271,7 +273,13 @@ fn anonymize_kafka_payload_opts_impl(
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
         let Ok(distinct_id) = scan::unescape(payload, distinct_id_span) else {
-            return anonymize_kafka_payload_via_parse(allow, payload, opts, timings, image_collection);
+            return anonymize_kafka_payload_via_parse(
+                allow,
+                payload,
+                opts,
+                timings,
+                image_collection,
+            );
         };
         let distinct_id = distinct_id.into_owned();
         // Point of no return: the in-place unescape consumes the buffer, so failures past here are
@@ -289,7 +297,14 @@ fn anonymize_kafka_payload_opts_impl(
                 "invalid utf-8 in data string",
             ));
         }
-        return anonymize_snapshot_data_inner(allow, &distinct_id, inner, opts, timings, image_collection);
+        return anonymize_snapshot_data_inner(
+            allow,
+            &distinct_id,
+            inner,
+            opts,
+            timings,
+            image_collection,
+        );
     }
     anonymize_kafka_payload_via_parse(allow, payload, opts, timings, image_collection)
 }
@@ -393,7 +408,14 @@ fn anonymize_kafka_payload_via_parse(
     };
     // Rare path (the scanner bailed): one owned copy buys the in-place processing a mutable buffer.
     let mut data_bytes = data.as_bytes().to_vec();
-    anonymize_snapshot_data_inner(allow, distinct_id, &mut data_bytes, opts, timings, image_collection)
+    anonymize_snapshot_data_inner(
+        allow,
+        distinct_id,
+        &mut data_bytes,
+        opts,
+        timings,
+        image_collection,
+    )
 }
 
 /// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string). The buffer is
@@ -414,7 +436,9 @@ pub fn anonymize_snapshot_data_opts(
     opts: AnonymizeOpts,
     image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
-    contain_panics(|| anonymize_snapshot_data_inner(allow, distinct_id, inner, opts, None, image_collection))
+    contain_panics(|| {
+        anonymize_snapshot_data_inner(allow, distinct_id, inner, opts, None, image_collection)
+    })
 }
 
 fn anonymize_snapshot_data_inner(

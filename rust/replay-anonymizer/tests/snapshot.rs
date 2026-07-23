@@ -795,40 +795,44 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
         &hash_image_bytes(content_key.as_bytes(), &png),
     );
 
+    // Both image policies: collection must take precedence over the parallel worker pool — a
+    // collected image needs no blur, so it must come back as a ref, never a pool token.
     for byte_walk in [true, false] {
-        let mut bytes = collect_payload().into_bytes();
-        let out = anonymize_kafka_payload_opts(
-            &allow,
-            &mut bytes,
-            AnonymizeOpts {
-                byte_walk,
-                ..Default::default()
-            },
-            Some(ImageCollection {
-                pseudo_team: pseudo_team.clone(),
-                content_key: content_key.clone(),
-            }),
-        )
-        .expect("anonymizes (walk={byte_walk})");
+        for image_policy in [ImagePolicy::Inline, ImagePolicy::Parallel] {
+            let mut bytes = collect_payload().into_bytes();
+            let out = anonymize_kafka_payload_opts(
+                &allow,
+                &mut bytes,
+                AnonymizeOpts {
+                    byte_walk,
+                    image_policy,
+                },
+                Some(ImageCollection {
+                    pseudo_team: pseudo_team.clone(),
+                    content_key: content_key.clone(),
+                }),
+            )
+            .expect("anonymizes (walk={byte_walk})");
 
-        let lines = String::from_utf8(out.lines.clone()).unwrap();
-        assert!(
-            !lines.contains(COLLECT_PNG_B64),
-            "original image must not pass through (walk={byte_walk})"
-        );
-        assert_eq!(
+            let lines = String::from_utf8(out.lines.clone()).unwrap();
+            assert!(
+                !lines.contains(COLLECT_PNG_B64),
+                "original image must not pass through (walk={byte_walk} images={image_policy:?})"
+            );
+            assert_eq!(
             lines.matches(&expected_ref).count(),
             4,
-            "img src, rr_dataURL, css background, and canvas blob all carry the ref (walk={byte_walk}): {lines}"
+            "img src, rr_dataURL, css background, and canvas blob all carry the ref (walk={byte_walk} images={image_policy:?}): {lines}"
         );
 
-        // One image (deduped across all four funnels), bytes returned verbatim.
-        assert_eq!(out.meta.images.len(), 1, "walk={byte_walk}");
-        let entry = &out.meta.images[0];
-        assert_eq!(entry.hash, hash_image_bytes(content_key.as_bytes(), &png));
-        assert_eq!(entry.offset, 0);
-        assert_eq!(entry.len, png.len());
-        assert_eq!(out.image_bytes, png, "walk={byte_walk}");
+            // One image (deduped across all four funnels), bytes returned verbatim.
+            assert_eq!(out.meta.images.len(), 1, "walk={byte_walk}");
+            let entry = &out.meta.images[0];
+            assert_eq!(entry.hash, hash_image_bytes(content_key.as_bytes(), &png));
+            assert_eq!(entry.offset, 0);
+            assert_eq!(entry.len, png.len());
+            assert_eq!(out.image_bytes, png, "walk={byte_walk}");
+        }
     }
 }
 
