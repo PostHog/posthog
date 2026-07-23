@@ -6,6 +6,7 @@ from django.dispatch.dispatcher import receiver
 
 import structlog
 
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
@@ -79,6 +80,11 @@ class HogFlow(UUIDTModel):
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)
+    # Secret function inputs (schema fields marked secret, e.g. API keys / auth headers) split out of
+    # `actions` and stored Fernet-encrypted at rest, keyed by action id then input key. Keeps plaintext
+    # secrets out of `actions`, `draft`, revision snapshots, and activity-log diffs. Mirrors
+    # HogFunction.encrypted_inputs; the worker decrypts and merges these back before execution.
+    encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
     abort_action = models.CharField(max_length=400, null=True, blank=True)
     variables = models.JSONField(default=list, null=True, blank=True)
 
@@ -89,6 +95,10 @@ class HogFlow(UUIDTModel):
     # Draft storage for active workflows: stores pending edits separately from live config
     draft = models.JSONField(null=True, blank=True)
     draft_updated_at = models.DateTimeField(null=True, blank=True)
+    # Pending secret function inputs for the draft, same shape as `encrypted_inputs`. Kept separate so
+    # a draft's secrets are promoted to `encrypted_inputs` on publish and dropped on discard, without
+    # touching the live values.
+    draft_encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
 
     # Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained
     # by the API whenever a live graph edit deletes actions, so runs parked on a deleted step can

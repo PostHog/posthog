@@ -699,6 +699,79 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Real production wording (a Neon-style proxy) lowercases "address", unlike the
+            # capitalized key this replaced, which never matched production traffic. Host/IP, port,
+            # and the allow-listed IP tuple are volatile and excluded from the match.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+            "(EADDRNOTALLOWED) address not in tenant allow_list: {203, 0, 113, 99}\n"
+            'connection to server at "203.0.113.10", port 5432 failed: FATAL:  (ESSLREQUIRED) SSL '
+            "connection is required for user: postgres",
+        ],
+    )
+    def test_ip_not_in_tenant_allow_list_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "address not in tenant allow_list" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"IP-not-in-allow-list error should be non-retryable: {error_msg}"
+
+    def test_ip_not_in_tenant_allow_list_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+            "(EADDRNOTALLOWED) address not in tenant allow_list: {203, 0, 113, 99}"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "IP-not-in-allow-list error should surface an actionable message"
+        assert "allow list" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A Neon-style proxy rejects the connection for a specific branch before the SSL-required
+            # fallback attempt is even tried. Host/IP, port, and the branch id are volatile.
+            'connection failed: connection to server at "203.0.113.20", port 6432 failed: FATAL:  '
+            "connection not allowed for branch abc123xyz\n"
+            'connection to server at "203.0.113.20", port 6432 failed: FATAL:  SSL/TLS required',
+        ],
+    )
+    def test_branch_connection_not_allowed_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "connection not allowed for branch" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Branch connection restriction error should be non-retryable: {error_msg}"
+
+    def test_branch_connection_not_allowed_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.20", port 6432 failed: FATAL:  '
+            "connection not allowed for branch abc123xyz"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Branch connection restriction error should surface an actionable message"
+        assert "branch" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Observed on a Neon-style pooler: the role is reported on its own line instead of
+            # libpq's "for user" wording, so it doesn't substring-match "password authentication
+            # failed for user". Host/IP, port, and the role id are volatile.
+            'connection failed: connection to server at "203.0.113.30", port 5432 failed: FATAL:  '
+            'password authentication failed\nuser "11111111-2222-3333-4444-555555555555"',
+        ],
+    )
+    def test_password_authentication_failed_without_for_user_wording_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "password authentication failed" in non_retryable
+        assert "password authentication failed for user" not in error_msg
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, (
+            f"Password auth failure without 'for user' wording should be non-retryable: {error_msg}"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],

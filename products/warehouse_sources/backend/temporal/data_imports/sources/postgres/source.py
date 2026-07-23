@@ -372,6 +372,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
+            # Some providers (observed on a Neon-style pooler) report the same auth rejection without
+            # libpq's "for user" wording, putting the role on its own line instead: "password
+            # authentication failed\nuser \"<role>\"". The key above requires "for user" right after
+            # "failed", so it doesn't substring-match this variant and Temporal keeps retrying a
+            # credential mismatch only the customer can fix. Match the stable, wording-independent
+            # fragment shared by both forms.
+            "password authentication failed": None,
             # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
             # "password authentication failed for user" — it validates against Secrets Manager and
             # returns "The password that was provided for the role <role> is wrong." None of the
@@ -410,7 +417,25 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # Marking it non-retryable would permanently disable syncs on a transient blip. A
             # genuinely unsupported-SSL source fails at connect time with a different message and is
             # caught via "SSLRequiredError" / "SSL/TLS connection is required".
-            "Address not in tenant allow_list": None,
+            # A Neon-style proxy rejects the connection because PostHog's egress IP isn't on the
+            # project's configured IP allow list (EADDRNOTALLOWED). Deterministic until the customer
+            # updates the allow list, so retrying just re-hits the same rejection. NB: the raw message
+            # lowercases "address" ("... FATAL:  (EADDRNOTALLOWED) address not in tenant allow_list:
+            # ..."), unlike the capitalized key this replaced, which never matched production traffic.
+            "address not in tenant allow_list": (
+                "Your database provider rejected the connection because PostHog's IP address is not on "
+                'its configured allow list ("address not in tenant allow_list"). Add PostHog\'s egress IP '
+                "addresses to your database provider's IP allow list, then re-enable the sync."
+            ),
+            # A Neon-style proxy rejects the connection for a specific branch/compute endpoint —
+            # observed when the branch is archived, suspended, or otherwise restricted from external
+            # connections. Deterministic until the customer changes the branch's connection settings.
+            "connection not allowed for branch": (
+                "Your database provider rejected the connection for this branch or compute endpoint "
+                '("connection not allowed for branch"). This usually means the branch is archived, '
+                "suspended, or restricted from external connections. Check your database provider's "
+                "dashboard for this branch's connection settings, then re-enable the sync."
+            ),
             "FATAL: no such database": None,
             "does not exist": None,
             "timestamp too small": None,
