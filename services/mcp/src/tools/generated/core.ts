@@ -1,12 +1,7 @@
 // AUTO-GENERATED from services/mcp/definitions/core.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { castStringToInt } from '@/tools/cast-helpers'
-
 import {
     DesktopFileSystemCanvasPartialUpdateBody,
     DesktopFileSystemCanvasPartialUpdateParams,
@@ -23,6 +18,9 @@ import {
     UsersPartialUpdateParams,
     UsersRetrieveParams,
 } from '@/generated/core/api'
+import { castStringToInt } from '@/tools/cast-helpers'
+import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
     .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)

@@ -1,12 +1,7 @@
 // AUTO-GENERATED from products/customer_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
-
 import {
     AccountRelationshipDefinitionsCreateBody,
     AccountRelationshipDefinitionsDestroyParams,
@@ -59,6 +54,9 @@ import {
     GroupsTypesMetricsPartialUpdateParams,
     GroupsTypesMetricsRetrieveParams,
 } from '@/generated/customer_analytics/api'
+import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AccountRelationshipDefinitionsCreateSchema = AccountRelationshipDefinitionsCreateBody
 
@@ -694,6 +692,9 @@ const customPropertySourcesCreate = (): ToolBase<
         }
         if (params.column_property_map !== undefined) {
             body['column_property_map'] = params.column_property_map
+        }
+        if (params.column_descriptions !== undefined) {
+            body['column_descriptions'] = params.column_descriptions
         }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
