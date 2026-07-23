@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CommunitySkillApi,
     CommunitySkillInstallApi,
+    CommunitySkillPublishResultApi,
     CommunitySkillVoteResponseApi,
     CommunitySkillsListParams,
     LLMSkillApi,
@@ -22,6 +23,7 @@ import type {
     LLMSkillImportApi,
     LLMSkillMarketplaceCommandApi,
     LLMSkillMarketplaceIssueApi,
+    LLMSkillPublishToCommunityApi,
     LLMSkillResolveResponseApi,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
@@ -447,6 +449,24 @@ export const llmSkillsNameFilesDestroy = async (
     return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesDestroyUrl(projectId, skillName, filePath, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLlmSkillsNamePublishCommunityCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/projects/${projectId}/llm_skills/name/${skillName}/publish-community/`
+}
+
+export const llmSkillsNamePublishCommunityCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillPublishToCommunityApi?: LLMSkillPublishToCommunityApi,
+    options?: RequestInit
+): Promise<CommunitySkillPublishResultApi> => {
+    return apiMutator<CommunitySkillPublishResultApi>(getLlmSkillsNamePublishCommunityCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillPublishToCommunityApi),
     })
 }
 

@@ -1,12 +1,14 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import User
 
+from ...api.community_publish_services import CommunitySkillPublishError, CommunitySkillPublishNotConfiguredError
 from ...api.skill_services import MAX_SKILL_FILE_COUNT
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -1178,3 +1180,76 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(data["versions"]) == 2
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
+
+    # --- Publish to community ---
+
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_succeeds(self, mock_publish, mock_feature_enabled):
+        mock_publish.return_value = {
+            "pr_url": "https://github.com/PostHog/community-skills/pull/7",
+            "pr_number": 7,
+            "branch": "community-skill/make-pr-abc123",
+        }
+        skill = self.create_skill(
+            name="make-pr",
+            description="Open a PR.",
+            body="# Make PR",
+            allowed_tools=["query"],
+            metadata={"tags": ["github"]},
+        )
+        LLMSkillFile.objects.create(
+            skill=skill, path="references/playbook.md", content="hints", content_type="text/markdown"
+        )
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"author_handle": "andymaguire"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == mock_publish.return_value
+        _, kwargs = mock_publish.call_args
+        assert kwargs["slug"] == "make-pr"
+        assert kwargs["name"] == "Make Pr"  # default display name = title-cased slug
+        assert kwargs["description"] == "Open a PR."
+        assert kwargs["tags"] == ["github"]  # falls back to metadata tags
+        assert kwargs["allowed_tools"] == ["query"]
+        assert kwargs["author_handle"] == "andymaguire"
+        assert kwargs["files"] == [
+            {"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}
+        ]
+
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, mock_feature_enabled):
+        response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_publish.assert_not_called()
+
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_not_configured_returns_503(self, mock_publish, mock_feature_enabled):
+        mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_github_error_returns_502(self, mock_publish, mock_feature_enabled):
+        mock_publish.side_effect = CommunitySkillPublishError("github exploded")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    # --- Feature flag ---
+
+    def test_returns_403_when_feature_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN

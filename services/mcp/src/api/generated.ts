@@ -14695,6 +14695,15 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface CommunitySkillPublishResult {
+      /** URL of the pull request opened in the community-skills repo for maintainer review. */
+      pr_url: string;
+      /** Number of the opened pull request. */
+      pr_number: number;
+      /** Name of the branch created in the community-skills repo. */
+      branch: string;
+    }
+
     export interface CommunitySkillVoteResponse {
       /** Total upvotes after applying the toggle. */
       vote_count: number;
@@ -33687,6 +33696,24 @@ export namespace Schemas {
     export interface LLMSkillMarketplaceIssue {
       /** Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential. */
       rotate?: boolean;
+    }
+
+    export interface LLMSkillPublishToCommunity {
+      /**
+         * Human-friendly display name for the community listing. Defaults to a title-cased skill slug.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
+         * @items.maxLength 64
+         */
+      tags?: string[];
+      /**
+         * The publisher's GitHub username, used for public attribution on the listing and PR. Optional.
+         * @maxLength 100
+         */
+      author_handle?: string;
     }
 
     export interface LLMSkillVersionSummary {
@@ -62677,6 +62704,14 @@ export namespace Schemas {
     export interface UserGitHubPrepareCallbackRequest {
       /** GitHub App installation id being managed on github.com. */
       installation_id: string;
+    }
+
+    export interface UserGithubLogin {
+      /**
+         * The user's resolved GitHub login, or null when no GitHub identity is linked.
+         * @nullable
+         */
+      github_login: string | null;
     }
 
     /**
