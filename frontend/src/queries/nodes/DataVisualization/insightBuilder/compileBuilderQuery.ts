@@ -318,10 +318,12 @@ export function compileBuilderQuery(config: InsightBuilderConfig): CompiledBuild
         alias: sanitizeAlias(measureAliasBase(measure), taken),
     }))
 
-    const selectList = [...rowParts, ...columnParts, ...valueParts]
+    // Columns (the x-axis) come first so the x-axis is always the first response column, in a
+    // stable position whether or not a Rows breakdown is present — chart heuristics key off it.
+    const selectList = [...columnParts, ...rowParts, ...valueParts]
         .map((part) => `    ${part.expr} AS ${part.alias}`)
         .join(',\n')
-    const dimensionExprs = [...rowParts, ...columnParts].map((part) => part.expr)
+    const dimensionExprs = [...columnParts, ...rowParts].map((part) => part.expr)
 
     const lines = [`SELECT\n${selectList}`, `FROM ${buildFromClause(config)}`]
     const filterExprs = (config.filters ?? []).filter(isFilterComplete).map(filterExpr)

@@ -42,12 +42,15 @@ describe('mapWellsToChartSettings', () => {
         expect(settings.seriesBreakdownColumn).toBeNull()
     })
 
-    it('preserves per-series formatting by alias across recompiles', () => {
+    it('preserves per-series formatting by alias across recompiles and labels the series from the well', () => {
         const prev = {
             yAxis: [{ column: 'sum_amount', settings: { formatting: { prefix: '$' } } }],
         }
         const settings = mapWellsToChartSettings(prev, compiled, ChartDisplayType.ActionsBar, config)
 
-        expect(settings.yAxis?.[0]).toEqual({ column: 'sum_amount', settings: { formatting: { prefix: '$' } } })
+        expect(settings.yAxis?.[0]).toEqual({
+            column: 'sum_amount',
+            settings: { formatting: { prefix: '$' }, display: { label: 'Sum of amount' } },
+        })
     })
 })

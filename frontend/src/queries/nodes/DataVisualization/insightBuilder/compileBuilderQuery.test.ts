@@ -33,13 +33,14 @@ describe('compileBuilderQuery', () => {
         expect(result.sql).toEqual(
             [
                 'SELECT',
-                '    toStartOfMonth(created_at) AS created_at_month,',
+                // Columns (x-axis) first, then Rows (breakdown), then Values
                 '    plan AS plan,',
+                '    toStartOfMonth(created_at) AS created_at_month,',
                 '    sum(amount) AS sum_amount',
                 'FROM (',
                 'SELECT * FROM events',
                 ')',
-                'GROUP BY toStartOfMonth(created_at), plan',
+                'GROUP BY plan, toStartOfMonth(created_at)',
                 'ORDER BY plan ASC',
             ].join('\n')
         )

@@ -1,6 +1,7 @@
 import { ChartAxis, ChartSettings, InsightBuilderConfig } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { measureLabel } from './builderLabels'
 import { CompiledBuilderQuery } from './compileBuilderQuery'
 
 const SERIES_BREAKDOWN_DISPLAYS: ChartDisplayType[] = [
@@ -29,7 +30,10 @@ export function mapWellsToChartSettings(
 
     const yAxis: ChartAxis[] = compiled.valueAliases.map((alias, index) => {
         const previous = prevYAxisByColumn[alias]
-        const label = config.values[index]?.label
+        // Label the series the way the well reads (e.g. "Count of rows", "Sum of amount") rather
+        // than exposing the machine alias like count_star
+        const measure = config.values[index]
+        const label = measure?.label ?? (measure ? measureLabel(measure) : undefined)
         const settings = {
             ...previous?.settings,
             ...(label ? { display: { ...previous?.settings?.display, label } } : {}),
