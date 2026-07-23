@@ -716,6 +716,40 @@ mod tests {
     }
 
     #[test]
+    fn log_response_redacts_secret_token_in_body() {
+        // The negative twin of `log_response_emits_event_for_opted_in_team`: a `phs_` secret token
+        // sent as `api_key` must never reach the body log. This asserts the redaction at the call
+        // site, so dropping `redact_secret_tokens` from `log_response` fails here even though its
+        // unit tests still pass.
+        let mut map = HashMap::new();
+        map.insert(42, vec!["*".into()]);
+        let logger = BodyLogger::new(BodyLogTeams(map), 65_536);
+        let resp = make_response(&["my-feature"]);
+
+        let captured = capture_log_response(|_| {
+            logger.log_response(
+                Uuid::nil(),
+                Some(42),
+                Some(Bytes::from_static(b"{\"api_key\":\"phs_redactme123\"}")),
+                &resp,
+            );
+        });
+
+        assert!(
+            captured.contains("flags_body_log"),
+            "expected target in log line: {captured}"
+        );
+        assert!(
+            !captured.contains("phs_redactme123"),
+            "raw secret token leaked into body log: {captured}"
+        );
+        assert!(
+            captured.contains("phs_<redacted>"),
+            "expected redacted token marker in body log: {captured}"
+        );
+    }
+
+    #[test]
     fn log_response_skips_unopted_team() {
         let logger = BodyLogger::new(BodyLogTeams::default(), 65_536);
         let resp = make_response(&["a"]);

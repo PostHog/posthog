@@ -191,11 +191,17 @@ def sync_team_quota_limited_tokens(team: "Team", *, removed_tokens: Optional[Ite
         for token in known_tokens:
             score_pipe.zscore(zset_key, token)
     raw_scores = score_pipe.execute()
+    # Re-chunk the flat pipeline results back to their zset in one place, so the slice windows can't
+    # drift out of sync with the build loop above if either is later changed.
+    scores_by_zset = {
+        zset_key: raw_scores[index * len(known_tokens) : (index + 1) * len(known_tokens)]
+        for index, zset_key in enumerate(zset_keys)
+    }
 
     write_pipe = redis_client.pipeline()
     has_writes = False
-    for index, zset_key in enumerate(zset_keys):
-        token_scores = raw_scores[index * len(known_tokens) : (index + 1) * len(known_tokens)]
+    for zset_key in zset_keys:
+        token_scores = scores_by_zset[zset_key]
         existing_score = next((score for score in token_scores if score is not None), None)
         if existing_score is None:
             continue  # team not limited for this resource/cache; nothing to sync

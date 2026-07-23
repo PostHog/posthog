@@ -1965,6 +1965,24 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
+    def test_authenticate_with_valid_backup_secret_api_key_in_header(self):
+        # A rotated-out token sits in the backup slot and must keep authenticating during the grace period.
+        self.team.secret_api_token_backup = "phs_backuptoken456"
+        self.team.save()
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token_backup}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = TeamSecretTokenAuthentication()
+        result = authenticator.authenticate(request)
+        assert result is not None
+        user, _ = result
+
+        self.assertIsInstance(user, TeamSecretTokenUser)
+        self.assertEqual(user.team, self.team)
+
     def test_authenticate_tags_queries_with_team_secret_token_access_method(self):
         wsgi_request = self.factory.get("/", headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"})
         request = Request(wsgi_request)

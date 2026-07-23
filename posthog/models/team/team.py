@@ -223,7 +223,11 @@ class TeamManager(models.Manager):
             if team:
                 return team
 
-            team = Team.objects.get(secret_api_token=secret_api_token)
+            # Match the backup slot too so a rotated-out token keeps authenticating during the grace
+            # period, mirroring the ingestion (`TeamManager`) and `/flags` resolvers.
+            team = Team.objects.get(
+                models.Q(secret_api_token=secret_api_token) | models.Q(secret_api_token_backup=secret_api_token)
+            )
             set_team_in_cache(secret_api_token, team)
             return team
 

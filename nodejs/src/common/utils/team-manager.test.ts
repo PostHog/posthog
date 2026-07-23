@@ -4,7 +4,7 @@ import { Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
 import { closeHub, createHub } from './db/hub'
-import { PostgresRouter } from './db/postgres'
+import { PostgresRouter, PostgresUse } from './db/postgres'
 import { TeamManager } from './team-manager'
 
 describe('TeamManager()', () => {
@@ -243,6 +243,32 @@ describe('TeamManager()', () => {
         it('returns null for an unknown phs_ token', async () => {
             const result = await teamManager.getTeamByToken('phs_does_not_exist')
             expect(result).toBeNull()
+        })
+
+        it('a rotated-out secret token stops resolving once the cache refreshes', async () => {
+            const newTeamId = await createTeam(postgres, organizationId, undefined, {
+                secret_api_token: 'phs_rotate_old',
+            })
+
+            // Warm the cache for the old token.
+            expect((await teamManager.getTeamByToken('phs_rotate_old'))?.id).toEqual(newTeamId)
+
+            // Rotate the secret token in the DB (old token fully retired, not kept as backup).
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET secret_api_token = $1, secret_api_token_backup = NULL WHERE id = $2`,
+                ['phs_rotate_new', newTeamId],
+                'test-rotate-secret-token'
+            )
+
+            // Staleness is TTL-bounded: until the cache entry expires the old token keeps resolving.
+            expect((await teamManager.getTeamByToken('phs_rotate_old'))?.id).toEqual(newTeamId)
+
+            // Simulate the cache TTL expiring; after a refresh the old token must return null and the
+            // new one resolves, so a rotated-out secret can't keep authenticating indefinitely.
+            ;(teamManager as any).lazyLoader.markForRefresh(['phs_rotate_old', 'phs_rotate_new'])
+            expect(await teamManager.getTeamByToken('phs_rotate_old')).toBeNull()
+            expect((await teamManager.getTeamByToken('phs_rotate_new'))?.id).toEqual(newTeamId)
         })
     })
 
