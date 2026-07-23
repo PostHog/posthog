@@ -166,9 +166,15 @@ def _actor_rebound_away_from_owner(run_id: str, state: dict | None, owner_id: in
     return bound_actor if bound_actor is not None and bound_actor != owner_id else None
 
 
-# Only the fast in-sandbox writes run under this lock (token resolution stays outside), so a short
-# TTL comfortably covers them; the wait stays well under the refresh activity's 2 min timeout.
-_CREDENTIAL_LOCK_TTL_SECONDS = 30
+# TTL derivation: the lock must outlive the whole critical section, or the lease can expire mid-write
+# and let a concurrent refresh acquire and interleave (a regression we hit before). Each managed
+# write is a chain of in-sandbox execs, each bounded by a 30s timeout — set_git_remote_token (1 exec)
+# and _write_sandbox_credential_file (a file write + a chmod exec). The per-message gate can run two
+# such chains back-to-back in one lock hold (apply the new token, then, if that fails, log out), so
+# the worst case is ~4 × 30s ≈ 2 min. A 5 min TTL clears that with margin; recompute if those exec
+# timeouts change. The wait stays under the refresh activity's 2 min timeout, so a contender that
+# can't acquire skips (fail-safe) rather than blocking the activity.
+_CREDENTIAL_LOCK_TTL_SECONDS = 5 * 60
 _CREDENTIAL_LOCK_WAIT_SECONDS = 15
 
 
