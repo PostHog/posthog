@@ -1228,6 +1228,10 @@ class ProjectBackwardCompatSerializer(
         if updated_team_fields:
             # auto_now fields only refresh when included in update_fields
             team.save(update_fields=[*updated_team_fields, "updated_at"])
+        # Snapshot before the cache refresh below so the audit diff only reflects this
+        # request's writes, not fields a concurrent request changed.
+        team_after_update = team.__dict__.copy()
+        if updated_team_fields:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
@@ -1249,7 +1253,6 @@ class ProjectBackwardCompatSerializer(
                     source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
                 ).delete()
 
-        team_after_update = team.__dict__.copy()
         project_after_update = instance.__dict__.copy()
         team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
         project_changes = dict_changes_between(

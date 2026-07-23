@@ -1635,6 +1635,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if validated_data:
             # auto_now fields only refresh when included in update_fields
             instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        # Snapshot before the cache refresh below so the audit diff only reflects this
+        # request's writes, not fields a concurrent request changed.
+        after_update = instance.__dict__.copy()
+        if validated_data:
             # The in-memory instance may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
@@ -1658,7 +1662,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
                 ).delete()
 
-        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+        changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
             organization_id=cast(UUIDT, instance.organization_id),
