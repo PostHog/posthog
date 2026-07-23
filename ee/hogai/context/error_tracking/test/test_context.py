@@ -7,7 +7,10 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.exceptions import ClickHouseAtCapacity
+
 from ee.hogai.context.error_tracking.context import ErrorTrackingIssueContext
+from ee.hogai.tool_errors import MaxToolTransientError
 
 # Test-fixture setup only — the code under test (ErrorTrackingIssueContext) reads issues through
 # the facade. Issues have no create-contract (they come from ingestion), so the test seeds the row
@@ -308,3 +311,14 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         result = await context.execute_and_format()
 
         self.assertIn("No stack trace available", result)
+
+    @patch.object(ErrorTrackingIssueContext, "aget_first_event")
+    async def test_execute_and_format_wraps_capacity_error_as_transient(self, mock_get_event):
+        # A transient ClickHouse capacity error from the shared max_ai user must surface as a
+        # MaxToolError the agent can retry, not escape as an uncaught APIException (which the tool
+        # runner would report as a server crash and dead-end the user).
+        mock_get_event.side_effect = ClickHouseAtCapacity()
+
+        context = self._create_context(self.issue_id_one)
+        with self.assertRaises(MaxToolTransientError):
+            await context.execute_and_format()

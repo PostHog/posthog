@@ -6,6 +6,8 @@ from posthog.sync import database_sync_to_async
 
 from products.surveys.backend.models import Survey
 
+from ee.hogai.context.query_retry import aretry_transient_query, to_max_tool_error
+
 from .prompts import SURVEY_CONTEXT_TEMPLATE
 
 
@@ -55,7 +57,7 @@ class SurveyContext:
                 return result.results[0][0]
             return 0
 
-        return await _get_count()
+        return await aretry_transient_query(_get_count)
 
     def format_questions(self, survey: Survey) -> str:
         """Format survey questions for display."""
@@ -153,7 +155,13 @@ class SurveyContext:
         survey_name = self._survey_name or survey.name or f"Survey {self._survey_id}"
         status = self._get_status(survey)
 
-        response_count = await self.aget_response_count()
+        try:
+            response_count = await self.aget_response_count()
+        except Exception as e:
+            # A query failure here (most commonly a transient ClickHouse capacity error from the
+            # shared max_ai user) must become a tool message the agent can act on, not an uncaught
+            # server exception.
+            raise to_max_tool_error(e, f"Error fetching responses for survey '{survey_name}': {e}")
         response_summary = f"Total responses: {response_count}"
 
         return SURVEY_CONTEXT_TEMPLATE.format(

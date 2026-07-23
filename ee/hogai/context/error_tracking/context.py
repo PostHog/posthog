@@ -13,6 +13,8 @@ from products.error_tracking.backend.facade import (
     contracts as error_tracking_contracts,
 )
 
+from ee.hogai.context.query_retry import aretry_transient_query, to_max_tool_error
+
 from .prompts import ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE
 
 
@@ -53,11 +55,7 @@ class ErrorTrackingIssueContext:
         return await database_sync_to_async(self._get_issue_sync)()
 
     async def aget_first_event(self, first_seen: datetime | None = None) -> dict | None:
-        """Fetch a representative early event for the issue to get stack trace data."""
-        return await database_sync_to_async(self._get_first_event_sync)(first_seen)
-
-    def _get_first_event_sync(self, first_seen: datetime | None = None) -> dict | None:
-        """Fetch an early event for the issue (for stack-trace context, not a precise audit).
+        """Fetch a representative early event for the issue (for stack-trace context, not a precise audit).
 
         Fetching the event reads its full properties blob, so scan a narrow ±1h window
         around first_seen instead of all time. This returns the earliest event *within the
@@ -67,7 +65,7 @@ class ErrorTrackingIssueContext:
         back to the full history so a stack trace is still surfaced.
         """
         if first_seen is not None:
-            event = self._query_first_event(
+            event = await self._aquery_first_event(
                 DateRange(
                     date_from=(first_seen - timedelta(hours=1)).isoformat(),
                     date_to=(first_seen + timedelta(hours=1)).isoformat(),
@@ -75,7 +73,10 @@ class ErrorTrackingIssueContext:
             )
             if event is not None:
                 return event
-        return self._query_first_event(DateRange(date_from="all"))
+        return await self._aquery_first_event(DateRange(date_from="all"))
+
+    async def _aquery_first_event(self, date_range: DateRange) -> dict | None:
+        return await aretry_transient_query(lambda: database_sync_to_async(self._query_first_event)(date_range))
 
     def _query_first_event(self, date_range: DateRange) -> dict | None:
         query = ErrorTrackingQuery(
@@ -170,7 +171,13 @@ class ErrorTrackingIssueContext:
 
         issue_name = self._issue_name or issue.name or f"Issue {self._issue_id}"
 
-        first_event = await self.aget_first_event(issue.first_seen)
+        try:
+            first_event = await self.aget_first_event(issue.first_seen)
+        except Exception as e:
+            # A query failure here (most commonly a transient ClickHouse capacity error from the
+            # shared max_ai user) must become a tool message the agent can act on, not an uncaught
+            # server exception. Mirrors the insight/survey read paths.
+            raise to_max_tool_error(e, f"Error fetching stack trace for issue '{issue_name}': {e}")
         if first_event is None:
             return f"No events found for issue '{issue_name}'. Cannot provide stack trace data."
 
