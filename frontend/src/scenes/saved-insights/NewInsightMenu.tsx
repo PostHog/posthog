@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
 
-import { IconGlobe, IconPieChart, IconPlusSmall, IconSparkles } from '@posthog/icons'
+import { IconPlusSmall, IconSparkles } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconInsightNumber, IconInsightPie, IconInsightTable, IconInsightWorldMap } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -131,7 +131,7 @@ const SUB_INSIGHT_CARDS: Record<'worldMap' | 'table' | 'number' | 'pie', NewInsi
         key: 'preset-world-map',
         name: 'World map',
         description: 'Unique users per country.',
-        icon: IconGlobe,
+        icon: IconInsightWorldMap,
         sketch: WorldMapSketch,
         to: TRENDS_PRESET_URLS.worldMap,
         dataAttr: 'new-insight-menu-preset-world-map',
@@ -141,7 +141,7 @@ const SUB_INSIGHT_CARDS: Record<'worldMap' | 'table' | 'number' | 'pie', NewInsi
         key: 'preset-table',
         name: 'Table',
         description: 'Totals ranked in a sortable table.',
-        icon: IconTableChart,
+        icon: IconInsightTable,
         sketch: TableSketch,
         to: TRENDS_PRESET_URLS.table,
         dataAttr: 'new-insight-menu-preset-table',
@@ -151,7 +151,7 @@ const SUB_INSIGHT_CARDS: Record<'worldMap' | 'table' | 'number' | 'pie', NewInsi
         key: 'preset-number',
         name: 'Number',
         description: 'One big number for a single metric.',
-        icon: Icon123,
+        icon: IconInsightNumber,
         sketch: NumberSketch,
         to: TRENDS_PRESET_URLS.number,
         dataAttr: 'new-insight-menu-preset-number',
@@ -161,7 +161,7 @@ const SUB_INSIGHT_CARDS: Record<'worldMap' | 'table' | 'number' | 'pie', NewInsi
         key: 'preset-pie',
         name: 'Pie chart',
         description: 'Share of a total, split by a breakdown.',
-        icon: IconPieChart,
+        icon: IconInsightPie,
         sketch: PieSketch,
         to: TRENDS_PRESET_URLS.pie,
         dataAttr: 'new-insight-menu-preset-pie',

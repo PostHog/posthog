@@ -1643,9 +1643,18 @@ def update_custom_property_source(
     return _to_custom_property_source_view(source, user_access_control)
 
 
-def delete_custom_property_source(*, team_id: int, source_id: str) -> bool:
-    """Delete a team-scoped source. Returns False when none matched (→ 404)."""
-    deleted, _ = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).delete()
+def delete_custom_property_source(
+    *, team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
+) -> bool:
+    """Delete a team-scoped source. Returns False when none matched (→ 404). Deleting a person source
+    permanently stops its billable warehouse-driven updates, so it requires the caller's warehouse-source
+    editor access (→ 403 via ``ResourceForbiddenError``), matching create/update/sync/backfill."""
+    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    if source is None:
+        return False
+    if source.external_data_schema_id is not None:
+        _assert_warehouse_source_editor(team_id, source.external_data_schema_id, user_access_control)
+    deleted, _ = source.delete()
     return deleted > 0
 
 
