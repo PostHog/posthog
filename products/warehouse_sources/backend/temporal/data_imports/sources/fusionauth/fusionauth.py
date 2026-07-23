@@ -1,13 +1,14 @@
+import threading
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 import requests
-from requests import Request, Response
+from requests import PreparedRequest, Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -21,10 +22,129 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth
 )
 
 HOST_NOT_ALLOWED_ERROR = "FusionAuth base URL is not allowed"
+HTTP_NOT_ALLOWED_ERROR = "FusionAuth base URL must use HTTPS"
+
+# The base URL can be a customer-controlled self-hosted host, so the sync path can't trust it to
+# behave. `RESTClient` calls `session.send()` without a timeout and buffers the whole body via
+# `.json()`, so a host that hangs, trickles bytes, or ships a huge (or gzip-bombed) 200 could pin an
+# import worker or exhaust its memory. `_BoundedFusionAuthSession` pins a connect/read timeout and
+# reads every body incrementally under a decoded-byte cap and a wall-clock deadline before handing
+# it back.
+DEFAULT_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)  # (connect, read)
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
+# The per-read socket timeout only bounds the gap between bytes, so a host trickling one byte just
+# under it could keep a worker busy indefinitely. This absolute wall-clock deadline caps how long a
+# single body read may take end to end, even while a read is blocked mid-chunk.
+MAX_RESPONSE_SECONDS = 600.0
+
+# The credential probe runs inline in the source-create API request (a Django worker), not a sync
+# worker, so it gets much tighter bounds: its only job is to read a status code and a small JSON
+# error body, so a controlled host must not be able to hold or fatten the worker even briefly.
+VALIDATION_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 10.0)  # (connect, read)
+VALIDATION_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+VALIDATION_MAX_RESPONSE_SECONDS = 30.0
 
 
 class FusionAuthHostNotAllowedError(Exception):
     pass
+
+
+class FusionAuthResponseTooLargeError(Exception):
+    pass
+
+
+class FusionAuthResponseTimeoutError(Exception):
+    pass
+
+
+def _read_bounded(
+    response: Response, max_bytes: int = MAX_RESPONSE_BYTES, max_seconds: float = MAX_RESPONSE_SECONDS
+) -> bytes:
+    """Read a streamed response body under both a decoded-byte cap and a total-transfer deadline.
+
+    The read runs on a worker thread bounded by ``join(timeout=max_seconds)``, so the deadline is
+    enforced as absolute wall-clock time even while a read is blocked: ``iter_content`` fills a whole
+    chunk before it yields, so a host that trickles bytes just under the per-read socket timeout
+    could otherwise never let an in-loop deadline check run. ``iter_content`` decodes content
+    encoding as it streams, so the cap counts decoded bytes and a gzip bomb can't slip past it. On
+    timeout we close the response to unblock the pending socket read and let the daemon thread unwind.
+    """
+    box: dict[str, Any] = {}
+
+    def _reader() -> None:
+        try:
+            total = 0
+            chunks: list[bytes] = []
+            for chunk in response.iter_content(chunk_size=_READ_CHUNK_BYTES):
+                total += len(chunk)
+                if total > max_bytes:
+                    box["error"] = FusionAuthResponseTooLargeError(
+                        f"FusionAuth response exceeded the size limit ({max_bytes} bytes)"
+                    )
+                    return
+                chunks.append(chunk)
+            box["data"] = b"".join(chunks)
+        except Exception as exc:  # surfaced on the calling thread below
+            box["error"] = exc
+
+    thread = threading.Thread(target=_reader, name="fusionauth-read-bounded", daemon=True)
+    thread.start()
+    thread.join(timeout=max_seconds)
+    if thread.is_alive():
+        # Close the socket so the blocked read raises and the daemon thread can exit.
+        response.close()
+        raise FusionAuthResponseTimeoutError(f"FusionAuth response exceeded the download time limit ({max_seconds:g}s)")
+    if "error" in box:
+        raise box["error"]
+    return box.get("data", b"")
+
+
+class _BoundedFusionAuthSession(requests.Session):
+    """Tracked, no-redirect session that streams every response under a size + time bound.
+
+    `RESTClient` invokes `send()` without a timeout and later reads the full body via `.json()`, so
+    on its own it offers no defense against a customer-controlled host that hangs or returns an
+    unbounded body. This pins a default connect/read timeout, streams the body through
+    `_read_bounded` under a decoded-byte cap and a wall-clock deadline, then re-buffers it so the
+    rest of the REST client (`.json()`, `.content`) sees an ordinary buffered response. The probe in
+    `validate_credentials` reuses it with tighter caps.
+    """
+
+    def __init__(self, *, max_bytes: int = MAX_RESPONSE_BYTES, max_seconds: float = MAX_RESPONSE_SECONDS) -> None:
+        super().__init__()
+        self._max_bytes = max_bytes
+        self._max_seconds = max_seconds
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        # Never follow redirects: a validated host could 3xx to an internal address (SSRF). Pin the
+        # timeout only when the caller didn't set one, and stream so the body is read incrementally.
+        kwargs["allow_redirects"] = False
+        kwargs.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
+        kwargs["stream"] = True
+        response = super().send(request, **kwargs)
+        if response.is_redirect or response.is_permanent_redirect:
+            # The caller rejects the 3xx itself; don't touch the (unconsumed) body.
+            return response
+        response._content = _read_bounded(response, self._max_bytes, self._max_seconds)
+        response._content_consumed = True  # type: ignore[attr-defined]
+        return response
+
+
+def _make_bounded_session(
+    api_key: str, *, max_bytes: int = MAX_RESPONSE_BYTES, max_seconds: float = MAX_RESPONSE_SECONDS
+) -> requests.Session:
+    session = _BoundedFusionAuthSession(max_bytes=max_bytes, max_seconds=max_seconds)
+    adapter = make_tracked_adapter(redact_values=(api_key,))
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def _is_https(base_url: str) -> bool:
+    # The API key rides in the Authorization header, so refuse plaintext HTTP to keep an on-path
+    # attacker from capturing it.
+    return urlparse(base_url).scheme == "https"
 
 
 @dataclasses.dataclass
@@ -150,16 +270,26 @@ def validate_credentials(base_url: str, api_key: str, team_id: Optional[int] = N
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
+    # Refuse plaintext HTTP before the key-bearing request goes out, so a self-hosted URL can't
+    # expose the API key on the network.
+    if not _is_https(normalized):
+        return False, HTTP_NOT_ALLOWED_ERROR
+
     try:
-        # Don't follow redirects: the validated host could 3xx to an internal address,
-        # defeating the host check above (SSRF).
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        # A bounded session (like the sync path, but with tight validation caps) streams the probe
+        # body under a decoded-byte cap and an absolute deadline, so a controlled host can't hold or
+        # fatten this inline API worker. `redact_values` masks the key from captured samples; the
+        # session refuses redirects so the validated host can't 3xx to an internal address (SSRF).
+        session = _make_bounded_session(
+            api_key, max_bytes=VALIDATION_MAX_RESPONSE_BYTES, max_seconds=VALIDATION_MAX_RESPONSE_SECONDS
+        )
+        response = session.get(
             f"{normalized}/api/application",
             headers={**_get_headers(), "Authorization": api_key},
-            timeout=10,
+            timeout=VALIDATION_TIMEOUT_SECONDS,
             allow_redirects=False,
         )
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.RequestException, FusionAuthResponseTooLargeError, FusionAuthResponseTimeoutError) as e:
         return False, str(e)
 
     if response.is_redirect or response.is_permanent_redirect:
@@ -204,6 +334,9 @@ def fusionauth_source(
                 # A validated host could still 3xx to an internal address; refuse to follow
                 # redirects so the Authorization header never replays to an unexpected host (SSRF).
                 "allow_redirects": False,
+                # Bound the customer-controlled host: pin a connect/read timeout and read every body
+                # under a decoded-byte cap and wall-clock deadline so it can't hang a worker or OOM it.
+                "session": _make_bounded_session(api_key),
             },
             "resources": [
                 {
@@ -226,10 +359,13 @@ def fusionauth_source(
 
     def items() -> Iterator[list[Any]]:
         # Re-check at run time (not just at source-create) in case the base URL was edited to
-        # now resolve to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        # now resolve to an internal address (SSRF / DNS rebinding). Only enforced on cloud. Refuse
+        # plaintext HTTP before the key is used. Both raise before any request leaves the process.
         host_ok, host_err = _is_host_safe(_hostname(normalized_url), team_id)
         if not host_ok:
             raise FusionAuthHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+        if not _is_https(normalized_url):
+            raise FusionAuthHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
         if config.sort_mode == "desc":
             # LoginRecords has no documented `orderBy`, so we can't assert ascending order.

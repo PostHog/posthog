@@ -1,24 +1,33 @@
 import json
-from typing import Any, Optional
+import threading
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
 
+import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth import fusionauth as fusionauth_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth.fusionauth import (
+    HTTP_NOT_ALLOWED_ERROR,
     FusionAuthOffsetPaginator,
+    FusionAuthResponseTimeoutError,
+    FusionAuthResponseTooLargeError,
     FusionAuthResumeConfig,
     _build_search_body,
+    _read_bounded,
     fusionauth_source,
     normalize_base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth.settings import FUSIONAUTH_ENDPOINTS
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# The sync path runs through a bounded session built by `_make_bounded_session`; patch that so the
+# pagination tests can drive `session.send` directly (RESTClient uses the session it's handed).
+CLIENT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth.fusionauth._make_bounded_session"
+)
 
 
 def _response(body: dict[str, Any], *, status_code: int = 200) -> Response:
@@ -161,7 +170,7 @@ class TestValidateCredentials:
             session.get.side_effect = raises
         else:
             session.get.return_value = response
-        return mock.patch.object(fusionauth_module, "make_tracked_session", return_value=session)
+        return mock.patch.object(fusionauth_module, "_make_bounded_session", return_value=session)
 
     def _resp(self, *, status_code=200, json_data=None, text=""):
         response = mock.MagicMock()
@@ -225,6 +234,21 @@ class TestValidateCredentials:
         assert valid is False
         assert msg == "Invalid FusionAuth base URL"
 
+    def test_rejects_plaintext_http_before_sending_key(self):
+        # An explicit http:// URL would send the API key in plaintext; reject it before any request.
+        with self._patch_session(self._resp(status_code=200)) as patched:
+            valid, msg = validate_credentials("http://auth.example.com", "tok")
+            assert valid is False
+            assert msg == HTTP_NOT_ALLOWED_ERROR
+            patched.return_value.get.assert_not_called()
+
+    def test_oversized_or_stalled_body_surfaces_as_failure(self):
+        # A controlled host that ships an unbounded/stalled body must fail validation, not hang.
+        with self._patch_session(raises=FusionAuthResponseTooLargeError("too big")):
+            valid, msg = validate_credentials("https://auth.example.com", "tok")
+            assert valid is False
+            assert "too big" in (msg or "")
+
 
 class TestFusionAuthSourceResponse:
     @pytest.mark.parametrize(
@@ -254,9 +278,9 @@ class TestFusionAuthSourceResponse:
 
 
 class TestFusionAuthAscendingPagination:
-    def _source(self, endpoint="AuditLogs", manager=None, **kwargs):
+    def _source(self, endpoint="AuditLogs", manager=None, base_url="https://auth.example.com", **kwargs):
         return fusionauth_source(
-            base_url="https://auth.example.com",
+            base_url=base_url,
             api_key="tok",
             endpoint=endpoint,
             team_id=1,
@@ -368,6 +392,15 @@ class TestFusionAuthAscendingPagination:
                 _rows(self._source())
         session.send.assert_not_called()
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_runtime_rejects_plaintext_http_before_sending_key(self, MockSession):
+        # A base URL edited to http:// must be refused at run time before the key leaves the process.
+        session = MockSession.return_value
+        _wire(session, [_response({"auditLogs": [{"id": 1}]})])
+        with pytest.raises(fusionauth_module.FusionAuthHostNotAllowedError):
+            _rows(self._source(base_url="http://auth.example.com"))
+        session.send.assert_not_called()
+
 
 class TestFusionAuthDescendingPagination:
     def _source(self, manager=None, **kwargs):
@@ -451,3 +484,43 @@ class TestFusionAuthDescendingPagination:
             )
         )
         assert "start" not in snaps[0]["json"]["search"]
+
+
+class _FakeStreamResponse:
+    """Minimal streamed `requests.Response` stand-in: yields fixed chunks and records close()."""
+
+    def __init__(self, chunks: list[bytes], *, block: bool = False) -> None:
+        self._chunks = chunks
+        self._block = block
+        self._released = threading.Event()
+        self.closed = False
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        yield from self._chunks
+        if self._block:
+            # Never completes on its own; only close() releases it. Models a host that stops mid-body.
+            self._released.wait()
+
+    def close(self) -> None:
+        self.closed = True
+        self._released.set()
+
+
+class TestReadBounded:
+    def test_reads_full_body_under_cap(self):
+        response = _FakeStreamResponse([b"hel", b"lo"])
+        assert _read_bounded(cast(requests.Response, response), max_bytes=100) == b"hello"
+
+    def test_raises_when_body_exceeds_byte_cap(self):
+        # The cap is what stops a huge (or gzip-bombed) body from exhausting a worker's memory.
+        response = _FakeStreamResponse([b"a" * 8, b"b" * 8])
+        with pytest.raises(FusionAuthResponseTooLargeError):
+            _read_bounded(cast(requests.Response, response), max_bytes=10)
+
+    def test_times_out_and_closes_a_stalled_body(self):
+        # A host that stalls mid-body must not pin the worker: the deadline fires and the socket is
+        # closed. max_seconds=0 makes the join return immediately while the reader is still blocked.
+        response = _FakeStreamResponse([b"partial"], block=True)
+        with pytest.raises(FusionAuthResponseTimeoutError):
+            _read_bounded(cast(requests.Response, response), max_bytes=100, max_seconds=0)
+        assert response.closed is True

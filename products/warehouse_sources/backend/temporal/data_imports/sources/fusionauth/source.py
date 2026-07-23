@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth.fusionauth import (
     HOST_NOT_ALLOWED_ERROR,
+    HTTP_NOT_ALLOWED_ERROR,
     FusionAuthResumeConfig,
     fusionauth_source,
     validate_credentials as validate_fusionauth_credentials,
@@ -99,6 +100,7 @@ Audit logs, event logs, and login records require the Elasticsearch search engin
         return {
             "401 Client Error": "Invalid FusionAuth API key. Please generate a new key and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The FusionAuth base URL is not allowed. Please use your organization's FusionAuth instance URL.",
+            HTTP_NOT_ALLOWED_ERROR: "The FusionAuth base URL must use HTTPS. Update the source to an https:// URL and reconnect.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
