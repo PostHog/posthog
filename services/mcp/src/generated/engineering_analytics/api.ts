@@ -57,7 +57,7 @@ export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.
 })
 
 /**
- * The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when it fails while masked as xfail; otherwise 'suspected_regression'. It qualifies on any same-commit recovery, any master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ * Recent backend and frontend test-health signals from per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when it fails while masked as xfail; otherwise 'suspected_regression'. It qualifies on any same-commit recovery, any master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const EngineeringAnalyticsFlakyTestsParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -94,6 +94,7 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .describe(
             'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
         ),
+    surface: zod.enum(['all', 'backend', 'frontend']).optional().describe('Test surface to include. Defaults to all.'),
 })
 
 /**
@@ -207,7 +208,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ * Per-owning-team rollup of recent CI test signals, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time through OwnersResolver (distributed owners.yaml, with product.yaml aliases); unstamped spans aggregate under the literal team 'unowned'. Ownership remains capture-time truth when a path is re-stamped. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -238,6 +239,7 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
         .describe(
             'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
         ),
+    surface: zod.enum(['all', 'backend', 'frontend']).optional().describe('Test surface to include. Defaults to all.'),
 })
 
 /**
