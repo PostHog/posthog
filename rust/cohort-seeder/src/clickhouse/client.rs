@@ -143,23 +143,14 @@ pub enum ClickHouseClientError {
     CaBundleEmpty { path: String },
 }
 
-// Copied from the `clickhouse` crate's own default HTTP client so the unverified-TLS client differs
-// from the crate default in certificate verification and nothing else. The idle timeout has to stay
-// well under ClickHouse's server-side keep-alive, or the pool hands out sockets the server has closed.
+// The `clickhouse` crate's own defaults; the idle timeout must stay under ClickHouse's server-side
+// keep-alive or the pool hands out sockets the server has already closed.
 const TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Accepts any server certificate, delegating only the handshake-signature checks to the crypto
-/// provider. Selected by `CLICKHOUSE_VERIFY=false`, the posture every Python ClickHouse consumer in
-/// the fleet already runs: PostHog's ClickHouse serves certificates from a per-environment internal
-/// CA, and no Kubernetes workload carries that trust anchor today, so real chain validation could
-/// only ever fail.
-///
-/// The wire stays encrypted, which is what keeps the ClickHouse password off the network, but the
-/// server is *not* authenticated: anything that can redirect traffic on the service network can
-/// impersonate ClickHouse, collect the credentials, and serve forged rows. Set `CLICKHOUSE_CA` to
-/// the environment's internal CA to close that gap — [`pinned_ca_tls_config`] then takes over and
-/// this verifier is never constructed.
+/// Accepts any server certificate, leaving only the handshake signatures checked. The wire stays
+/// encrypted, so the password never crosses in cleartext, but the server is not authenticated and
+/// anything able to redirect traffic can impersonate ClickHouse. Set `CLICKHOUSE_CA` to close that.
 #[derive(Debug)]
 struct AcceptAnyServerCert(Arc<CryptoProvider>);
 
@@ -208,8 +199,8 @@ impl ServerCertVerifier for AcceptAnyServerCert {
     }
 }
 
-/// Validates the server against `ca_path` alone, keeping hostname verification. This is the only
-/// mode that authenticates the ClickHouse server, so prefer it wherever the CA reaches the pod.
+/// Validates against `ca_path` alone, hostname verification included. The only mode that
+/// authenticates the server.
 fn pinned_ca_tls_config(ca_path: &str) -> Result<ClientConfig, ClickHouseClientError> {
     let mut roots = rustls::RootCertStore::empty();
     for certificate in CertificateDer::pem_file_iter(ca_path).map_err(|source| {
@@ -239,9 +230,8 @@ fn pinned_ca_tls_config(ca_path: &str) -> Result<ClientConfig, ClickHouseClientE
     )
 }
 
-/// Skips certificate validation entirely. The crate's own `rustls-tls` feature hardwires the bundled
-/// Mozilla public roots (`webpki-roots`) and ignores the container trust store, so this is the only
-/// way to express verify-off — the posture the rest of the fleet runs against internal ClickHouse.
+/// Skips certificate validation. Hand-rolled because the crate's `rustls-tls` feature hardwires the
+/// Mozilla public roots and ignores the container trust store, leaving no way to express verify-off.
 fn unverified_tls_config() -> Result<ClientConfig, rustls::Error> {
     let provider = Arc::new(aws_lc_rs::default_provider());
     Ok(ClientConfig::builder_with_provider(provider.clone())
@@ -274,8 +264,7 @@ pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseCli
     let join_algorithm = config
         .seeder_ch_join_algorithm
         .parse::<ClickHouseJoinAlgorithm>()?;
-    // Ordered most to least trusted: a pinned CA authenticates the server, public roots authenticate
-    // it only for publicly-issued certificates, and verify-off authenticates nothing.
+    // Ordered most to least trusted.
     let client = if !config.clickhouse_ca.is_empty() {
         client_with_tls_config(pinned_ca_tls_config(&config.clickhouse_ca)?)
     } else if config.clickhouse_verify {
@@ -406,8 +395,6 @@ mod tests {
         }
     }
 
-    /// An unusable `CLICKHOUSE_CA` must crash the seeder, never silently degrade to a weaker mode:
-    /// the whole point of naming a CA is to authenticate the server.
     #[test]
     fn an_unusable_ca_bundle_fails_startup_rather_than_downgrading() {
         let scratch = tempfile::tempdir().unwrap();
