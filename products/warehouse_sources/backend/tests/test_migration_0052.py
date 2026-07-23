@@ -1,9 +1,9 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class BackfillGoogleAdsIncrementalLookbackMigrationTest(TestMigrations):
+class BackfillGoogleAdsIncrementalLookbackMigrationTest(NonAtomicTestMigrations):
     """0051 backfills a default incremental lookback onto existing Google Ads incremental stats
     schemas, which were created before the source set one and so re-fetch only the newest day,
     freezing every prior day at its first-imported, not-yet-final value. It must touch only Google
@@ -11,6 +11,9 @@ class BackfillGoogleAdsIncrementalLookbackMigrationTest(TestMigrations):
     soft-deleted row, and never an explicit user value (including 0, which means "no overlap").
     """
 
+    # NonAtomic: setUp rewinds from the current schema down to migrate_from, which crosses the
+    # concurrent (atomic = False) index migrations later in the app — reversing a CREATE INDEX
+    # CONCURRENTLY can't run inside TestMigrations' wrapping transaction.
     migrate_from = "0051_warehousecolumnstatistics"
     migrate_to = "0052_backfill_google_ads_incremental_lookback"
 

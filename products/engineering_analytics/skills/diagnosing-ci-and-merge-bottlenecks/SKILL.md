@@ -38,14 +38,16 @@ autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
   pair **per workflow run** (many on a multi-workflow repo, interleaved by time), then merged/closed. Answers
   "where is PR N stuck". `metric_quality` is `partial`.
 - **`engineering-analytics-flaky-tests`** — the active test-health queue from the per-test CI spans, over a
-  window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span. `classification`
-  is `confirmed_flake` only where the evidence proves nondeterminism (`rerun_passed_run_count > 0`, an
-  in-job retry recovered it); `quarantined` means failing while masked as xfail; `suspected_regression` means only
-  failures were recorded, which is absence of proof, not proof of a real break. A test qualifies on any recovery,
-  an xfail, any master/main failure, or failures on ≥ `min_failed_prs` distinct PRs (`failed_pr_count`). Answers
-  "what is this failing test costing us" and picks quarantine candidates. **It does not answer "which tests are
-  flaky"**: this queue only sees Backend CI and only proves a flake for tests hand-marked
-  `@pytest.mark.flaky(reruns=N)`. Counts are absolute signal, never rates: passing runs are mostly not
+  window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span or run attempt.
+  `classification` is `confirmed_flake` only where the evidence proves nondeterminism
+  (`same_commit_recovery_run_count > 0`: one commit both failed and passed the test, via a "Re-run failed jobs"
+  attempt going green or an in-job retry); `quarantined` means failing while masked as xfail;
+  `suspected_regression` means only failures were recorded, which is absence of proof, not proof of a real break.
+  A test qualifies on any same-commit recovery, an xfail, any master/main failure, or failures on ≥
+  `min_failed_prs` distinct PRs (`failed_pr_count`). Answers "what is this failing test costing us" and picks
+  quarantine candidates. **It does not answer "which tests are flaky"**: this queue only sees Backend CI, and
+  recovery proof only arrives when someone re-runs failed jobs (or a test is hand-marked
+  `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
   emitted, so there is no honest denominator.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing

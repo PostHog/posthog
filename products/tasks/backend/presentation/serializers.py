@@ -600,6 +600,11 @@ class TaskWriteSerializer(serializers.Serializer):
             # would let them expose an arbitrary task to the whole team. The experiments
             # flow creates its tasks server-side through the facade, never through here.
             raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
+        if value == tasks_facade.TaskOriginProduct.SIGNALS_SCOUT:
+            # Scout tasks are created only by the signals scout harness. A forged scout origin
+            # would route the task's run logs into PostHog's internal Logs project
+            # (run_log_mirror) and inherit scout visibility semantics.
+            raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
         return value
 
     def validate_repository(self, value):
