@@ -1,0 +1,29 @@
+services:
+    fixture:
+        image: python:3.12-alpine
+        command: python /app/fixture_server.py
+        volumes:
+            - ./fixture_server.py:/app/fixture_server.py:ro
+            - ./fixtures:/app/fixtures:ro
+
+    sink:
+        # Keep the collector version in sync with ../../Dockerfile.
+        image: otel/opentelemetry-collector-contrib:0.142.0
+        command: ['--config', '/etc/sink-config.yaml']
+        volumes:
+            - ./sink-config.yaml:/etc/sink-config.yaml:ro
+            - ./out:/out
+
+    agent:
+        image: posthog-metrics-agent:test
+        environment:
+            POSTHOG_API_KEY: phc_test
+            POSTHOG_HOST: http://sink:4318
+            # The sink's stock otlp receiver only serves /v1/metrics; prod
+            # capture-logs is behind /i/v1/metrics (the template default).
+            POSTHOG_INGEST_PATH: /v1/metrics
+            SCRAPE_TARGETS: fixture:9464
+            SCRAPE_INTERVAL: 1s
+        depends_on:
+            - fixture
+            - sink
