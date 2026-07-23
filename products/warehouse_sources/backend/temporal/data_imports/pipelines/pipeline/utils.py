@@ -293,26 +293,24 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
                 except pa.ArrowInvalid as e:
-                    # A narrowing cast overflowed. The usual causes are the source column's type
-                    # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
-                    # column was created with the narrower type, or an integer-created column now
-                    # receiving fractional values — e.g. a price field whose first-synced rows were
-                    # all whole numbers, later failing with "ArrowInvalid: Float value 19.990000
-                    # was truncated converting to int64". delta-rs cannot widen an existing column
-                    # in place, so retrying is futile — surface an actionable error telling the
-                    # user to reset and fully re-sync the table. Whole-valued floats/decimals still
-                    # cast into an integer column losslessly, so this only fires on genuine data loss.
-                    if pa.types.is_integer(delta_field.type) and (
-                        pa.types.is_integer(incoming_column.type)
-                        or pa.types.is_floating(incoming_column.type)
-                        or pa.types.is_decimal(incoming_column.type)
-                    ):
-                        raise SchemaColumnTypeChangedException(
-                            f"Source column type changed: '{delta_field.name}' has values that no longer "
-                            f"fit its stored type {delta_field.type} (incoming data is now "
-                            f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
-                        ) from e
-                    raise
+                    # Reaching this cast already means the incoming type differs from the stored
+                    # Delta type (see the guard above) and the timestamp path didn't apply, so a
+                    # failure here is a deterministic, unretryable incompatibility: the source
+                    # column's type changed under a table created with a narrower type. Common
+                    # shapes are an integer column widened upstream (Postgres `integer` → `bigint`),
+                    # an integer-created column now receiving fractional values ("Float value 19.99
+                    # was truncated converting to int64"), non-numeric text arriving for a numeric
+                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), or a
+                    # value that overflows the stored decimal precision. delta-rs cannot change a
+                    # column's type in place, so retrying is futile — surface an actionable error
+                    # telling the user to reset and fully re-sync. Lossless widening (e.g. a
+                    # whole-valued float into an integer column) still casts fine and never reaches
+                    # here.
+                    raise SchemaColumnTypeChangedException(
+                        f"Source column type changed: '{delta_field.name}' has values that no longer "
+                        f"fit its stored type {delta_field.type} (incoming data is now "
+                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                    ) from e
 
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
@@ -612,7 +610,9 @@ def append_partition_key_to_table(
             mode = "md5"
 
         # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
-        is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+        is_partition_key_int = normalized_partition_keys[0] in table.column_names and pa.types.is_integer(
+            table.field(normalized_partition_keys[0]).type
+        )
         are_incrementing_ints = False
         if is_partition_key_int:
             partition_column = table.column(normalized_partition_keys[0])
@@ -648,6 +648,18 @@ def append_partition_key_to_table(
         else:
             logger.debug(f"append_partition_key_to_table: partitioning mode {mode} selected")
 
+    # A persisted partition mode skips the detection block above, so the partition key column may be
+    # absent from this batch — e.g. the source's schema drifted and stopped returning the field we
+    # previously partitioned on. Reading a missing key per-row would raise a raw KeyError and fail
+    # every sync; instead those rows fall back to a catch-all bucket (via `row.get`). When the missing
+    # field is also the incremental field, the downstream incremental-value check surfaces an
+    # actionable, non-retryable error.
+    missing_partition_keys = [key for key in normalized_partition_keys if key not in table.column_names]
+    if missing_partition_keys:
+        logger.warning(
+            f"append_partition_key_to_table: partition key(s) missing from incoming table, bucketing into fallback: {missing_partition_keys}"
+        )
+
     partition_array: list[str] = []
 
     for batch in table.to_batches():
@@ -655,7 +667,7 @@ def append_partition_key_to_table(
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
 
-                primary_key_values = [str(row[key]) for key in normalized_partition_keys]
+                primary_key_values = [str(row.get(key)) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
 
                 # this hash has no security impact
@@ -668,15 +680,26 @@ def append_partition_key_to_table(
                 assert partition_size is not None, "append_partition_key_to_table: partition_size is None"
 
                 key = normalized_partition_keys[0]
-                key_value = row[key]
+                key_value = row.get(key)
 
                 if key_value is None:
                     partition_array.append(NULL_NUMERICAL_PARTITION)
-                else:
+                elif isinstance(key_value, int):
                     partition_array.append(str(key_value // partition_size))
+                else:
+                    # A persisted "numerical" mode can outlive the integer key column that
+                    # justified it (e.g. the source's key column changed type mid-sync). Coerce
+                    # numeric values back to int so rows keep their original bucket; anything that
+                    # isn't integer-like lands in the null bucket instead of crashing the sync.
+                    try:
+                        coerced_key_value = int(key_value)
+                    except (TypeError, ValueError):
+                        partition_array.append(NULL_NUMERICAL_PARTITION)
+                    else:
+                        partition_array.append(str(coerced_key_value // partition_size))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
-                date = row[key]
+                date = row.get(key)
 
                 if partition_format is None:
                     partition_format = "week"

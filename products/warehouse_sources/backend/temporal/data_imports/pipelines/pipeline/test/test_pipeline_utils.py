@@ -1,5 +1,6 @@
 import uuid
 import decimal
+import hashlib
 import datetime
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, cast
@@ -16,6 +17,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    NULL_NUMERICAL_PARTITION,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -750,6 +752,37 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
     assert evolved_table.column("val").to_pylist() == [10, 20]
 
 
+@pytest.mark.parametrize(
+    "delta_type, incoming_column",
+    [
+        # Non-numeric text arriving for a column stored as int (Failed to parse string).
+        (pa.int32(), pa.array(["80", "80-150"], type=pa.string())),
+        # Non-boolean text arriving for a column stored as bool (Failed to parse value).
+        (pa.bool_(), pa.array(["true", "processed"], type=pa.string())),
+        # A value that overflows the stored decimal precision (Cannot convert ... overflow).
+        (pa.decimal128(3, 1), pa.array([1.0, 999999999.0], type=pa.float64())),
+    ],
+)
+def test_evolve_pyarrow_schema_incompatible_cast_raises_actionable_error(
+    delta_type: pa.DataType, incoming_column: pa.Array
+):
+    """Incoming data that can't be cast into the stored Delta type — non-numeric text into a
+    numeric/boolean column, or a value that overflows the stored decimal precision — raises the
+    actionable reset-and-re-sync error rather than a raw pyarrow ArrowInvalid that gets retried."""
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": incoming_column,
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])
+    )
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
+        evolve_pyarrow_schema(arrow_table, delta_schema)
+
+
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
     """Test that evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
@@ -973,6 +1006,29 @@ def test_append_partition_key_numerical_handles_null_key():
     partitioned_table, mode, _, _ = result
     assert mode == "numerical"
     assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
+
+
+def test_append_partition_key_numerical_handles_non_int_key():
+    # Numerical mode is persisted per source and passed back in on later batches, skipping the
+    # detection guard that requires an integer key column. If the source's key column has since
+    # changed type, the values arrive as strings and used to crash the batch on `str // int`.
+    # Numeric strings must keep their original bucket; non-numeric ones fall into the null bucket.
+    table = pa.table({"id": pa.array(["250", "10", "not-a-number"], type=pa.string())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=100,
+        partition_keys=["id"],
+        partition_mode="numerical",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
 
 
 def _mock_schema(**overrides: Any) -> MagicMock:
@@ -1367,3 +1423,37 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
 
     with pytest.raises(SchemaColumnTypeChangedException):
         align_incoming_decimals_to_delta(arrow_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "mode,partition_count,partition_size,partition_format,expected",
+    [
+        # datetime is the reported crash: a persisted `hs_timestamp`/`_creation_time` key that the
+        # source stopped returning fell into `row[key]` and raised a raw KeyError, failing every sync.
+        ("datetime", None, None, "month", "1970-01"),
+        ("numerical", None, 100, None, NULL_NUMERICAL_PARTITION),
+        ("md5", 4, None, None, str(int(hashlib.md5(b"None").hexdigest(), 16) % 4)),
+    ],
+)
+def test_append_partition_key_missing_column_buckets_into_fallback(
+    mode, partition_count, partition_size, partition_format, expected
+):
+    # A persisted partition mode is reused on later batches without re-running detection, so a source
+    # schema drift that drops the partition key column must bucket rows into a catch-all partition
+    # rather than raise a raw KeyError.
+    table = pa.table({"id": pa.array([1, 2, 3], type=pa.int64())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=partition_count,
+        partition_size=partition_size,
+        partition_keys=["dropped_field"],
+        partition_mode=mode,
+        partition_format=partition_format,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, resolved_mode, _, _ = result
+    assert resolved_mode == mode
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]

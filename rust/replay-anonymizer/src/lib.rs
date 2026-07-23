@@ -43,6 +43,7 @@ pub mod cv;
 #[doc(hidden)]
 pub mod dom;
 pub mod event;
+pub mod images;
 #[doc(hidden)]
 pub mod json;
 #[doc(hidden)]
@@ -65,6 +66,7 @@ pub use event::{
     anonymize_event, anonymize_event_str, anonymize_line, anonymize_line_with_ctx,
     anonymize_message,
 };
+pub use images::ImagePolicy;
 pub use snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_kafka_payload_timed,
     AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,

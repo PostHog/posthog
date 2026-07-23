@@ -16449,13 +16449,15 @@ export namespace Schemas {
     /**
      * * `account` - account
      * * `person` - person
+     * * `group` - group
      */
-    export type CustomPropertyDefinitionTargetType = typeof CustomPropertyDefinitionTargetType[keyof typeof CustomPropertyDefinitionTargetType];
+    export type CustomPropertyDefinitionTargetTypeEnum = typeof CustomPropertyDefinitionTargetTypeEnum[keyof typeof CustomPropertyDefinitionTargetTypeEnum];
 
 
-    export const CustomPropertyDefinitionTargetType = {
+    export const CustomPropertyDefinitionTargetTypeEnum = {
       Account: 'account',
       Person: 'person',
+      Group: 'group',
     } as const;
 
     /**
@@ -16661,11 +16663,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -47091,11 +47101,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -51791,6 +51809,25 @@ export namespace Schemas {
       summary?: string;
     }
 
+    export interface SignalScoutSlackDestination {
+      /**
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+         * @maxLength 255
+         * @nullable
+         */
+      channel?: string | null;
+    }
+
+    export interface SignalScoutOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+    }
+
     /**
      * Editable schedule, enablement, and emit posture for one scout config.
      */
@@ -51811,6 +51848,8 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
+      output_destinations?: SignalScoutOutputDestinations;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -61265,7 +61304,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+     * Read shape for a per-(team, skill) scout config.
      *
      * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
      * when it discovers a scout skill; this serializer lets agents tune the row.
@@ -61293,6 +61332,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly run_cron_schedule: string | null;
+      /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+      readonly output_destinations: SignalScoutOutputDestinations;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -61323,6 +61364,8 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -61406,8 +61449,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -61473,8 +61523,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -78532,42 +78589,6 @@ export namespace Schemas {
       Pending: 'pending',
     } as const;
 
-    export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat;
-    };
-
-    export type PersonsFunnelRetrieveFormat = typeof PersonsFunnelRetrieveFormat[keyof typeof PersonsFunnelRetrieveFormat];
-
-
-    export const PersonsFunnelRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat;
-    };
-
-    export type PersonsFunnelCreateFormat = typeof PersonsFunnelCreateFormat[keyof typeof PersonsFunnelCreateFormat];
-
-
-    export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat;
-    };
-
-    export type PersonsLifecycleRetrieveFormat = typeof PersonsLifecycleRetrieveFormat[keyof typeof PersonsLifecycleRetrieveFormat];
-
-
-    export const PersonsLifecycleRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
@@ -78604,18 +78625,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat;
-    };
-
-    export type PersonsTrendsRetrieveFormat = typeof PersonsTrendsRetrieveFormat[keyof typeof PersonsTrendsRetrieveFormat];
-
-
-    export const PersonsTrendsRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -79111,6 +79120,10 @@ export namespace Schemas {
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */
