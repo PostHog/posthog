@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/stamphog/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     StamphogDigestChannelsCreateBody,
     StamphogDigestChannelsDestroyParams,
@@ -19,6 +15,8 @@ import {
     StamphogReviewRunsListQueryParams,
     StamphogReviewRunsRetrieveParams,
 } from '@/generated/stamphog/api'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const StamphogDigestChannelsCreateSchema = StamphogDigestChannelsCreateBody
 

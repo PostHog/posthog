@@ -1,11 +1,7 @@
 // AUTO-GENERATED from products/cdp/mcp/cdp_functions.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     HogFunctionsCreateBody,
     HogFunctionsDestroyParams,
@@ -21,6 +17,8 @@ import {
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
     type: HogFunctionsCreateBody.shape['type'].describe(
