@@ -306,6 +306,60 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
+    @patch("posthog.storage.object_storage.write")
+    def test_a_later_invalid_bundle_prevents_any_write(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        valid = self._bundle_payload(name="first")
+        invalid = self._bundle_payload(name="second")
+        invalid["content_sha256"] = "0" * 64
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [valid, invalid]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        mock_write.assert_not_called()
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_a_failed_write_deletes_the_bundles_already_written(self, mock_write, mock_tag, mock_delete):
+        loop = self._create_loop(self.owner_client)
+        mock_write.side_effect = [None, RuntimeError("s3 down")]
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]),
+            {"bundles": [self._bundle_payload(name="first"), self._bundle_payload(name="second")]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, response.content)
+        mock_delete.assert_called_once()
+        deleted_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(deleted_paths), 1)
+        self.assertIn("first", deleted_paths[0])
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_deleting_a_loop_releases_its_bundle_objects(self, mock_write, mock_tag, mock_delete):
+        loop = self._create_loop(self.owner_client)
+        replaced = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+        self.assertEqual(replaced.status_code, status.HTTP_200_OK, replaced.content)
+        stored_path = Loop.objects.unscoped().get(id=loop["id"]).skill_bundles[0]["storage_path"]
+
+        deleted = self.owner_client.delete(self._loop_url(loop["id"]))
+
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT, deleted.content)
+        mock_delete.assert_called_once_with([stored_path])
+        row = Loop.objects.unscoped().get(id=loop["id"])
+        self.assertTrue(row.deleted)
+        self.assertEqual(row.skill_bundles, [])
+
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     def test_replace_is_owner_gated_on_a_team_loop(self, mock_write, mock_tag):

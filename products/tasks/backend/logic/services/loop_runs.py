@@ -495,7 +495,10 @@ def _seed_skill_bundle_artifacts(loop: Loop, task_run: TaskRun) -> None:
     artifact prefix plus matching ``skill_bundle`` manifest entries, so the sandbox
     agent-server installs them exactly like bundles a client uploaded at task creation.
     Raises on a failed copy — a fire whose skills can't be seeded rolls back and retries
-    cleanly rather than running with silently missing skills."""
+    cleanly rather than running with silently missing skills. The database rollback
+    can't reclaim already-copied objects (and a retried fire mints a new run id, so
+    nothing would ever reference them), so those are deleted best-effort before
+    re-raising."""
     bundles = [entry for entry in (loop.skill_bundles or []) if isinstance(entry, dict) and entry.get("storage_path")]
     if not bundles:
         return
@@ -504,22 +507,35 @@ def _seed_skill_bundle_artifacts(loop: Loop, task_run: TaskRun) -> None:
 
     run_prefix = task_run.get_artifact_s3_prefix()
     manifest = list(task_run.artifacts or [])
-    for bundle in bundles:
-        entry = dict(bundle)
-        target_path = f"{run_prefix}/{str(entry['id'])[:8]}_{entry['name']}"
-        object_storage.copy(entry["storage_path"], target_path)
-        try:
-            object_storage.tag(target_path, {"ttl_days": "30", "team_id": str(task_run.team_id)})
-        except Exception as exc:
-            logger.warning(
-                "loop_run.skill_bundle_tag_failed",
-                extra={"task_run_id": str(task_run.id), "storage_path": target_path, "error": str(exc)},
-            )
-        entry["storage_path"] = target_path
-        manifest.append(entry)
+    copied_paths: list[str] = []
+    try:
+        for bundle in bundles:
+            entry = dict(bundle)
+            target_path = f"{run_prefix}/{str(entry['id'])[:8]}_{entry['name']}"
+            object_storage.copy(entry["storage_path"], target_path)
+            copied_paths.append(target_path)
+            try:
+                object_storage.tag(target_path, {"ttl_days": "30", "team_id": str(task_run.team_id)})
+            except Exception as exc:
+                logger.warning(
+                    "loop_run.skill_bundle_tag_failed",
+                    extra={"task_run_id": str(task_run.id), "storage_path": target_path, "error": str(exc)},
+                )
+            entry["storage_path"] = target_path
+            manifest.append(entry)
 
-    task_run.artifacts = manifest
-    task_run.save(update_fields=["artifacts", "updated_at"])
+        task_run.artifacts = manifest
+        task_run.save(update_fields=["artifacts", "updated_at"])
+    except Exception:
+        if copied_paths:
+            try:
+                object_storage.delete_objects(copied_paths)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "loop_run.skill_bundle_seed_cleanup_failed",
+                    extra={"task_run_id": str(task_run.id), "paths": copied_paths, "error": str(cleanup_exc)},
+                )
+        raise
 
 
 def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_context: str) -> tuple[Task, TaskRun]:

@@ -295,6 +295,9 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["put"], url_path="skill_bundles", required_scopes=["loop:write"])
     def skill_bundles(self, request, pk=None, **kwargs):
+        # Request parsing is bounded before this runs: Django's DATA_UPLOAD_MAX_MEMORY_SIZE
+        # (20MB, posthog/settings/web.py) rejects larger bodies, so oversized base64 payloads
+        # never reach the serializer. The facade's per-bundle decoded-size cap is the backstop.
         serializer = LoopSkillBundlesWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

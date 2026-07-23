@@ -599,6 +599,31 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
 
         self.assertEqual(self.active_run_count(loop), 0)
 
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.copy")
+    def test_a_partially_seeded_fire_deletes_the_copies_it_made(self, mock_copy, mock_tag, mock_delete):
+        # The rollback reclaims the run row but not S3, and a retried fire mints a new run
+        # id — without cleanup every failed attempt would strand another set of objects.
+        mock_copy.side_effect = [None, RuntimeError("s3 down")]
+        first = self._bundle_entry()
+        second = self._bundle_entry(
+            id="fedcba9876543210fedcba9876543210",
+            name="other-skill.zip",
+            storage_path="tasks/artifacts/team_1/loop_x/fedcba98_other-skill.zip",
+        )
+        loop = self.create_loop(skill_bundles=[first, second])
+        trigger = self.create_trigger(loop)
+
+        with self.assertRaises(RuntimeError):
+            fire_loop(loop, trigger, "fire-1", "ctx")
+
+        mock_delete.assert_called_once()
+        deleted_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(deleted_paths), 1)
+        self.assertIn("abcdef01_my-skill.zip", deleted_paths[0])
+        self.assertEqual(self.active_run_count(loop), 0)
+
 
 class TestFireLoopContextTarget(LoopRunsTestCase):
     FOLDER_ID = "11111111-1111-1111-1111-111111111111"

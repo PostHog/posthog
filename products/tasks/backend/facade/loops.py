@@ -994,15 +994,35 @@ MAX_LOOP_SKILL_BUNDLES = 10
 MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 30 * 1024 * 1024
 
 
+def _delete_skill_bundle_objects(loop_id: UUID, paths: list[str]) -> None:
+    """Best-effort removal of loop skill bundle objects. Failures are logged, not raised:
+    a leaked object is recoverable garbage, while failing the caller's operation over
+    cleanup is not."""
+    if not paths:
+        return
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    try:
+        object_storage.delete_objects(paths)
+    except Exception as exc:
+        logger.warning(
+            "loop.skill_bundle_cleanup_failed",
+            extra={"loop_id": str(loop_id), "paths": paths, "error": str(exc)},
+        )
+
+
 def replace_loop_skill_bundles(
     loop_id: str | UUID, team_id: int, user: User | None, *, bundles: list[dict]
 ) -> LoopDTO | None:
     """Replace the loop's attached skill bundles wholesale — the client sends the full
     declarative set on every save, so there is no per-bundle add/remove surface. Bundle
     bytes land under the loop's own S3 prefix (not any run's, so run retention never
-    reaps them); superseded objects are deleted best-effort after the manifest swap.
-    Owner-gated like every other identity-bearing field. Returns `None` if the loop is
-    not found/reachable."""
+    reaps them). Every bundle is validated before the first byte is written, a failed
+    write deletes what this request already wrote, and the manifest swap happens under
+    a row lock with superseded paths read from the locked row — so neither a partial
+    failure nor a concurrent replace strands unreferenced objects. Owner-gated like
+    every other identity-bearing field. Returns `None` if the loop is not
+    found/reachable."""
     import hashlib  # noqa: PLC0415
 
     from django.utils import timezone as django_timezone  # noqa: PLC0415
@@ -1019,14 +1039,7 @@ def replace_loop_skill_bundles(
         return None
     _authorize_update(loop, user, {"skill_bundles": bundles})
 
-    prefix = loop.get_skill_bundle_s3_prefix()
-    previous_paths = [
-        entry["storage_path"]
-        for entry in (loop.skill_bundles or [])
-        if isinstance(entry, dict) and entry.get("storage_path")
-    ]
-
-    entries: list[dict] = []
+    decoded: list[tuple[dict, bytes]] = []
     for bundle in bundles:
         try:
             content_bytes = base64.b64decode(bundle["content_base64"], validate=True)
@@ -1039,51 +1052,65 @@ def replace_loop_skill_bundles(
             )
         if hashlib.sha256(content_bytes).hexdigest() != bundle["content_sha256"]:
             raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' does not match its declared sha256.")
+        decoded.append((bundle, content_bytes))
 
-        bundle_id = uuid4().hex
-        safe_name = get_safe_artifact_name(bundle["file_name"])
-        storage_path = f"{prefix}/{bundle_id[:8]}_{safe_name}"
-        object_storage.write(storage_path, content_bytes, {"ContentType": "application/zip"})
-        try:
-            object_storage.tag(storage_path, {"team_id": str(loop.team_id)})
-        except Exception as exc:
-            logger.warning(
-                "loop.skill_bundle_tag_failed",
-                extra={"loop_id": str(loop.id), "storage_path": storage_path, "error": str(exc)},
+    prefix = loop.get_skill_bundle_s3_prefix()
+    entries: list[dict] = []
+    written_paths: list[str] = []
+    try:
+        for bundle, content_bytes in decoded:
+            bundle_id = uuid4().hex
+            safe_name = get_safe_artifact_name(bundle["file_name"])
+            storage_path = f"{prefix}/{bundle_id[:8]}_{safe_name}"
+            object_storage.write(storage_path, content_bytes, {"ContentType": "application/zip"})
+            written_paths.append(storage_path)
+            try:
+                object_storage.tag(storage_path, {"team_id": str(loop.team_id)})
+            except Exception as exc:
+                logger.warning(
+                    "loop.skill_bundle_tag_failed",
+                    extra={"loop_id": str(loop.id), "storage_path": storage_path, "error": str(exc)},
+                )
+            entries.append(
+                {
+                    "id": bundle_id,
+                    "name": safe_name,
+                    "type": "skill_bundle",
+                    "source": "posthog_code_skill",
+                    "size": len(content_bytes),
+                    "content_type": "application/zip",
+                    "storage_path": storage_path,
+                    "uploaded_at": django_timezone.now().isoformat(),
+                    "metadata": {
+                        "skill_name": bundle["skill_name"],
+                        "skill_source": bundle["skill_source"],
+                        "content_sha256": bundle["content_sha256"],
+                        "bundle_format": "zip",
+                        "schema_version": 1,
+                    },
+                }
             )
-        entries.append(
-            {
-                "id": bundle_id,
-                "name": safe_name,
-                "type": "skill_bundle",
-                "source": "posthog_code_skill",
-                "size": len(content_bytes),
-                "content_type": "application/zip",
-                "storage_path": storage_path,
-                "uploaded_at": django_timezone.now().isoformat(),
-                "metadata": {
-                    "skill_name": bundle["skill_name"],
-                    "skill_source": bundle["skill_source"],
-                    "content_sha256": bundle["content_sha256"],
-                    "bundle_format": "zip",
-                    "schema_version": 1,
-                },
-            }
-        )
+    except Exception:
+        _delete_skill_bundle_objects(loop.id, written_paths)
+        raise
 
+    # Previous paths come from the row read under the lock, not the earlier fetch: if a
+    # concurrent replace committed in between, its objects are what this swap supersedes
+    # and must be the ones deleted, or they'd be stranded with no manifest referencing them.
     with transaction.atomic():
-        loop.skill_bundles = entries
-        loop.save(update_fields=["skill_bundles", "updated_at"])
+        locked = Loop.objects.unscoped().select_for_update().get(pk=loop.pk)
+        previous_paths = [
+            entry["storage_path"]
+            for entry in (locked.skill_bundles or [])
+            if isinstance(entry, dict) and entry.get("storage_path")
+        ]
+        locked.skill_bundles = entries
+        locked.save(update_fields=["skill_bundles", "updated_at"])
 
-    stale_paths = [path for path in previous_paths if path.startswith(prefix)]
-    if stale_paths:
-        try:
-            object_storage.delete_objects(stale_paths)
-        except Exception as exc:
-            logger.warning(
-                "loop.skill_bundle_cleanup_failed",
-                extra={"loop_id": str(loop.id), "paths": stale_paths, "error": str(exc)},
-            )
+    new_paths = {entry["storage_path"] for entry in entries}
+    _delete_skill_bundle_objects(
+        loop.id, [path for path in previous_paths if path.startswith(prefix) and path not in new_paths]
+    )
 
     loop.refresh_from_db()
     return _loop_to_dto(loop)
@@ -1103,8 +1130,17 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
     elif not (_is_owner(loop, user) or _is_team_admin(loop, user)):
         raise LoopPermissionError("Only the owner or a project admin may delete a loop.")
 
+    # A deleted loop never fires again, so its skill bundle objects are dead weight with
+    # no retention TTL — release them now and clear the manifest so the row stays honest.
+    bundle_paths = [
+        entry["storage_path"]
+        for entry in (loop.skill_bundles or [])
+        if isinstance(entry, dict) and entry.get("storage_path")
+    ]
     loop.deleted = True
-    loop.save(update_fields=["deleted", "updated_at"])
+    loop.skill_bundles = []
+    loop.save(update_fields=["deleted", "skill_bundles", "updated_at"])
+    _delete_skill_bundle_objects(loop.id, bundle_paths)
     loop_service.delete_loop_schedules(loop)
     return True
 
