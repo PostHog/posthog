@@ -28,6 +28,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -173,6 +175,7 @@ def scan_session_for_metric_events(
     session_id: str,
     window_start: datetime,
     window_end: datetime,
+    hogql_database: Database | None = None,
 ) -> list[MetricHit]:
     """The metrics with >=1 matching event in the session, sorted by first occurrence.
 
@@ -189,6 +192,10 @@ def scan_session_for_metric_events(
     source dedupe only narrows the query, it must not let a metric-heavy experiment emit an
     unbounded hit list by piling metrics onto one source. `user` threads through to HogQL for
     property-level access control — metric source nodes can carry property filters.
+
+    `hogql_database` optionally carries a prebuilt virtual database (session_context builds
+    one shared across all its scans) — constructing it dominates query wall time on teams with
+    a large warehouse schema, so callers that already hold one should pass it in.
     """
     names_by_uuid: dict[str, str] = {}
     # Metric uuids grouped by identical source nodes: identical sources compile to identical
@@ -285,7 +292,12 @@ def scan_session_for_metric_events(
             ]
         ),
     )
-    response = execute_hogql_query(query, team=team, user=user)
+    # execute_hogql_query treats a passed context as fully caller-owned, so only build one when
+    # there is a shared database to carry; otherwise let the executor construct its default.
+    extra_kwargs: dict[str, HogQLContext] = {}
+    if hogql_database is not None:
+        extra_kwargs["context"] = HogQLContext(team_id=team.pk, user=user, database=hogql_database)
+    response = execute_hogql_query(query, team=team, user=user, **extra_kwargs)
 
     # Aggregation without GROUP BY always yields exactly one row; a metric with no matching
     # events shows count 0 there (and an epoch minIf), so the count guards the timestamps.

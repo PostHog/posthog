@@ -9,6 +9,8 @@ from django.core.cache import cache
 
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -620,6 +622,33 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             second = self._get_session_context()
         compute.assert_not_called()
         assert second.json() == first.json()
+
+    def test_uncached_request_builds_hogql_database_once(self) -> None:
+        # Building the HogQL virtual database costs seconds on teams with a large warehouse
+        # schema, so the endpoint builds one and shares it across every scan (exposures,
+        # stamped properties, metric events). A scan that quietly builds its own would
+        # reintroduce the multi-second latency this endpoint used to have.
+        self._create_recording()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        self._create_experiment(metrics=[metric])
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["flag_key"] for result in results] == ["checkout-cta"]
+        assert results[0]["metrics_in_session"][0]["metric_uuid"] == metric["uuid"]
+        assert create_for.call_count == 1
 
     def test_recording_not_found_is_not_cached(self) -> None:
         # A recording can 404 while still ingesting; that answer must not stick for the TTL.

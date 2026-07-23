@@ -36,7 +36,10 @@ import pydantic
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -195,6 +198,19 @@ def _compute_session_experiment_context(
         # No overlapping experiment defines variants, so nothing could surface a variant seen.
         return []
 
+    # Every scan below goes through HogQL, and constructing the virtual database dominates this
+    # endpoint's wall time on teams with a large warehouse schema — several seconds per query,
+    # paid once per query, while ClickHouse itself answers in well under a second. Build the
+    # database once here and share it across all the scans: it is read-only after construction
+    # (each query still gets its own HogQLContext, which printing does mutate). Postgres
+    # foreign-key lazy joins are skipped — these queries only ever read the events table.
+    hogql_database = Database.create_for(
+        team=team,
+        user=user,
+        modifiers=create_default_modifiers_for_team(team),
+        build_postgres_foreign_keys=False,
+    )
+
     # Flag evaluations are variant evidence for every experiment — the replay shows exactly
     # what the session was served, whatever the exposure criteria say — and double as the
     # exposure moment for experiments with the default criteria shape.
@@ -202,6 +218,7 @@ def _compute_session_experiment_context(
         _query_flag_evaluations,
         team,
         user,
+        hogql_database,
         session_id,
         window_start,
         window_end,
@@ -216,6 +233,7 @@ def _compute_session_experiment_context(
         _query_exposure_event_branches,
         team,
         user,
+        hogql_database,
         session_id,
         window_start,
         window_end,
@@ -223,7 +241,7 @@ def _compute_session_experiment_context(
     )
     candidate_keys = {experiment.feature_flag.key for experiment in candidates}
     query_stamped = partial(
-        _query_stamped_flag_properties, team, user, session_id, candidate_keys, window_start, window_end
+        _query_stamped_flag_properties, team, user, hogql_database, session_id, candidate_keys, window_start, window_end
     )
 
     # The three scans are independent given the pre-rescue candidate set (only the rescue
@@ -262,7 +280,11 @@ def _compute_session_experiment_context(
     rescued_keys = evidenced_keys - candidate_keys
     if rescued_keys:
         candidates += list(overlapping.filter(feature_flag__key__in=sorted(rescued_keys)))
-        stamped.update(_query_stamped_flag_properties(team, user, session_id, rescued_keys, window_start, window_end))
+        stamped.update(
+            _query_stamped_flag_properties(
+                team, user, hogql_database, session_id, rescued_keys, window_start, window_end
+            )
+        )
 
     surfaced: list[tuple[Experiment, str, list[str], Optional[datetime]]] = []
     for experiment in candidates:
@@ -313,6 +335,7 @@ def _compute_session_experiment_context(
                     session_id=session_id,
                     window_start=window_start,
                     window_end=window_end,
+                    hogql_database=hogql_database,
                 )
             }
     except Exception:
@@ -379,9 +402,17 @@ def _variant_keys_from_filters(filters: Optional[dict]) -> set[str]:
     return {variant["key"] for variant in multivariate.get("variants", []) if variant.get("key")}
 
 
+def _hogql_context(team: Team, user: User, database: Database) -> HogQLContext:
+    """A fresh per-query context carrying the shared prebuilt database, so
+    `execute_hogql_query` reuses it instead of building its own. Contexts must not be shared
+    between queries (printing accumulates per-query state on them); the database can be."""
+    return HogQLContext(team_id=team.pk, user=user, database=database)
+
+
 def _query_flag_evaluations(
     team: Team,
     user: User,
+    database: Database,
     session_id: str,
     window_start: datetime,
     window_end: datetime,
@@ -424,7 +455,7 @@ def _query_flag_evaluations(
             "max_rows": ast.Constant(value=MAX_EXPOSURE_ROWS),
         },
     )
-    response = execute_hogql_query(query, team=team, user=user)
+    response = execute_hogql_query(query, team=team, user=user, context=_hogql_context(team, user, database))
 
     exposures: dict[str, list[tuple[str, datetime]]] = {}
     for flag_key, variant, first_seen in response.results or []:
@@ -437,6 +468,7 @@ def _query_flag_evaluations(
 def _query_exposure_event_branches(
     team: Team,
     user: User,
+    database: Database,
     session_id: str,
     window_start: datetime,
     window_end: datetime,
@@ -504,7 +536,7 @@ def _query_exposure_event_branches(
     # No set-level LIMIT here: the printer emits it directly after the last branch's own
     # LIMIT, which ClickHouse rejects as a syntax error. The per-branch limits above are
     # the backstop; total output is already bounded by each flag's defined variants.
-    response = execute_hogql_query(query, team=team, user=user)
+    response = execute_hogql_query(query, team=team, user=user, context=_hogql_context(team, user, database))
 
     exposures: dict[int, list[tuple[str, datetime]]] = {}
     for experiment_id, variant, first_seen in response.results or []:
@@ -517,6 +549,7 @@ def _query_exposure_event_branches(
 def _query_stamped_flag_properties(
     team: Team,
     user: User,
+    database: Database,
     session_id: str,
     flag_keys: set[str],
     window_start: datetime,
@@ -558,7 +591,7 @@ def _query_stamped_flag_properties(
             ]
         ),
     )
-    response = execute_hogql_query(query, team=team, user=user)
+    response = execute_hogql_query(query, team=team, user=user, context=_hogql_context(team, user, database))
 
     row = response.results[0] if response.results else [[] for _ in sorted_keys]
     return {key: [value for value in row[index] if value] for index, key in enumerate(sorted_keys)}
