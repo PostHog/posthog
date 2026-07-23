@@ -259,6 +259,54 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_1["values"][0]["count"], 1)
         self.assertEqual(day_1["values"][1]["count"], 0)
 
+    def test_dwh_start_events_return_with_property_filter_24h_window(self):
+        person_ids = self._create_people()
+        signups_table = self._create_renewals_table(
+            "warehouse_signups_d",
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00"],
+            ],
+        )
+        _create_event(
+            team=self.team,
+            event="$renewed",
+            distinct_id="user-1",
+            timestamp="2025-01-02 12:00:00",  # 27h after t_0 -> interval 1
+            properties={"plan": "pro"},
+        )
+        _create_event(
+            team=self.team,
+            event="$renewed",
+            distinct_id="user-2",
+            timestamp="2025-01-02 12:00:00",  # matches the event but not the property filter
+            properties={"plan": "free"},
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "timeWindowMode": "24_hour_windows",
+                    "targetEntity": self._renewals_entity(signups_table),
+                    "returningEntity": {
+                        "id": "$renewed",
+                        "name": "$renewed",
+                        "type": "events",
+                        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
+                    },
+                },
+            }
+        )
+
+        day_0 = self._row(result, "Day 0")
+        self.assertEqual(day_0["values"][0]["count"], 2)  # interval 0: both signed up on 2025-01-01
+        self.assertEqual(day_0["values"][1]["count"], 1)  # interval 1: only user-1's plan=pro renewal counts
+        self.assertEqual(day_0["values"][2]["count"], 0)
+
     def test_two_different_dwh_tables_24h_window(self):
         person_ids = self._create_people()
         signups_table = self._create_renewals_table(
@@ -376,9 +424,27 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_0["values"][1]["count"], 1)
         self.assertEqual(sum(row["values"][0]["count"] for row in result), 1)
 
-    def test_cumulative_with_dwh_24h_window_is_rejected(self):
-        activity_table = self._create_renewals_table("warehouse_cumulative", rows=[])
-        with self.assertRaisesMessage(ValidationError, "Cumulative retention is not supported for 24 hour windows."):
+    @parameterized.expand(
+        [
+            (
+                "cumulative",
+                {"cumulative": True},
+                {},
+                "Cumulative retention is not supported for 24 hour windows.",
+            ),
+            (
+                "breakdown",
+                {},
+                {"breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}},
+                "Breakdowns are not supported for 24 hour windows with a data warehouse series.",
+            ),
+        ]
+    )
+    def test_unsupported_dwh_24h_window_combinations_are_rejected(
+        self, name: str, retention_filter_extra: dict, query_extra: dict, expected_error: str
+    ):
+        activity_table = self._create_renewals_table(f"warehouse_rejected_{name}", rows=[])
+        with self.assertRaisesMessage(ValidationError, expected_error):
             self.run_query(
                 query={
                     "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
@@ -386,9 +452,10 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
                         "period": "Day",
                         "totalIntervals": 4,
                         "timeWindowMode": "24_hour_windows",
-                        "cumulative": True,
                         "targetEntity": self._renewals_entity(activity_table),
                         "returningEntity": self._renewals_entity(activity_table),
+                        **retention_filter_extra,
                     },
+                    **query_extra,
                 }
             )

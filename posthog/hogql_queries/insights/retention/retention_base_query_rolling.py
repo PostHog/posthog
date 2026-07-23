@@ -117,31 +117,20 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return inner_query
 
     def _build_base_query_data_warehouse(self, unit: str, count: int) -> ast.SelectQuery:
-        # Breakdowns are out of scope for this path: apply_breakdown references events.timestamp / events.properties,
-        # which aren't in scope when the start entity is a data warehouse table. Global property filters,
-        # test-account filters, and sampling are rejected upstream by DisallowUnsupportedDataWarehouseSettings.
+        # Breakdowns are rejected upstream by DisallowBreakdownsWithDataWarehouse24HourWindows: apply_breakdown
+        # references events / person columns, which aren't in scope in this query shape. Global property filters,
+        # test-account filters, and sampling are rejected by DisallowUnsupportedDataWarehouseSettings.
         first_event_cte = self._build_data_warehouse_first_event_cte()
+        return_scan = self._build_return_scan()
 
-        return_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
-        return_ts_field = self.entity_timestamp_field(self.return_event)
-        return_table_name = self.return_event.table_name if return_is_dwh else "events"
-        assert return_table_name
-        return_actor_column = self.entity_actor_id_column(self.return_event)
-
-        # A LEFT-joined return row counts toward an interval when it matches the return entity, falls inside the
-        # window, and is at or after the actor's t_0. The >= t_0 comparison is also the discriminator that drops the
-        # NULL-filled unmatched row — a no-property data warehouse return predicate is a constant True and so can't
-        # do that on its own, but the timestamp comparison against a NULL row evaluates falsy.
-        return_match = ast.And(
-            exprs=[
-                self.entity_expr_with_props(self.return_event),
-                self.events_timestamp_filter(field=return_ts_field),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=return_ts_field,
-                    right=ast.Field(chain=["actors_with_t0", "t_0"]),
-                ),
-            ]
+        return_ts = ast.Field(chain=["return_events", "timestamp"])
+        # The return scan already restricts its rows to the return entity inside the analysis window, so the only
+        # outer condition is >= t_0. That comparison doubles as the discriminator that drops the NULL-filled
+        # unmatched LEFT-join row: against a NULL timestamp it evaluates falsy.
+        return_match = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=return_ts,
+            right=ast.Field(chain=["actors_with_t0", "t_0"]),
         )
 
         return ast.SelectQuery(
@@ -182,7 +171,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                         """,
                         {
                             "return_match": return_match,
-                            "return_ts": return_ts_field,
+                            "return_ts": return_ts,
                             "unit": ast.Constant(value=unit),
                             "count": ast.Constant(value=count),
                         },
@@ -193,19 +182,45 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 table=first_event_cte,
                 alias="actors_with_t0",
                 next_join=ast.JoinExpr(
-                    table=ast.Field(chain=[return_table_name]),
+                    table=return_scan,
+                    alias="return_events",
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
                             left=ast.Field(chain=["actors_with_t0", "actor_id"]),
-                            right=ast.Field(chain=[return_table_name, return_actor_column]),
+                            right=ast.Field(chain=["return_events", "actor_id"]),
                         ),
                         constraint_type="ON",
                     ),
                 ),
             ),
             group_by=[ast.Field(chain=["actors_with_t0", "actor_id"]), ast.Field(chain=["actors_with_t0", "t_0"])],
+        )
+
+    def _build_return_scan(self) -> ast.SelectQuery:
+        # The return scan is its own subquery with the return table primary, because entity property filters emit
+        # bare field chains (e.g. `properties.plan`): with `events` joined directly on the right side instead, the
+        # lazy-table wrap that person-id resolution applies to a joined events table projects only alias-prefixed
+        # references, so those bare chains fail to resolve. Filtering inside the scan sidesteps that entirely.
+        return_is_dwh = self.return_event.type == EntityType.DATA_WAREHOUSE
+        return_table_name = self.return_event.table_name if return_is_dwh else "events"
+        assert return_table_name
+        return_ts_field = self.entity_timestamp_field(self.return_event)
+        return_actor_column = self.entity_actor_id_column(self.return_event)
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=[return_table_name, return_actor_column])),
+                ast.Alias(alias="timestamp", expr=return_ts_field),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
+            where=ast.And(
+                exprs=[
+                    self.entity_expr_with_props(self.return_event),
+                    self.events_timestamp_filter(field=return_ts_field),
+                ]
+            ),
         )
 
     def _build_data_warehouse_first_event_cte(self) -> ast.SelectQuery:
