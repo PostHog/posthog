@@ -14,7 +14,6 @@ def _row(**overrides) -> dict:
         "team_id": 1,
         "schema_name": "prod",
         "enabled": True,
-        "is_billing_team": False,
         "backfill_enabled": True,
         "events_table_name": None,
         "persons_table_name": None,
