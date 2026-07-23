@@ -275,6 +275,17 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
 
         except CHQueryErrorTooManySimultaneousQueries:
             raise
+        except TableAccessDeniedError as e:
+            # The insight's creator lost viewer access to a warehouse view the query references, so
+            # fail-closed warehouse access control denies it. This is expected, not a failure worth
+            # capturing - warming just can't run for this insight until access is restored.
+            logger.info(
+                "Skipping cache warming, creator lacks warehouse view access",
+                insight_id=insight.pk,
+                team_id=insight.team_id,
+                dashboard_id=dashboard_id,
+                table_name=e.table_name,
+            )
         except Exception as e:
             # A revoked creator's access-denied error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.
