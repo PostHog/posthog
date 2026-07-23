@@ -36056,6 +36056,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -36101,6 +36102,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
       Slack: 'slack',
@@ -36146,6 +36148,7 @@ export namespace Schemas {
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
        * * `reddit-ads` - Reddit Ads
+       * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
        * * `salesforce` - Salesforce
        * * `slack` - Slack
@@ -77266,6 +77269,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -77322,6 +77326,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
       Slack: 'slack',
