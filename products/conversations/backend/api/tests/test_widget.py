@@ -14,6 +14,7 @@ from posthog.models.comment import Comment
 from products.conversations.backend.api.serializers import (
     SESSION_CONTEXT_KEY_MAX_LENGTH,
     SESSION_CONTEXT_MAX_FIELDS,
+    SESSION_CONTEXT_TOTAL_MAX_LENGTH,
     SESSION_CONTEXT_VALUE_MAX_LENGTH,
     TRAIT_KEY_MAX_LENGTH,
     TRAIT_VALUE_MAX_LENGTH,
@@ -985,3 +986,24 @@ class TestWidgetMessageSanitization(SimpleTestCase):
         self.assertEqual(validated["count"], "3")
         self.assertNotIn(long_key, validated)
         self.assertEqual(len(validated), TRAITS_MAX_COUNT)
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("list", [1, 2]),
+            ("string", "not-a-dict"),
+            ("number", 42),
+        ]
+    )
+    def test_malformed_context_and_traits_sanitized_to_empty(self, _name, malformed):
+        validated = self._validated(session_context=malformed, traits=malformed)
+        self.assertEqual(validated["session_context"], {})
+        self.assertEqual(validated["traits"], {})
+
+    def test_session_context_aggregate_size_bounded(self):
+        payload = {f"key_{i:02d}": "v" * SESSION_CONTEXT_VALUE_MAX_LENGTH for i in range(SESSION_CONTEXT_MAX_FIELDS)}
+        context = self._validated(session_context=payload)["session_context"]
+        stored = sum(len(v) for v in context.values() if isinstance(v, str))
+        self.assertLessEqual(stored, SESSION_CONTEXT_TOTAL_MAX_LENGTH)
+        # earlier fields keep their full values; the budget only trims the tail
+        self.assertEqual(context["key_00"], "v" * SESSION_CONTEXT_VALUE_MAX_LENGTH)

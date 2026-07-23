@@ -77,6 +77,11 @@ TRAIT_VALUE_MAX_LENGTH = 500
 SESSION_CONTEXT_MAX_FIELDS = 20
 SESSION_CONTEXT_KEY_MAX_LENGTH = 100
 SESSION_CONTEXT_VALUE_MAX_LENGTH = 10000
+# Aggregate cap across all string values: keeps the endpoint's historical worst case
+# (20 fields x the old 2,000-char per-value cap) while letting a single URL use up to
+# SESSION_CONTEXT_VALUE_MAX_LENGTH of it. This is a public endpoint; without it, raising
+# the per-value cap would have multiplied the attacker-controlled bytes stored per ticket.
+SESSION_CONTEXT_TOTAL_MAX_LENGTH = 40000
 
 
 def _shorten_context_value(value: str, max_length: int) -> tuple[str, bool]:
@@ -95,14 +100,18 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
 
     distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
     message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
-    traits = serializers.DictField(
+    # JSONField (not DictField) so malformed values reach the sanitizing validators
+    # instead of being rejected with a 400 before they run
+    traits = serializers.JSONField(
         required=False,
+        allow_null=True,
         default=dict,
         help_text="Customer traits. Oversized or malformed entries are sanitized, never rejected",
     )
     session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
-    session_context = serializers.DictField(
+    session_context = serializers.JSONField(
         required=False,
+        allow_null=True,
         default=dict,
         help_text="Session context (replay URL, current URL, etc.). Oversized values are shortened, never rejected",
     )
@@ -115,6 +124,12 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
             data["distinct_id"] = data["identity_distinct_id"]
         elif has_session and not has_identity and "distinct_id" not in data:
             raise serializers.ValidationError("distinct_id is required when using widget_session_id")
+        # DRF skips field validators for explicit nulls (allow_null short-circuits), so
+        # normalize here to keep the downstream contract: these are always dicts
+        if data.get("traits") is None:
+            data["traits"] = {}
+        if data.get("session_context") is None:
+            data["session_context"] = {}
         return data
 
     def validate_message(self, value):
@@ -159,6 +174,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
 
         validated: dict[str, Any] = {}
         truncated_keys: list[str] = []
+        remaining_budget = SESSION_CONTEXT_TOTAL_MAX_LENGTH
         for key, val in value.items():
             if len(validated) >= SESSION_CONTEXT_MAX_FIELDS:
                 break
@@ -169,10 +185,15 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
             if not isinstance(val, str | int | float | bool | type(None)):
                 continue
 
-            if isinstance(val, str) and len(val) > SESSION_CONTEXT_VALUE_MAX_LENGTH:
-                val, was_hard_cut = _shorten_context_value(val, SESSION_CONTEXT_VALUE_MAX_LENGTH)
-                if was_hard_cut:
-                    truncated_keys.append(key)
+            if isinstance(val, str):
+                allowed = min(SESSION_CONTEXT_VALUE_MAX_LENGTH, remaining_budget)
+                if len(val) > allowed:
+                    if allowed == 0:
+                        continue
+                    val, was_hard_cut = _shorten_context_value(val, allowed)
+                    if was_hard_cut:
+                        truncated_keys.append(key)
+                remaining_budget -= len(val)
 
             validated[key] = val
 
