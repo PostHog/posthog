@@ -134,16 +134,12 @@ class OrganizationInviteManager:
         ).delete()
 
 
-def validate_invite_target_email_domain(organization_id: UUID | str, email: str) -> None:
+def validate_invite_target_email_domain(organization: Organization, email: str) -> None:
     """
     When an organization enforces SSO on a verified domain, invites may only go to that domain.
-    Raises ValidationError otherwise. No-op for orgs that don't enforce SSO, so ordinary invites
-    are unaffected. Complements the login-time block by stopping the bad invite from ever existing.
+    Raises ValidationError otherwise. No-op for orgs that don't enforce SSO.
     """
-    organization = Organization.objects.get(id=organization_id)
-    if OrganizationDomain.objects.get_active_sso_enforcement_for_organization(organization) is None:
-        return
-    if not OrganizationDomain.objects.is_domain_verified_for_organization(email, organization):
+    if OrganizationDomain.objects.is_email_blocked_by_sso_enforcement(email, organization):
         raise exceptions.ValidationError(
             "This organization enforces SSO, so invites can only be sent to email addresses on a verified domain.",
             code="sso_enforced_domain",
@@ -182,9 +178,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
     def validate_target_email(self, email: str):
         email = EmailNormalizer.normalize(email)
-        organization_id = self.context.get("organization_id")
-        if organization_id:
-            validate_invite_target_email_domain(organization_id, email)
+        get_organization = self.context.get("get_organization")
+        if get_organization:
+            validate_invite_target_email_domain(get_organization(), email)
         return email
 
     def validate_first_name(self, value: str) -> str:
@@ -562,7 +558,7 @@ class OrganizationInviteViewSet(
             raise exceptions.ValidationError("You cannot delegate setup to yourself.", code="self_delegation")
 
         # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.
-        validate_invite_target_email_domain(self.organization_id, target_email)
+        validate_invite_target_email_domain(self.organization, target_email)
 
         # Server-side gate: delegation only makes sense while the *target organization* is
         # still in onboarding. `user.team` points at the caller's current_team (which could

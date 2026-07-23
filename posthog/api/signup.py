@@ -552,11 +552,10 @@ class InviteSignupSerializer(serializers.Serializer):
                 code="sso_enforced",
             )
 
-        # An org that enforces SSO only admits members on its verified domains. Refuse an invite whose
-        # target email is outside them, even if that email's own domain isn't itself SSO-enforced —
-        # otherwise a pre-existing outside-domain invite could still be accepted with a password.
-        if invite.target_email and OrganizationDomain.objects.find_enforced_org_without_verified_email_domain(
-            invite.target_email, [invite.organization]
+        # The check above keys on the email's own domain; this one keys on the org: an SSO-enforced org
+        # only admits verified-domain members, so a pre-existing outside-domain invite can't be accepted.
+        if invite.target_email and OrganizationDomain.objects.is_email_blocked_by_sso_enforcement(
+            invite.target_email, invite.organization
         ):
             raise serializers.ValidationError(
                 "This organization enforces SSO, so invites can only be accepted from an email address on a verified domain.",
@@ -969,24 +968,20 @@ def social_create_user(
         invite = lookup_invite_for_saml(email, organization_domain_id)
         invite_id = invite.id if invite else None
 
-    # Keep SSO-enforced organizations to their verified domains, enforced at the join boundary: if this
-    # login would add the user to an org via an invite, and that org enforces SSO but the email's domain
-    # is not one of its verified domains, refuse the join. Only the invite target is checked — existing
-    # memberships are left alone, so nobody already in an org is locked out. JIT is already safe (it only
-    # joins an org whose verified domain matches the email). This lives here, not in the SSO gate
-    # (`social_auth_allowed`), because that gate only sees the email's own domain, not the org being joined.
+    # Refuse joining an SSO-enforced org via invite when the email's domain isn't verified for that org.
+    # Existing memberships are not re-checked. Can't live in `social_auth_allowed` — it never sees the org.
     enforcement_email = user.email if user else email
     invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
-    if enforcement_email and invite_organization is not None:
-        blocked_organization = OrganizationDomain.objects.find_enforced_org_without_verified_email_domain(
-            enforcement_email, [invite_organization]
+    if (
+        enforcement_email
+        and invite_organization is not None
+        and OrganizationDomain.objects.is_email_blocked_by_sso_enforcement(enforcement_email, invite_organization)
+    ):
+        logger.warning(
+            "social_create_user_blocked_sso_enforced_domain",
+            organization=str(invite_organization.id),
         )
-        if blocked_organization is not None:
-            logger.warning(
-                "social_create_user_blocked_sso_enforced_domain",
-                organization=str(blocked_organization.id),
-            )
-            return redirect("/login?error_code=sso_domain_not_allowed")
+        return redirect("/login?error_code=sso_domain_not_allowed")
 
     if user:
         # If the user is already authenticated, we're looking for outstanding invites for them

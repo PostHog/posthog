@@ -30,6 +30,21 @@ from ee.models.rbac.access_control import AccessControl
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
+def _enforce_sso_on_domain(organization: Organization, domain: str) -> None:
+    organization.available_product_features = [
+        *(organization.available_product_features or []),
+        {"key": AvailableFeature.SSO_ENFORCEMENT},
+        {"key": AvailableFeature.SAML},
+    ]
+    organization.save()
+    OrganizationDomain.objects.create(
+        domain=domain,
+        organization=organization,
+        sso_enforcement="saml",
+        verified_at=timezone.now(),
+    )
+
+
 class TestOrganizationInvitesAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -532,20 +547,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def _enforce_sso_on_domain(self, domain: str) -> None:
-        self.organization.available_product_features = [
-            *(self.organization.available_product_features or []),
-            {"key": AvailableFeature.SSO_ENFORCEMENT},
-            {"key": AvailableFeature.SAML},
-        ]
-        self.organization.save()
-        OrganizationDomain.objects.create(
-            domain=domain,
-            organization=self.organization,
-            sso_enforcement="saml",
-            verified_at=timezone.now(),
-        )
-
     @parameterized.expand(
         [
             ("blocks_unverified_domain", True, "newperson@gmail.com", status.HTTP_400_BAD_REQUEST),
@@ -555,7 +556,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     )
     def test_invite_restricted_to_verified_domain_when_sso_enforced(self, _name, enforce, email, expected_status):
         if enforce:
-            self._enforce_sso_on_domain("hogflix.com")
+            _enforce_sso_on_domain(self.organization, "hogflix.com")
 
         response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
 
@@ -1595,18 +1596,7 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
 
     def test_delegate_rejects_email_outside_enforced_verified_domain(self):
         # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.
-        self.organization.available_product_features = [
-            *(self.organization.available_product_features or []),
-            {"key": AvailableFeature.SSO_ENFORCEMENT},
-            {"key": AvailableFeature.SAML},
-        ]
-        self.organization.save()
-        OrganizationDomain.objects.create(
-            domain="hogflix.com",
-            organization=self.organization,
-            sso_enforcement="saml",
-            verified_at=timezone.now(),
-        )
+        _enforce_sso_on_domain(self.organization, "hogflix.com")
         response = self.client.post(self._delegate_url(), {"target_email": "engineer@gmail.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "sso_enforced_domain")

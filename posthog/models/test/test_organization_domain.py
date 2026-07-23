@@ -37,21 +37,11 @@ class TestOrganizationDomainSSOEnforcement(BaseTest):
             ("allows_when_org_does_not_enforce", "", True, "outsider@gmail.com", False),
         ]
     )
-    def test_find_enforced_org_without_verified_email_domain(
+    def test_is_email_blocked_by_sso_enforcement(
         self, _mock_providers, _name, sso_enforcement, licensed, email, expect_blocked
     ):
         org = self._org_with_domain(sso_enforcement=sso_enforcement, licensed=licensed)
-        result = OrganizationDomain.objects.find_enforced_org_without_verified_email_domain(email, [org])
-        self.assertEqual(result, org if expect_blocked else None)
-
-    def test_find_enforced_org_scans_all_memberships(self, _mock_providers):
-        unenforced = Organization.objects.create(name="Open org")
-        enforced = self._org_with_domain()
-        # A member of both orgs whose gmail domain is only unverified in the enforcing one is still blocked.
-        result = OrganizationDomain.objects.find_enforced_org_without_verified_email_domain(
-            "outsider@gmail.com", [unenforced, enforced]
-        )
-        self.assertEqual(result, enforced)
+        self.assertEqual(OrganizationDomain.objects.is_email_blocked_by_sso_enforcement(email, org), expect_blocked)
 
     def test_get_active_sso_enforcement_for_organization_returns_provider(self, _mock_providers):
         org = self._org_with_domain(sso_enforcement="github")
