@@ -203,6 +203,7 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
 
+    job_inputs = mock.MagicMock()
     logger = mock.MagicMock()
     logger.awarning = mock.AsyncMock()
     logger.aexception = mock.AsyncMock()
@@ -216,11 +217,15 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     ):
         handle_mock.side_effect = NonRetryableException()
         with pytest.raises(NonRetryableException):
-            await module._handle_import_error(mock.MagicMock(), logger, error)
+            await module._handle_import_error(job_inputs, logger, error)
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[5] is error
+    args = handle_mock.await_args.args
+    assert args[0] is job_inputs.team_id
+    assert args[2] is job_inputs.run_id
+    assert args[4] is logger
+    assert args[5] is error
     logger.aexception.assert_not_awaited()
 
 
