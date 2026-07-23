@@ -211,7 +211,7 @@ def _build_ticket_event_globals(ticket: Ticket) -> dict:
         if ticket.organization_id:
             properties["$groups"] = _groups_from_org_id(ticket.team, ticket.organization_id)
         else:
-            _, groups = _resolve_org_groups(ticket, ticket.team)
+            _, groups, _ = _resolve_org_groups(ticket, ticket.team)
             if groups is not None:
                 properties["$groups"] = groups
     except Exception:
