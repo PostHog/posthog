@@ -1323,6 +1323,18 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.apiHost).toBe('https://proxy.example.com/ingest')
         })
 
+        it('resolves a relative reverse-proxy api_host against the current origin', () => {
+            // posthog-js commonly points api_host at a relative reverse-proxy path
+            // like /ingest (Next.js/Vercel rewrites). The toolbar must keep that
+            // prefix rather than reject it and fall back to the bare origin.
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { api_host: '/ingest' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe(`${window.location.origin}/ingest`)
+            expect(logic.values.apiHostResolution.source).toBe('posthog_api_host')
+        })
+
         it.each([
             ['apiURL', { apiURL: '' }],
             ['api_host', { apiURL: '', posthog: { config: { api_host: '' } } as any }],
@@ -1375,13 +1387,23 @@ describe('toolbar toolbarConfigLogic', () => {
             ['https://proxy.example.com/ingest/', 'https://proxy.example.com/ingest'],
             ['https://us.i.posthog.com', 'https://us.i.posthog.com'],
             ['https://us.i.posthog.com/', 'https://us.i.posthog.com'],
+            // relative reverse-proxy configs resolve against the current origin
+            ['/ingest', `${window.location.origin}/ingest`],
+            ['/ingest/', `${window.location.origin}/ingest`],
             // rejected
             ['javascript:alert(1)', null],
             ['https://user:pass@host/path', null],
             ['https://host@evil.com/path', null],
+            ['//evil.com', null], // protocol-relative would hijack the origin
+            ['/\\evil.com', null], // backslash protocol-relative
+            // tab/newline/CR are stripped by the URL parser, turning these into
+            // protocol-relative refs that would otherwise hijack the origin
+            ['/\t/evil.com', null],
+            ['/\n/evil.com', null],
+            ['/\r/evil.com', null],
             ['', null],
             [undefined, null],
-            ['not a url', null],
+            ['not a url', null], // non-path garbage is not treated as relative
         ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
             expect(canonicalizeApiHost(input as any)).toBe(expected)
         })
