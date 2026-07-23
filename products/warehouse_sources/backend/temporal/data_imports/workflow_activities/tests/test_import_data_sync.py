@@ -218,7 +218,7 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
     logger.aexception.assert_not_awaited()
 
 
