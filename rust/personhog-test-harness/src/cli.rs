@@ -32,8 +32,10 @@ pub enum Command {
     /// Full e2e gate: stack up, seed, traffic, quiesce, verify, cleanup.
     Gate(Box<GateArgs>),
     /// Continuous synthetic traffic with epoch-based verification, for the
-    /// dev deployment. Refuses to start when CLOUD_DEPLOYMENT names any
-    /// environment other than DEV (unset means a local run).
+    /// dev deployment. A startup sentinel round-trip refuses to send
+    /// traffic anywhere the router does not serve the database this harness
+    /// seeds, and every database operation is confined to the configured
+    /// validation table.
     Traffic(TrafficArgs),
 }
 

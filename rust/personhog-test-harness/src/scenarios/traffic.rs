@@ -24,7 +24,6 @@
 //! epoch's load short and runs the normal close-out (verify what was
 //! acked, record, clean up) inside the termination grace window.
 
-use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -48,13 +47,6 @@ use crate::state::PersonState;
 use crate::stats::StatsCollector;
 use crate::traffic_metrics;
 use crate::verify::verify_postgres;
-
-/// The platform-injected deployment identity (see the golden chart's env
-/// ConfigMap; same semantics as Django's CLOUD_DEPLOYMENT / is_cloud()):
-/// unset means a local run, "DEV" is the dev cluster, and anything else is
-/// an environment this mode must never touch — it seeds and deletes
-/// persons on its team ids.
-pub const ENV_GUARD_VAR: &str = "CLOUD_DEPLOYMENT";
 
 /// Reject configurations that cannot produce the advertised coverage.
 fn validate_args(args: &TrafficArgs) -> Result<()> {
@@ -80,7 +72,6 @@ fn validate_args(args: &TrafficArgs) -> Result<()> {
 }
 
 pub async fn run(args: TrafficArgs) -> Result<()> {
-    check_env_guard(env::var(ENV_GUARD_VAR).ok().as_deref())?;
     validate_args(&args)?;
 
     traffic_metrics::spawn_server(args.metrics_port)?;
@@ -370,20 +361,6 @@ async fn sentinel_round_trip(
     Ok(())
 }
 
-fn check_env_guard(value: Option<&str>) -> Result<()> {
-    match value {
-        // Unset means local (is_cloud() precedent); deployed pods always
-        // carry the variable via the chart's env ConfigMap.
-        None => Ok(()),
-        Some(v) if v.eq_ignore_ascii_case("dev") => Ok(()),
-        Some(other) => bail!(
-            "{ENV_GUARD_VAR}={other:?} — the traffic mode only runs locally (unset) or in the \
-             dev cluster ({ENV_GUARD_VAR}=DEV); it seeds and deletes person rows and must \
-             never target prod"
-        ),
-    }
-}
-
 /// Resolves when SIGTERM (Kubernetes) or ctrl-c arrives.
 async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
@@ -404,19 +381,6 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn env_guard_accepts_only_local_and_dev() {
-        assert!(check_env_guard(None).is_ok(), "unset means a local run");
-        assert!(check_env_guard(Some("DEV")).is_ok());
-        assert!(check_env_guard(Some("dev")).is_ok());
-        for cloud in ["US", "EU", "E2E", "prod-us", ""] {
-            assert!(
-                check_env_guard(Some(cloud)).is_err(),
-                "{cloud:?} must refuse"
-            );
-        }
-    }
 
     #[test]
     fn vacuous_or_panicking_configurations_are_rejected() {
