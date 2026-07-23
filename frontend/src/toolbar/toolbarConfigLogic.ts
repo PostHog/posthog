@@ -556,10 +556,17 @@ export function canonicalizeApiHost(candidate: string | undefined | null): strin
     try {
         // Path-absolute values like "/ingest" are relative reverse-proxy configs;
         // resolve them against the current origin. Protocol-relative refs
-        // ("//evil.com", "/\evil.com") are excluded so they can't hijack the origin:
-        // they fall through to base-less parsing and are rejected, as is any non-path garbage.
+        // ("//evil.com", "/\evil.com") fall through to base-less parsing and are
+        // rejected, as is any non-path garbage.
         const trimmed = candidate.trim()
-        const parsed = /^\/(?![/\\])/.test(trimmed) ? new URL(trimmed, window.location.origin) : new URL(candidate)
+        const isPathAbsolute = /^\/(?![/\\])/.test(trimmed)
+        const parsed = isPathAbsolute ? new URL(trimmed, window.location.origin) : new URL(candidate)
+        // The regex can't see tab/newline/CR that the WHATWG parser strips mid-string,
+        // so "/\t/evil.com" would normalize to a network-path ref and hijack the origin.
+        // Verify the resolved origin instead of trusting the textual guard.
+        if (isPathAbsolute && parsed.origin !== window.location.origin) {
+            return null
+        }
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
             return null
         }

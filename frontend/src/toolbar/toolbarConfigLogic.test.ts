@@ -1396,6 +1396,11 @@ describe('toolbar toolbarConfigLogic', () => {
             ['https://host@evil.com/path', null],
             ['//evil.com', null], // protocol-relative would hijack the origin
             ['/\\evil.com', null], // backslash protocol-relative
+            // tab/newline/CR are stripped by the URL parser, turning these into
+            // protocol-relative refs that would otherwise hijack the origin
+            ['/\t/evil.com', null],
+            ['/\n/evil.com', null],
+            ['/\r/evil.com', null],
             ['', null],
             [undefined, null],
             ['not a url', null], // non-path garbage is not treated as relative
