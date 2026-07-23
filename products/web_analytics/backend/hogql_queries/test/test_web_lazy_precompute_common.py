@@ -564,6 +564,20 @@ class TestStaleRevalidationEnqueue(BaseTest):
                 handle_stale_served(runner=runner, family="web_overview")
         assert delay.call_count == REVALIDATION_TEAM_BUDGET_PER_WINDOW
 
+        # A budget-rejected shape must not stay debounce-locked: once the budget
+        # window clears, the SAME shape (i=30 above was rejected) gets its warm
+        # on the next request — the rejection must release its debounce claim.
+        redis.get_client().delete(f"web_swr_reval_budget:{self.team.pk}")
+        rejected_query = WebOverviewQuery(
+            dateRange=DateRange(date_from=f"2024-01-{(30 % 27) + 1:02d}", date_to="2024-06-01"),
+            properties=[EventPropertyFilter(key="$host", value="h30.example.com", operator=PropertyOperator.EXACT)],
+        )
+        with self._delay_patch() as delay:
+            handle_stale_served(
+                runner=WebOverviewQueryRunner(team=self.team, query=rejected_query), family="web_overview"
+            )
+        assert delay.call_count == 1
+
     def test_broker_failure_does_not_break_the_stale_read_path(self):
         # handle_stale_served runs inside the families' read try/except before the stale
         # rows are read — a broker outage raising out of it would discard the stale

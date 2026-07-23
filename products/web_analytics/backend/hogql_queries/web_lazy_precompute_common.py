@@ -223,6 +223,10 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
         if spent == 1:
             client.expire(budget_key, REVALIDATION_DEBOUNCE_SECONDS)
         if spent > REVALIDATION_TEAM_BUDGET_PER_WINDOW:
+            # Release the shape's debounce claim: no task was enqueued, so leaving
+            # the key would lock the shape out of warming for the whole debounce
+            # window even after the budget resets.
+            client.delete(debounce_key)
             logger.warning("web_precompute.swr_revalidation_budget_exhausted", team_id=team.id, family=family)
             return
         revalidate_web_analytics_precompute.apply_async(
