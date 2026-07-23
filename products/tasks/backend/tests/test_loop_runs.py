@@ -630,6 +630,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         assert result.task_run_id is not None
         task_run = TaskRun.objects.get(id=result.task_run_id)
         self.assertEqual(task_run.status, TaskRun.Status.FAILED)
+        assert task_run.error_message is not None
         self.assertIn("skill bundles", task_run.error_message)
         mock_dispatch.assert_not_called()
         self.assertEqual(self.active_run_count(loop), 0)
