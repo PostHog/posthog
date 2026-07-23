@@ -131,6 +131,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "skill-archive",
     "user-interview-topics-remove-interviewee",
     "visual-review-runs-finalize-create",
+    "web-analytics-path-cleaning-suggestions-apply",
     "workflows-discard-draft",
     "workflows-publish",
     "workflows-restore-revision",
