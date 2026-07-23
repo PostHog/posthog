@@ -5,12 +5,14 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { IconTrending } from '@posthog/icons'
+import { IconInfo, IconTrending } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
@@ -19,11 +21,12 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import {
     Breakdown,
+    ExperimentFunnelMetric,
     ExperimentMetric,
     ExperimentStatsBaseValidated,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
@@ -53,8 +56,11 @@ import {
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
+import { BreakdownAttributionType } from '~/types'
 import { Experiment, InsightType } from '~/types'
 
+import { MetricBreakdownAttribution } from '../shared/MetricBreakdownAttribution'
+import { MetricBreakdownLimit } from '../shared/MetricBreakdownLimit'
 import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
@@ -71,28 +77,101 @@ import { renderTooltipContent } from './MetricRowGroupTooltip'
 import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
+/**
+ * Renders the metric's breakdown chips on the left, then (behind the
+ * metric-event-breakdowns flag) the funnel attribution dropdown and the
+ * breakdown limit. Attribution is funnel-only; the limit applies to all types.
+ */
+function BreakdownChipsRow({
+    metric,
+    onRemoveBreakdown,
+    onAttributionChange,
+    onBreakdownLimitChange,
+}: {
+    metric: ExperimentMetric
+    onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
+}): JSX.Element {
+    const metricEventBreakdownsEnabled = useFeatureFlag('EXPERIMENT_METRIC_EVENT_BREAKDOWNS')
+    const showAttribution = metricEventBreakdownsEnabled && isExperimentFunnelMetric(metric)
+    const showLimit = metricEventBreakdownsEnabled
+
+    return (
+        <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+                {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
+                    <BreakdownTag
+                        key={index}
+                        breakdown={breakdown.property}
+                        breakdownType={breakdown.type || 'event'}
+                        onClose={() => onRemoveBreakdown(index)}
+                        size="small"
+                    />
+                ))}
+            </div>
+            {showAttribution && (
+                <div className="flex items-center gap-1">
+                    <span className="text-muted">Attribution</span>
+                    <Tooltip
+                        title={
+                            <>
+                                Which funnel step the breakdown value is read from for each user:
+                                <ul className="list-disc pl-4">
+                                    <li>
+                                        <strong>First touchpoint</strong>: value at the user's first step
+                                    </li>
+                                    <li>
+                                        <strong>Last touchpoint</strong>: value at the user's last step
+                                    </li>
+                                    <li>
+                                        <strong>All steps</strong>: value must be the same across all steps
+                                    </li>
+                                    <li>
+                                        <strong>Specific step</strong>: value at a step you choose
+                                    </li>
+                                </ul>
+                            </>
+                        }
+                    >
+                        <IconInfo className="text-secondary text-base shrink-0" />
+                    </Tooltip>
+                    <MetricBreakdownAttribution
+                        metric={metric as ExperimentFunnelMetric}
+                        onChange={onAttributionChange}
+                    />
+                </div>
+            )}
+            {showLimit && <MetricBreakdownLimit metric={metric} onChange={onBreakdownLimitChange} />}
+        </div>
+    )
+}
+
 interface BreakdownErrorStateProps {
     metric: ExperimentMetric
     isAlternatingRow: boolean
     onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
 }
 
-function BreakdownErrorState({ metric, isAlternatingRow, onRemoveBreakdown }: BreakdownErrorStateProps): JSX.Element {
+function BreakdownErrorState({
+    metric,
+    isAlternatingRow,
+    onRemoveBreakdown,
+    onAttributionChange,
+    onBreakdownLimitChange,
+}: BreakdownErrorStateProps): JSX.Element {
     return (
         <tr data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
             <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <div className="p-1">
-                    <div className="flex items-center gap-2">
-                        {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
-                            <BreakdownTag
-                                key={index}
-                                breakdown={breakdown.property}
-                                breakdownType={breakdown.type || 'event'}
-                                onClose={() => onRemoveBreakdown(index)}
-                                size="small"
-                            />
-                        ))}
-                    </div>
+                    <BreakdownChipsRow
+                        metric={metric}
+                        onRemoveBreakdown={onRemoveBreakdown}
+                        onAttributionChange={onAttributionChange}
+                        onBreakdownLimitChange={onBreakdownLimitChange}
+                    />
                 </div>
             </td>
         </tr>
@@ -112,6 +191,8 @@ interface CollapsibleBreakdownSectionProps {
     colors: ReturnType<typeof useChartColors>
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
     onRetry: () => void
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
@@ -131,6 +212,8 @@ function CollapsibleBreakdownSection({
     colors,
     scale,
     onRemoveBreakdown,
+    onAttributionChange,
+    onBreakdownLimitChange,
     onRetry,
     query,
     handleTooltipMouseEnter,
@@ -190,16 +273,16 @@ function CollapsibleBreakdownSection({
                         {
                             key: 'breakdowns',
                             header: (
-                                <div className="flex items-center gap-2">
-                                    {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
-                                        <BreakdownTag
-                                            key={index}
-                                            breakdown={breakdown.property}
-                                            breakdownType={breakdown.type || 'event'}
-                                            onClose={() => onRemoveBreakdown(index)}
-                                            size="small"
-                                        />
-                                    ))}
+                                <div
+                                    // Prevent the attribution dropdown (and chip close) from toggling the collapse.
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <BreakdownChipsRow
+                                        metric={metric}
+                                        onRemoveBreakdown={onRemoveBreakdown}
+                                        onAttributionChange={onAttributionChange}
+                                        onBreakdownLimitChange={onBreakdownLimitChange}
+                                    />
                                 </div>
                             ),
                             // Render no content (non-expandable disabled header) when recalculating (stale
@@ -507,6 +590,8 @@ interface MetricRowGroupProps {
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
     error?: any
     isLoading?: boolean
     exposuresLoading?: boolean
@@ -528,6 +613,8 @@ export function MetricRowGroup({
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
+    onAttributionChange,
+    onBreakdownLimitChange,
     error,
     isLoading,
     exposuresLoading = false,
@@ -860,6 +947,8 @@ export function MetricRowGroup({
                         metric={metric}
                         isAlternatingRow={isAlternatingRow}
                         onRemoveBreakdown={onRemoveBreakdown}
+                        onAttributionChange={onAttributionChange}
+                        onBreakdownLimitChange={onBreakdownLimitChange}
                     />
                 )}
             </>
@@ -1159,6 +1248,8 @@ export function MetricRowGroup({
                     colors={colors}
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}
+                    onAttributionChange={onAttributionChange}
+                    onBreakdownLimitChange={onBreakdownLimitChange}
                     onRetry={handleRetry}
                     query={debugQuery}
                     handleTooltipMouseEnter={handleTooltipMouseEnter}

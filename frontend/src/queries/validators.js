@@ -11268,6 +11268,15 @@ function validate88(data, { instancePath = '', parentData, parentDataProperty, r
 const schema102 = {
     additionalProperties: false,
     properties: {
+        breakdownAttributionType: {
+            $ref: '#/definitions/BreakdownAttributionType',
+            default: 'first_touch',
+            description: 'How to attribute the breakdown value across funnel steps.',
+        },
+        breakdownAttributionValue: {
+            description: 'When breakdownAttributionType is `step`, the 0-indexed step to attribute from.',
+            type: 'integer',
+        },
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
         conversion_window: { $ref: '#/definitions/integer' },
         conversion_window_unit: { $ref: '#/definitions/FunnelConversionWindowTimeUnit' },
@@ -11287,8 +11296,9 @@ const schema102 = {
     required: ['kind', 'metric_type', 'series'],
     type: 'object',
 }
-const schema105 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
-const schema107 = {
+const schema103 = { enum: ['first_touch', 'last_touch', 'all_events', 'step'], type: 'string' }
+const schema106 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
+const schema108 = {
     discriminator: { propertyName: 'kind' },
     oneOf: [
         { $ref: '#/definitions/EventsNode' },
@@ -11440,32 +11450,53 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.breakdownFilter !== undefined) {
+                    if (data.breakdownAttributionType !== undefined) {
+                        let data0 = data.breakdownAttributionType
                         const _errs2 = errors
+                        if (typeof data0 !== 'string') {
+                            validate116.errors = [
+                                {
+                                    instancePath: instancePath + '/breakdownAttributionType',
+                                    schemaPath: '#/definitions/BreakdownAttributionType/type',
+                                    keyword: 'type',
+                                    params: { type: 'string' },
+                                    message: 'must be string',
+                                },
+                            ]
+                            return false
+                        }
                         if (
-                            !validate89(data.breakdownFilter, {
-                                instancePath: instancePath + '/breakdownFilter',
-                                parentData: data,
-                                parentDataProperty: 'breakdownFilter',
-                                rootData,
-                            })
+                            !(
+                                data0 === 'first_touch' ||
+                                data0 === 'last_touch' ||
+                                data0 === 'all_events' ||
+                                data0 === 'step'
+                            )
                         ) {
-                            vErrors = vErrors === null ? validate89.errors : vErrors.concat(validate89.errors)
-                            errors = vErrors.length
+                            validate116.errors = [
+                                {
+                                    instancePath: instancePath + '/breakdownAttributionType',
+                                    schemaPath: '#/definitions/BreakdownAttributionType/enum',
+                                    keyword: 'enum',
+                                    params: { allowedValues: schema103.enum },
+                                    message: 'must be equal to one of the allowed values',
+                                },
+                            ]
+                            return false
                         }
                         var valid0 = _errs2 === errors
                     } else {
                         var valid0 = true
                     }
                     if (valid0) {
-                        if (data.conversion_window !== undefined) {
-                            let data1 = data.conversion_window
-                            const _errs3 = errors
+                        if (data.breakdownAttributionValue !== undefined) {
+                            let data1 = data.breakdownAttributionValue
+                            const _errs5 = errors
                             if (!(typeof data1 == 'number' && !(data1 % 1) && !isNaN(data1) && isFinite(data1))) {
                                 validate116.errors = [
                                     {
-                                        instancePath: instancePath + '/conversion_window',
-                                        schemaPath: '#/definitions/integer/type',
+                                        instancePath: instancePath + '/breakdownAttributionValue',
+                                        schemaPath: '#/properties/breakdownAttributionValue/type',
                                         keyword: 'type',
                                         params: { type: 'integer' },
                                         message: 'must be integer',
@@ -11473,79 +11504,59 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                 ]
                                 return false
                             }
-                            var valid0 = _errs3 === errors
+                            var valid0 = _errs5 === errors
                         } else {
                             var valid0 = true
                         }
                         if (valid0) {
-                            if (data.conversion_window_unit !== undefined) {
-                                let data2 = data.conversion_window_unit
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate116.errors = [
-                                        {
-                                            instancePath: instancePath + '/conversion_window_unit',
-                                            schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
+                            if (data.breakdownFilter !== undefined) {
+                                const _errs7 = errors
                                 if (
-                                    !(
-                                        data2 === 'second' ||
-                                        data2 === 'minute' ||
-                                        data2 === 'hour' ||
-                                        data2 === 'day' ||
-                                        data2 === 'week' ||
-                                        data2 === 'month'
-                                    )
+                                    !validate89(data.breakdownFilter, {
+                                        instancePath: instancePath + '/breakdownFilter',
+                                        parentData: data,
+                                        parentDataProperty: 'breakdownFilter',
+                                        rootData,
+                                    })
                                 ) {
-                                    validate116.errors = [
-                                        {
-                                            instancePath: instancePath + '/conversion_window_unit',
-                                            schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema83.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
+                                    vErrors = vErrors === null ? validate89.errors : vErrors.concat(validate89.errors)
+                                    errors = vErrors.length
                                 }
-                                var valid0 = _errs6 === errors
+                                var valid0 = _errs7 === errors
                             } else {
                                 var valid0 = true
                             }
                             if (valid0) {
-                                if (data.fingerprint !== undefined) {
-                                    const _errs9 = errors
-                                    if (typeof data.fingerprint !== 'string') {
+                                if (data.conversion_window !== undefined) {
+                                    let data3 = data.conversion_window
+                                    const _errs8 = errors
+                                    if (
+                                        !(typeof data3 == 'number' && !(data3 % 1) && !isNaN(data3) && isFinite(data3))
+                                    ) {
                                         validate116.errors = [
                                             {
-                                                instancePath: instancePath + '/fingerprint',
-                                                schemaPath: '#/properties/fingerprint/type',
+                                                instancePath: instancePath + '/conversion_window',
+                                                schemaPath: '#/definitions/integer/type',
                                                 keyword: 'type',
-                                                params: { type: 'string' },
-                                                message: 'must be string',
+                                                params: { type: 'integer' },
+                                                message: 'must be integer',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    var valid0 = _errs8 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.funnel_order_type !== undefined) {
-                                        let data4 = data.funnel_order_type
+                                    if (data.conversion_window_unit !== undefined) {
+                                        let data4 = data.conversion_window_unit
                                         const _errs11 = errors
                                         if (typeof data4 !== 'string') {
                                             validate116.errors = [
                                                 {
-                                                    instancePath: instancePath + '/funnel_order_type',
-                                                    schemaPath: '#/definitions/StepOrderValue/type',
+                                                    instancePath: instancePath + '/conversion_window_unit',
+                                                    schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/type',
                                                     keyword: 'type',
                                                     params: { type: 'string' },
                                                     message: 'must be string',
@@ -11553,13 +11564,22 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                             ]
                                             return false
                                         }
-                                        if (!(data4 === 'strict' || data4 === 'unordered' || data4 === 'ordered')) {
+                                        if (
+                                            !(
+                                                data4 === 'second' ||
+                                                data4 === 'minute' ||
+                                                data4 === 'hour' ||
+                                                data4 === 'day' ||
+                                                data4 === 'week' ||
+                                                data4 === 'month'
+                                            )
+                                        ) {
                                             validate116.errors = [
                                                 {
-                                                    instancePath: instancePath + '/funnel_order_type',
-                                                    schemaPath: '#/definitions/StepOrderValue/enum',
+                                                    instancePath: instancePath + '/conversion_window_unit',
+                                                    schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/enum',
                                                     keyword: 'enum',
-                                                    params: { allowedValues: schema105.enum },
+                                                    params: { allowedValues: schema83.enum },
                                                     message: 'must be equal to one of the allowed values',
                                                 },
                                             ]
@@ -11570,29 +11590,16 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                         var valid0 = true
                                     }
                                     if (valid0) {
-                                        if (data.goal !== undefined) {
-                                            let data5 = data.goal
+                                        if (data.fingerprint !== undefined) {
                                             const _errs14 = errors
-                                            if (typeof data5 !== 'string') {
+                                            if (typeof data.fingerprint !== 'string') {
                                                 validate116.errors = [
                                                     {
-                                                        instancePath: instancePath + '/goal',
-                                                        schemaPath: '#/definitions/ExperimentMetricGoal/type',
+                                                        instancePath: instancePath + '/fingerprint',
+                                                        schemaPath: '#/properties/fingerprint/type',
                                                         keyword: 'type',
                                                         params: { type: 'string' },
                                                         message: 'must be string',
-                                                    },
-                                                ]
-                                                return false
-                                            }
-                                            if (!(data5 === 'increase' || data5 === 'decrease')) {
-                                                validate116.errors = [
-                                                    {
-                                                        instancePath: instancePath + '/goal',
-                                                        schemaPath: '#/definitions/ExperimentMetricGoal/enum',
-                                                        keyword: 'enum',
-                                                        params: { allowedValues: schema84.enum },
-                                                        message: 'must be equal to one of the allowed values',
                                                     },
                                                 ]
                                                 return false
@@ -11602,33 +11609,52 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                             var valid0 = true
                                         }
                                         if (valid0) {
-                                            if (data.isSharedMetric !== undefined) {
-                                                const _errs17 = errors
-                                                if (typeof data.isSharedMetric !== 'boolean') {
+                                            if (data.funnel_order_type !== undefined) {
+                                                let data6 = data.funnel_order_type
+                                                const _errs16 = errors
+                                                if (typeof data6 !== 'string') {
                                                     validate116.errors = [
                                                         {
-                                                            instancePath: instancePath + '/isSharedMetric',
-                                                            schemaPath: '#/properties/isSharedMetric/type',
+                                                            instancePath: instancePath + '/funnel_order_type',
+                                                            schemaPath: '#/definitions/StepOrderValue/type',
                                                             keyword: 'type',
-                                                            params: { type: 'boolean' },
-                                                            message: 'must be boolean',
+                                                            params: { type: 'string' },
+                                                            message: 'must be string',
                                                         },
                                                     ]
                                                     return false
                                                 }
-                                                var valid0 = _errs17 === errors
+                                                if (
+                                                    !(
+                                                        data6 === 'strict' ||
+                                                        data6 === 'unordered' ||
+                                                        data6 === 'ordered'
+                                                    )
+                                                ) {
+                                                    validate116.errors = [
+                                                        {
+                                                            instancePath: instancePath + '/funnel_order_type',
+                                                            schemaPath: '#/definitions/StepOrderValue/enum',
+                                                            keyword: 'enum',
+                                                            params: { allowedValues: schema106.enum },
+                                                            message: 'must be equal to one of the allowed values',
+                                                        },
+                                                    ]
+                                                    return false
+                                                }
+                                                var valid0 = _errs16 === errors
                                             } else {
                                                 var valid0 = true
                                             }
                                             if (valid0) {
-                                                if (data.kind !== undefined) {
-                                                    let data7 = data.kind
+                                                if (data.goal !== undefined) {
+                                                    let data7 = data.goal
                                                     const _errs19 = errors
                                                     if (typeof data7 !== 'string') {
                                                         validate116.errors = [
                                                             {
-                                                                instancePath: instancePath + '/kind',
-                                                                schemaPath: '#/properties/kind/type',
+                                                                instancePath: instancePath + '/goal',
+                                                                schemaPath: '#/definitions/ExperimentMetricGoal/type',
                                                                 keyword: 'type',
                                                                 params: { type: 'string' },
                                                                 message: 'must be string',
@@ -11636,14 +11662,14 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                         ]
                                                         return false
                                                     }
-                                                    if ('ExperimentMetric' !== data7) {
+                                                    if (!(data7 === 'increase' || data7 === 'decrease')) {
                                                         validate116.errors = [
                                                             {
-                                                                instancePath: instancePath + '/kind',
-                                                                schemaPath: '#/properties/kind/const',
-                                                                keyword: 'const',
-                                                                params: { allowedValue: 'ExperimentMetric' },
-                                                                message: 'must be equal to constant',
+                                                                instancePath: instancePath + '/goal',
+                                                                schemaPath: '#/definitions/ExperimentMetricGoal/enum',
+                                                                keyword: 'enum',
+                                                                params: { allowedValues: schema84.enum },
+                                                                message: 'must be equal to one of the allowed values',
                                                             },
                                                         ]
                                                         return false
@@ -11653,45 +11679,33 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                     var valid0 = true
                                                 }
                                                 if (valid0) {
-                                                    if (data.metric_type !== undefined) {
-                                                        let data8 = data.metric_type
-                                                        const _errs21 = errors
-                                                        if (typeof data8 !== 'string') {
+                                                    if (data.isSharedMetric !== undefined) {
+                                                        const _errs22 = errors
+                                                        if (typeof data.isSharedMetric !== 'boolean') {
                                                             validate116.errors = [
                                                                 {
-                                                                    instancePath: instancePath + '/metric_type',
-                                                                    schemaPath: '#/properties/metric_type/type',
+                                                                    instancePath: instancePath + '/isSharedMetric',
+                                                                    schemaPath: '#/properties/isSharedMetric/type',
                                                                     keyword: 'type',
-                                                                    params: { type: 'string' },
-                                                                    message: 'must be string',
+                                                                    params: { type: 'boolean' },
+                                                                    message: 'must be boolean',
                                                                 },
                                                             ]
                                                             return false
                                                         }
-                                                        if ('funnel' !== data8) {
-                                                            validate116.errors = [
-                                                                {
-                                                                    instancePath: instancePath + '/metric_type',
-                                                                    schemaPath: '#/properties/metric_type/const',
-                                                                    keyword: 'const',
-                                                                    params: { allowedValue: 'funnel' },
-                                                                    message: 'must be equal to constant',
-                                                                },
-                                                            ]
-                                                            return false
-                                                        }
-                                                        var valid0 = _errs21 === errors
+                                                        var valid0 = _errs22 === errors
                                                     } else {
                                                         var valid0 = true
                                                     }
                                                     if (valid0) {
-                                                        if (data.name !== undefined) {
-                                                            const _errs23 = errors
-                                                            if (typeof data.name !== 'string') {
+                                                        if (data.kind !== undefined) {
+                                                            let data9 = data.kind
+                                                            const _errs24 = errors
+                                                            if (typeof data9 !== 'string') {
                                                                 validate116.errors = [
                                                                     {
-                                                                        instancePath: instancePath + '/name',
-                                                                        schemaPath: '#/properties/name/type',
+                                                                        instancePath: instancePath + '/kind',
+                                                                        schemaPath: '#/properties/kind/type',
                                                                         keyword: 'type',
                                                                         params: { type: 'string' },
                                                                         message: 'must be string',
@@ -11699,109 +11713,94 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                 ]
                                                                 return false
                                                             }
-                                                            var valid0 = _errs23 === errors
+                                                            if ('ExperimentMetric' !== data9) {
+                                                                validate116.errors = [
+                                                                    {
+                                                                        instancePath: instancePath + '/kind',
+                                                                        schemaPath: '#/properties/kind/const',
+                                                                        keyword: 'const',
+                                                                        params: { allowedValue: 'ExperimentMetric' },
+                                                                        message: 'must be equal to constant',
+                                                                    },
+                                                                ]
+                                                                return false
+                                                            }
+                                                            var valid0 = _errs24 === errors
                                                         } else {
                                                             var valid0 = true
                                                         }
                                                         if (valid0) {
-                                                            if (data.response !== undefined) {
-                                                                let data10 = data.response
-                                                                const _errs25 = errors
-                                                                if (
-                                                                    !(
-                                                                        data10 &&
-                                                                        typeof data10 == 'object' &&
-                                                                        !Array.isArray(data10)
-                                                                    )
-                                                                ) {
+                                                            if (data.metric_type !== undefined) {
+                                                                let data10 = data.metric_type
+                                                                const _errs26 = errors
+                                                                if (typeof data10 !== 'string') {
                                                                     validate116.errors = [
                                                                         {
-                                                                            instancePath: instancePath + '/response',
-                                                                            schemaPath: '#/properties/response/type',
+                                                                            instancePath: instancePath + '/metric_type',
+                                                                            schemaPath: '#/properties/metric_type/type',
                                                                             keyword: 'type',
-                                                                            params: { type: 'object' },
-                                                                            message: 'must be object',
+                                                                            params: { type: 'string' },
+                                                                            message: 'must be string',
                                                                         },
                                                                     ]
                                                                     return false
                                                                 }
-                                                                var valid0 = _errs25 === errors
+                                                                if ('funnel' !== data10) {
+                                                                    validate116.errors = [
+                                                                        {
+                                                                            instancePath: instancePath + '/metric_type',
+                                                                            schemaPath:
+                                                                                '#/properties/metric_type/const',
+                                                                            keyword: 'const',
+                                                                            params: { allowedValue: 'funnel' },
+                                                                            message: 'must be equal to constant',
+                                                                        },
+                                                                    ]
+                                                                    return false
+                                                                }
+                                                                var valid0 = _errs26 === errors
                                                             } else {
                                                                 var valid0 = true
                                                             }
                                                             if (valid0) {
-                                                                if (data.series !== undefined) {
-                                                                    let data11 = data.series
-                                                                    const _errs27 = errors
-                                                                    if (errors === _errs27) {
-                                                                        if (Array.isArray(data11)) {
-                                                                            var valid5 = true
-                                                                            const len0 = data11.length
-                                                                            for (let i0 = 0; i0 < len0; i0++) {
-                                                                                const _errs29 = errors
-                                                                                if (
-                                                                                    !validate118(data11[i0], {
-                                                                                        instancePath:
-                                                                                            instancePath +
-                                                                                            '/series/' +
-                                                                                            i0,
-                                                                                        parentData: data11,
-                                                                                        parentDataProperty: i0,
-                                                                                        rootData,
-                                                                                    })
-                                                                                ) {
-                                                                                    vErrors =
-                                                                                        vErrors === null
-                                                                                            ? validate118.errors
-                                                                                            : vErrors.concat(
-                                                                                                  validate118.errors
-                                                                                              )
-                                                                                    errors = vErrors.length
-                                                                                }
-                                                                                var valid5 = _errs29 === errors
-                                                                                if (!valid5) {
-                                                                                    break
-                                                                                }
-                                                                            }
-                                                                        } else {
-                                                                            validate116.errors = [
-                                                                                {
-                                                                                    instancePath:
-                                                                                        instancePath + '/series',
-                                                                                    schemaPath:
-                                                                                        '#/properties/series/type',
-                                                                                    keyword: 'type',
-                                                                                    params: { type: 'array' },
-                                                                                    message: 'must be array',
-                                                                                },
-                                                                            ]
-                                                                            return false
-                                                                        }
+                                                                if (data.name !== undefined) {
+                                                                    const _errs28 = errors
+                                                                    if (typeof data.name !== 'string') {
+                                                                        validate116.errors = [
+                                                                            {
+                                                                                instancePath: instancePath + '/name',
+                                                                                schemaPath: '#/properties/name/type',
+                                                                                keyword: 'type',
+                                                                                params: { type: 'string' },
+                                                                                message: 'must be string',
+                                                                            },
+                                                                        ]
+                                                                        return false
                                                                     }
-                                                                    var valid0 = _errs27 === errors
+                                                                    var valid0 = _errs28 === errors
                                                                 } else {
                                                                     var valid0 = true
                                                                 }
                                                                 if (valid0) {
-                                                                    if (data.sharedMetricId !== undefined) {
-                                                                        let data13 = data.sharedMetricId
+                                                                    if (data.response !== undefined) {
+                                                                        let data12 = data.response
                                                                         const _errs30 = errors
                                                                         if (
                                                                             !(
-                                                                                typeof data13 == 'number' &&
-                                                                                isFinite(data13)
+                                                                                data12 &&
+                                                                                typeof data12 == 'object' &&
+                                                                                !Array.isArray(data12)
                                                                             )
                                                                         ) {
                                                                             validate116.errors = [
                                                                                 {
                                                                                     instancePath:
-                                                                                        instancePath +
-                                                                                        '/sharedMetricId',
+                                                                                        instancePath + '/response',
                                                                                     schemaPath:
-                                                                                        '#/properties/sharedMetricId/type',
+                                                                                        '#/properties/response/type',
                                                                                     keyword: 'type',
-                                                                                    params: { type: 'number' },
-                                                                                    message: 'must be number',
+                                                                                    params: { type: 'object' },
+                                                                                    message: 'must be object',
                                                                                 },
                                                                             ]
                                                                             return false
@@ -11811,30 +11810,63 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                         var valid0 = true
                                                                     }
                                                                     if (valid0) {
-                                                                        if (data.uuid !== undefined) {
+                                                                        if (data.series !== undefined) {
+                                                                            let data13 = data.series
                                                                             const _errs32 = errors
-                                                                            if (typeof data.uuid !== 'string') {
-                                                                                validate116.errors = [
-                                                                                    {
-                                                                                        instancePath:
-                                                                                            instancePath + '/uuid',
-                                                                                        schemaPath:
-                                                                                            '#/properties/uuid/type',
-                                                                                        keyword: 'type',
-                                                                                        params: { type: 'string' },
-                                                                                        message: 'must be string',
-                                                                                    },
-                                                                                ]
-                                                                                return false
+                                                                            if (errors === _errs32) {
+                                                                                if (Array.isArray(data13)) {
+                                                                                    var valid6 = true
+                                                                                    const len0 = data13.length
+                                                                                    for (let i0 = 0; i0 < len0; i0++) {
+                                                                                        const _errs34 = errors
+                                                                                        if (
+                                                                                            !validate118(data13[i0], {
+                                                                                                instancePath:
+                                                                                                    instancePath +
+                                                                                                    '/series/' +
+                                                                                                    i0,
+                                                                                                parentData: data13,
+                                                                                                parentDataProperty: i0,
+                                                                                                rootData,
+                                                                                            })
+                                                                                        ) {
+                                                                                            vErrors =
+                                                                                                vErrors === null
+                                                                                                    ? validate118.errors
+                                                                                                    : vErrors.concat(
+                                                                                                          validate118.errors
+                                                                                                      )
+                                                                                            errors = vErrors.length
+                                                                                        }
+                                                                                        var valid6 = _errs34 === errors
+                                                                                        if (!valid6) {
+                                                                                            break
+                                                                                        }
+                                                                                    }
+                                                                                } else {
+                                                                                    validate116.errors = [
+                                                                                        {
+                                                                                            instancePath:
+                                                                                                instancePath +
+                                                                                                '/series',
+                                                                                            schemaPath:
+                                                                                                '#/properties/series/type',
+                                                                                            keyword: 'type',
+                                                                                            params: { type: 'array' },
+                                                                                            message: 'must be array',
+                                                                                        },
+                                                                                    ]
+                                                                                    return false
+                                                                                }
                                                                             }
                                                                             var valid0 = _errs32 === errors
                                                                         } else {
                                                                             var valid0 = true
                                                                         }
                                                                         if (valid0) {
-                                                                            if (data.version !== undefined) {
-                                                                                let data15 = data.version
-                                                                                const _errs34 = errors
+                                                                            if (data.sharedMetricId !== undefined) {
+                                                                                let data15 = data.sharedMetricId
+                                                                                const _errs35 = errors
                                                                                 if (
                                                                                     !(
                                                                                         typeof data15 == 'number' &&
@@ -11845,9 +11877,9 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
-                                                                                                '/version',
+                                                                                                '/sharedMetricId',
                                                                                             schemaPath:
-                                                                                                '#/properties/version/type',
+                                                                                                '#/properties/sharedMetricId/type',
                                                                                             keyword: 'type',
                                                                                             params: { type: 'number' },
                                                                                             message: 'must be number',
@@ -11855,9 +11887,68 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                     ]
                                                                                     return false
                                                                                 }
-                                                                                var valid0 = _errs34 === errors
+                                                                                var valid0 = _errs35 === errors
                                                                             } else {
                                                                                 var valid0 = true
+                                                                            }
+                                                                            if (valid0) {
+                                                                                if (data.uuid !== undefined) {
+                                                                                    const _errs37 = errors
+                                                                                    if (typeof data.uuid !== 'string') {
+                                                                                        validate116.errors = [
+                                                                                            {
+                                                                                                instancePath:
+                                                                                                    instancePath +
+                                                                                                    '/uuid',
+                                                                                                schemaPath:
+                                                                                                    '#/properties/uuid/type',
+                                                                                                keyword: 'type',
+                                                                                                params: {
+                                                                                                    type: 'string',
+                                                                                                },
+                                                                                                message:
+                                                                                                    'must be string',
+                                                                                            },
+                                                                                        ]
+                                                                                        return false
+                                                                                    }
+                                                                                    var valid0 = _errs37 === errors
+                                                                                } else {
+                                                                                    var valid0 = true
+                                                                                }
+                                                                                if (valid0) {
+                                                                                    if (data.version !== undefined) {
+                                                                                        let data17 = data.version
+                                                                                        const _errs39 = errors
+                                                                                        if (
+                                                                                            !(
+                                                                                                typeof data17 ==
+                                                                                                    'number' &&
+                                                                                                isFinite(data17)
+                                                                                            )
+                                                                                        ) {
+                                                                                            validate116.errors = [
+                                                                                                {
+                                                                                                    instancePath:
+                                                                                                        instancePath +
+                                                                                                        '/version',
+                                                                                                    schemaPath:
+                                                                                                        '#/properties/version/type',
+                                                                                                    keyword: 'type',
+                                                                                                    params: {
+                                                                                                        type: 'number',
+                                                                                                    },
+                                                                                                    message:
+                                                                                                        'must be number',
+                                                                                                },
+                                                                                            ]
+                                                                                            return false
+                                                                                        }
+                                                                                        var valid0 = _errs39 === errors
+                                                                                    } else {
+                                                                                        var valid0 = true
+                                                                                    }
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
@@ -11891,7 +11982,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
     validate116.errors = vErrors
     return errors === 0
 }
-const schema108 = {
+const schema109 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -11915,7 +12006,7 @@ const schema108 = {
     required: ['denominator', 'kind', 'metric_type', 'numerator'],
     type: 'object',
 }
-const schema111 = {
+const schema112 = {
     additionalProperties: false,
     properties: {
         ignore_zeros: { type: 'boolean' },
@@ -11961,7 +12052,7 @@ function validate124(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema108.properties, key0)) {
+                    if (!func2.call(schema109.properties, key0)) {
                         validate124.errors = [
                             {
                                 instancePath,
@@ -12881,7 +12972,7 @@ function validate124(data, { instancePath = '', parentData, parentDataProperty, 
     validate124.errors = vErrors
     return errors === 0
 }
-const schema114 = {
+const schema115 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -12945,7 +13036,7 @@ function validate129(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema114.properties, key0)) {
+                    if (!func2.call(schema115.properties, key0)) {
                         validate129.errors = [
                             {
                                 instancePath,
@@ -13444,7 +13535,7 @@ function validate129(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                     keyword: 'enum',
                                                                                                     params: {
                                                                                                         allowedValues:
-                                                                                                            schema114
+                                                                                                            schema115
                                                                                                                 .properties
                                                                                                                 .start_handling
                                                                                                                 .enum,

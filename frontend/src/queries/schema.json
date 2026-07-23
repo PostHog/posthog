@@ -22469,6 +22469,15 @@
         "ExperimentFunnelMetric": {
             "additionalProperties": false,
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType",
+                    "default": "first_touch",
+                    "description": "How to attribute the breakdown value across funnel steps."
+                },
+                "breakdownAttributionValue": {
+                    "description": "When breakdownAttributionType is `step`, the 0-indexed step to attribute from.",
+                    "type": "integer"
+                },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter"
                 },
@@ -22548,6 +22557,15 @@
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType",
+                    "default": "first_touch",
+                    "description": "How to attribute the breakdown value across funnel steps."
+                },
+                "breakdownAttributionValue": {
+                    "description": "When breakdownAttributionType is `step`, the 0-indexed step to attribute from.",
+                    "type": "integer"
+                },
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
