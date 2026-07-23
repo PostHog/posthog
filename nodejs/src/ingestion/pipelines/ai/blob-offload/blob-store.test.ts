@@ -1,4 +1,4 @@
-import { CopyObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { CopyObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 import { aiBlobOffloadS3Errors } from '~/ingestion/pipelines/ai/metrics'
 
@@ -12,6 +12,21 @@ function notFound(): Error {
     const error = new Error('not found')
     error.name = 'NotFound'
     return error
+}
+
+function namedError(name: string): Error {
+    const error = new Error(name)
+    error.name = name
+    return error
+}
+
+async function captureError(promise: Promise<unknown>): Promise<Error & { isRetriable?: boolean }> {
+    try {
+        await promise
+    } catch (error) {
+        return error as Error & { isRetriable?: boolean }
+    }
+    throw new Error('expected rejection')
 }
 
 describe('S3BlobStore', () => {
@@ -130,6 +145,57 @@ describe('S3BlobStore', () => {
             AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
         }
         expect(buildAiBlobStore({ ...base, AI_BLOB_S3_BUCKET: '' })).toBeNull()
+    })
+
+    // The classification contract the upload step's retry wrapper depends on:
+    // only provably event-specific failures are tagged non-retriable (-> DLQ);
+    // everything else stays unclassified so transient errors retry and
+    // env-wide problems crash loudly instead of silently dead-lettering a lane.
+    it.each([['SlowDown'], ['InternalError'], ['RequestTimeout'], ['AccessDenied'], ['NoSuchBucket']])(
+        'rethrows %s unclassified',
+        async (name) => {
+            send.mockRejectedValueOnce(namedError(name))
+            const error = await captureError(store().ensureStored(2, BLOB))
+            expect(error.name).toBe(name)
+            expect('isRetriable' in error).toBe(false)
+        }
+    )
+
+    it.each([['EntityTooLarge'], ['MetadataTooLarge']])(
+        'tags %s as non-retriable — deterministic for this event, retrying cannot fix it',
+        async (name) => {
+            send.mockRejectedValueOnce(notFound()).mockRejectedValueOnce(namedError(name))
+            const error = await captureError(store().ensureStored(2, BLOB))
+            expect(error.name).toBe(name)
+            expect(error.isRetriable).toBe(false)
+        }
+    )
+
+    it('rethrows a copy-race NoSuchKey unclassified, and a rerun self-heals via a fresh head', async () => {
+        const s = store()
+        send.mockResolvedValueOnce({ LastModified: new Date(NOW.getTime() - 25 * 3600 * 1000) })
+            .mockRejectedValueOnce(namedError('NoSuchKey'))
+            .mockRejectedValueOnce(notFound())
+            .mockResolvedValueOnce({})
+        // The object expired between head and copy: unclassified, so the step
+        // retry reruns ensureStored, whose fresh head now misses and re-uploads.
+        const raceError = await captureError(s.ensureStored(2, BLOB))
+        expect(raceError.name).toBe('NoSuchKey')
+        expect('isRetriable' in raceError).toBe(false)
+        await expect(s.ensureStored(2, BLOB)).resolves.toBe('uploaded')
+        expect(send.mock.calls[3][0]).toBeInstanceOf(PutObjectCommand)
+    })
+
+    it('healthcheck resolves when the bucket responds', async () => {
+        send.mockResolvedValueOnce({})
+        await expect(store().healthcheck()).resolves.toBeUndefined()
+        expect(send.mock.calls[0][0]).toBeInstanceOf(HeadBucketCommand)
+        expect(send.mock.calls[0][0].input).toMatchObject({ Bucket: 'blobs' })
+    })
+
+    it('healthcheck rejects naming the bucket when the probe fails', async () => {
+        send.mockRejectedValueOnce(namedError('AccessDenied'))
+        await expect(store().healthcheck()).rejects.toThrow('AI blob store healthcheck failed for bucket "blobs"')
     })
 
     it('builds a store when the bucket is set', () => {

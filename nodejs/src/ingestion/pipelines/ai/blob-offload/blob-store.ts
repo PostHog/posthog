@@ -1,8 +1,47 @@
-import { CopyObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import {
+    CopyObjectCommand,
+    HeadBucketCommand,
+    HeadObjectCommand,
+    PutObjectCommand,
+    S3Client,
+    S3ClientConfig,
+} from '@aws-sdk/client-s3'
 
 import { aiBlobOffloadS3Duration, aiBlobOffloadS3Errors } from '~/ingestion/pipelines/ai/metrics'
 
 export type EnsureStoredOutcome = 'uploaded' | 'fresh' | 'touched'
+
+/**
+ * AWS error names that are provably caused by the content of the request —
+ * deterministic per event, so no retry (and no environment change) can ever
+ * make them succeed. They are tagged `isRetriable: false` so the pipeline's
+ * step-retry wrapper dead-letters just the affected event instead of
+ * crash-looping the consumer on it forever:
+ *
+ * - `EntityTooLarge`: the PUT body exceeds S3's single-request object size
+ *   limit — a property of this event's blob bytes.
+ * - `MetadataTooLarge`: the request metadata/headers exceed S3's limit — the
+ *   only per-request headers we send are derived from the blob's detected
+ *   mime (Content-Type on put and copy), so this too is determined by the
+ *   event.
+ *
+ * Deliberately narrow. Everything else stays unclassified and crashes loudly
+ * after retries, because it is either transient (timeouts, 5xx, networking —
+ * retry owns those) or environment-wide (AccessDenied, NoSuchBucket,
+ * credentials — dead-lettering those would silently divert the whole lane's
+ * data during an infra incident; the startup healthcheck catches them before
+ * traffic instead). `KeyTooLongError` is intentionally excluded: our keys are
+ * prefix + team id + fixed-length hash, so an over-long key is configuration,
+ * not event content.
+ */
+const EVENT_SPECIFIC_S3_ERRORS = new Set(['EntityTooLarge', 'MetadataTooLarge'])
+
+function tagEventSpecificError(error: unknown): unknown {
+    if (error instanceof Error && EVENT_SPECIFIC_S3_ERRORS.has(error.name)) {
+        ;(error as Error & { isRetriable?: boolean }).isRetriable = false
+    }
+    return error
+}
 
 export interface BlobStore {
     ensureStored(teamId: number, blob: { hash: string; bytes: Buffer; mime: string }): Promise<EnsureStoredOutcome>
@@ -37,9 +76,26 @@ export class S3BlobStore implements BlobStore {
             if (!shouldCountError || shouldCountError(error)) {
                 aiBlobOffloadS3Errors.labels(op).inc()
             }
-            throw error
+            throw tagEventSpecificError(error)
         } finally {
             timer()
+        }
+    }
+
+    /**
+     * Startup probe: one cheap HeadBucket verifying bucket existence,
+     * credentials, and connectivity. Run at consumer scope start (like the
+     * Kafka consumer's connect) so environment-wide S3 problems fail the
+     * deployment before it consumes traffic, instead of crash-looping the
+     * lane on the first blob-carrying event.
+     */
+    async healthcheck(): Promise<void> {
+        try {
+            await this.s3.send(new HeadBucketCommand({ Bucket: this.config.bucket }), {
+                abortSignal: AbortSignal.timeout(this.config.timeoutMs),
+            })
+        } catch (error) {
+            throw new Error(`AI blob store healthcheck failed for bucket "${this.config.bucket}"`, { cause: error })
         }
     }
 

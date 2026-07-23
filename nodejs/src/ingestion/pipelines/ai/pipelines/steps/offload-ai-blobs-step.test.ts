@@ -3,7 +3,8 @@ import { Message } from 'node-rdkafka'
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResultWithContext } from '~/ingestion/framework/pipeline.interface'
-import { isOkResult } from '~/ingestion/framework/results'
+import { isDlqResult, isOkResult } from '~/ingestion/framework/results'
+import { withStepRetry } from '~/ingestion/framework/retry'
 import { BlobStore, EnsureStoredOutcome } from '~/ingestion/pipelines/ai/blob-offload/blob-store'
 import { DetectedBlob } from '~/ingestion/pipelines/ai/blob-offload/detect'
 import { parseBlobPointer } from '~/ingestion/pipelines/ai/blob-offload/pointer'
@@ -46,6 +47,14 @@ jest.mock('~/ingestion/pipelines/ai/metrics', () => {
         aiBlobOffloadS3Errors: counter(),
     }
 })
+
+jest.mock('~/common/utils/logger', () => ({
+    logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
+jest.mock('~/common/utils/posthog', () => ({
+    captureException: jest.fn(),
+}))
 
 const metricsMock = jest.mocked(aiMetrics)
 
@@ -344,6 +353,42 @@ describe('offloadAiBlobs stage', () => {
             // survive verbatim, not collapse to 'uploaded'.
             expect(isOkResult(result) && result.value).toEqual({ blob, outcome: 'touched' })
             expect(ensureStored).toHaveBeenCalledWith(7, blob)
+        })
+
+        // Production retry options (tries/name), with a 1ms sleep per the
+        // retry.test.ts convention so the exhaustion path stays fast.
+        describe('under the production retry wrapper', () => {
+            const RETRY = { tries: 5, sleepMs: 1, name: 'offload_ai_blobs' }
+
+            it('turns a non-retriable store failure into a dlq sub-result without retrying', async () => {
+                const error = Object.assign(new Error('EntityTooLarge'), { isRetriable: false })
+                const ensureStored = jest.fn().mockRejectedValue(error)
+                const step = withStepRetry(createUploadAiBlobStep({ ensureStored }), RETRY)
+                const result = await step({ teamId: 2, blob: makeBlob('hash-1') })
+                // The DLQ sub-result is what the fan-out stage aggregates into a
+                // parent-level DLQ — the consumer must not crash on this path.
+                expect(isDlqResult(result)).toBe(true)
+                expect(isDlqResult(result) && result.error).toBe(error)
+                expect(ensureStored).toHaveBeenCalledTimes(1)
+            })
+
+            it('rejects after exhausting retries for an unclassified failure', async () => {
+                const ensureStored = jest.fn().mockRejectedValue(new Error('socket hang up'))
+                const step = withStepRetry(createUploadAiBlobStep({ ensureStored }), RETRY)
+                await expect(step({ teamId: 2, blob: makeBlob('hash-1') })).rejects.toThrow('socket hang up')
+                expect(ensureStored).toHaveBeenCalledTimes(5)
+            })
+
+            it('recovers when a transient failure resolves within the retry budget', async () => {
+                const ensureStored = jest
+                    .fn()
+                    .mockRejectedValueOnce(Object.assign(new Error('flaky'), { isRetriable: true }))
+                    .mockResolvedValueOnce('uploaded')
+                const step = withStepRetry(createUploadAiBlobStep({ ensureStored }), RETRY)
+                const result = await step({ teamId: 2, blob: makeBlob('hash-1') })
+                expect(isOkResult(result) && result.value.outcome).toBe('uploaded')
+                expect(ensureStored).toHaveBeenCalledTimes(2)
+            })
         })
     })
 
