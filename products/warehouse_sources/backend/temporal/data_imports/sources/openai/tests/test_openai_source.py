@@ -21,6 +21,8 @@ _USAGE_ENDPOINTS = [
     "usage_audio_transcriptions",
     "usage_vector_stores",
     "usage_code_interpreter_sessions",
+    "usage_web_search_calls",
+    "usage_file_search_calls",
 ]
 
 _ENTITY_ENDPOINTS = [
