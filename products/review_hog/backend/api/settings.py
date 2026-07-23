@@ -13,6 +13,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
+from products.stamphog.backend.facade.api import has_reviewable_repo_config
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,15 @@ logger = logging.getLogger(__name__)
 class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     review_inbox_prs = serializers.BooleanField(
         required=False,
-        help_text="Automatically review pull requests opened by PostHog agents from the user's Inbox. "
-        "Stored but not consumed yet — the Inbox auto-review trigger is not built.",
+        help_text="Automatically review pull requests opened by self-driving implementations from the "
+        "user's Inbox: ReviewHog reviews each one and posts its findings to the pull request.",
+    )
+    stamphog_review_inbox_prs = serializers.BooleanField(
+        required=False,
+        help_text="Also have hosted Stamphog review those same Inbox pull requests: an approve-first "
+        "review that posts a real GitHub approval when the change passes, and a comment when it "
+        "doesn't. Only takes effect when the project has a synced, enabled Stamphog repository "
+        "(see stamphog_connected).",
     )
     review_labeled_prs = serializers.BooleanField(
         required=False,
@@ -39,14 +47,38 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         help_text="Whether reviews can be started from this project's Code review page (the UI trigger "
         "is limited to the designated ReviewHog team while the product is in alpha).",
     )
+    stamphog_connected = serializers.SerializerMethodField(
+        help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
+        "false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it "
+        "disabled with a pointer to connect the Stamphog GitHub App.",
+    )
 
     class Meta:
         model = ReviewUserSettings
-        fields = ["review_inbox_prs", "review_labeled_prs", "urgency_threshold", "can_trigger_reviews"]
+        fields = [
+            "review_inbox_prs",
+            "stamphog_review_inbox_prs",
+            "review_labeled_prs",
+            "urgency_threshold",
+            "can_trigger_reviews",
+            "stamphog_connected",
+        ]
 
     @extend_schema_field(serializers.BooleanField())
     def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
         return bool(settings.REVIEWHOG_TEAM_ID) and instance.team_id == settings.REVIEWHOG_TEAM_ID
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_stamphog_connected(self, instance: ReviewUserSettings) -> bool:
+        # Fail soft: this is an informational UI flag read from the stamphog product DB (a separate
+        # database behind a fail-fast circuit breaker), and it must not be able to take the whole
+        # settings endpoint down with it. False is the safe degradation — the toggle renders
+        # disabled until the read recovers.
+        try:
+            return has_reviewable_repo_config(instance.team_id)
+        except Exception:
+            logger.exception("review_hog_stamphog_connected_check_failed")
+            return False
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

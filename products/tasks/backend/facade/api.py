@@ -462,6 +462,41 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def find_signal_implementation_run(
+    *, team_id: int, repository: str, pr_url: str | None = None, head_branch: str | None = None
+) -> contracts.SignalImplementationRunDTO | None:
+    """The signals-origin implementation run that produced this PR, if any.
+
+    Matches runs the same way the GitHub-webhook backstop does (``pr_url`` first, then
+    repository + branch — see ``webhooks.find_task_run``) and answers only for the
+    self-driving shape: a non-internal task carrying a signal report in the given team.
+    Callers (stamphog's inbox carve-out) use this to positively identify a bot-authored PR
+    as a PostHog Code self-driving implementation and gate automation on it, so the team
+    scoping is enforced here — a run belonging to any other team returns None, and no
+    caller can accidentally bind a PR to another tenant's run. Wizard/manual tasks and
+    unlinked PRs return None too. The caller supplies the repository the PR event came from
+    and is responsible for fork safety (only branch-match PRs whose head repo IS that
+    repository).
+    """
+    # Deferred: webhooks imports this module back (signal_workflow_completion), so a
+    # module-level import here would be circular.
+    from products.tasks.backend.webhooks import find_task_run  # noqa: PLC0415
+
+    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository)
+    if run is None or run.team_id != team_id:
+        return None
+    task = run.task
+    if task.signal_report_id is None or task.internal:
+        return None
+    return contracts.SignalImplementationRunDTO(
+        run_id=run.id,
+        task_id=task.id,
+        team_id=run.team_id,
+        signal_report_id=task.signal_report_id,
+        task_created_by_id=task.created_by_id,
+    )
+
+
 def get_wizard_pr_ready_email_context(run_id: str | UUID) -> contracts.WizardPrReadyEmailContextDTO | None:
     """Data ``send_wizard_pr_ready_email`` needs for a run, or ``None`` if the run has no PR URL yet."""
     run = TaskRun.objects.select_related("task").filter(id=run_id).first()

@@ -32,6 +32,7 @@ import { Logomark } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconStamphog } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
@@ -1042,6 +1043,30 @@ function TriggersSection(): JSX.Element {
                         checked={settings?.review_inbox_prs ?? false}
                         onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
                         disabledReason={switchDisabledReason}
+                    />
+                </div>
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconStamphog className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
+                        <div className="text-xs text-secondary">
+                            When a self-driving implementation from your Inbox opens a pull request, Stamphog reviews it
+                            and approves it if it passes.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        aria-label="Let Stamphog review your Inbox PRs"
+                        checked={settings?.stamphog_review_inbox_prs ?? false}
+                        onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
+                        disabledReason={
+                            // An already-on switch stays interactive while disconnected, so the
+                            // opt-out is never dead-ended behind reconnecting Stamphog first.
+                            settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
+                                ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
+                                : switchDisabledReason
+                        }
                     />
                 </div>
                 <div className="flex items-center gap-4 p-4">

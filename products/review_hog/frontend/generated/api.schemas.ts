@@ -447,8 +447,10 @@ export const UrgencyThresholdEnumApi = {
 } as const
 
 export interface ReviewUserSettingsApi {
-    /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
+    /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
     review_inbox_prs?: boolean
+    /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
+    stamphog_review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
@@ -459,11 +461,15 @@ export interface ReviewUserSettingsApi {
     urgency_threshold?: UrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
     readonly can_trigger_reviews: boolean
+    /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
+    readonly stamphog_connected: boolean
 }
 
 export interface PatchedReviewUserSettingsApi {
-    /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
+    /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
     review_inbox_prs?: boolean
+    /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
+    stamphog_review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
@@ -474,6 +480,8 @@ export interface PatchedReviewUserSettingsApi {
     urgency_threshold?: UrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
     readonly can_trigger_reviews?: boolean
+    /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
+    readonly stamphog_connected?: boolean
 }
 
 export interface ReviewValidatorConfigApi {

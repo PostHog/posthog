@@ -26,6 +26,7 @@ from products.stamphog.backend.logic.channel_resolution import auto_provision_ch
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
+from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
@@ -36,7 +37,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
 )
-from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_REPO_DIR
+from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_CONTEXT_PATH, STAMPHOG_SANDBOX_REPO_DIR
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain, _run_activity
 
@@ -1479,3 +1480,45 @@ def test_label_mode_synchronize_without_label_dismisses_stale_approval(team, sta
     assert prior.approval_dismissed_at is not None
     # The review itself stays gated: no new run is queued because the trigger label is absent.
     assert ReviewRun.objects.for_team(team.id).exclude(id=prior.id).count() == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_chain: StamphogChain) -> None:
+    # The receiver-leg chain, no webhook involved: process_inbox_pr_review -> run stamped with inbox
+    # provenance -> real activities -> sandbox context carries self_driving_review -> a real APPROVE
+    # posted on the bot-authored DRAFT PR, pinned to its head. This is where the provenance-to-engine
+    # threading is verified end to end — drop any link (provenance not stamped, flag not passed into
+    # the invocation) and the engine refuses the bot author instead of approving.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    pr_object = _pr_object(120, "posthog-code[bot]", "sha120a")
+    pr_object["draft"] = True
+    pr_object["state"] = "open"
+    pr_object["user"]["type"] = "Bot"
+    recorder.register_pr(REPO, 120, pr_object, _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    process_inbox_pr_review(
+        team_id=team.id,
+        pr_url=f"https://github.com/{REPO}/pull/120",
+        acting_user_id=777,
+        signal_report_id="rep-1",
+        task_run_id="run-1",
+    )
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.APPROVED
+
+    context = json.loads(dict(stamphog_chain.sandbox_writes)[STAMPHOG_SANDBOX_CONTEXT_PATH].decode())
+    assert context["self_driving_review"] is True
+    # Trust-signal adaptation: the machine user's merged-PR history must not feed familiarity.
+    assert context["author_pr_numbers"] == []
+
+    # The provenance must also reach the env stamp — it's what segments these runs in analytics.
+    sandbox_env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert json.loads(sandbox_env["STAMPHOG_EXTRA_PROPERTIES"])["stamphog_self_driving_review"] is True
+
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    assert len(approvals) == 1
+    assert approvals[0]["body"]["commit_id"] == "sha120a"

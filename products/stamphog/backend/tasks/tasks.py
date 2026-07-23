@@ -6,6 +6,8 @@ it dedupes redeliveries, resolves the repo config, upserts the PR-grain
 a fresh ReviewRun, and kicks off the Temporal review workflow once the row commits.
 """
 
+import re
+from dataclasses import dataclass
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -20,6 +22,7 @@ from celery import shared_task
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
@@ -62,6 +65,14 @@ _UNTRUSTED_SKIP_DISMISS_MESSAGE = (
     "This PR no longer qualifies for automatic review."
 )
 
+# For a positively identified self-driving PR skipped only because its acting reviewer is not
+# opted in: the generic message above would wrongly imply an author-trust problem.
+_INBOX_OPT_OUT_DISMISS_MESSAGE = (
+    "New commits were pushed — dismissing the stamphog approval from an earlier head. "
+    "No reviewer currently has stamphog inbox reviews enabled for this self-driving PR, "
+    "so stamphog will not re-review."
+)
+
 # Per-PR cooldown for label-triggered re-reviews, so removing/re-adding the trigger label can't spam
 # sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode.
 STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
@@ -99,6 +110,111 @@ _AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
 _AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
 
 
+_PR_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
+
+
+def _parse_pr_url(pr_url: str) -> tuple[str, int] | None:
+    """(owner/repo, pr_number) out of a GitHub PR URL, or None when it doesn't look like one."""
+    match = _PR_URL_RE.search(pr_url or "")
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
+
+
+def _is_bot_authored(pr: dict[str, Any]) -> bool:
+    """The webhook pre-filter's bot definition (see _review_skip_reason), reusable on its own."""
+    user = pr.get("user") or {}
+    return user.get("type") == "Bot" or "[bot]" in (user.get("login") or "")
+
+
+@dataclass(frozen=True)
+class _InboxCarveOut:
+    """Resolution of the self-driving re-review carve-out for one webhook delivery.
+
+    ``provenance`` set → the delivery re-reviews despite the pre-filters. ``opted_out`` True →
+    the PR was positively identified as self-driving but its acting reviewer is not currently
+    opted in, so the skip path can say so instead of implying an author-trust problem. Both
+    unset → not a self-driving PR: today's behavior applies byte-for-byte.
+    """
+
+    provenance: dict[str, Any] | None = None
+    opted_out: bool = False
+
+
+def _inbox_rereview_carve_out(
+    installation_id: str, repo: str, pr: dict[str, Any], action: str, base_retargeted: bool
+) -> _InboxCarveOut:
+    """Whether this delivery re-reviews a self-driving inbox PR, and with what provenance.
+
+    Self-driving inbox PRs (bot-authored drafts opened by a PostHog Code signals implementation
+    run) trip every pre-filter and gate on this path — bot author, draft, author association,
+    write permission, review mode — yet the acting reviewer's ``stamphog_review_inbox_prs``
+    toggle is their real gate. This resolves whether THIS delivery is such a re-review:
+    positive identification only (repo-native branch — never a fork; a synced+enabled config;
+    a tasks-facade match for this exact repo, scoped to the config's team, carrying a signal
+    report on a non-internal task; the acting reviewer currently opted in). Anything
+    unidentified resolves empty and the caller keeps today's behavior byte-for-byte —
+    dependabot/renovate/posthog-bot and non-inbox PostHog Code PRs stay refused. An identified
+    PR whose acting reviewer is not opted in resolves ``opted_out``.
+
+    Scope is deliberately later deliveries only (synchronize / reopen / base retarget): the
+    initial review is the receiver leg's job (``process_inbox_pr_review``), and a
+    ready_for_review flip alone doesn't invalidate the draft-time verdict — a head-pinned
+    approval granted on the draft takes effect when the PR flips to ready. A toggle switched
+    off mid-PR lands in the caller's skip path, whose head-changing retraction still dismisses
+    the stale approval — safety is never preference-gated.
+    """
+    if action not in _HEAD_CHANGING_ACTIONS and not base_retargeted:
+        return _InboxCarveOut()
+    if not _is_bot_authored(pr):
+        # Self-driving PRs are always bot-authored (authorship is forced to the team's GitHub
+        # App machine user) — skip the DB work for every human PR on this path.
+        return _InboxCarveOut()
+    # Fork-safety (mirrors tasks/webhooks.py): on a fork PR head.ref is attacker-controlled
+    # while repository.full_name stays the base repo, so a branch-keyed task match could bind
+    # an unrelated fork PR to a run. Self-driving PRs always push repo-native branches.
+    head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or ""
+    if head_repo.strip().lower() != repo.strip().lower():
+        return _InboxCarveOut()
+    repo_config = _resolve_repo_config(installation_id, repo)
+    if (
+        repo_config is None
+        or not repo_config.enabled
+        or not repo_config.installation_id
+        or repo_config.connected_by_user_id is None
+    ):
+        return _InboxCarveOut()
+    # Deferred: the tasks facade is a heavy import and this module rides the webhook view's
+    # import path — load it only on the (rare) bot-authored-PR branch that needs the lookup.
+    from products.tasks.backend.facade.api import find_signal_implementation_run  # noqa: PLC0415
+
+    run = find_signal_implementation_run(
+        team_id=repo_config.team_id,
+        repository=repo,
+        pr_url=pr.get("html_url") or None,
+        head_branch=(pr.get("head") or {}).get("ref") or None,
+    )
+    # The facade enforces the team scope; the recheck here is belt and braces for the boundary
+    # a compromised or refactored facade would otherwise silently widen.
+    if run is None or run.team_id != repo_config.team_id:
+        return _InboxCarveOut()
+    resolver = get_inbox_acting_reviewer_resolver()
+    if resolver is None:
+        # review_hog isn't installed to answer the toggle question — fail closed, no re-review.
+        return _InboxCarveOut()
+    acting_user_id = resolver(repo_config.team_id, str(run.signal_report_id), run.task_created_by_id)
+    if acting_user_id is None:
+        return _InboxCarveOut(opted_out=True)
+    return _InboxCarveOut(
+        provenance={
+            "trigger": "webhook",
+            "signal_report_id": str(run.signal_report_id),
+            "task_run_id": str(run.run_id),
+            "acting_user_id": acting_user_id,
+        }
+    )
+
+
 def _review_skip_reason(pr: dict[str, Any]) -> str | None:
     """Why this PR must not enter the sandbox review path, or None to proceed.
 
@@ -110,8 +226,7 @@ def _review_skip_reason(pr: dict[str, Any]) -> str | None:
     if pr.get("draft"):
         # Drafts re-trigger via ready_for_review once opened for review, so reviewing one now is wasted.
         return "draft"
-    user = pr.get("user") or {}
-    if user.get("type") == "Bot" or "[bot]" in (user.get("login") or ""):
+    if _is_bot_authored(pr):
         # Bot authors (dependabot, renovate, ...) always need a human.
         return "bot_author"
     if pr.get("author_association") not in PAYLOAD_GATE_AUTHOR_ASSOCIATIONS:
@@ -749,8 +864,21 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     # Cheap pre-sandbox drops (drafts, bots, fork/external authors) before we resolve config or spend a
     # sandbox. Only affects the review path — the merged/closed digest capture returned above already.
+    # Exception: a positively identified self-driving inbox PR whose acting reviewer opted in
+    # re-reviews despite tripping every filter here (it is a bot-authored draft by construction);
+    # the toggle is its gate and the review-mode/write-permission gates below don't apply either.
     skip_reason = _review_skip_reason(pr)
+    carve_out = _InboxCarveOut()
     if skip_reason is not None:
+        # Retry (don't drop) on failure: a transient DB blip during the carve-out resolution must
+        # not silently drop a legitimate re-review (the webhook is already ACKed).
+        try:
+            carve_out = _inbox_rereview_carve_out(installation_id, repo, pr, action, base_retargeted)
+        except Exception as e:
+            logger.exception("stamphog_pr_event_inbox_carve_out_failed", delivery_id=delivery_id, error=str(e))
+            raise cast(Any, process_pull_request_event).retry(exc=e)
+    inbox_review = carve_out.provenance
+    if skip_reason is not None and inbox_review is None:
         # A head-changing event skipped here still invalidates any standing approval — the author may
         # have lost their trusted association, or the PR flipped to draft, since the approval was
         # granted. Same hazard as the mode/permission skips below: without retraction the old approval
@@ -763,13 +891,22 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 skip_repo_config = _resolve_repo_config(installation_id, repo)
                 # No .enabled filter: a disabled repo's standing approval must not survive a push either.
                 if skip_repo_config is not None:
-                    _retract_stale_approvals_on_skip(skip_repo_config, pr, _UNTRUSTED_SKIP_DISMISS_MESSAGE)
+                    _retract_stale_approvals_on_skip(
+                        skip_repo_config,
+                        pr,
+                        _INBOX_OPT_OUT_DISMISS_MESSAGE if carve_out.opted_out else _UNTRUSTED_SKIP_DISMISS_MESSAGE,
+                    )
             except Exception as e:
                 logger.exception(
                     "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
                 )
                 raise cast(Any, process_pull_request_event).retry(exc=e)
-        logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=skip_reason)
+        logger.info(
+            "stamphog_pr_event_skipped",
+            repo=repo,
+            pr_number=pr_number,
+            reason="inbox_opt_out" if carve_out.opted_out else skip_reason,
+        )
         if delivery_id:
             _mark_pr_event_processed(delivery_id)
         return
@@ -801,7 +938,10 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
         return
 
-    mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr)
+    # Toggle-gated inbox re-reviews bypass the per-repo review mode: the acting reviewer's
+    # opt-in is their gate, and a LABEL-mode repo's trigger label can't be applied by the bot
+    # author anyway. review_mode keeps governing every human PR exactly as before.
+    mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr) if inbox_review is None else None
     if mode_skip_reason is not None:
         # Safety net before dropping the event: a LABEL-mode head change skipped for a missing trigger
         # label still invalidates any standing approval. Retract it before marking the delivery processed,
@@ -820,9 +960,13 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # author_association alone can't prove push access (see WRITE_PERMISSIONS), so the last gate before
     # spending a run verifies it against the repo. Retry (don't drop) on lookup failure: fail-open would
     # let a transient GitHub blip mint approvals for under-privileged authors, and dropping would lose
-    # legitimate reviews to the same blip.
+    # legitimate reviews to the same blip. Inbox re-reviews skip it: the App's machine user is not a
+    # collaborator (the lookup would always deny), and the task-linkage identification plus the acting
+    # reviewer's toggle replace author trust for this one carved-out shape.
     try:
-        author_below_write = _author_lacks_write_permission(repo_config, repo, pr)
+        author_below_write = (
+            False if inbox_review is not None else _author_lacks_write_permission(repo_config, repo, pr)
+        )
     except GitHubRateLimitError as e:
         # Honor GitHub's own backoff hint: the default 5s retry delay lands inside the same rate
         # window and burns the attempt budget without ever succeeding.
@@ -915,6 +1059,9 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 head_sha=head.get("sha", ""),
                 delivery_id=delivery_id or None,
                 status=ReviewRunStatus.QUEUED,
+                # Provenance for a carved-out inbox re-review: the engine keys its self-driving
+                # behavior off this, and it attributes the run in the UI/analytics.
+                output={"inbox_review": inbox_review} if inbox_review is not None else {},
             )
             # Only start the workflow once the row is durably committed — an aborted
             # transaction must not leave a workflow chasing a run that never existed.
@@ -957,3 +1104,142 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     if delivery_id:
         _mark_pr_event_processed(delivery_id)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def process_inbox_pr_review(
+    team_id: int, pr_url: str, acting_user_id: int, signal_report_id: str, task_run_id: str
+) -> None:
+    """Run the initial hosted review of a self-driving inbox PR — the receiver leg's durable hand-off.
+
+    Fired via the ``queue_inbox_pr_review`` facade after review_hog's TaskRun receiver resolved the
+    acting reviewer and confirmed their ``stamphog_review_inbox_prs`` toggle. This leg exists because
+    the PR is a bot-authored draft by construction — the webhook path pre-filters both — and the
+    verdict must land while the PR is still a draft so it's available at Inbox triage time. Later
+    deliveries (synchronize / reopen / base retarget) re-review through the webhook carve-out.
+
+    There is no webhook payload here, so the PR is fetched from GitHub; the rest mirrors
+    ``process_pull_request_event``'s sequence (upsert → supersede → create → start on commit) with
+    inbox provenance stamped on the run. Silent no-op without a synced+enabled config for the PR's
+    repository (self-scoping: inert for teams without the Stamphog App installed). The receiver
+    re-fires on every TaskRun output save carrying the PR URL, so dedupe keys on the PR's CURRENT
+    head: a live-or-delivered run at that head is a no-op (restarting a stranded QUEUED run's
+    workflow), while a refire after a head the webhook leg never delivered — a lost synchronize —
+    still reviews the new commits.
+    """
+    parsed = _parse_pr_url(pr_url)
+    if parsed is None:
+        logger.warning("stamphog_inbox_pr_unparseable_url", team_id=team_id)
+        return
+    repository, pr_number = parsed
+
+    # Writer-pinned like every read that gates run creation (reader-lag invariant); iexact because
+    # tasks stores repository slugs lowercased while configs keep GitHub's casing.
+    write_db = router.db_for_write(StamphogRepoConfig)
+    try:
+        repo_config = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .using(write_db)
+            .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
+            .exclude(installation_id="")
+            .order_by("created_at", "id")
+            .first()
+        )
+    except Exception as e:
+        logger.exception("stamphog_inbox_pr_config_resolution_failed", team_id=team_id, error=str(e))
+        raise cast(Any, process_inbox_pr_review).retry(exc=e)
+    if repo_config is None:
+        logger.info("stamphog_inbox_pr_repo_not_reviewable", team_id=team_id, repository=repository)
+        return
+
+    # Retry (don't drop) on fetch failure: the toggle-gated initial review has no webhook
+    # redelivery behind it, so a transient GitHub blip must not silently lose it. The fetch runs
+    # before the dedupe because the dedupe keys on the PR's current head, which only GitHub knows.
+    try:
+        pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo_config.repository, pr_number)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_inbox_pr_fetch_rate_limited", repository=repository, pr_number=pr_number)
+        raise cast(Any, process_inbox_pr_review).retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_inbox_pr_fetch_failed", repository=repository, pr_number=pr_number, error=str(e))
+        raise cast(Any, process_inbox_pr_review).retry(exc=e)
+    if (pr.get("state") or "") != "open":
+        # A late TaskRun output save can re-fire the receiver long after the PR closed or merged.
+        logger.info("stamphog_inbox_pr_not_open", repository=repository, pr_number=pr_number)
+        return
+    head_sha = ((pr.get("head") or {}).get("sha") or "").strip()
+    if not head_sha:
+        # The head-keyed dedupe below would collide every refire on "", so bail rather than guess.
+        logger.warning("stamphog_inbox_pr_missing_head_sha", repository=repository, pr_number=pr_number)
+        return
+
+    inbox_review = {
+        "trigger": "inbox",
+        "signal_report_id": signal_report_id,
+        "task_run_id": task_run_id,
+        "acting_user_id": acting_user_id,
+    }
+    # Same transaction/on_commit shape as the webhook path (see process_pull_request_event).
+    run_write_db = router.db_for_write(ReviewRun)
+    try:
+        with transaction.atomic(using=run_write_db):
+            pr_obj = _upsert_pull_request(repo_config, pr)
+            # A newer webhook snapshot already committed (this fetch raced a push): its run is the
+            # current one, and superseding it for this older head would cancel the up-to-date
+            # review. Mirrors the webhook path's locked stale-payload recheck.
+            incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
+            if (
+                incoming_updated_at is not None
+                and pr_obj.payload_updated_at is not None
+                and pr_obj.payload_updated_at > incoming_updated_at
+            ):
+                logger.info("stamphog_inbox_pr_stale_snapshot", repository=repository, pr_number=pr_number)
+                return
+            # Dedupe repeat receiver fires against the current head; the row lock serializes racing
+            # fires. A live or delivered run at this head means the review is already handled —
+            # except a still-QUEUED one, whose post-commit workflow start failed (e.g. Temporal
+            # briefly down): restart it instead of stranding it (the start is idempotent).
+            existing = (
+                ReviewRun.objects.for_team(team_id)
+                .using(run_write_db)
+                .select_for_update()
+                .filter(pull_request=pr_obj, head_sha=head_sha)
+                .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+                .order_by("-created_at")
+                .first()
+            )
+            if existing is not None:
+                if existing.status == ReviewRunStatus.QUEUED:
+                    existing_run_id = str(existing.id)
+                    transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
+                logger.info(
+                    "stamphog_inbox_pr_already_reviewed",
+                    repository=repository,
+                    pr_number=pr_number,
+                    existing_status=existing.status,
+                )
+                return
+            _supersede_prior_runs(pr_obj)
+            review_run = ReviewRun.objects.for_team(team_id).create(
+                team_id=team_id,
+                pull_request=pr_obj,
+                head_sha=head_sha,
+                delivery_id=None,
+                status=ReviewRunStatus.QUEUED,
+                output={"inbox_review": inbox_review},
+            )
+            review_run_id = str(review_run.id)
+            # A post-commit start failure propagates into the retry below; the retry re-enters
+            # through the dedupe above and restarts the still-QUEUED run.
+            transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
+    except Exception as e:
+        logger.exception("stamphog_inbox_pr_create_run_failed", repository=repository, pr_number=pr_number)
+        raise cast(Any, process_inbox_pr_review).retry(exc=e)
+
+    logger.info(
+        "stamphog_inbox_pr_review_queued",
+        repository=repository,
+        pr_number=pr_number,
+        review_run_id=review_run_id,
+        team_id=team_id,
+    )
