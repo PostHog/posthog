@@ -62,11 +62,22 @@ await buildInParallel(
             outfile: path.resolve(__dirname, 'dist', 'decompressionWorker.js'),
             ...common,
         },
+        // Monaco workers are built twice: an ESM bundle loaded as a module worker (the default),
+        // and an IIFE bundle loaded as a classic worker. monacoEnvironment.ts falls back to the
+        // classic build when module workers aren't supported (older browsers), so the editor keeps
+        // real language services instead of dropping into Monaco's main-thread fallback.
         {
             name: 'Monaco Editor Worker',
             entryPoints: ['src/lib/monaco/workers/editor.worker.ts'],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', 'monacoEditorWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco Editor Worker (classic)',
+            entryPoints: ['src/lib/monaco/workers/editor.worker.ts'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'monacoEditorWorker.classic.js'),
             ...common,
         },
         {
@@ -77,10 +88,24 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Monaco JSON Worker (classic)',
+            entryPoints: ['src/lib/monaco/workers/json.worker.ts'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'monacoJsonWorker.classic.js'),
+            ...common,
+        },
+        {
             name: 'Monaco TypeScript Worker',
             entryPoints: ['src/lib/monaco/workers/ts.worker.ts'],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', 'monacoTsWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco TypeScript Worker (classic)',
+            entryPoints: ['src/lib/monaco/workers/ts.worker.ts'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'monacoTsWorker.classic.js'),
             ...common,
         },
         {

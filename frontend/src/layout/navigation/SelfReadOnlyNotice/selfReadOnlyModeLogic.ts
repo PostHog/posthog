@@ -25,18 +25,24 @@ export const ESCALATION_OPTIONS = [
     { seconds: 300, label: 'Allow for 5 min' },
 ] as const
 
-// Filters `$exception` events whose chain contains a ReadOnlyModeError so the
-// read-only feature doesn't spam error tracking for blocks-by-design. The
-// chain walk catches wrapped errors (e.g. `new Error('...', { cause: e })`).
+// Central error-tracking filter that drops `$exception` events for known benign,
+// by-design failures so they don't spam error tracking:
+//   - ReadOnlyModeError: read-only mode blocks writes on purpose. The chain walk
+//     catches wrapped errors (e.g. `new Error('...', { cause: e })`).
+//   - "Unexpected usage": Monaco throws this from its main-thread worker fallback
+//     when a language worker can't be instantiated (see monacoEnvironment.ts). The
+//     editor still loads with degraded language services, so it's not actionable.
 // Exported for unit testing.
-export function dropReadOnlyExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
+export function dropBenignExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
     event: T
 ): T | null {
     if (!event || event.event !== '$exception') {
         return event
     }
-    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string }>
-    if (list.some((ex) => ex?.type === 'ReadOnlyModeError')) {
+    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string; value?: string }>
+    const isReadOnly = list.some((ex) => ex?.type === 'ReadOnlyModeError')
+    const isMonacoWorkerFallback = list.some((ex) => ex?.value === 'Unexpected usage')
+    if (isReadOnly || isMonacoWorkerFallback) {
         return null
     }
     return event
@@ -155,11 +161,12 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         setReadOnlyGetter(() => selfReadOnlyModeLogic.findMounted()?.values.isReadOnly ?? false)
         setReadOnlyNotifier((method) => actions.notifyBlocked(method))
 
-        // Central error-tracking filter — drops any `$exception` event whose
-        // chain contains a ReadOnlyModeError. Catches direct captures *and*
-        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). No
-        // existing code sets `before_send`, so we own this config slot.
-        posthog.set_config({ before_send: dropReadOnlyExceptions })
+        // Central error-tracking filter — drops known benign `$exception` events
+        // (ReadOnlyModeError blocks-by-design, and Monaco's "Unexpected usage"
+        // worker-fallback error). Catches direct captures *and* wrapped errors
+        // (`new Error('...', { cause: readOnlyErr })`). No existing code sets
+        // `before_send`, so we own this config slot.
+        posthog.set_config({ before_send: dropBenignExceptions })
 
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that

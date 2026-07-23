@@ -1,19 +1,19 @@
-import { dropReadOnlyExceptions } from './selfReadOnlyModeLogic'
+import { dropBenignExceptions } from './selfReadOnlyModeLogic'
 
-describe('dropReadOnlyExceptions', () => {
+describe('dropBenignExceptions', () => {
     it('passes non-exception events through unchanged', () => {
         const event = { event: '$pageview', properties: { $current_url: '/foo' } }
-        expect(dropReadOnlyExceptions(event)).toBe(event)
+        expect(dropBenignExceptions(event)).toBe(event)
     })
 
-    it('passes $exception events without ReadOnlyModeError through', () => {
+    it('passes $exception events without a benign error through', () => {
         const event = {
             event: '$exception',
             properties: {
                 $exception_list: [{ type: 'TypeError', value: 'x is not a function' }],
             },
         }
-        expect(dropReadOnlyExceptions(event)).toBe(event)
+        expect(dropBenignExceptions(event)).toBe(event)
     })
 
     it('drops $exception events whose top-level type is ReadOnlyModeError', () => {
@@ -23,7 +23,7 @@ describe('dropReadOnlyExceptions', () => {
                 $exception_list: [{ type: 'ReadOnlyModeError', value: 'You are in read-only mode' }],
             },
         }
-        expect(dropReadOnlyExceptions(event)).toBeNull()
+        expect(dropBenignExceptions(event)).toBeNull()
     })
 
     it('drops wrapped errors where ReadOnlyModeError lives in the cause chain', () => {
@@ -39,18 +39,28 @@ describe('dropReadOnlyExceptions', () => {
                 ],
             },
         }
-        expect(dropReadOnlyExceptions(event)).toBeNull()
+        expect(dropBenignExceptions(event)).toBeNull()
+    })
+
+    it('drops Monaco\'s "Unexpected usage" worker-fallback error', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [{ type: 'Error', value: 'Unexpected usage' }],
+            },
+        }
+        expect(dropBenignExceptions(event)).toBeNull()
     })
 
     it('tolerates missing properties and missing exception list', () => {
-        expect(dropReadOnlyExceptions({ event: '$exception' })).toEqual({ event: '$exception' })
-        expect(dropReadOnlyExceptions({ event: '$exception', properties: {} })).toEqual({
+        expect(dropBenignExceptions({ event: '$exception' })).toEqual({ event: '$exception' })
+        expect(dropBenignExceptions({ event: '$exception', properties: {} })).toEqual({
             event: '$exception',
             properties: {},
         })
     })
 
     it('returns null when handed null (matching posthog-js before_send contract)', () => {
-        expect(dropReadOnlyExceptions(null)).toBeNull()
+        expect(dropBenignExceptions(null)).toBeNull()
     })
 })
