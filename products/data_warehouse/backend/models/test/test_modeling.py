@@ -512,6 +512,36 @@ class TestBoundedResolver(BaseTest):
                 query={"query": f"select * from v{i - 1}"},
             )
 
+    def _make_diamond(self) -> None:
+        """Create `shared` (reads events) and `mid` (reads shared)."""
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="shared",
+            query={"query": "select event from events"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="mid",
+            query={"query": "select event from shared"},
+        )
+
+    @parameterized.expand(
+        [
+            # a view joined to itself is not a cycle
+            ("self_join", "select a.* from shared a join shared b on 1=1", {"shared"}),
+            # `mid` reads `shared`, and `shared` also sits earlier in the same FROM
+            ("shared_joined_first", "select m.* from shared s join mid m on 1=1", {"shared", "mid"}),
+            # same diamond, reversed join order — `shared` must still be registered as a parent
+            ("shared_joined_second", "select m.* from mid m join shared s on 1=1", {"shared", "mid"}),
+            # union branches are true siblings and must keep working
+            ("union_branches", "select * from shared union all select * from mid", {"shared", "mid"}),
+        ],
+    )
+    def test_sibling_view_joins_resolve_without_cycle(self, _name: str, query: str, expected_parents: set[str]):
+        self._make_diamond()
+
+        assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
+
     def test_cycle_raises_typed_error_with_initial_view(self):
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -530,6 +560,61 @@ class TestBoundedResolver(BaseTest):
         # the inner view where the cycle was detected is `a` (already on the stack), and the caller is also `a`
         assert exc_info.value.view_name == "a"
         assert exc_info.value.initial_view == "a"
+
+    def _make_union_bodied_view_with_ctes(self) -> None:
+        """Create `unioned`, whose body is a UNION behind a WITH, with one CTE per branch."""
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="leaf",
+            query={"query": "select event from events"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="unioned",
+            query={
+                "query": (
+                    "with a as (select event from events), b as (select event from leaf) "
+                    "select event from a union all select event from b"
+                )
+            },
+        )
+
+    @parameterized.expand(
+        [
+            # the branch that reads `b` is walked before the WITH on the leading branch is in scope
+            ("plain_caller", "select 1 from unioned", {"events", "leaf"}),
+            # the caller defines its own `b`, which the view's `b` must not resolve against
+            (
+                "caller_defines_colliding_cte",
+                "with b as (select id from persons) select 1 from unioned u join b bb on 1=1",
+                {"events", "leaf", "persons"},
+            ),
+        ],
+    )
+    def test_ctes_inside_union_bodied_view_are_not_parents(self, _name: str, query: str, expected_parents: set[str]):
+        self._make_union_bodied_view_with_ctes()
+
+        assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
+
+    def test_cycle_through_union_bodied_view_raises(self):
+        # `view_name` is only stamped on ast.SelectQuery, so a view whose body is a top-level
+        # UNION has no name on the AST node the resolver walks into. Cycle detection must
+        # still hold for it.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="u",
+            query={"query": "select event from events union all select event from w"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="w",
+            query={"query": "select event from u"},
+        )
+
+        with pytest.raises(ResolutionCycleError) as exc_info:
+            get_parents_from_model_query(self.team, "caller", "select * from u")
+
+        assert exc_info.value.view_name == "u"
 
     def test_depth_limit_raises_when_chain_too_deep(self):
         self._make_chain(length=4)  # v0 → v1 → v2 → v3
