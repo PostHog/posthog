@@ -180,6 +180,9 @@ export function ThreadView({
             header={header}
             footer={footer}
             stickToBottom
+            // Provisioning counts too: the optimistic "spinning up" window is part of the turn, so the
+            // thread is already pinned when the first streamed rows land.
+            turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
             className={className}
             listClassName={listClassName}
