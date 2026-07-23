@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconChevronDown, IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { clearFilterButtonProps } from '../clearFilterButtonProps'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
 import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES } from './types'
@@ -134,7 +135,12 @@ export function AssigneeMultiSelect({
                 </div>
             }
         >
-            <LemonButton size="small" type="secondary" active={showPopover} sideIcon={<IconChevronDown />}>
+            <LemonButton
+                size="small"
+                type="secondary"
+                active={showPopover}
+                {...clearFilterButtonProps(value.length > 0 ? () => onChange([]) : null, 'Clear assignee filter')}
+            >
                 <TriggerLabel value={value} />
             </LemonButton>
         </LemonDropdown>

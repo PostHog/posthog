@@ -5,6 +5,7 @@ import { IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import {
@@ -16,6 +17,7 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { notebooksModel } from '~/models/notebooksModel'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -44,6 +46,10 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
     const showKernelToggle = isKernelUiEnabled(featureFlags) && isMarkdownNotebookContent(content)
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <SceneMenuBar>
@@ -68,6 +74,8 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                     opensFloatingUi
                     onClick={() => openShareModal()}
                     data-attr={`${RESOURCE_TYPE}-menubar-share`}
+                    disabled={!!sharingDisabledReason}
+                    tooltip={sharingDisabledReason ?? undefined}
                 >
                     <IconShare />
                     Share

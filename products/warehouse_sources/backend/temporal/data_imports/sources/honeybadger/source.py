@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HoneybadgerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeybadger import (
+    HoneybadgerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger import (
     HoneybadgerResumeConfig,
     honeybadger_source,
@@ -94,6 +96,7 @@ Note that Honeybadger's API is limited to 360 requests per hour, so large backfi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "notices":
@@ -122,7 +125,11 @@ Note that Honeybadger's API is limited to 360 requests per hour, so large backfi
         return schemas
 
     def validate_credentials(
-        self, config: HoneybadgerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HoneybadgerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_honeybadger_credentials(config.api_key):
             return True, None

@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     validate_targets,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import DATAFORSEO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DataForSEOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import (
+    DataForSEOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -144,6 +146,7 @@ Note: DataForSEO bills per API request, so every sync consumes account credits. 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No DataForSEO live endpoint exposes a server-side updated-since filter, so every table
         # is full refresh only.
@@ -167,7 +170,11 @@ Note: DataForSEO bills per API request, so every sync consumes account credits. 
         return schemas
 
     def validate_credentials(
-        self, config: DataForSEOSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DataForSEOSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         _, targets_error = validate_targets(config.targets)
         if targets_error:

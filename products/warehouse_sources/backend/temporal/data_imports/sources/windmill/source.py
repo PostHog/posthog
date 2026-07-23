@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WindmillSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.windmill import (
+    WindmillSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -115,6 +117,7 @@ The audit logs table requires a workspace-admin token and is a Windmill Enterpri
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -133,7 +136,11 @@ The audit logs table requires a workspace-admin token and is a Windmill Enterpri
         return schemas
 
     def validate_credentials(
-        self, config: WindmillSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WindmillSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_windmill_credentials(config.api_token, config.host, config.workspace, team_id)
 
@@ -151,9 +158,9 @@ The audit logs table requires a workspace-admin token and is a Windmill Enterpri
             base_url=config.host,
             workspace=config.workspace,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

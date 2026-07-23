@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
     GooglePageSpeedInsightsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.google_pagespeed_insights import (
@@ -116,6 +116,7 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -137,7 +138,11 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
         return schemas
 
     def validate_credentials(
-        self, config: GooglePageSpeedInsightsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GooglePageSpeedInsightsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_google_pagespeed_insights_credentials(config.api_key, config.urls)
 

@@ -89,25 +89,30 @@ const serializeDefinition = ({
     target_type: CustomPropertyTargetType
     is_big_number: boolean
     options?: CustomPropertyOptionApi[]
-} => ({
-    name: name.trim(),
-    description: description?.trim() || null,
-    display_type: displayType,
-    // Create-only on the backend; a definition's target doesn't change after creation.
-    target_type: targetType,
-    // The switch is hidden for non-numeric types, so never send a stale flag for them.
-    is_big_number: isNumericDisplayType(displayType) ? isBigNumber : false,
-    // Options only apply to select; the backend clears them for other types.
-    ...(displayType === 'select'
-        ? {
-              options: options.map(({ id, label, color }) => ({
-                  ...(id && !id.startsWith(NEW_OPTION_ID_PREFIX) ? { id } : {}),
-                  label: label.trim(),
-                  color,
-              })),
-          }
-        : {}),
-})
+} => {
+    // display_type/is_big_number/options only drive how an account property renders — a person
+    // property is written as a raw $set value, so those fields are hidden and forced to defaults.
+    const isPerson = targetType === 'person'
+    return {
+        name: name.trim(),
+        description: description?.trim() || null,
+        display_type: isPerson ? 'text' : displayType,
+        // Create-only on the backend; a definition's target doesn't change after creation.
+        target_type: targetType,
+        // The switch is hidden for non-numeric types, so never send a stale flag for them.
+        is_big_number: !isPerson && isNumericDisplayType(displayType) ? isBigNumber : false,
+        // Options only apply to select; the backend clears them for other types.
+        ...(!isPerson && displayType === 'select'
+            ? {
+                  options: options.map(({ id, label, color }) => ({
+                      ...(id && !id.startsWith(NEW_OPTION_ID_PREFIX) ? { id } : {}),
+                      label: label.trim(),
+                      color,
+                  })),
+              }
+            : {}),
+    }
+}
 
 // Identity-critical person properties a warehouse source shouldn't silently overwrite. `$`-prefixed
 // props are also warned on (see columnMappingWarnings). Warn-only — the user can still proceed.
@@ -163,6 +168,8 @@ export interface customPropertyDefinitionsLogicValues {
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
     selectedSourceColumns: string[]
+    selectedTableColumns: string[]
+    selectedTableColumnsLoading: boolean
     selectedWarehouseSchemaId: string | null
     serializedColumnPropertyMap: Record<string, string>
     showCustomPropertyFormErrors: boolean
@@ -256,6 +263,27 @@ export interface customPropertyDefinitionsLogicActions {
         savedQueries: DataWarehouseSavedQuery[]
         payload?: any
     }
+    loadSelectedTableColumns: ({ tableId }: { tableId: string | null }) => {
+        tableId: string | null
+    }
+    loadSelectedTableColumnsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSelectedTableColumnsSuccess: (
+        selectedTableColumns: string[],
+        payload?: {
+            tableId: string | null
+        }
+    ) => {
+        selectedTableColumns: string[]
+        payload?: {
+            tableId: string | null
+        }
+    }
     loadWarehouseTables: () => any
     loadWarehouseTablesFailure: (
         error: string,
@@ -271,8 +299,8 @@ export interface customPropertyDefinitionsLogicActions {
         warehouseTables: DataWarehouseTable[]
         payload?: any
     }
-    openCreateModal: () => {
-        value: true
+    openCreateModal: (targetType?: CustomPropertyTargetType) => {
+        targetType: CustomPropertyTargetType | undefined
     }
     openEditModal: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
@@ -362,7 +390,9 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         values: [projectLogic, ['currentProjectId']],
     })),
     actions({
-        openCreateModal: true,
+        // An optional target pre-selects Account/Person (the person-properties settings entry opens
+        // straight into 'person'); omitted, it falls back to the account default.
+        openCreateModal: (targetType?: CustomPropertyTargetType) => ({ targetType }),
         openEditModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         closeModal: true,
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
@@ -413,9 +443,23 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             [] as DataWarehouseTable[],
             {
                 loadWarehouseTables: async (): Promise<DataWarehouseTable[]> => {
-                    const response = await api.dataWarehouseTables.list()
+                    // Skip column serialization (expensive per-table HogQL work) and raise the limit off the
+                    // default 100 — the picker only needs names, and columns load per-table on selection.
+                    const response = await api.dataWarehouseTables.list({ include_columns: false, limit: 1000 })
                     // Only synced tables carry an external_schema, which is what a person source binds to.
                     return response.results.filter((table) => !!table.external_schema)
+                },
+            },
+        ],
+        selectedTableColumns: [
+            [] as string[],
+            {
+                loadSelectedTableColumns: async ({ tableId }: { tableId: string | null }): Promise<string[]> => {
+                    if (!tableId) {
+                        return []
+                    }
+                    const table = await api.dataWarehouseTables.get(tableId)
+                    return (table.columns ?? []).map((column) => column.name)
                 },
             },
         ],
@@ -618,12 +662,17 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             },
         ],
     }),
-    listeners(({ actions }) => ({
-        openCreateModal: () => {
+    listeners(({ actions, values }) => ({
+        openCreateModal: ({ targetType }) => {
             actions.resetCustomPropertyForm()
+            if (targetType) {
+                actions.setCustomPropertyFormValue('targetType', targetType)
+            }
             actions.loadSavedQueries()
             actions.loadWarehouseTables()
             actions.loadPersonPropertyDefinitions()
+            // No table picked yet — clear any columns left over from a previous open.
+            actions.loadSelectedTableColumnsSuccess([])
         },
         openEditModal: ({ definition }) => {
             actions.loadSavedQueries()
@@ -653,6 +702,20 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     : [{ column: '', property: '' }],
                 isEnabled: definition.source?.is_enabled ?? true,
             })
+        },
+        loadWarehouseTablesSuccess: () => {
+            // On edit the table binding is create-only and hidden, but the distinct-ID column stays
+            // editable — so resolve the bound table from the source's schema and load its columns to
+            // drive that picker. Resolving here (not in openEditModal) waits for the table list to load.
+            const source = values.editingDefinition?.source
+            if (source?.external_data_schema) {
+                const table = values.warehouseTables.find(
+                    (candidate) => candidate.external_schema?.id === source.external_data_schema
+                )
+                if (table) {
+                    actions.loadSelectedTableColumns({ tableId: table.id })
+                }
+            }
         },
         submitCustomPropertyFormSuccess: () => {
             lemonToast.success('Custom property saved')

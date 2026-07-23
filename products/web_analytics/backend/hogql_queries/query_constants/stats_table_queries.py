@@ -182,6 +182,40 @@ WHERE and({inside_periods}, {event_where}, {all_properties})
 GROUP BY session_id, breakdown_value
 """
 
+# No-join variant of MAIN_INNER_QUERY for simple breakdowns that display no
+# session-derived column (no bounce, no conversion goal, event-property
+# breakdown value). The sessions join above contributes only `session_id`
+# (grouping) and `$start_timestamp` (period attribution) in that case — both
+# recoverable from the UUIDv7 session id itself, so the join is pure overhead
+# (prod-measured 10x wall / ~400x memory on DeviceType for a large team).
+# Sessionless and malformed-session-id events still count — the join keeps
+# them too (NULL session row). Non-UUIDv7 ids are lumped under a NULL
+# `session_id` (raw_sessions is v7-only, so the join's `session.session_id`
+# is NULL for all of them) and get a NULL `start_timestamp`, which excludes
+# them from compare-period buckets exactly as the join does. The outer query is
+# unchanged. Unlike the PAGE no-join variants, filters need no special
+# handling: with no sessions side, user and test-account filters apply inline
+# to the single events scan.
+NO_JOIN_MAIN_INNER_QUERY = """
+SELECT
+    any(person_id) AS filtered_person_id,
+    count() AS filtered_pageview_count,
+    {breakdown_value} AS breakdown_value,
+    if(
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        events.$session_id,
+        NULL
+    ) AS session_id,
+    any(if(
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)),
+        NULL
+    )) AS start_timestamp
+FROM events
+WHERE and({inside_periods}, {event_where}, {all_properties})
+GROUP BY session_id, breakdown_value
+"""
+
 # No-join variants of the PAGE-breakdown queries: counts come straight from events
 # (bucketed by event timestamp) and bounce comes straight from the sessions table
 # (bucketed by session start), instead of routing both through the events↔sessions

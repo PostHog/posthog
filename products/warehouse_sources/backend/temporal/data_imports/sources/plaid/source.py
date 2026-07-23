@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlaidSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plaid import PlaidSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plaid import (
     PlaidResumeConfig,
     plaid_source,
@@ -123,11 +123,12 @@ You can find your client ID and secret in the [Plaid dashboard](https://dashboar
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PlaidSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PlaidSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_plaid_credentials(config.environment, config.client_id, config.secret, config.access_token):
             return True, None
