@@ -172,10 +172,11 @@ export const isDraftQueryWorthSaving = (query: Node, filterTestAccountsDefault: 
         return true
     }
     // Overlay the draft's cosmetic fields onto the default: if that alone makes the two equal,
-    // nothing worth resurfacing was edited
+    // nothing worth resurfacing was edited. `tags` is query log metadata the editor attaches on
+    // scene init (see `withDefaultProductAnalyticsTags`), never a user edit, so it's overlaid too.
     const draftSource = source as Record<string, any>
     const overlaidSource: Record<string, any> = { ...defaultQuery.source }
-    for (const key of ['dateRange', 'interval', 'filterTestAccounts']) {
+    for (const key of ['dateRange', 'interval', 'filterTestAccounts', 'tags']) {
         if (key in draftSource) {
             overlaidSource[key] = draftSource[key]
         } else {

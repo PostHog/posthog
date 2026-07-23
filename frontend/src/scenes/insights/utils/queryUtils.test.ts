@@ -251,6 +251,11 @@ describe('isDraftQueryWorthSaving', () => {
         ['only a changed interval', trends((q) => (q.source.interval = 'week')), false],
         ['only the test account toggle', trends((q) => (q.source.filterTestAccounts = true)), false],
         ['only a changed display option', trends((q) => (q.source.trendsFilter = { display: 'ActionsPie' })), false],
+        [
+            'an untouched default with editor-attached query log tags',
+            trends((q) => (q.source.tags = { productKey: 'product_analytics' })),
+            false,
+        ],
         ['a changed series event', trends((q) => (q.source.series[0].event = 'purchase')), true],
         [
             'an added series',

@@ -6,6 +6,7 @@ jest.mock('~/queries/query', () => ({
 
 import { expectLogic } from 'kea-test-utils'
 
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -20,6 +21,7 @@ import { performQuery } from '~/queries/query'
 import {
     FunnelsQuery,
     InsightVizNode,
+    Node,
     NodeKind,
     ResultCustomizationBy,
     TrendsQuery,
@@ -550,6 +552,52 @@ describe('insightDataLogic', () => {
                 findMountedSpy.mockRestore()
                 sceneLogic.unmount()
             }
+        })
+    })
+
+    describe('draft query persistence', () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        const newInsightQuery = (mutate?: (query: any) => void): Node => {
+            const query = JSON.parse(JSON.stringify(getDefaultQuery(InsightType.TRENDS, false)))
+            mutate?.(query)
+            return query
+        }
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+
+        beforeEach(() => {
+            localStorage.removeItem(draftKey)
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            logic = insightDataLogic({ dashboardItemId: 'new' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            sceneLogic.unmount()
+            localStorage.removeItem(draftKey)
+        })
+
+        it('clears the draft it persisted when the query reverts to a cosmetic-only diff', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery((q) => (q.source.series[0].event = 'purchase')))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).not.toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery((q) => (q.source.dateRange = { date_from: '-90d' })))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it("does not clear another session's draft when it has not persisted one itself", async () => {
+            localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery((q) => (q.source.dateRange = { date_from: '-90d' })))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).not.toBeNull()
         })
     })
 })
