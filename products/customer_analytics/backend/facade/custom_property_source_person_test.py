@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -135,3 +136,34 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         with self.assertRaises(api.CustomPropertySourceValidationError) as ctx:
             self._create(definition_id=self.account_def.id, **overrides)
         assert expected_message in str(ctx.exception)
+
+    @staticmethod
+    def _uac(allowed: bool) -> MagicMock:
+        uac = MagicMock()
+        uac.check_access_level_for_object.return_value = allowed
+        return uac
+
+    def test_create_person_source_requires_warehouse_source_editor(self):
+        # Mapping a warehouse table into person properties drives its billable source, so a caller
+        # without external_data_source editor access is refused even with account-scope editor.
+        with self.assertRaises(api.ResourceForbiddenError):
+            self._create(user_access_control=self._uac(allowed=False))
+        # The allow path still creates the source.
+        view = self._create(user_access_control=self._uac(allowed=True))
+        assert view.external_data_schema == self.schema.id
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_trigger_sync_denied_without_warehouse_source_editor(self, _flag):
+        source = self._create()
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.trigger_person_property_sync(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+            )
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_trigger_backfill_denied_without_warehouse_source_editor(self, _flag):
+        source = self._create()
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.trigger_person_property_backfill(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+            )

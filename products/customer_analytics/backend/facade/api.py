@@ -649,6 +649,12 @@ class ResourceForbiddenError(Exception):
     matching the ``AccessControlPermission.has_object_permission`` path it replaces."""
 
 
+class WarehouseSyncPausedError(Exception):
+    """Raised when a person-property "sync now" is triggered while the team's warehouse
+    syncing is paused (monthly limit reached). The view maps this to 400 with the same
+    message the canonical warehouse schema reload/resync endpoints return."""
+
+
 # Re-export the "not found" exceptions so the view can branch to 404 without importing the
 # models. They are model ``DoesNotExist`` subclasses raised by the team-scoped detail fetches.
 Account_DoesNotExist = Account.DoesNotExist
@@ -1302,25 +1308,57 @@ def _triggerable_person_schema_id(team_id: int, source_id: str) -> str | None:
     return str(source.external_data_schema_id)
 
 
-def trigger_person_property_sync(*, team_id: int, source_id: str) -> bool:
+def _assert_warehouse_source_editor(
+    team_id: int, external_data_schema_id: str | UUID | None, user_access_control: "UserAccessControl | None"
+) -> None:
+    """A person-property source drives a real (billable) warehouse source, so acting on it — a manual
+    sync/backfill, or creating/enabling the mapping (which auto-triggers one) — requires the caller's
+    object-level ``external_data_source`` editor access, not account-scope editor alone. Mirrors the
+    canonical warehouse schema reload/resync endpoints, which gate through ``get_object``. ``None``
+    (service auth, which the permission layer skips object checks for) is a no-op, matching
+    ``_enforce_object_access``. Raises ``ResourceForbiddenError`` (→ 403) when the caller is denied."""
+    if user_access_control is None or external_data_schema_id is None:
+        return
+    schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+    schema = schema_model.objects.filter(id=external_data_schema_id, team_id=team_id).select_related("source").first()
+    if schema is None:
+        return
+    _enforce_object_access(schema.source, user_access_control, "editor")
+
+
+def trigger_person_property_sync(
+    *, team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
+) -> bool:
     """ "Sync now" for a person source: trigger the underlying warehouse schema's sync (a real,
     billable sync; the incremental person-property child runs off it). Returns False for an invalid
-    source (→ 400)."""
+    source (→ 400). Requires ``external_data_source`` editor access (→ 403) and honors the team's
+    warehouse sync pause (→ ``WarehouseSyncPausedError``)."""
     schema_id = _triggerable_person_schema_id(team_id, source_id)
     if schema_id is None:
         return False
-    from products.warehouse_sources.backend.facade.temporal import trigger_schema_sync  # noqa: PLC0415
+    _assert_warehouse_source_editor(team_id, schema_id, user_access_control)
+    from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
+        ExternalDataSchemaSyncPausedError,
+        trigger_schema_sync,
+    )
 
-    trigger_schema_sync(schema_id=schema_id)
+    try:
+        trigger_schema_sync(team_id=team_id, schema_id=schema_id)
+    except ExternalDataSchemaSyncPausedError as e:
+        raise WarehouseSyncPausedError(str(e)) from e
     return True
 
 
-def trigger_person_property_backfill(*, team_id: int, source_id: str, trigger: str = "manual") -> bool | None:
+def trigger_person_property_backfill(
+    *, team_id: int, source_id: str, trigger: str = "manual", user_access_control: "UserAccessControl | None" = None
+) -> bool | None:
     """Start a backfill for a person source's table. Returns True (started), False (already running →
-    coalesced), or None for an invalid source (→ 400)."""
+    coalesced), or None for an invalid source (→ 400). Requires ``external_data_source`` editor access
+    (→ 403)."""
     schema_id = _triggerable_person_schema_id(team_id, source_id)
     if schema_id is None:
         return None
+    _assert_warehouse_source_editor(team_id, schema_id, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     _create_running_runs(team_id, schema_id, trigger)
     from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
@@ -1354,6 +1392,7 @@ def create_custom_property_source(
     source_column: str | None = None,
     external_data_schema_id: str | UUID | None = None,
     column_property_map: dict | None = None,
+    user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
     if definition is None:
@@ -1379,6 +1418,9 @@ def create_custom_property_source(
         create_kwargs["column_property_map"] = _validate_column_property_map(column_property_map)
         if not _external_data_schema_belongs_to_team(team_id, external_data_schema_id):
             raise CustomPropertySourceValidationError("Warehouse schema not found for this team.")
+        # Mapping (and enabling) a warehouse table into person properties drives its billable source,
+        # so require the caller's warehouse-source editor access, not account-scope editor alone.
+        _assert_warehouse_source_editor(team_id, external_data_schema_id, user_access_control)
         create_kwargs["external_data_schema_id"] = external_data_schema_id
     else:
         if saved_query_id is None or not source_column:
@@ -1408,7 +1450,7 @@ def create_custom_property_source(
 
 
 def update_custom_property_source(
-    *, team_id: int, source_id: str, fields: dict[str, Any]
+    *, team_id: int, source_id: str, fields: dict[str, Any], user_access_control: "UserAccessControl | None" = None
 ) -> contracts.CustomPropertySourceView | None:
     """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
     (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
@@ -1417,6 +1459,10 @@ def update_custom_property_source(
     if source is None:
         return None
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
+    # Re-enabling a person source auto-triggers a backfill on its warehouse table; gate that on the
+    # caller's warehouse-source editor access, matching create.
+    if reenabling and source.external_data_schema_id is not None:
+        _assert_warehouse_source_editor(team_id, source.external_data_schema_id, user_access_control)
     columns_changed = any(
         attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
     )

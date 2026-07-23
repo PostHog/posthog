@@ -15,6 +15,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import trigger_schedule
 
+from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyBackfillActivityInputs,
@@ -22,10 +23,22 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 
 BACKFILL_WORKFLOW_NAME = "backfill-warehouse-person-properties"
 
+# The canonical warehouse schema reload/resync endpoints reject a manual sync with this message when
+# the team's syncing is paused (monthly limit reached); reused so person-property "sync now" matches.
+SYNC_PAUSED_MESSAGE = "Monthly sync limit reached. Please increase your billing limit to resume syncing."
 
-def trigger_schema_sync(*, schema_id: str) -> None:
+
+class ExternalDataSchemaSyncPausedError(Exception):
+    """Raised by ``trigger_schema_sync`` when the team's warehouse syncing is paused, so a manual
+    person-property sync can't be used to run billable imports past the monthly limit."""
+
+
+def trigger_schema_sync(*, team_id: int, schema_id: str) -> None:
     """Trigger the underlying warehouse schema's Temporal schedule — a real, billable sync. The normal
-    incremental person-property child runs off it, so this doubles as person-property "sync now"."""
+    incremental person-property child runs off it, so this doubles as person-property "sync now".
+    Honors the team's sync pause the same way the canonical reload/resync endpoints do."""
+    if is_any_external_data_schema_paused(team_id):
+        raise ExternalDataSchemaSyncPausedError(SYNC_PAUSED_MESSAGE)
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(schema_id))
 

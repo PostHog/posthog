@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_sy
     PERSON_PROPERTY_SYNC_WORKFLOWS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.person_property_triggers import (
+    ExternalDataSchemaSyncPausedError,
     start_person_property_backfill,
     trigger_schema_sync,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "PERSON_PROPERTY_SYNC_ACTIVITIES",
     "PERSON_PROPERTY_SYNC_WORKFLOWS",
     "WORKFLOWS",
+    "ExternalDataSchemaSyncPausedError",
     "load_all_sources",
     "prepare_s3_files_for_querying",
     "start_person_property_backfill",

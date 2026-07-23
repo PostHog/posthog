@@ -455,18 +455,27 @@ class CustomPropertySourceViewSet(
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
+                user_access_control=self.user_access_control,
             )
         except api.CustomPropertySourceValidationError as e:
             raise ValidationError(str(e))
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=CustomPropertySourceUpdateSerializer)
     def update(self, request: Request, *args, **kwargs) -> Response:
         write = CustomPropertySourceUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
         write.is_valid(raise_exception=True)
-        source = api.update_custom_property_source(
-            team_id=self.team_id, source_id=self.kwargs["pk"], fields=write.validated_data
-        )
+        try:
+            source = api.update_custom_property_source(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                fields=write.validated_data,
+                user_access_control=self.user_access_control,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if source is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
@@ -487,7 +496,15 @@ class CustomPropertySourceViewSet(
     def sync(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
         real (billable) warehouse sync; the incremental person-property update runs off it."""
-        if not api.trigger_person_property_sync(team_id=self.team_id, source_id=self.kwargs["pk"]):
+        try:
+            triggered = api.trigger_person_property_sync(
+                team_id=self.team_id, source_id=self.kwargs["pk"], user_access_control=self.user_access_control
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        except api.WarehouseSyncPausedError as e:
+            return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if not triggered:
             raise ValidationError("This action is only available for enabled person-property sources.")
         return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
 
@@ -496,9 +513,15 @@ class CustomPropertySourceViewSet(
     def backfill(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: start a backfill that reads the whole warehouse table and populates
         person properties for historical rows. Coalesces if one is already running for the table."""
-        started = api.trigger_person_property_backfill(
-            team_id=self.team_id, source_id=self.kwargs["pk"], trigger="manual"
-        )
+        try:
+            started = api.trigger_person_property_backfill(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                trigger="manual",
+                user_access_control=self.user_access_control,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if started is None:
             raise ValidationError("This action is only available for enabled person-property sources.")
         return Response(
