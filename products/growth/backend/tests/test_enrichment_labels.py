@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -122,6 +123,13 @@ class TestEnrichmentLabelBatch(BaseTest):
             organization=self.organization, prompt_version=config.version
         ).order_by("created_at")
         assert [row.fetch_id for row in rows] == [first_fetch.id, second_fetch.id]
+
+    def test_rejects_invalid_worker_and_sample_counts(self):
+        self._config()
+        with self.assertRaises(CommandError):
+            call_command("enrichment_label_batch", label="test_label", workers=0)
+        with self.assertRaises(CommandError):
+            call_command("enrichment_label_dry_run", label="test_label", sample=-1)
 
     def test_llm_failure_is_captured_and_counted_without_persisting(self):
         self._config()

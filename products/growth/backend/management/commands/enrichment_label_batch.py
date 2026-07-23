@@ -7,12 +7,13 @@ queryable in Postgres only.
 """
 
 import threading
+from collections import deque
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 
 import structlog
 
@@ -26,7 +27,7 @@ from products.growth.backend.enrichment.labels import (
     latest_fetches_qs,
     signup_email_for_organization,
 )
-from products.growth.backend.models import EnrichmentLabelResult, OrganizationEnrichmentFetch
+from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +44,8 @@ class Command(BaseCommand):
         label: str = options["label"]
         limit: int | None = options["limit"]
         workers: int = options["workers"]
+        if workers < 1:
+            raise CommandError("--workers must be at least 1")
 
         config = get_active_config(label)
         if config is None:
@@ -53,18 +56,39 @@ class Command(BaseCommand):
         counts: dict[str, int] = {"attempted": 0, "succeeded": 0, "skipped_existing": 0, "unknown": 0, "failures": 0}
         counts_lock = threading.Lock()
 
+        def _result_exists(fetch: OrganizationEnrichmentFetch) -> bool:
+            return EnrichmentLabelResult.objects.filter(
+                organization_id=fetch.organization_id,
+                label_name=label,
+                prompt_version=config.version,
+                fetch=fetch,
+            ).exists()
+
         # In-flight LLM concurrency is bounded by the pool size itself; no extra gate needed.
         def _process(fetch: OrganizationEnrichmentFetch) -> None:
             try:
+                # Re-check right before spending: another run may have computed this since the
+                # target was enumerated.
+                if _result_exists(fetch):
+                    with counts_lock:
+                        counts["skipped_existing"] += 1
+                    return
                 email = signup_email_for_organization(fetch.organization)
                 output = classify_payload(config, fetch.payload, email, client)
-                EnrichmentLabelResult.objects.get_or_create(
-                    organization_id=fetch.organization_id,
-                    fetch=fetch,
-                    label_name=label,
-                    prompt_version=config.version,
-                    defaults={"prompt_hash": config.content_hash, "model": config.model, "output": output},
-                )
+                # Lock the config row and re-verify its content before persisting, pairing with
+                # the save()/delete() guards — a verdict computed against a config that changed
+                # mid-run is discarded rather than stamped under the wrong version.
+                with transaction.atomic():
+                    locked = EnrichmentPromptConfig.objects.select_for_update().filter(pk=config.pk).first()
+                    if locked is None or locked.content_hash != config.content_hash:
+                        raise RuntimeError(f"config {label} {config.version} changed mid-run; verdict discarded")
+                    EnrichmentLabelResult.objects.get_or_create(
+                        organization_id=fetch.organization_id,
+                        fetch=fetch,
+                        label_name=label,
+                        prompt_version=config.version,
+                        defaults={"prompt_hash": config.content_hash, "model": config.model, "output": output},
+                    )
             except Exception as e:
                 capture_exception(
                     e,
@@ -91,13 +115,7 @@ class Command(BaseCommand):
             for fetch in latest_fetches_qs().select_related("organization").iterator():
                 if limit is not None and counts["attempted"] >= limit:
                     return
-                exists = EnrichmentLabelResult.objects.filter(
-                    organization_id=fetch.organization_id,
-                    label_name=label,
-                    prompt_version=config.version,
-                    fetch=fetch,
-                ).exists()
-                if exists:
+                if _result_exists(fetch):
                     counts["skipped_existing"] += 1
                     continue
                 counts["attempted"] += 1
@@ -109,10 +127,16 @@ class Command(BaseCommand):
             for fetch in _attempt_targets():
                 _process(fetch)
         else:
+            # Bounded in-flight submission: memory stays proportional to the worker count,
+            # not the archive size.
+            pending: deque[Future[None]] = deque()
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [pool.submit(_process_threaded, fetch) for fetch in _attempt_targets()]
-                for future in futures:
-                    future.result()
+                for fetch in _attempt_targets():
+                    pending.append(pool.submit(_process_threaded, fetch))
+                    if len(pending) >= workers * 4:
+                        pending.popleft().result()
+                while pending:
+                    pending.popleft().result()
 
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "

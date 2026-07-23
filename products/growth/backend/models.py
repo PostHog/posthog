@@ -217,9 +217,9 @@ class EnrichmentPromptConfig(UUIDModel):
         if not self.pk:
             super().save(*args, **kwargs)
             return
-        # Row lock so two concurrent edits can't both pass the frozen-field check. A result
-        # inserted between the check and the save can still slip through; edits are admin-driven
-        # and the batch runner re-reads its config per run, so that residual window is accepted.
+        # Row lock pairs with the batch runner, which takes the same lock (and re-checks the
+        # content hash) before inserting each result — so edits and result creation serialize
+        # and neither side can invalidate the other mid-flight.
         with transaction.atomic():
             persisted = EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
             if persisted is not None and self._has_results(persisted.name, persisted.version):
@@ -232,12 +232,16 @@ class EnrichmentPromptConfig(UUIDModel):
             super().save(*args, **kwargs)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
-        if self.pk and self._has_results(self.name, self.version):
-            raise ValidationError(
-                f"Config {self.name} {self.version} has stored results and is part of their provenance; "
-                "deactivate it instead of deleting."
-            )
-        return super().delete(*args, **kwargs)
+        if not self.pk:
+            return super().delete(*args, **kwargs)
+        with transaction.atomic():
+            EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
+            if self._has_results(self.name, self.version):
+                raise ValidationError(
+                    f"Config {self.name} {self.version} has stored results and is part of their provenance; "
+                    "deactivate it instead of deleting."
+                )
+            return super().delete(*args, **kwargs)
 
 
 class EnrichmentLabelResult(UUIDModel):

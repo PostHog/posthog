@@ -47,6 +47,8 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         label: str = options["label"]
         sample: int = options["sample"]
+        if sample < 1:
+            raise CommandError("--sample must be at least 1")
         prompt_file: str | None = options["prompt_file"]
         compare_version: str | None = options["compare_version"]
 
