@@ -14,7 +14,7 @@ name: Auto-resolve PR conflicts
 
 on:
     schedule:
-        - cron: '*/15 * * * *' # every 15 minutes
+        - cron: '*/15 * * * 1-5' # every 15 minutes, weekdays only (no point resolving over the weekend)
     workflow_dispatch:
         inputs:
             pr_number:
@@ -31,6 +31,7 @@ permissions:
 
 env:
     MAX_PRS: '20' # max conflicting PRs one tick hands off; overlapping ticks pick up the rest
+    FRESH_HOURS: '72' # only resolve PRs a human touched this recently; skip stale ones (72h covers a weekend)
     # Conflicts matching these are mechanically regenerated (no model). Anchored to real generated
     # dirs, never `**/api.ts` (would match hand-written frontend/src/lib/api.ts). NOTE: migration
     # numbering (max_migration.txt) is deliberately NOT here — `ci:preflight --fix` doesn't resolve
@@ -133,6 +134,15 @@ jobs:
                           echo "#$num: already attempted at this state; skipping"; continue
                         fi
                       fi
+                    fi
+                    # Freshness: skip PRs no human has touched in FRESH_HOURS (stale — e.g. author away).
+                    # Bot commits (incl. this workflow's own resolutions) are excluded, so a stale PR
+                    # can't be kept alive by the bot resolving it over and over as master moves.
+                    cutoff=$(date -u -d "$FRESH_HOURS hours ago" +%s)
+                    last_human=$(gh api "repos/$REPO/pulls/$num/commits" --paginate \
+                        --jq '[ .[] | select((.author.type // "User") != "Bot") | .commit.committer.date ] | last // empty' 2>/dev/null || true)
+                    if [ -z "$last_human" ] || [ "$(date -u -d "$last_human" +%s 2>/dev/null || echo 0)" -lt "$cutoff" ]; then
+                      echo "#$num: no human commit in ${FRESH_HOURS}h; skipping (stale)"; continue
                     fi
                     echo "#$num: conflicting"
                     matched+=("$row")
