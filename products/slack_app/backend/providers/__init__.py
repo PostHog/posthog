@@ -13,6 +13,7 @@ from products.slack_app.backend.providers.registry import (
     thread_handler_from_context,
 )
 from products.slack_app.backend.providers.slack import SlackChatProvider
+from products.slack_app.backend.providers.telegram import TelegramChatProvider
 
 __all__ = [
     "ChatProvider",
@@ -20,6 +21,7 @@ __all__ = [
     "ChatThreadHandler",
     "ConversationRef",
     "SlackChatProvider",
+    "TelegramChatProvider",
     "chat_provider_for_integration",
     "get_chat_provider",
     "thread_handler_from_context",
