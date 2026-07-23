@@ -733,10 +733,10 @@ class HogQLQueryExecutor:
         no flush happens here, so telemetry can never delay or block query execution. Delivery from
         Celery workers is handled by the bounded flush in ``on_worker_process_shutdown``.
         """
+        if not is_cloud():
+            return
         with tracer.start_as_current_span("HogQLQueryExecutor._capture_unbounded_events_query"):
             try:
-                if not is_cloud():
-                    return
                 if not query_reads_events_without_timestamp_filter(self.select_query):
                     return
                 tags = get_query_tags()
