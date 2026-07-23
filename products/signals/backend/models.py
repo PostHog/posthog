@@ -1122,6 +1122,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
+    # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
+    # the API boundary so adding another destination does not require another pair of nullable
+    # config columns. A Slack destination is active only when both its integration and channel
+    # are present; the UI may persist the integration first while the user chooses a channel.
+    output_destinations = models.JSONField(default=dict, db_default={})
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1426,4 +1431,40 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
             # `get_project_profile` reads the newest non-expired row for a team — supports the
             # ORDER BY computed_at DESC LIMIT 1 lookup pattern.
             models.Index(fields=["team", "-computed_at"], name="signal_proj_profile_recent_idx"),
+        ]
+
+
+class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
+    """Cached recent-contributor map for one (repository, area) pair.
+
+    Backs recency-aware reviewer suggestion (`report_generation/repo_activity.py`). An
+    *area* is a path prefix (see `area_for_path`); `""` means the repository root. Rows are
+    created on demand, refreshed lazily when stale, and kept warm by the weekly
+    `refresh_signal_repository_activity` task — which only re-fetches rows read recently
+    (`last_used_at`), so abandoned areas age out of the warm set.
+    """
+
+    # db_constraint=False: creating an FK constraint locks the hot posthog_team table and
+    # has blocked deploys — app-level enforcement only (same as SignalReportRefund).
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_repo_area_activities",
+        db_constraint=False,
+    )
+    # Normalized "owner/repo", lowercase.
+    repository = models.CharField(max_length=400)
+    area = models.CharField(max_length=400, blank=True)
+    # [{login, name, commit_count, last_commit_at, last_commit_sha, last_commit_url}]
+    contributors = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Null until the first successful GitHub fetch.
+    refreshed_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name = "Signal repository area activity"
+        verbose_name_plural = "Signal repository area activities"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "repository", "area"], name="signal_repo_area_activity_uniq"),
         ]
