@@ -201,6 +201,38 @@ describe('supportTicketsSceneLogic', () => {
             expect(router.values.searchParams.view).toBeUndefined()
         })
 
+        it('keeps a new sort order applied when sorting while a saved view is active', async () => {
+            let lastOrderBy: string | null = null
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': ({ request }) => {
+                        lastOrderBy = new URL(request.url).searchParams.get('order_by')
+                        return [200, { count: 0, results: [] }]
+                    },
+                    '/api/projects/:team_id/conversations/views/:short_id/': () => [
+                        200,
+                        makeSavedView('view-a', { status: ['open'] }),
+                    ],
+                },
+            })
+            router.actions.push(urls.supportTickets(), { view: 'view-a' })
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+
+            await expectLogic(logic, () => {
+                logic.actions.setSorting({ columnKey: 'sla_due_at', order: -1 })
+            }).toFinishAllListeners()
+
+            // Sorting detaches the view but the sort and the view's filters must stick, and the
+            // new order has to reach the API instead of snapping back to the default sort.
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.sorting).toEqual({ columnKey: 'sla_due_at', order: -1 })
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(lastOrderBy).toBe('-sla_due_at')
+        })
+
         it('resets stale view filters when a linked view is missing', async () => {
             router.actions.push(urls.supportTickets())
             logic = supportTicketsSceneLogic()
