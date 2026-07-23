@@ -58,26 +58,22 @@ const marketingAnalyticsCreateConversionGoal = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsUpdateConversionGoalSchema = MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams.omit({
-    project_id: true,
-}).extend(MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody.shape)
+const MarketingAnalyticsDataSourcesSchema = MarketingAnalyticsDataSourcesRetrieveQueryParams
 
-const marketingAnalyticsUpdateConversionGoal = (): ToolBase<
-    typeof MarketingAnalyticsUpdateConversionGoalSchema,
-    Schemas.ConversionGoalWriteResponse
+const marketingAnalyticsDataSources = (): ToolBase<
+    typeof MarketingAnalyticsDataSourcesSchema,
+    Schemas.DataSourceHealthResponse
 > => ({
-    name: 'marketing-analytics-update-conversion-goal',
-    schema: MarketingAnalyticsUpdateConversionGoalSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsUpdateConversionGoalSchema>) => {
+    name: 'marketing-analytics-data-sources',
+    schema: MarketingAnalyticsDataSourcesSchema,
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDataSourcesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.goal !== undefined) {
-            body['goal'] = params.goal
-        }
-        const result = await context.api.request<Schemas.ConversionGoalWriteResponse>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/${encodeURIComponent(String(params.conversion_goal_id))}/update/`,
-            body,
+        const result = await context.api.request<Schemas.DataSourceHealthResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/data_sources/`,
+            query: {
+                source_type: params.source_type,
+            },
         })
         return result
     },
@@ -98,27 +94,6 @@ const marketingAnalyticsDeleteConversionGoal = (): ToolBase<
         const result = await context.api.request<Schemas.ConversionGoalWriteResponse>({
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/${encodeURIComponent(String(params.conversion_goal_id))}/delete/`,
-        })
-        return result
-    },
-})
-
-const MarketingAnalyticsDataSourcesSchema = MarketingAnalyticsDataSourcesRetrieveQueryParams
-
-const marketingAnalyticsDataSources = (): ToolBase<
-    typeof MarketingAnalyticsDataSourcesSchema,
-    Schemas.DataSourceHealthResponse
-> => ({
-    name: 'marketing-analytics-data-sources',
-    schema: MarketingAnalyticsDataSourcesSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDataSourcesSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataSourceHealthResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/data_sources/`,
-            query: {
-                source_type: params.source_type,
-            },
         })
         return result
     },
@@ -214,6 +189,31 @@ const marketingAnalyticsSuggestUtmMappings = (): ToolBase<
     },
 })
 
+const MarketingAnalyticsUpdateConversionGoalSchema = MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams.omit({
+    project_id: true,
+}).extend(MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody.shape)
+
+const marketingAnalyticsUpdateConversionGoal = (): ToolBase<
+    typeof MarketingAnalyticsUpdateConversionGoalSchema,
+    Schemas.ConversionGoalWriteResponse
+> => ({
+    name: 'marketing-analytics-update-conversion-goal',
+    schema: MarketingAnalyticsUpdateConversionGoalSchema,
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsUpdateConversionGoalSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.goal !== undefined) {
+            body['goal'] = params.goal
+        }
+        const result = await context.api.request<Schemas.ConversionGoalWriteResponse>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/${encodeURIComponent(String(params.conversion_goal_id))}/update/`,
+            body,
+        })
+        return result
+    },
+})
+
 const MarketingAnalyticsUtmAuditSchema = MarketingAnalyticsUtmAuditRetrieveQueryParams
 
 const marketingAnalyticsUtmAudit = (): ToolBase<typeof MarketingAnalyticsUtmAuditSchema, Schemas.UtmAuditResponse> => ({
@@ -236,12 +236,12 @@ const marketingAnalyticsUtmAudit = (): ToolBase<typeof MarketingAnalyticsUtmAudi
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'marketing-analytics-conversion-goals': marketingAnalyticsConversionGoals,
     'marketing-analytics-create-conversion-goal': marketingAnalyticsCreateConversionGoal,
-    'marketing-analytics-update-conversion-goal': marketingAnalyticsUpdateConversionGoal,
-    'marketing-analytics-delete-conversion-goal': marketingAnalyticsDeleteConversionGoal,
     'marketing-analytics-data-sources': marketingAnalyticsDataSources,
+    'marketing-analytics-delete-conversion-goal': marketingAnalyticsDeleteConversionGoal,
     'marketing-analytics-diagnose': marketingAnalyticsDiagnose,
     'marketing-analytics-explain-conversion-goal': marketingAnalyticsExplainConversionGoal,
     'marketing-analytics-suggest-conversion-goals': marketingAnalyticsSuggestConversionGoals,
     'marketing-analytics-suggest-utm-mappings': marketingAnalyticsSuggestUtmMappings,
+    'marketing-analytics-update-conversion-goal': marketingAnalyticsUpdateConversionGoal,
     'marketing-analytics-utm-audit': marketingAnalyticsUtmAudit,
 }
