@@ -8353,8 +8353,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_delete.assert_not_called()
 
     @patch("posthog.storage.object_storage.get_presigned_post")
-    @patch("posthog.storage.object_storage.delete")
-    def test_stale_finalize_deletes_the_superseded_upload(self, mock_delete, mock_upload):
+    def test_repeated_prepare_reuses_the_pending_upload(self, mock_upload):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         task_session = TaskSession.create_for_task(task)
@@ -8366,41 +8365,21 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             "fields": {"key": "pending-session.jsonl"},
         }
         prepare_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/"
+        payload = {"sandbox_id": "sandbox-1", "expected_revision": 0}
 
-        first_prepare = self.client.post(
-            prepare_url,
-            {"sandbox_id": "sandbox-1", "expected_revision": 0},
-            format="json",
-        )
+        first_prepare = self.client.post(prepare_url, payload, format="json")
         task_session.refresh_from_db()
-        first_pending_key = task_session.pending_object_storage_key
+        pending_key = task_session.pending_object_storage_key
 
-        with self.captureOnCommitCallbacks(execute=True):
-            second_prepare = self.client.post(
-                prepare_url,
-                {"sandbox_id": "sandbox-1", "expected_revision": 0},
-                format="json",
-            )
+        second_prepare = self.client.post(prepare_url, payload, format="json")
+
+        self.assertEqual(first_prepare.status_code, status.HTTP_200_OK)
         self.assertEqual(second_prepare.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_prepare.json()["sync_id"], first_prepare.json()["sync_id"])
         task_session.refresh_from_db()
-        current_sync_id = task_session.pending_sync_id
-        mock_delete.reset_mock()
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
-            {
-                "sandbox_id": "sandbox-1",
-                "sync_id": first_prepare.json()["sync_id"],
-                "expected_revision": 0,
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.json()["error"], "The task session sync is stale")
-        task_session.refresh_from_db()
-        self.assertEqual(task_session.pending_sync_id, current_sync_id)
-        mock_delete.assert_called_once_with(first_pending_key)
+        self.assertEqual(task_session.pending_object_storage_key, pending_key)
+        self.assertEqual(mock_upload.call_count, 2)
+        self.assertEqual(mock_upload.call_args_list[0], mock_upload.call_args_list[1])
 
     @patch("posthog.storage.object_storage.get_presigned_post")
     @patch("posthog.storage.object_storage.head_object", return_value={"ContentLength": 31})

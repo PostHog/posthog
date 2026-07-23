@@ -2203,29 +2203,14 @@ def prepare_task_run_session_sync(
         if task_session.revision != expected_revision:
             raise ValueError("The task session revision is stale")
 
-        stale_pending_key = task_session.pending_object_storage_key
-        sync_id = uuid4()
-        object_storage_key = _task_session_sync_key(task_session, "uploads", task_session.revision + 1, sync_id)
-        task_session.pending_sync_id = sync_id
-        task_session.pending_object_storage_key = object_storage_key
-        task_session.save(update_fields=["pending_sync_id", "pending_object_storage_key", "updated_at"])
-
-        if stale_pending_key:
-
-            def delete_stale_pending_object() -> None:
-                try:
-                    object_storage.delete(stale_pending_key)
-                except Exception as error:
-                    logger.warning(
-                        "task_session.failed_to_delete_stale_pending_object",
-                        extra={
-                            "task_session_id": str(task_session.id),
-                            "object_storage_key": stale_pending_key,
-                            "error": str(error),
-                        },
-                    )
-
-            transaction.on_commit(delete_stale_pending_object)
+        sync_id = task_session.pending_sync_id
+        object_storage_key = task_session.pending_object_storage_key
+        if sync_id is None or object_storage_key is None:
+            sync_id = uuid4()
+            object_storage_key = _task_session_sync_key(task_session, "uploads", task_session.revision + 1, sync_id)
+            task_session.pending_sync_id = sync_id
+            task_session.pending_object_storage_key = object_storage_key
+            task_session.save(update_fields=["pending_sync_id", "pending_object_storage_key", "updated_at"])
 
     upload = object_storage.get_presigned_post(
         object_storage_key,
