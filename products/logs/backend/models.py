@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 # whose pipeline uses a different key can override via the `logs_config` endpoint.
 DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
 
+DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY]
+
+
+def default_logs_distinct_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS)
+
+
 # Default log attribute keys whose values hold the PostHog session ID. `posthogSessionId`
 # is the key the posthog-js / posthog-react-native SDKs auto-attach to every log they
 # emit (see https://posthog.com/docs/logs/link-session-replay). Ordered: detection checks
@@ -47,13 +54,22 @@ class TeamLogsConfig(models.Model):
     # access to. Mirrors the `TeamExperimentsConfig` precedent.
     team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
 
-    # Log attribute key whose value matches a PostHog person's distinct_id. Used by the
-    # person profile Logs tab and the `query-logs` MCP tool to filter logs to a single
-    # user without needing per-team prompt engineering.
+    # Legacy single-key predecessor of `logs_distinct_id_attribute_keys`, kept in sync
+    # with its first entry so pre-plural readers stay coherent. Do not write directly.
     logs_distinct_id_attribute_key = models.CharField(
         max_length=200,
         default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
         db_default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    )
+
+    # Log attribute keys whose values match a PostHog person's distinct_id — a log links
+    # to a person when any of these attributes equals one of the person's distinct IDs.
+    # Used by the person profile Logs tab and the `query-logs` MCP tool to filter logs
+    # to a single user without needing per-team prompt engineering.
+    logs_distinct_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_distinct_id_attribute_keys,
+        db_default=Value("{posthogDistinctId}"),
     )
 
     # Ordered list of log attribute keys whose values hold the PostHog session ID.

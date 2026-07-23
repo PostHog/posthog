@@ -960,7 +960,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
     subscriptions(({ actions }) => ({
         // Subscribe to the combined query view rather than the user-editable filterGroup
-        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_key`
+        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_keys`
         // resolves after mount), not just when the user edits filters.
         queryFilterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
             if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {

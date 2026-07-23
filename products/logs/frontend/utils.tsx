@@ -97,8 +97,10 @@ function matchesKey(key: string, candidates: string[]): boolean {
     return candidates.some((candidate) => key === candidate || key.endsWith(`.${candidate}`))
 }
 
-export function isDistinctIdKey(key: string): boolean {
-    return matchesKey(key, DISTINCT_ID_KEYS)
+// Configured keys (the team's `logs_distinct_id_attribute_keys` setting) match exactly;
+// only the built-in convention list gets dot-suffix matching.
+export function isDistinctIdKey(key: string, configuredKeys?: string[]): boolean {
+    return (configuredKeys ?? []).includes(key) || matchesKey(key, DISTINCT_ID_KEYS)
 }
 
 // Configured keys (the team's `logs_session_id_attribute_keys` setting) match exactly;
