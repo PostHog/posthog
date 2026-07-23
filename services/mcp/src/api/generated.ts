@@ -16449,13 +16449,15 @@ export namespace Schemas {
     /**
      * * `account` - account
      * * `person` - person
+     * * `group` - group
      */
-    export type CustomPropertyDefinitionTargetType = typeof CustomPropertyDefinitionTargetType[keyof typeof CustomPropertyDefinitionTargetType];
+    export type CustomPropertyDefinitionTargetTypeEnum = typeof CustomPropertyDefinitionTargetTypeEnum[keyof typeof CustomPropertyDefinitionTargetTypeEnum];
 
 
-    export const CustomPropertyDefinitionTargetType = {
+    export const CustomPropertyDefinitionTargetTypeEnum = {
       Account: 'account',
       Person: 'person',
+      Group: 'group',
     } as const;
 
     /**
@@ -16661,11 +16663,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -47091,11 +47101,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**

@@ -536,6 +536,9 @@ const customPropertyDefinitionsCreate = (): ToolBase<
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
+        if (params.group_type_index !== undefined) {
+            body['group_type_index'] = params.group_type_index
+        }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
         }
@@ -612,6 +615,9 @@ const customPropertyDefinitionsPartialUpdate = (): ToolBase<
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
+        }
+        if (params.group_type_index !== undefined) {
+            body['group_type_index'] = params.group_type_index
         }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number

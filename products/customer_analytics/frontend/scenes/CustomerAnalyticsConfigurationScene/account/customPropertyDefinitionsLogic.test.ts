@@ -133,6 +133,7 @@ describe('customPropertyDefinitionsLogic', () => {
             isBigNumber: true,
             options: [],
             targetType: 'account',
+            groupTypeIndex: null,
             sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
