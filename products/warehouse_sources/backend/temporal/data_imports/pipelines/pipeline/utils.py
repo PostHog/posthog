@@ -293,26 +293,24 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
                 except pa.ArrowInvalid as e:
-                    # A narrowing cast overflowed. The usual causes are the source column's type
-                    # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
-                    # column was created with the narrower type, or an integer-created column now
-                    # receiving fractional values — e.g. a price field whose first-synced rows were
-                    # all whole numbers, later failing with "ArrowInvalid: Float value 19.990000
-                    # was truncated converting to int64". delta-rs cannot widen an existing column
-                    # in place, so retrying is futile — surface an actionable error telling the
-                    # user to reset and fully re-sync the table. Whole-valued floats/decimals still
-                    # cast into an integer column losslessly, so this only fires on genuine data loss.
-                    if pa.types.is_integer(delta_field.type) and (
-                        pa.types.is_integer(incoming_column.type)
-                        or pa.types.is_floating(incoming_column.type)
-                        or pa.types.is_decimal(incoming_column.type)
-                    ):
-                        raise SchemaColumnTypeChangedException(
-                            f"Source column type changed: '{delta_field.name}' has values that no longer "
-                            f"fit its stored type {delta_field.type} (incoming data is now "
-                            f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
-                        ) from e
-                    raise
+                    # Reaching this cast already means the incoming type differs from the stored
+                    # Delta type (see the guard above) and the timestamp path didn't apply, so a
+                    # failure here is a deterministic, unretryable incompatibility: the source
+                    # column's type changed under a table created with a narrower type. Common
+                    # shapes are an integer column widened upstream (Postgres `integer` → `bigint`),
+                    # an integer-created column now receiving fractional values ("Float value 19.99
+                    # was truncated converting to int64"), non-numeric text arriving for a numeric
+                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), or a
+                    # value that overflows the stored decimal precision. delta-rs cannot change a
+                    # column's type in place, so retrying is futile — surface an actionable error
+                    # telling the user to reset and fully re-sync. Lossless widening (e.g. a
+                    # whole-valued float into an integer column) still casts fine and never reaches
+                    # here.
+                    raise SchemaColumnTypeChangedException(
+                        f"Source column type changed: '{delta_field.name}' has values that no longer "
+                        f"fit its stored type {delta_field.type} (incoming data is now "
+                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                    ) from e
 
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
