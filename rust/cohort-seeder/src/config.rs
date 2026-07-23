@@ -299,6 +299,14 @@ mod tests {
         );
     }
 
+    /// The fail-closed TLS posture lives entirely in these defaults, so pin them.
+    #[test]
+    fn clickhouse_tls_defaults_are_fail_closed() {
+        let config = default_config();
+        assert!(config.clickhouse_verify);
+        assert!(config.clickhouse_ca.is_empty());
+    }
+
     #[test]
     fn service_limits_reject_disabled_tile_rate() {
         let mut config = default_config();

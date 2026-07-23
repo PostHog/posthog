@@ -33,6 +33,12 @@ impl ClickHouseEndpoint {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Whether the resolved URL actually carries TLS. `clickhouse_secure` alone does not answer
+    /// this: an explicit `clickhouse_url` or a scheme-qualified host bypasses it entirely.
+    pub fn is_tls(&self) -> bool {
+        self.0.starts_with("https://")
+    }
 }
 
 fn resolve_endpoint(config: &Config) -> String {
@@ -141,10 +147,12 @@ pub enum ClickHouseClientError {
     },
     #[error("the ClickHouse CA bundle at {path} contains no certificates")]
     CaBundleEmpty { path: String },
+    #[error("CLICKHOUSE_CA is set but the endpoint {endpoint} is not https, so nothing would be verified")]
+    CaBundleWithoutTls { endpoint: String },
 }
 
-// The `clickhouse` crate's own defaults; the idle timeout must stay under ClickHouse's server-side
-// keep-alive or the pool hands out sockets the server has already closed.
+// Copied from `clickhouse` 0.13's default HTTP client; recheck on upgrade. The idle timeout must
+// stay under ClickHouse's server-side keep-alive or the pool hands out sockets the server closed.
 const TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -202,19 +210,13 @@ impl ServerCertVerifier for AcceptAnyServerCert {
 /// Validates against `ca_path` alone, hostname verification included. The only mode that
 /// authenticates the server.
 fn pinned_ca_tls_config(ca_path: &str) -> Result<ClientConfig, ClickHouseClientError> {
+    let unreadable = |source| ClickHouseClientError::CaBundleUnreadable {
+        path: ca_path.to_string(),
+        source,
+    };
     let mut roots = rustls::RootCertStore::empty();
-    for certificate in CertificateDer::pem_file_iter(ca_path).map_err(|source| {
-        ClickHouseClientError::CaBundleUnreadable {
-            path: ca_path.to_string(),
-            source,
-        }
-    })? {
-        let certificate =
-            certificate.map_err(|source| ClickHouseClientError::CaBundleUnreadable {
-                path: ca_path.to_string(),
-                source,
-            })?;
-        roots.add(certificate)?;
+    for certificate in CertificateDer::pem_file_iter(ca_path).map_err(unreadable)? {
+        roots.add(certificate.map_err(unreadable)?)?;
     }
     if roots.is_empty() {
         return Err(ClickHouseClientError::CaBundleEmpty {
@@ -264,8 +266,15 @@ pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseCli
     let join_algorithm = config
         .seeder_ch_join_algorithm
         .parse::<ClickHouseJoinAlgorithm>()?;
+    let endpoint = ClickHouseEndpoint::resolve(config);
     // Ordered most to least trusted.
     let client = if !config.clickhouse_ca.is_empty() {
+        // A CA over a plaintext endpoint verifies nothing; refuse rather than appear authenticated.
+        if !endpoint.is_tls() {
+            return Err(ClickHouseClientError::CaBundleWithoutTls {
+                endpoint: endpoint.as_str().to_string(),
+            });
+        }
         client_with_tls_config(pinned_ca_tls_config(&config.clickhouse_ca)?)
     } else if config.clickhouse_verify {
         clickhouse::Client::default()
@@ -273,7 +282,7 @@ pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseCli
         client_with_tls_config(unverified_tls_config()?)
     };
     Ok(client
-        .with_url(ClickHouseEndpoint::resolve(config).as_str())
+        .with_url(endpoint.as_str())
         .with_user(&config.clickhouse_user)
         .with_password(&config.clickhouse_password)
         .with_database(&config.clickhouse_database)
@@ -301,6 +310,30 @@ mod tests {
     use envconfig::Envconfig;
 
     use super::*;
+
+    /// Self-signed CA, no private key, only ever parsed as a trust anchor. Trust-anchor extraction
+    /// ignores validity dates, so the expiry is not load-bearing.
+    const TEST_CA_PEM: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIDIzCCAgugAwIBAgIUW2/zpTFXp9JpJJz2hJJDv1pHD54wDQYJKoZIhvcNAQEL
+BQAwIDEeMBwGA1UEAwwVY29ob3J0LXNlZWRlciB0ZXN0IENBMCAXDTI2MDcyMzIz
+NTIyNFoYDzIxMjYwNjI5MjM1MjI0WjAgMR4wHAYDVQQDDBVjb2hvcnQtc2VlZGVy
+IHRlc3QgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDj3g1r5s1o
+ZADugBcdb+0ncknCRiyMDq57Z4Zb+I1f1PzPk5T+Hq26hNqiq7ijDmcjFmtOoOjQ
+XhoAHWE/iFUj08XX8lJkcnp19d35JwjzoV6h1O6ElBIpmDi/Hikl94I4bXf15Z6h
+cb4llbZLuBzRMnJRX2GTI11pXieX8MC2QZ2IAV7u2SBRWI8lrNhfBvlm81nMgVBP
+mQmzrfJkNagHy8eEtuRALhma+1D8Ic98PkDLCnfT/9N6/rOmqsM3kYX6ZTIHmvbw
+EdkE0LN/9nwZ95toCFbh04AzfiuIQdZdvWHJzvqBQVQ+D5qA8uZnEEYi7emoygw9
+gHTH68suU+jxAgMBAAGjUzBRMB0GA1UdDgQWBBQYGp6w7u6pkyB5CsLtYYcXshu6
+NzAfBgNVHSMEGDAWgBQYGp6w7u6pkyB5CsLtYYcXshu6NzAPBgNVHRMBAf8EBTAD
+AQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAGLo61J42/13MsBQIiYAgwCpoGTLEYB5gi
+yXC2p+aYfmT7/2iQjT5CnAUroe00sesCyZizOj44/cirQ/WQpzZ3hK9zoY2zFGbB
+MuM4LnSF68m4Qz/VAyyD8j2x8y7+HPOtgmZMmfI8PVyXmjAEAmGANUEKTjCNBy8t
+G6H8MY0rMzThheRvUmG961VCWUzLLSlskJsjHTuW1iC9gxAJco7xq/rdp4MEYmDl
+uF6iDXFegd8Gus8bg975jX/DMTAahH4CoEV/gvjTCc+9IEEnXGxE/KpvXjyqEzvb
+LaIcbwSaQpbb1SSltcQ0krF2y351IH79a2fmV57qw3VZ5u17KbO4
+-----END CERTIFICATE-----
+";
 
     fn default_config() -> Config {
         Config::init_from_hashmap(&HashMap::new()).unwrap()
@@ -383,16 +416,47 @@ mod tests {
     }
 
     #[test]
-    fn build_client_assembles_a_tls_stack_for_both_verify_modes() {
-        for verify in [true, false] {
-            let mut config = default_config();
-            config.clickhouse_secure = true;
-            config.clickhouse_verify = verify;
-            assert!(
-                build_client(&config).is_ok(),
-                "failed to build a client with CLICKHOUSE_VERIFY={verify}"
-            );
-        }
+    fn unverified_tls_config_assembles() {
+        let mut config = default_config();
+        config.clickhouse_verify = false;
+        assert!(build_client(&config).is_ok());
+    }
+
+    /// Verify-off must accept a certificate that real validation would reject, otherwise the
+    /// unblock this mode exists for silently stops working.
+    #[test]
+    fn the_verify_off_verifier_accepts_an_untrusted_certificate() {
+        let verifier = AcceptAnyServerCert(Arc::new(aws_lc_rs::default_provider()));
+        assert!(verifier
+            .verify_server_cert(
+                // Not even a certificate: nothing about the peer is inspected in this mode.
+                &CertificateDer::from(b"garbage".to_vec()),
+                &[],
+                &ServerName::try_from("clickhouse.internal").unwrap(),
+                &[],
+                UnixTime::now(),
+            )
+            .is_ok());
+        assert!(!verifier.supported_verify_schemes().is_empty());
+    }
+
+    #[test]
+    fn a_pinned_ca_bundle_builds_a_verifying_client() {
+        let scratch = tempfile::tempdir().unwrap();
+        let bundle = scratch.path().join("ca.pem");
+        std::fs::write(&bundle, TEST_CA_PEM).unwrap();
+
+        let mut config = default_config();
+        config.clickhouse_secure = true;
+        config.clickhouse_ca = bundle.to_string_lossy().into_owned();
+        assert!(build_client(&config).is_ok());
+
+        // A CA over plaintext would verify nothing, so it must not look like it succeeded.
+        config.clickhouse_secure = false;
+        let Err(error) = build_client(&config) else {
+            panic!("a CA bundle over a plaintext endpoint built a client");
+        };
+        assert!(error.to_string().contains("is not https"), "{error}");
     }
 
     #[test]
@@ -412,6 +476,7 @@ mod tests {
             ),
         ] {
             let mut config = default_config();
+            config.clickhouse_secure = true;
             // Verify-off must not rescue a broken CA bundle.
             config.clickhouse_verify = false;
             config.clickhouse_ca = ca_path.clone();
