@@ -4978,6 +4978,10 @@ snapshots:
         hash: v1.k794b7964.13e51a486b40a1455fde0075af333e3dff21f25491d06cc59ab10c24200eb1d2.Fn0OHVeRm39HLB3-xcZUZavR375CxuNraJZdmfxTS-U
     replay-overview-tab-experiments--empty--light:
         hash: v1.k794b7964.34d2a031b8e3cea8e905aacec4f7d70ae9f625f56bb1649d8e95f73b1eba71a8._AeRzz6TNgrSmnERRCH2YbGUFjFBA4HPfW4wFM4uySU
+    replay-overview-tab-experiments--loading--dark:
+        hash: v1.k794b7964.55ed027ece39592bf5eee139b78d0147e93849476016cd690928a1416cce057a.FCepXFnoPBB-F5-GGDsNJtwO_uHeAKixmqN28WPHZkQ
+    replay-overview-tab-experiments--loading--light:
+        hash: v1.k794b7964.3f7009b98adc6ca7dcba54e597f03f59f12ddb26d91f07b738fa3a9b56eea9e6.SWwJIdNaiXQVVznfLVN8jx9ch0dlALIz39YRWPZcgHk
     replay-overview-tab-other-watchers--default--dark:
         hash: v1.k794b7964.6ce320055ae4f9e4d3b3d7cfdb104907c7ae6fe30b7f3fb87cff5ea420ae7213.dz7F6LW1kHlCjl_p5iTLTlqoxYrXMrXqBZ3KfwswVcw
     replay-overview-tab-other-watchers--default--light:
