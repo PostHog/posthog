@@ -9,10 +9,31 @@ class Migration(migrations.Migration):
         ("posthog", "0052_data_precalculate_cohorts"),
     ]
 
+    # Wrap the AddField in SeparateDatabaseAndState so the DB side is idempotent.
+    # When the big initial squash is only partially recorded in django_migrations
+    # (restored dumps, interrupted upgrades, manually-seeded schema), Django replays
+    # the replaced migrations individually and re-runs this against a table that may
+    # already physically have the `layouts` column, which a bare AddField rejects with
+    # DuplicateColumn. The ADD COLUMN IF NOT EXISTS makes the replay a no-op there while
+    # staying schema-identical to a fresh install (jsonb NOT NULL, no db-level default).
     operations = [
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="layouts",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="dashboarditem",
+                    name="layouts",
+                    field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql=(
+                        'ALTER TABLE "posthog_dashboarditem" '
+                        "ADD COLUMN IF NOT EXISTS \"layouts\" jsonb DEFAULT '{}'::jsonb NOT NULL;"
+                        'ALTER TABLE "posthog_dashboarditem" ALTER COLUMN "layouts" DROP DEFAULT;'
+                    ),
+                    reverse_sql='ALTER TABLE "posthog_dashboarditem" DROP COLUMN IF EXISTS "layouts";',
+                ),
+            ],
         ),
     ]
