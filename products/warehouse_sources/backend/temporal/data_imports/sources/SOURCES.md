@@ -179,6 +179,7 @@ the row lists both.
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
 | deepsource                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | deno_deploy                      | HTTP                        | requests                                                        | ✅                          |
+| descope                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | devin_ai                         | HTTP                        | requests                                                        | ✅                          |
 | ding_connect                     | HTTP                        | requests                                                        | ✅                          |
 | digitalocean                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -851,7 +852,6 @@ doesn't conflict with concurrent PRs.
 - debugbear
 - deno_deploy
 - deputy
-- descope
 - develocity
 - dialpad
 - discord
