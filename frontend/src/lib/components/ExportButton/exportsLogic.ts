@@ -253,6 +253,8 @@ export const exportsLogic = kea<exportsLogicType>([
                     try {
                         latest = await api.exports.get(fresh.id)
                     } catch {
+                        // Transient fetch failure: keep polling so completion is still surfaced.
+                        stillRendering.push(fresh)
                         continue
                     }
                 }
@@ -269,9 +271,11 @@ export const exportsLogic = kea<exportsLogicType>([
                     lemonToast.success('Export complete!', {
                         button: {
                             label: 'Download',
-                            action: () => {
-                                actions.removeFresh(finished)
-                                void downloadExportedAsset(finished)
+                            action: async () => {
+                                // Keep the undownloaded highlight if the download fails.
+                                if (await downloadExportedAsset(finished)) {
+                                    actions.removeFresh(finished)
+                                }
                             },
                         },
                     })

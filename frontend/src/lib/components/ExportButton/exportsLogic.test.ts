@@ -251,7 +251,7 @@ describe('exportsLogic', () => {
             // The export keeps its "not downloaded" highlight until the user actually downloads it.
             expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([21])
 
-            jest.mocked(lemonToast.success).mock.calls[0][1]!.button!.action()
+            await jest.mocked(lemonToast.success).mock.calls[0][1]!.button!.action()
             expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[finished]])
             expect(logic.values.freshUndownloadedExports).toEqual([])
         })
