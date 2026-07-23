@@ -137,12 +137,12 @@ class _OutputConfigField(serializers.JSONField):
                         "type": "string",
                         "enum": ["fixed_window"],
                         "default": "fixed_window",
-                        "description": "Wait a fixed window after the first matching generation, then evaluate.",
+                        "description": "Wait a fixed window after the first generation, then evaluate.",
                     },
                     "window_seconds": {
                         "type": "integer",
                         "description": (
-                            "Seconds to wait after the first matching generation before evaluating the whole "
+                            "Seconds to wait after the first generation before evaluating the whole "
                             "trace. Captured when the run is scheduled — editing it does not change runs "
                             "already in flight."
                         ),
@@ -161,11 +161,11 @@ class _OutputConfigField(serializers.JSONField):
                     "strategy": {
                         "type": "string",
                         "enum": ["inactivity"],
-                        "description": "Evaluate once no matching generation has arrived for the quiet period.",
+                        "description": "Evaluate once the trace has had no new activity for the quiet period.",
                     },
                     "quiet_period_seconds": {
                         "type": "integer",
-                        "description": "Seconds without new matching activity before the trace counts as settled.",
+                        "description": "Seconds without new trace activity before the trace counts as settled.",
                         "minimum": TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
                         "maximum": TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
                         "default": TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
@@ -173,7 +173,7 @@ class _OutputConfigField(serializers.JSONField):
                     "max_age_seconds": {
                         "type": "integer",
                         "description": (
-                            "Hard cap in seconds on the total wait from the first matching generation, even "
+                            "Hard cap in seconds on the total wait from the first generation, even "
                             "if the trace stays active. Must be at least quiet_period_seconds."
                         ),
                         "minimum": TRACE_EVAL_MIN_MAX_AGE_SECONDS,
@@ -183,7 +183,8 @@ class _OutputConfigField(serializers.JSONField):
                 },
                 "additionalProperties": False,
             },
-        ]
+        ],
+        "discriminator": {"propertyName": "strategy"},
     }
 )
 class _TargetConfigField(serializers.JSONField):

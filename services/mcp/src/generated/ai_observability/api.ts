@@ -249,33 +249,33 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                 strategy: zod
                     .enum(['fixed_window'])
                     .default(evaluationsCreateBodyTargetConfigOneStrategyDefault)
-                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                    .describe('Wait a fixed window after the first generation, then evaluate.'),
                 window_seconds: zod
                     .number()
                     .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
                     .default(evaluationsCreateBodyTargetConfigOneWindowSecondsDefault)
                     .describe(
-                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                        'Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
                     ),
             }),
             zod.object({
                 strategy: zod
                     .enum(['inactivity'])
-                    .describe('Evaluate once no matching generation has arrived for the quiet period.'),
+                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
                 quiet_period_seconds: zod
                     .number()
                     .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
                     .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
                     .default(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsDefault)
-                    .describe('Seconds without new matching activity before the trace counts as settled.'),
+                    .describe('Seconds without new trace activity before the trace counts as settled.'),
                 max_age_seconds: zod
                     .number()
                     .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
                     .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
                     .default(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault)
                     .describe(
-                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                        'Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.'
                     ),
             }),
         ])
@@ -461,33 +461,33 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 strategy: zod
                     .enum(['fixed_window'])
                     .default(evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault)
-                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                    .describe('Wait a fixed window after the first generation, then evaluate.'),
                 window_seconds: zod
                     .number()
                     .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
                     .default(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault)
                     .describe(
-                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                        'Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
                     ),
             }),
             zod.object({
                 strategy: zod
                     .enum(['inactivity'])
-                    .describe('Evaluate once no matching generation has arrived for the quiet period.'),
+                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
                 quiet_period_seconds: zod
                     .number()
                     .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
                     .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
                     .default(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsDefault)
-                    .describe('Seconds without new matching activity before the trace counts as settled.'),
+                    .describe('Seconds without new trace activity before the trace counts as settled.'),
                 max_age_seconds: zod
                     .number()
                     .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
                     .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
                     .default(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault)
                     .describe(
-                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                        'Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.'
                     ),
             }),
         ])
