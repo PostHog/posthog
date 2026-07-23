@@ -9,10 +9,13 @@ import type { DataColorToken } from 'lib/colors'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +32,12 @@ import type {
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import { ACCOUNTS_NAME_COLUMN, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import {
+    ACCOUNTS_NAME_COLUMN,
+    AccountColumnDisplayConfig,
+    LEGACY_ROLE_COLUMNS,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
 import { AccountsEvents } from './constants'
@@ -204,17 +212,97 @@ function RelationshipCell({
     )
 }
 
+// History cells arrive as [unix timestamp, value] pairs sorted ascending from the
+// `accounts.custom_properties_history.values` lazy join.
+function parseHistoryPoints(raw: unknown): [number, number][] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    const points: [number, number][] = []
+    for (const entry of raw) {
+        if (!Array.isArray(entry) || entry.length < 2) {
+            continue
+        }
+        const timestamp = Number(entry[0])
+        const value = Number(entry[1])
+        if (Number.isFinite(timestamp) && Number.isFinite(value)) {
+            points.push([timestamp, value])
+        }
+    }
+    return points
+}
+
+function CustomPropertyHistoryCell({
+    raw,
+    definition,
+    display,
+}: {
+    raw: unknown
+    definition: CustomPropertyDefinitionApi
+    display: AccountColumnDisplayConfig
+}): JSX.Element {
+    const allPoints = parseHistoryPoints(raw)
+    const cutoff = dayjs().subtract(display.window_days, 'day').unix()
+    const points = allPoints.filter(([timestamp]) => timestamp >= cutoff)
+    const latest = points[points.length - 1] ?? allPoints[allPoints.length - 1]
+
+    if (!latest) {
+        return <span className="text-muted">—</span>
+    }
+    const formatValue = (value: number): string => formatCustomPropertyValue(String(value), definition)
+    if (points.length < 2) {
+        return <span>{formatValue(latest[1])}</span>
+    }
+
+    if (display.mode === 'sparkline') {
+        return (
+            <div className="w-32">
+                <Sparkline
+                    type="line"
+                    className="h-8"
+                    data={points.map(([, value]) => value)}
+                    labels={points.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
+                    renderTooltipValue={formatValue}
+                    maximumIndicator={false}
+                />
+            </div>
+        )
+    }
+
+    const baseline = points[0]
+    const delta = latest[1] - baseline[1]
+    const deltaClass = delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : 'text-muted'
+    const deltaText = delta === 0 ? 'No change' : `${delta > 0 ? '+' : '-'}${formatValue(Math.abs(delta))}`
+    return (
+        <Tooltip
+            title={`${formatValue(latest[1])} now, compared to ${formatValue(baseline[1])} on ${dayjs
+                .unix(baseline[0])
+                .format('MMM D, YYYY')} (last ${display.window_days} days)`}
+        >
+            <span className="inline-flex items-baseline gap-1.5">
+                <span>{formatValue(latest[1])}</span>
+                <span className={`text-xs ${deltaClass}`}>{deltaText}</span>
+            </span>
+        </Tooltip>
+    )
+}
+
 function CustomPropertyCell({
     record,
     column,
     definition,
+    display,
 }: {
     record: unknown
     column: string
     definition: CustomPropertyDefinitionApi
+    display?: AccountColumnDisplayConfig
 }): JSX.Element {
     const getCell = useGetCell()
     const raw = getCell(record, column)
+    if (display) {
+        return <CustomPropertyHistoryCell raw={raw} definition={definition} display={display} />
+    }
     const value = raw === null || raw === undefined ? '' : String(raw)
 
     if (!value) {
@@ -292,16 +380,19 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 }
 
 function useContextColumns(): Record<string, QueryContextColumn> {
-    const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition } =
+    const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
         useValues(accountsColumnConfigLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
             const definition = aliasToDefinition[key]
             if (definition) {
+                const display = displayByAlias[key]
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
-                    render: ({ record }) => <CustomPropertyCell record={record} column={key} definition={definition} />,
+                    render: ({ record }) => (
+                        <CustomPropertyCell record={record} column={key} definition={definition} display={display} />
+                    ),
                 }
                 continue
             }
@@ -325,7 +416,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             }
         }
         return columns
-    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition])
+    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
