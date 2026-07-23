@@ -71,6 +71,9 @@ export function TicketPrompt({
     }
 
     function openSupportModal(): void {
+        if (hasSubmitted) {
+            return
+        }
         resetSendSupportRequest({
             name: '',
             email: '',
@@ -119,8 +122,12 @@ export function TicketPrompt({
     }
 
     function handleSupportModalCancel(): void {
+        // The in-flight request cannot be aborted, so closing now would re-arm the submit
+        // controls and allow a duplicate ticket
+        if (submitInFlightRef.current) {
+            return
+        }
         setIsSupportModalOpen(false)
-        submitInFlightRef.current = false
         setIsSubmitting(false)
         closeSupportForm()
     }
@@ -132,7 +139,11 @@ export function TicketPrompt({
             title="Create support ticket"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={handleSupportModalCancel}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={handleSupportModalCancel}
+                        disabledReason={isSubmitting ? 'Submitting your ticket…' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton
