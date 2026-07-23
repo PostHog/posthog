@@ -30,7 +30,10 @@ jobs:
     multinode-migration-smoke:
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
-        timeout-minutes: 25
+        # The job applies every Postgres and ClickHouse migration from scratch, so its
+        # runtime grows with the migration count: ~20 minutes in June 2026, past 25 by
+        # July. Sized with headroom so it fails on hangs, not on ordinary growth.
+        timeout-minutes: 40
         env:
             DEBUG: '1'
             MULTINODE_CLICKHOUSE: '1'
