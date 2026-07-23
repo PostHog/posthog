@@ -6305,3 +6305,99 @@ async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -
 
     Ok(())
 }
+
+#[rstest]
+#[case::primary_secret_token(true)]
+#[case::backup_secret_token(false)]
+#[tokio::test]
+async fn it_authenticates_flags_requests_with_secret_api_token(
+    #[case] use_primary: bool,
+) -> Result<()> {
+    use feature_flags::utils::test_utils::random_string;
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let context = TestContext::new(None).await;
+    let backup_token = random_string("phs_", 12);
+    let (team, secret_token, backup_secret_token) = context
+        .create_team_with_secret_token(None, None, Some(&backup_token))
+        .await
+        .unwrap();
+
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let request_token = if use_primary {
+        secret_token
+    } else {
+        backup_secret_token.unwrap()
+    };
+    let payload = json!({
+        "token": request_token,
+        "distinct_id": distinct_id,
+    });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "test-flag": {
+                    "key": "test-flag",
+                    "enabled": true
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_rejects_unknown_secret_api_token() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": "phs_unknown_secret_token_xyz",
+        "distinct_id": "user1",
+    });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["type"], "authentication_error");
+    assert_eq!(json_data["code"], "authentication_failed");
+    assert_eq!(json_data["detail"], "Secret API token is invalid.");
+    Ok(())
+}

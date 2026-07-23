@@ -1,7 +1,7 @@
 use axum::http::HeaderMap;
 
 use crate::{
-    api::errors::FlagError,
+    api::{auth, errors::FlagError},
     flags::{flag_request::FlagRequest, flag_service::FlagService},
     team::team_models::Team,
 };
@@ -24,7 +24,22 @@ pub async fn parse_and_authenticate(
     }
 
     let token = request.extract_token()?;
-    let team = flag_service.verify_token_and_get_team(&token).await?;
+    let team = if auth::is_secret_token(&token) {
+        // Secret API tokens (phs_) authenticate via the hashed-token cache, which
+        // resolves primary and backup tokens plus ProjectSecretAPIKeys. The team
+        // metadata HyperCache is keyed by the public api_token, so prefer that
+        // path and fall back to a PG read by id for old cache entries that
+        // predate the api_token field. This also keeps phs_ tokens out of the
+        // public-token negative cache.
+        let (team_id, api_token, _is_project_secret) =
+            auth::validate_secret_api_token(&context.state, &token).await?;
+        match api_token {
+            Some(api_token) => flag_service.verify_token_and_get_team(&api_token).await?,
+            None => flag_service.get_team_by_id(team_id).await?,
+        }
+    } else {
+        flag_service.verify_token_and_get_team(&token).await?
+    };
 
     // Only validate distinct_id if flags are NOT disabled
     let distinct_id = if request.is_flags_disabled() {

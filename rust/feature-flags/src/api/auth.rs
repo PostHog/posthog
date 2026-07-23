@@ -69,7 +69,12 @@ pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
 /// Extracts team secret API token from Authorization header only
 /// Only tokens starting with SECRET_TOKEN_PREFIX are considered secret API tokens
 pub fn extract_team_secret_token(headers: &HeaderMap) -> Option<String> {
-    extract_bearer_token(headers).filter(|token| token.starts_with(SECRET_TOKEN_PREFIX))
+    extract_bearer_token(headers).filter(|token| is_secret_token(token))
+}
+
+/// Whether the token is a phs_-prefixed secret API token.
+pub fn is_secret_token(token: &str) -> bool {
+    token.starts_with(SECRET_TOKEN_PREFIX)
 }
 
 /// Extracts personal API key from Authorization header
