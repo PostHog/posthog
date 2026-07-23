@@ -559,6 +559,7 @@ class DataWarehouseSavedQuerySerializer(
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 latest_activity_id = (
                     ActivityLog.objects.filter(
+                        team_id=locked_instance.team_id,
                         item_id=locked_instance.id,
                         scope="DataWarehouseSavedQuery",
                         **QUERY_CHANGE_ACTIVITY_FILTER,
@@ -678,6 +679,7 @@ class DataWarehouseSavedQuerySerializer(
                 # get latest query-changing activity log for this model (see QUERY_CHANGE_ACTIVITY_FILTER)
                 latest_activity_log = (
                     ActivityLog.objects.filter(
+                        team_id=locked_instance.team_id,
                         item_id=locked_instance.id,
                         scope="DataWarehouseSavedQuery",
                         **QUERY_CHANGE_ACTIVITY_FILTER,
