@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_secret
 from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
@@ -29,6 +30,7 @@ from ee.billing.quota_limiting import (
     _patch_todays_usage,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
+    get_team_ingestion_tokens,
     list_limited_team_attributes,
     org_quota_limited_until,
     replace_limited_team_tokens,
@@ -1186,6 +1188,95 @@ class TestQuotaLimiting(BaseTest):
         call_args = mock_capture.call_args
         self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
         self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
+
+    @parameterized.expand(
+        [
+            ("all_tokens", "phc_a", "phs_b", "phs_c", ["phc_a", "phs_b", "phs_c"]),
+            ("no_secret_tokens", "phc_a", None, None, ["phc_a"]),
+            ("primary_secret_only", "phc_a", "phs_b", None, ["phc_a", "phs_b"]),
+            ("backup_secret_only", "phc_a", None, "phs_c", ["phc_a", "phs_c"]),
+            ("no_tokens", None, None, None, []),
+            ("empty_strings_filtered", "", "", "", []),
+        ]
+    )
+    def test_get_team_ingestion_tokens(self, _name, api_token, secret_api_token, secret_api_token_backup, expected):
+        assert get_team_ingestion_tokens(api_token, secret_api_token, secret_api_token_backup) == expected
+
+    def test_get_team_attribute_by_quota_resource_includes_secret_api_tokens(self):
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.secret_api_token_backup = generate_random_token_secret()
+        self.team.save()
+
+        tokens = get_team_attribute_by_quota_resource(self.organization)
+
+        assert set(tokens) >= {self.team.api_token, self.team.secret_api_token, self.team.secret_api_token_backup}
+
+    @parameterized.expand(
+        [
+            ("no_secret_tokens", False, False),
+            ("primary_secret_token", True, False),
+            ("primary_and_backup_secret_tokens", True, True),
+        ]
+    )
+    def test_update_org_billing_quotas_includes_secret_api_tokens(self, _name, with_primary, with_backup):
+        with freeze_time("2021-01-01T12:59:59Z"):
+            expected_tokens = {self.team.api_token}
+            if with_primary:
+                self.team.secret_api_token = generate_random_token_secret()
+                expected_tokens.add(self.team.secret_api_token)
+            if with_backup:
+                self.team.secret_api_token_backup = generate_random_token_secret()
+                expected_tokens.add(self.team.secret_api_token_backup)
+            self.team.save()
+
+            self.organization.usage = {
+                "events": {"usage": 120, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+            update_org_billing_quotas(self.organization)
+            assert (
+                set(list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY))
+                == expected_tokens
+            )
+
+            self.organization.usage["events"]["usage"] = 80
+            update_org_billing_quotas(self.organization)
+            assert list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) == []
+
+    @patch("posthoganalytics.capture")
+    def test_update_all_orgs_billing_quotas_includes_secret_api_tokens(self, patch_capture) -> None:
+        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
+            self.team.secret_api_token = generate_random_token_secret()
+            self.team.secret_api_token_backup = generate_random_token_secret()
+            self.team.save()
+
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            distinct_id = str(uuid4())
+            for _ in range(0, 10):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now(),
+                    team=self.team,
+                )
+            time.sleep(1)
+
+            quota_limited_orgs, _quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
+            org_id = str(self.organization.id)
+            assert quota_limited_orgs["events"] == {org_id: 1612137599}
+
+            assert set(self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1)) == {
+                self.team.api_token.encode("UTF-8"),
+                self.team.secret_api_token.encode("UTF-8"),
+                self.team.secret_api_token_backup.encode("UTF-8"),
+            }
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):

@@ -153,6 +153,16 @@ class UsageCounters(TypedDict):
     replay_vision_credits: int
 
 
+def get_team_ingestion_tokens(
+    api_token: Optional[str], secret_api_token: Optional[str], secret_api_token_backup: Optional[str]
+) -> list[str]:
+    """
+    Every token a team can ingest with: the public API token plus any secret API token(s).
+    Quota limits are enforced by token in capture, so all of them must be written to Redis.
+    """
+    return [token for token in (api_token, secret_api_token, secret_api_token_backup) if token]
+
+
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -676,7 +686,11 @@ def update_org_billing_quotas(organization: Organization):
         return None
 
     teams_by_token: dict[str, int] = {
-        api_token: team_id for team_id, api_token in organization.teams.values_list("id", "api_token") if api_token
+        token: team_id
+        for team_id, api_token, secret_api_token, secret_api_token_backup in organization.teams.values_list(
+            "id", "api_token", "secret_api_token", "secret_api_token_backup"
+        )
+        for token in get_team_ingestion_tokens(api_token, secret_api_token, secret_api_token_backup)
     }
     team_attributes: list[str] = list(teams_by_token.keys())
     if not team_attributes:
@@ -1060,6 +1074,8 @@ def update_all_orgs_billing_quotas(
         .only(
             "id",
             "api_token",
+            "secret_api_token",
+            "secret_api_token_backup",
             "organization__id",
             "organization__usage",
             "organization__created_at",
@@ -1110,8 +1126,8 @@ def update_all_orgs_billing_quotas(
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
-        if team.api_token:
-            teams_by_org.setdefault(org_id, []).append(team.api_token)
+        for token in get_team_ingestion_tokens(team.api_token, team.secret_api_token, team.secret_api_token_backup):
+            teams_by_org.setdefault(org_id, []).append(token)
 
     # Now we have the usage for all orgs for the current day
     # orgs_by_id is a dict of orgs by id (e.g. {"018e9acf-b488-0000-259c-534bcef40359": <Organization: 018e9acf-b488-0000-259c-534bcef40359>})
@@ -1266,11 +1282,17 @@ def update_all_orgs_billing_quotas(
 
     # Convert the org ids to team tokens
     for team in teams:
+        # All of the team's ingestion tokens are written to Redis, but change detection stays
+        # keyed on the public api_token (always present) so its semantics are unchanged.
+        ingestion_tokens = get_team_ingestion_tokens(
+            team.api_token, team.secret_api_token, team.secret_api_token_backup
+        )
         for field in quota_limited_orgs:
             org_id = str(team.organization.id)
             team_was_in_recordings_zset = team.api_token in previously_recordings_zset_tokens
             if org_id in quota_limited_orgs[field]:
-                quota_limited_teams[field][team.api_token] = quota_limited_orgs[field][org_id]
+                for token in ingestion_tokens:
+                    quota_limited_teams[field][token] = quota_limited_orgs[field][org_id]
 
                 # If the team was not previously quota limited, we add it to the list of orgs that were added
                 if team.api_token not in previously_quota_limited_team_tokens[field]:
@@ -1278,7 +1300,8 @@ def update_all_orgs_billing_quotas(
                     if field == recordings_field and not team_was_in_recordings_zset:
                         recordings_transitioned_team_ids.add(team.id)
             elif org_id in quota_limiting_suspended_orgs[field]:
-                quota_limiting_suspended_teams[field][team.api_token] = quota_limiting_suspended_orgs[field][org_id]
+                for token in ingestion_tokens:
+                    quota_limiting_suspended_teams[field][token] = quota_limiting_suspended_orgs[field][org_id]
                 if field == recordings_field and team_was_in_recordings_zset:
                     recordings_transitioned_team_ids.add(team.id)
             else:
@@ -1368,7 +1391,13 @@ def update_all_orgs_billing_quotas(
 
 
 def get_team_attribute_by_quota_resource(organization: Organization) -> list[str]:
-    team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
+    team_tokens: list[str] = [
+        token
+        for api_token, secret_api_token, secret_api_token_backup in organization.teams.values_list(
+            "api_token", "secret_api_token", "secret_api_token_backup"
+        )
+        for token in get_team_ingestion_tokens(api_token, secret_api_token, secret_api_token_backup)
+    ]
 
     if not team_tokens:
         capture_exception(
