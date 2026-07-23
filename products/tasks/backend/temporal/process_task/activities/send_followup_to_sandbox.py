@@ -33,6 +33,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
     clear_github_credentials_from_sandbox,
+    sandbox_credential_lock,
 )
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
@@ -548,36 +549,44 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
         )
         token = None
 
-    if token:
-        applied = False
-        try:
-            applied = apply_github_credentials_to_sandbox(sandbox, repository, token)
-        except Exception:
-            logger.warning("refresh_github_apply_failed", run_id=run_id, exc_info=True)
-        if applied:
-            # Record the new actor only on a fully-confirmed rebind. A partial write leaves one
-            # credential location on the prior actor's token, so fall through to logout instead.
-            mark_sandbox_github_identity(scope, actor_user.id)
-            logger.info("refresh_github_rebound", run_id=run_id, user_id=actor_user.id)
-            return True
-        logger.warning("refresh_github_apply_incomplete", run_id=run_id, user_id=actor_user.id)
+    # Hold the per-sandbox lock across the write and the marker update so a concurrent owner-scoped
+    # refresh or propagation cannot interleave and land the owner's token after this actor's — the
+    # owner writers acquire the same lock and re-check the marker this block advances.
+    with sandbox_credential_lock(sandbox.id) as acquired:
+        if not acquired:
+            logger.warning("refresh_github_lock_unavailable_fail_closed", run_id=run_id, user_id=actor_user.id)
+            return False
 
-    # No usable rebind (no token, or the rebind write could not be confirmed): log the sandbox
-    # out. Fail closed only if even the clear can't be confirmed — the previous actor's
-    # credentials might still be live. The sandbox exec can raise (it stopped between the
-    # is_running() check and here, or timed out), so guard it like the rebind above and fail
-    # closed on the exception rather than letting it escape uncontrolled.
-    try:
-        cleared = clear_github_credentials_from_sandbox(sandbox, repository)
-    except Exception:
-        logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, exc_info=True)
+        if token:
+            applied = False
+            try:
+                applied = apply_github_credentials_to_sandbox(sandbox, repository, token)
+            except Exception:
+                logger.warning("refresh_github_apply_failed", run_id=run_id, exc_info=True)
+            if applied:
+                # Record the new actor only on a fully-confirmed rebind. A partial write leaves one
+                # credential location on the prior actor's token, so fall through to logout instead.
+                mark_sandbox_github_identity(scope, actor_user.id)
+                logger.info("refresh_github_rebound", run_id=run_id, user_id=actor_user.id)
+                return True
+            logger.warning("refresh_github_apply_incomplete", run_id=run_id, user_id=actor_user.id)
+
+        # No usable rebind (no token, or the rebind write could not be confirmed): log the sandbox
+        # out. Fail closed only if even the clear can't be confirmed — the previous actor's
+        # credentials might still be live. The sandbox exec can raise (it stopped between the
+        # is_running() check and here, or timed out), so guard it like the rebind above and fail
+        # closed on the exception rather than letting it escape uncontrolled.
+        try:
+            cleared = clear_github_credentials_from_sandbox(sandbox, repository)
+        except Exception:
+            logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, exc_info=True)
+            return False
+        if cleared:
+            mark_sandbox_github_identity(scope, actor_user.id)
+            logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
+            return True
+        logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id)
         return False
-    if cleared:
-        mark_sandbox_github_identity(scope, actor_user.id)
-        logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
-        return True
-    logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id)
-    return False
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
