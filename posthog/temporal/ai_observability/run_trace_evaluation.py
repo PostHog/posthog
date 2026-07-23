@@ -278,14 +278,14 @@ def _sample_recent_traces(
             ast.Alias(alias="latest", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
-        where=ast.And(exprs=where_exprs),
+        where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
         group_by=[ast.Field(chain=["trace_id"])],
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["latest"]), order="DESC")],
         limit=ast.Constant(value=sample_count),
     )
     response = query_ai_events(
         query=query,
-        placeholders={},
+        placeholders={"where_clause": ast.And(exprs=where_exprs)},
         team=team,
         query_type="EvaluationTestHogTraceSample",
         fall_back_to_events=True,

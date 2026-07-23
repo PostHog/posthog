@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
+from posthog.hogql import ast
+
 from posthog.cdp.validation import compile_hog
 from posthog.models import Organization, Team
 
@@ -315,6 +317,27 @@ class TestRunHogEvalOverRecentTraces:
                 trigger_timestamp=datetime(2024, 1, 1, 10, 0, tzinfo=UTC),
             )
         ]
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_rewrites_promoted_ai_property_conditions(self, mock_execute_query):
+        mock_execute_query.return_value = MagicMock(results=[["trace-123", FROZEN_NOW, FROZEN_NOW]])
+        condition_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["properties", "$ai_input"]),
+            right=ast.Constant(value="hello"),
+        )
+
+        _sample_recent_traces(
+            MagicMock(spec=Team),
+            condition_filter=condition_filter,
+            sample_count=1,
+            date_from=FROZEN_NOW - timedelta(days=7),
+            date_to=FROZEN_NOW,
+        )
+
+        where_clause = mock_execute_query.call_args.kwargs["placeholders"]["where_clause"]
+        rewritten_condition = where_clause.exprs[-1]
+        assert rewritten_condition.left.chain == ["input"]
 
     @freeze_time(FROZEN_NOW)
     def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
