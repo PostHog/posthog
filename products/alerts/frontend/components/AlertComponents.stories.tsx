@@ -212,6 +212,9 @@ function NotificationsStory(): JSX.Element {
                 slack={{
                     notificationType: 'slack',
                     integrationsLoading: false,
+                    integrationsFailed: false,
+                    onRetryIntegrations: () => {},
+                    integrations: [],
                     channelValue: slackChannelValue,
                     onChannelValueChange: setSlackChannelValue,
                 }}

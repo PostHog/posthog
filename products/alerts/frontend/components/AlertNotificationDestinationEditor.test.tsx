@@ -5,6 +5,7 @@ import { AlertNotificationDestinationEditor } from './AlertNotificationDestinati
 
 jest.mock('@posthog/lemon-ui', () => ({
     LemonButton: ({ children }: { children: ReactNode }) => <button>{children}</button>,
+    LemonBanner: ({ children }: { children: ReactNode }) => <div>{children}</div>,
     LemonInput: () => <input />,
     LemonSelect: () => <select />,
     LemonSkeleton: () => <div>Loading integrations</div>,
@@ -32,7 +33,9 @@ describe('AlertNotificationDestinationEditor', () => {
             },
             slack: {
                 notificationType: 'slack',
-                integrationsLoading: true,
+                integrationsLoading: false,
+                integrationsFailed: false,
+                onRetryIntegrations: jest.fn(),
                 channelValue: null,
                 onChannelValueChange: jest.fn(),
             },
@@ -43,10 +46,13 @@ describe('AlertNotificationDestinationEditor', () => {
 
         expect(screen.queryByText(/Slack is not yet configured/)).toBeNull()
 
-        rerender(
-            <AlertNotificationDestinationEditor {...props} slack={{ ...props.slack, integrationsLoading: false }} />
-        )
+        rerender(<AlertNotificationDestinationEditor {...props} slack={{ ...props.slack, integrations: [] }} />)
 
         expect(screen.getByText(/Slack is not yet configured/)).toBeTruthy()
+
+        rerender(<AlertNotificationDestinationEditor {...props} slack={{ ...props.slack, integrationsFailed: true }} />)
+
+        expect(screen.getByText("Couldn't load Slack workspaces.")).toBeTruthy()
+        expect(screen.queryByText(/Slack is not yet configured/)).toBeNull()
     })
 })

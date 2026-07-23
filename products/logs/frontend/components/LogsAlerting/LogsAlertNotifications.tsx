@@ -35,6 +35,8 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         destinationGroups,
         pendingNotifications,
         integrationsLoading,
+        integrationsFailed,
+        slackIntegrations,
         firstSlackIntegration,
         selectedType,
         slackChannelValue,
@@ -49,6 +51,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
+        loadIntegrations,
     } = useActions(logsAlertNotificationLogic)
 
     const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
@@ -109,6 +112,9 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             slack={{
                 notificationType: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
                 integrationsLoading,
+                integrationsFailed,
+                onRetryIntegrations: loadIntegrations,
+                integrations: slackIntegrations,
                 integration: firstSlackIntegration,
                 channelValue: slackChannelValue,
                 onChannelValueChange: setSlackChannelValue,

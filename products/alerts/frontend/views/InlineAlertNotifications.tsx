@@ -169,6 +169,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         existingHogFunctionsLoading,
         pendingNotifications,
         integrationsLoading,
+        integrationsFailed,
         slackIntegrations,
         selectedSlackIntegration,
         selectedType,
@@ -183,6 +184,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
+        loadIntegrations,
     } = useActions(logic)
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
@@ -269,6 +271,8 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             slack={{
                 notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
                 integrationsLoading,
+                integrationsFailed,
+                onRetryIntegrations: loadIntegrations,
                 integrations: slackIntegrations,
                 integration: selectedSlackIntegration,
                 onIntegrationChange: setSelectedSlackIntegrationId,

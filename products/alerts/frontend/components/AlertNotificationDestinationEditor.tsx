@@ -3,6 +3,7 @@ import { ReactNode } from 'react'
 import { IconExternal, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
+    LemonBanner,
     LemonInput,
     LemonSelect,
     LemonSelectOptions,
@@ -68,6 +69,8 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
     slack: {
         notificationType: NotificationType
         integrationsLoading: boolean
+        integrationsFailed: boolean
+        onRetryIntegrations: () => void
         integrations?: IntegrationType[]
         integration?: IntegrationType
         onIntegrationChange?: (integrationId: number | null) => void
@@ -227,7 +230,19 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
 
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {
-        if (slack.integrationsLoading) {
+        if (slack.integrationsFailed) {
+            slackDestinationInput = (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: slack.onRetryIntegrations,
+                    }}
+                >
+                    Couldn't load Slack workspaces.
+                </LemonBanner>
+            )
+        } else if (slack.integrationsLoading || slack.integrations === undefined) {
             slackDestinationInput = <LemonSkeleton className="h-10" />
         } else if (slack.integration) {
             slackDestinationInput = (
