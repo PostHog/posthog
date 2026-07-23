@@ -110,6 +110,29 @@ class WidgetMessageView(APIView):
         serializer = WidgetMessageSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
+            try:
+                # Track rejected submissions server-side so they're queryable even when the
+                # client-side event is blocked (ad blockers, network drops). Field names and
+                # value lengths only — never message content. An over-long auto-captured
+                # session_context value (e.g. current_url) is a known rejection cause.
+                session_context = request.data.get("session_context")
+                session_context_field_lengths = (
+                    {k: len(v) for k, v in session_context.items() if isinstance(k, str) and isinstance(v, str)}
+                    if isinstance(session_context, dict)
+                    else {}
+                )
+                report_team_action(
+                    team,
+                    "support ticket send failed",
+                    {
+                        "channel_source": "widget",
+                        "reason": "validation_error",
+                        "error_fields": sorted(serializer.errors.keys()),
+                        "session_context_field_lengths": session_context_field_lengths,
+                    },
+                )
+            except Exception as e:
+                capture_exception(e)
             return Response(
                 {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
