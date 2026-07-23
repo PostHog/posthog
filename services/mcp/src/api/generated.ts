@@ -16704,6 +16704,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `triggered` - triggered
+     * * `started` - started
+     * * `already_running` - already_running
+     */
+    export type CustomPropertySyncTriggerResponseStatusEnum = typeof CustomPropertySyncTriggerResponseStatusEnum[keyof typeof CustomPropertySyncTriggerResponseStatusEnum];
+
+
+    export const CustomPropertySyncTriggerResponseStatusEnum = {
+      Triggered: 'triggered',
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Response of the person-property sync/backfill trigger actions.
+     */
+    export interface CustomPropertySyncTriggerResponse {
+      /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+       *
+       * * `triggered` - triggered
+       * * `started` - started
+       * * `already_running` - already_running */
+      status: CustomPropertySyncTriggerResponseStatusEnum;
+      /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+      already_running?: boolean;
+    }
+
+    /**
      * An account's current value for a custom property (read shape).
      */
     export interface CustomPropertyValue {
@@ -73313,8 +73341,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type CustomPropertySourcesBackfillCreate202 = { [key: string]: unknown };
-
     export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
@@ -73325,8 +73351,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type CustomPropertySourcesSyncCreate202 = { [key: string]: unknown };
 
     export type CustomerJourneysListParams = {
     /**

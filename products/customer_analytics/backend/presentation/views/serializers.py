@@ -307,6 +307,22 @@ class CustomPropertyReferenceSerializer(DataclassSerializer):
         fields = ["id", "name", "status", "type"]
 
 
+class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the person-property sync/backfill trigger actions."""
+
+    status = serializers.ChoiceField(
+        choices=[("triggered", "triggered"), ("started", "started"), ("already_running", "already_running")],
+        help_text=(
+            "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or "
+            "'already_running' (a backfill for this table was already in flight, so this was a no-op)."
+        ),
+    )
+    already_running = serializers.BooleanField(
+        required=False,
+        help_text="Backfill only: true when a backfill for this table was already running and this call coalesced.",
+    )
+
+
 class CustomPropertySyncRunSerializer(DataclassSerializer):
     """One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
     pipeline, never through the API."""

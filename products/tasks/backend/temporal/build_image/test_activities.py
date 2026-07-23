@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from products.tasks.backend.temporal.build_image.activities import (
     SCAN_JUDGE_MODEL,
+    SCAN_JUDGE_PRODUCT,
     _judge_spec_safety,
     _parse_scan_verdict,
 )
@@ -36,7 +37,7 @@ def test_security_scan_uses_glm_json_output(mock_get_llm_client: MagicMock) -> N
 
     assert result.passed is True
     assert result.findings == [{"severity": "low", "detail": "Pinned development tool"}]
-    mock_get_llm_client.assert_called_once_with(product="django", team_id=42)
+    mock_get_llm_client.assert_called_once_with(product=SCAN_JUDGE_PRODUCT, team_id=42)
     request = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
     assert request["model"] == SCAN_JUDGE_MODEL
     assert request["response_format"] == {"type": "json_object"}

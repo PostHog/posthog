@@ -181,6 +181,20 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 user_access_control=self._uac(allowed=False),
             )
 
+    def test_delete_person_source_requires_warehouse_source_editor(self):
+        # Deleting a person source permanently stops its billable warehouse-driven updates, so it needs
+        # external_data_source editor access, not account-scope editor alone.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.delete_custom_property_source(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+            )
+        assert CustomPropertySource.objects.filter(id=source.id).exists()
+        assert api.delete_custom_property_source(
+            team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+        )
+        assert not CustomPropertySource.objects.filter(id=source.id).exists()
+
     def test_disabling_source_does_not_require_warehouse_source_editor(self):
         # Disabling never triggers a backfill, so it must not demand warehouse editor access.
         source = self._create(user_access_control=self._uac(allowed=True))

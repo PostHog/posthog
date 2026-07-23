@@ -27,10 +27,9 @@ import type {
     CustomPropertyDefinitionsValuesRetrieveParams,
     CustomPropertySourceApi,
     CustomPropertySourceUpdateApi,
-    CustomPropertySourcesBackfillCreate202,
     CustomPropertySourcesListParams,
     CustomPropertySourcesRunsListParams,
-    CustomPropertySourcesSyncCreate202,
+    CustomPropertySyncTriggerResponseApi,
     CustomPropertyValueApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
@@ -875,7 +874,7 @@ export const customPropertySourcesDestroy = async (
     })
 }
 
-export const getCustomPropertySourcesBackfillCreateUrl = (projectId: string, id: string) => {
+export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/custom_property_sources/${id}/backfill/`
 }
 
@@ -883,18 +882,15 @@ export const getCustomPropertySourcesBackfillCreateUrl = (projectId: string, id:
  * Person sources only: start a backfill that reads the whole warehouse table and populates
  * person properties for historical rows. Coalesces if one is already running for the table.
  */
-export const customPropertySourcesBackfillCreate = async (
+export const customPropertySourcesBackfill = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<CustomPropertySourcesBackfillCreate202> => {
-    return apiMutator<CustomPropertySourcesBackfillCreate202>(
-        getCustomPropertySourcesBackfillCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
+): Promise<CustomPropertySyncTriggerResponseApi> => {
+    return apiMutator<CustomPropertySyncTriggerResponseApi>(getCustomPropertySourcesBackfillUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getCustomPropertySourcesRunsListUrl = (
@@ -936,7 +932,7 @@ export const customPropertySourcesRunsList = async (
     )
 }
 
-export const getCustomPropertySourcesSyncCreateUrl = (projectId: string, id: string) => {
+export const getCustomPropertySourcesSyncUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/custom_property_sources/${id}/sync/`
 }
 
@@ -944,12 +940,12 @@ export const getCustomPropertySourcesSyncCreateUrl = (projectId: string, id: str
  * Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
  * real (billable) warehouse sync; the incremental person-property update runs off it.
  */
-export const customPropertySourcesSyncCreate = async (
+export const customPropertySourcesSync = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<CustomPropertySourcesSyncCreate202> => {
-    return apiMutator<CustomPropertySourcesSyncCreate202>(getCustomPropertySourcesSyncCreateUrl(projectId, id), {
+): Promise<CustomPropertySyncTriggerResponseApi> => {
+    return apiMutator<CustomPropertySyncTriggerResponseApi>(getCustomPropertySourcesSyncUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
