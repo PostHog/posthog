@@ -664,6 +664,46 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_comment_key_cannot_attach_reply_to_ticket_thread(self) -> None:
+        # The parent's stored scope gates a reply's create — a non-ticket body scope must not
+        # smuggle a reply into a ticket discussion (it would render in the ticket's /thread).
+        parent = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="root", created_by=self.user
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "sneaky", "scope": "Notebook", "item_id": "n1", "source_comment": str(parent.id)},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert Comment.objects.filter(source_comment=parent).count() == 0
+
+    def test_reply_scope_must_match_parent_scope(self) -> None:
+        # Even with both API scopes granted, a cross-scope reply row must never exist: a Ticket
+        # reply under a non-ticket parent would leak through the parent's /thread to comment:read.
+        parent = Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="root", created_by=self.user
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "cross-scope", "scope": "Ticket", "item_id": "t1", "source_comment": str(parent.id)},
+            headers=self._scoped_key_headers(["ticket:write", "comment:write"]),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Comment.objects.filter(source_comment=parent).count() == 0
+
+    def test_reply_cannot_reference_another_teams_comment(self) -> None:
+        other_team = self.organization.teams.create(name="other")
+        parent = Comment.objects.create(
+            team=other_team, scope="Notebook", item_id="n1", content="root", created_by=self.user
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "cross-team", "scope": "Notebook", "item_id": "n1", "source_comment": str(parent.id)},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Comment.objects.filter(source_comment=parent).count() == 0
+
     def test_get_body_cannot_mask_ticket_query_scope(self) -> None:
         # A JSON body on a GET selects nothing — the query scope drives the queryset and must
         # drive the requirement.
@@ -694,6 +734,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         entry = ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", activity="commented").first()
         assert entry is not None
+        assert entry.detail is not None
         assert entry.detail["changes"][0]["after"] == "[redacted]"
         assert "internal discussion" not in str(entry.detail)
 

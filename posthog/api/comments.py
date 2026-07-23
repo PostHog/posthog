@@ -121,6 +121,20 @@ class CommentSerializer(serializers.ModelSerializer):
                 if item_context.get("is_emoji"):
                     raise exceptions.ValidationError({"is_task": "Emoji reactions cannot be tasks."})
 
+        # A reply lives in its parent's thread: a scope mismatch would let content cross the
+        # authorization boundary between ticket and non-ticket discussions in either direction.
+        source_comment = (
+            data["source_comment"] if "source_comment" in data else getattr(instance, "source_comment", None)
+        )
+        scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
+        if source_comment is not None:
+            if source_comment.team_id != self.context["team_id"]:
+                raise exceptions.ValidationError({"source_comment": "Comment not found."})
+            if source_comment.scope != scope:
+                raise exceptions.ValidationError(
+                    {"scope": "A reply must use the same scope as the comment it replies to."}
+                )
+
         return data
 
     def _filter_mentions_to_organization(self, mention_ids: list[int], organization_id: str) -> list[int]:
@@ -251,6 +265,18 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(request.data, dict):
             if body_scope := request.data.get("scope"):
                 candidate_scopes.add(body_scope)
+            # A reply is read back through its parent's thread, so the parent's stored scope
+            # gates the write too — a non-ticket body scope must not attach a reply to a
+            # ticket thread (nor a ticket reply to a non-ticket parent).
+            if source_comment := request.data.get("source_comment"):
+                try:
+                    candidate_scopes.add(
+                        Comment.objects.filter(team_id=self.team_id, pk=source_comment)
+                        .values_list("scope", flat=True)
+                        .first()
+                    )
+                except (ValueError, ValidationError):
+                    return None
         candidate_scopes.discard(None)
         if not candidate_scopes & TICKET_COMMENT_SCOPES:
             return None
