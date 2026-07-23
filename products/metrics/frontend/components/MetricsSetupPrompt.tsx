@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useInterval } from 'lib/hooks/useInterval'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -49,8 +51,10 @@ export const MetricsSetupPrompt = ({
 
 const NoMetricsPrompt = ({ className }: { className?: string }): JSX.Element | null => {
     const { addProductIntent } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { hasMetrics } = useValues(metricsIngestionLogic)
     const { loadTeamHasMetrics } = useActions(metricsIngestionLogic)
+    const [agentTab, setAgentTab] = useState<'docker' | 'kubernetes'>('docker')
 
     useEffect(() => {
         posthog.capture('metrics setup prompt viewed')
@@ -69,6 +73,25 @@ const NoMetricsPrompt = ({ className }: { className?: string }): JSX.Element | n
             intent_context: ProductIntentContext.METRICS_DOCS_VIEWED,
         })
     }
+
+    const apiKey = currentTeam?.api_token ?? '<your project API key>'
+    const dockerSnippet = [
+        'docker run -d --name posthog-metrics-agent \\',
+        `  -e POSTHOG_API_KEY=${apiKey} \\`,
+        `  -e POSTHOG_HOST=${apiHostOrigin()} \\`,
+        '  -e SCRAPE_TARGETS=your-app:9090 \\',
+        '  posthog/metrics-agent:latest',
+    ].join('\n')
+    const helmSnippet = [
+        'helm install posthog-metrics-agent \\',
+        '  oci://ghcr.io/posthog/charts/posthog-metrics-agent \\',
+        `  --set posthog.apiKey=${apiKey} \\`,
+        `  --set posthog.host=${apiHostOrigin()}`,
+        '',
+        '# then annotate the pods you want scraped:',
+        '#   prometheus.io/scrape: "true"',
+        '#   prometheus.io/port: "9090"',
+    ].join('\n')
 
     return (
         <ProductIntroduction
@@ -98,6 +121,33 @@ const NoMetricsPrompt = ({ className }: { className?: string }): JSX.Element | n
                         </Link>
                         .
                     </p>
+                    <div className="flex flex-col gap-1 w-full max-w-160">
+                        <h5 className="m-0">Or scrape your existing Prometheus metrics</h5>
+                        <p className="text-sm text-secondary m-0">
+                            Already exposing Prometheus metrics? Deploy the PostHog metrics agent in your infra and it
+                            forwards them for you, no code changes needed. Counters and histograms with OpenMetrics
+                            exemplars get clickable trace links automatically.
+                        </p>
+                        <LemonTabs
+                            activeKey={agentTab}
+                            onChange={(key) => {
+                                setAgentTab(key)
+                                onDocsLinkClick(key === 'docker' ? 'agent-docker' : 'agent-helm')
+                            }}
+                            tabs={[
+                                {
+                                    key: 'docker' as const,
+                                    label: 'Docker',
+                                    content: <CodeSnippet language={Language.Bash}>{dockerSnippet}</CodeSnippet>,
+                                },
+                                {
+                                    key: 'kubernetes' as const,
+                                    label: 'Kubernetes',
+                                    content: <CodeSnippet language={Language.Bash}>{helmSnippet}</CodeSnippet>,
+                                },
+                            ]}
+                        />
+                    </div>
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 px-3 py-1.5 border border-accent rounded">
                             <div className="relative flex items-center justify-center">
