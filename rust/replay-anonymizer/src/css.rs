@@ -5,8 +5,9 @@ use std::borrow::Cow;
 
 use simd_json::borrowed::{Object, Value};
 
-use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::blur::is_image_data_uri;
 use crate::context::Ctx;
+use crate::images::ImageFallback;
 use crate::json::{as_array_mut, as_object_mut, as_str, string_value};
 
 // rrweb inlines a same-origin/CORS-readable `<link rel="stylesheet">` into this attribute
@@ -82,9 +83,7 @@ pub(crate) fn rewrite(ctx: &Ctx<'_>, css: &str) -> Option<String> {
             out.push_str(&css[last..start]);
             // Blur (or fall back to a blank pixel) and re-wrap; no async placeholder needed since we
             // resolve the image inline, so the final string matches the TS post-blur state.
-            let replacement = ctx
-                .blur_data_uri(&css[m.data_start..m.data_end])
-                .unwrap_or_else(blank_image_data_uri);
+            let replacement = ctx.scrub_image(&css[m.data_start..m.data_end], ImageFallback::Blank);
             out.push_str("url(");
             if let Some(q) = m.quote {
                 out.push(q as char);
