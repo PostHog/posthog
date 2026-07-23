@@ -385,6 +385,7 @@ export interface sourceSettingsLogicValues {
     isSourceConfigValid: boolean
     jobs: ExternalDataJob[]
     jobsLoading: boolean
+    migratingGoogleServiceAccountAuth: boolean
     pollPauseCount: number
     refreshingSchemas: boolean
     schemaFilterOptions: {
@@ -530,6 +531,9 @@ export interface sourceSettingsLogicActions {
         source: ExternalDataSource | null
         payload?: any
     }
+    migrateGoogleServiceAccountAuth: () => {
+        value: true
+    }
     pausePolling: () => {
         value: true
     }
@@ -559,6 +563,9 @@ export interface sourceSettingsLogicActions {
     }
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean
+    }
+    setMigratingGoogleServiceAccountAuth: (migrating: boolean) => {
+        migrating: boolean
     }
     setRefreshingSchemas: (refreshing: boolean) => {
         refreshing: boolean
