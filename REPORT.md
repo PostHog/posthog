@@ -23,7 +23,7 @@ Hard requirements:
 
 ## Architecture
 
-```
+```text
 sandbox (agentsh)
 └── agent-server (PostHog/code, packages/agent)
     ├── ACP streams (tapped) ──► SessionLogWriter ──► Django append_log ──► S3   (product log, unchanged)
@@ -47,20 +47,20 @@ Resource attributes on every record: `service.name`, `service.version` (agent ve
 
 Exported events (allowlist, everything else is dropped):
 
-| Event | Severity | Notable attributes |
-| --- | --- | --- |
-| `_posthog/run_started` | info | `agent_version`, `session_id` |
-| `_posthog/sdk_session` | info | `adapter`, `session_id` |
-| `_posthog/usage_update` (and the `session/update` variant) | info | `tokens_input/output/cached_read/cached_write`, `cost_usd` |
-| `_posthog/turn_complete` | info | `stop_reason` |
-| `_posthog/task_complete` | info | `stop_reason` |
-| `_posthog/error` | **error** | `error_source`, `stop_reason`; body is the generic "run error" — the raw message is free text that can embed prompt/repo content, so it stays in the session log and the run's `error_message` |
-| `_posthog/progress` | info | `progress_group/step/status` |
-| `_posthog/git_checkpoint`, `_posthog/branch_created` | info | `branch` |
-| `_posthog/mode_change`, `_posthog/compact_boundary` | info | |
-| `_posthog/permission_request/response/resolved` | info | `request_id`, `tool_call_id` (identifiers only; tool content excluded) |
-| `session/update: tool_call` | info | `tool_call_id`, `tool_kind`, `tool_status` (no title, no rawInput) |
-| `session/update: tool_call_update` (terminal only) | info / warn on `failed` | `tool_call_id`, `tool_status` |
+| Event                                                      | Severity                | Notable attributes                                                                                                                                                                             |
+| ---------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_posthog/run_started`                                     | info                    | `agent_version`, `session_id`                                                                                                                                                                  |
+| `_posthog/sdk_session`                                     | info                    | `adapter`, `session_id`                                                                                                                                                                        |
+| `_posthog/usage_update` (and the `session/update` variant) | info                    | `tokens_input/output/cached_read/cached_write`, `cost_usd`                                                                                                                                     |
+| `_posthog/turn_complete`                                   | info                    | `stop_reason`                                                                                                                                                                                  |
+| `_posthog/task_complete`                                   | info                    | `stop_reason`                                                                                                                                                                                  |
+| `_posthog/error`                                           | **error**               | `error_source`, `stop_reason`; body is the generic "run error" — the raw message is free text that can embed prompt/repo content, so it stays in the session log and the run's `error_message` |
+| `_posthog/progress`                                        | info                    | `progress_group/step/status`                                                                                                                                                                   |
+| `_posthog/git_checkpoint`, `_posthog/branch_created`       | info                    | `branch`                                                                                                                                                                                       |
+| `_posthog/mode_change`, `_posthog/compact_boundary`        | info                    |                                                                                                                                                                                                |
+| `_posthog/permission_request/response/resolved`            | info                    | `request_id`, `tool_call_id` (identifiers only; tool content excluded)                                                                                                                         |
+| `session/update: tool_call`                                | info                    | `tool_call_id`, `tool_kind`, `tool_status` (no title, no rawInput)                                                                                                                             |
+| `session/update: tool_call_update` (terminal only)         | info / warn on `failed` | `tool_call_id`, `tool_status`                                                                                                                                                                  |
 
 Deliberately dropped: `agent_message`, `agent_message_chunk`, `agent_thought_chunk`, `user_message`, `session/prompt` bodies, in-progress `tool_call_update` snapshots (they re-send the growing tool input/output), `available_commands_update`, `_posthog/console` (free-text agent-server diagnostics interpolate arbitrary data — e.g. the prompt preview logged on user-message handling and stringified extension params — so exporting them would leak content; they stay in the S3 log and event-ingest stream), and any unknown method (fail-closed allowlist).
 Bodies are capped at 2000 chars; free-text attribute values at 200 chars (the `log_attributes` faceting table only indexes key/value pairs under 256 chars).
@@ -135,9 +135,9 @@ Flush and shutdown are best-effort and per-signal independent (`Promise.allSettl
 
 ## Configuration reference
 
-| Where | Name | Meaning |
-| --- | --- | --- |
-| Django settings | `SANDBOX_AGENT_OTEL_LOGS_URL` | Full OTLP logs ingest URL; unset = telemetry off |
-| Django settings | `SANDBOX_AGENT_OTEL_LOGS_TOKEN` | Project API key of the telemetry project; unset = telemetry off |
-| Django settings | `SANDBOX_AGENT_OTEL_TRACES_URL` | Full OTLP traces ingest URL; unset = spans off, logs unaffected |
+| Where                  | Name                                                                       | Meaning                                                                |
+| ---------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Django settings        | `SANDBOX_AGENT_OTEL_LOGS_URL`                                              | Full OTLP logs ingest URL; unset = telemetry off                       |
+| Django settings        | `SANDBOX_AGENT_OTEL_LOGS_TOKEN`                                            | Project API key of the telemetry project; unset = telemetry off        |
+| Django settings        | `SANDBOX_AGENT_OTEL_TRACES_URL`                                            | Full OTLP traces ingest URL; unset = spans off, logs unaffected        |
 | Sandbox env (injected) | `POSTHOG_AGENT_OTEL_LOGS_URL` / `_TOKEN` / `POSTHOG_AGENT_OTEL_TRACES_URL` | Read by `agent-server` (`bin.ts`); reserved keys, not user-overridable |
