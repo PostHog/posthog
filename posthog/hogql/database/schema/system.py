@@ -24,6 +24,7 @@ from posthog.scopes import APIScopeObject
 
 from products.customer_analytics.backend.facade.hogql import (
     account_custom_property_values,
+    account_custom_property_values_history,
     account_relationship_definitions,
     account_relationships,
     account_resource_notebooks,
@@ -2023,6 +2024,9 @@ class SystemTables(TableNode):
         ),
         "_account_custom_property_values": TableNode(
             name="_account_custom_property_values", table=account_custom_property_values, hidden=True
+        ),
+        "_account_custom_property_values_history": TableNode(
+            name="_account_custom_property_values_history", table=account_custom_property_values_history, hidden=True
         ),
         "account_relationship_definitions": TableNode(
             name="account_relationship_definitions", table=account_relationship_definitions
