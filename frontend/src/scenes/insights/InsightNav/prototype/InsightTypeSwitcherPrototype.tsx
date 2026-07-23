@@ -48,6 +48,8 @@ import { CORE_TYPES, EXTRA_TYPES, ExtraTypeEntry } from './SidebarTypeCardProtot
  *              carousel of sketch cards with descriptions, where the display menu's groups
  *              are the top level (time series, total value, world map, calendar heatmap,
  *              funnel, retention, ...) with display suboptions
+ *   sidebar-viz-grid : G's tinted card filled with L's viz-first options as a sketch grid,
+ *              all nine visible at once with "View as" suboptions below
  *
  * The real six types switch for real (same setActiveView as the tab strip, carry-over intact).
  * Extra entries (calendar heatmap, SQL, examples) are display-only, there to show how each
@@ -301,6 +303,7 @@ const VARIANTS = [
     { key: 'sidebar-list', name: 'Sidebar visual: quiet list' },
     { key: 'sidebar-compact', name: 'Sidebar visual: compact selects' },
     { key: 'sidebar-section', name: 'Sidebar: native section, viz carousel' },
+    { key: 'sidebar-viz-grid', name: 'Sidebar: viz grid (G card, L options)' },
 ] as const
 
 export function InsightTypeSwitcherPrototype({ insightLogicProps }: VariantProps): JSX.Element {

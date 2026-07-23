@@ -43,6 +43,7 @@ import {
     EditorFilterProps,
     FunnelVizType,
     InsightEditorFilterGroup,
+    InsightLogicProps,
     InsightType,
     PathType,
 } from '~/types'
@@ -71,6 +72,8 @@ import {
  *                          display menu's groups are the top level (time series, total value,
  *                          world map, calendar heatmap, funnel, retention, ...) and the
  *                          display options are suboptions
+ *   sidebar-viz-grid  (M): G's tinted card filled with L's viz-first options: all nine as a
+ *                          sketch grid visible at once, with "View as" suboptions below
  *
  * Type switches go through setActiveView (config carry-over intact); mode switches go through
  * updateInsightFilter on the live query. Rendered from EditorFilters, inert (null) unless the
@@ -864,25 +867,19 @@ function CalendarHeatmapSketch(): JSX.Element {
     )
 }
 
-function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX.Element {
+interface VizRowsResult {
+    rows: VisRow[]
+    activeRow: VisRow | undefined
+}
+
+/** L's option set wired to the live query, shared by the viz-first variants (L carousel, M grid). */
+function useVizRows(insightProps: InsightLogicProps): VizRowsResult {
     const { activeView } = useValues(insightNavLogic(insightProps))
     const { setActiveView } = useActions(insightNavLogic(insightProps))
     const { display, funnelsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const apply = updateInsightFilter as unknown as ApplyInsightFilter
-
-    const scrollRef = useRef<HTMLDivElement | null>(null)
-    const scrollByCards = (direction: 1 | -1): void => {
-        scrollRef.current?.scrollBy({ left: direction * 150, behavior: 'smooth' })
-    }
-
-    useEffect(() => {
-        // Bring the active card into view when the section mounts.
-        scrollRef.current
-            ?.querySelector<HTMLElement>('[aria-pressed="true"]')
-            ?.scrollIntoView({ block: 'nearest', inline: 'center' })
-    }, [])
 
     const trendsDisplay = activeView === InsightType.TRENDS ? (display ?? ChartDisplayType.ActionsLineGraph) : null
     const isTotalValue = TOTAL_VALUE_DISPLAYS.some((option) => option.value === trendsDisplay)
@@ -1028,6 +1025,24 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
 
     const activeRow = rows.find((row) => row.active)
 
+    return { rows, activeRow }
+}
+
+function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX.Element {
+    const { rows, activeRow } = useVizRows(insightProps)
+
+    const scrollRef = useRef<HTMLDivElement | null>(null)
+    const scrollByCards = (direction: 1 | -1): void => {
+        scrollRef.current?.scrollBy({ left: direction * 150, behavior: 'smooth' })
+    }
+
+    useEffect(() => {
+        // Bring the active card into view when the section mounts.
+        scrollRef.current
+            ?.querySelector<HTMLElement>('[aria-pressed="true"]')
+            ?.scrollIntoView({ block: 'nearest', inline: 'center' })
+    }, [])
+
     return (
         <div>
             <div className="-mt-1 mb-1 flex items-center justify-end gap-0.5">
@@ -1109,6 +1124,63 @@ function PrototypeVisualizationSection(): JSX.Element {
     )
 }
 
+/** Variant M: G's tinted family card, filled with L's viz-first options as a sketch grid. */
+function VizGridCard(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { rows, activeRow } = useVizRows(insightProps)
+
+    return (
+        <CardShell>
+            <CardLabel>Visualization</CardLabel>
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {rows.map((row) => {
+                    const Sketch = row.sketch
+                    const card = (
+                        <button
+                            key={row.key}
+                            type="button"
+                            aria-pressed={row.active}
+                            onClick={row.disabledReason || row.active ? undefined : row.onSelect}
+                            className={clsx(
+                                'rounded-md border p-1.5 text-left transition-colors',
+                                row.active
+                                    ? 'border-accent bg-surface-primary shadow-sm'
+                                    : 'hover:bg-surface-primary border-transparent',
+                                row.disabledReason ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                            )}
+                            data-attr={`prototype-insight-viz-grid-${row.key}`}
+                        >
+                            <Sketch />
+                            <div
+                                className={clsx(
+                                    'mt-1 text-xs font-semibold',
+                                    row.active ? 'text-accent' : 'text-primary'
+                                )}
+                            >
+                                {row.label}
+                            </div>
+                        </button>
+                    )
+                    return row.disabledReason ? (
+                        <Tooltip key={row.key} title={row.disabledReason} placement="top">
+                            {card}
+                        </Tooltip>
+                    ) : (
+                        card
+                    )
+                })}
+            </div>
+            {activeRow && <div className="text-secondary mt-2 text-xs">{activeRow.description}</div>}
+            {activeRow && activeRow.subs.length > 0 && (
+                <div className="mt-2">
+                    <CardLabel>View as</CardLabel>
+                    <SubChips options={activeRow.subs} dataAttrPrefix={`prototype-insight-viz-grid-${activeRow.key}`} />
+                </div>
+            )}
+        </CardShell>
+    )
+}
+
 /** Routes the sidebar card variants; inert unless the URL requests one. */
 export function SidebarTypeCardPrototype(): JSX.Element | null {
     const { searchParams } = useValues(router)
@@ -1137,6 +1209,9 @@ export function SidebarTypeCardPrototype(): JSX.Element | null {
     }
     if (variant === 'sidebar-section') {
         return <PrototypeVisualizationSection />
+    }
+    if (variant === 'sidebar-viz-grid') {
+        return <VizGridCard />
     }
     return null
 }
