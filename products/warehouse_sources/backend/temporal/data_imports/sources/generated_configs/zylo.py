@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class ZyloSourceConfig(config.Config):
-    pass
+    token_id: str
+    token_secret: str
