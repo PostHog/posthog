@@ -595,6 +595,71 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             f"Expected total revenue of 100 (100+0+missing=0+missing=0), got {total_revenue}. Missing revenue properties should be treated as 0."
         )
 
+    @parameterized.expand(
+        [
+            ("no_currency", None),
+            ("static_currency", {"static": "EUR"}),
+            ("property_currency", {"property": "currency_code"}),
+        ]
+    )
+    def test_sum_math_currency_conversion_matches_across_live_and_precompute_paths(self, _name, currency_config):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="currency_goal",
+            conversion_goal_name="Currency Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency=currency_config,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+        precompute = processor._get_conversion_value_expr().to_hogql()
+
+        should_convert = currency_config is not None
+        assert ("convertCurrency" in live) is should_convert
+        assert ("convertCurrency" in precompute) is should_convert
+
+    def test_sum_math_static_currency_uses_the_configured_code_without_a_property_lookup(self):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="static_goal",
+            conversion_goal_name="Static Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency={"static": "GBP"},
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+
+        assert "'GBP'" in live
+        assert "upper(" not in live
+
+    def test_sum_math_property_currency_reads_the_property_and_falls_back_to_base_when_missing(self):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="property_goal",
+            conversion_goal_name="Property Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency={"property": "currency_code"},
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+
+        assert "upper(" in live
+        assert "currency_code" in live
+        # The guard keeps rows with no currency property in the base currency instead of nulling them out
+        assert "isNull(" in live
+
     def test_math_type_average_fallback_behavior(self):
         """Test AVERAGE math type fallback behavior - counts events since AVG not implemented - business logic validation"""
 
