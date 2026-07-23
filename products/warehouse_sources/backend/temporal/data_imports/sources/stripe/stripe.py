@@ -898,6 +898,13 @@ def create_webhook(
                 "url": webhook_url,
                 "enabled_events": filtered_events,  # type: ignore
                 "description": "PostHog data warehouse webhook",
+                # Pin the endpoint's payload version to the synced version explicitly. Without this
+                # Stripe assigns the account's default version, so webhook payloads could arrive in a
+                # different shape than the table synced via the API. Stripe fixes an endpoint's
+                # api_version at creation time — changing the source's version later requires
+                # recreating the webhook, it can't be updated in place. The SDK's typed params lag
+                # behind Stripe's live versions (e.g. clover), so the version string is ignored here.
+                "api_version": version,  # type: ignore[typeddict-item]
             }
         )
 

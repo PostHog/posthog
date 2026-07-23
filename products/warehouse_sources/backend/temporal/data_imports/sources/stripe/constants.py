@@ -30,13 +30,13 @@ LEGACY_STRIPE_API_VERSION = STRIPE_API_VERSION_ACACIA
 # schema/descriptions are version-aware (they reshape invoice.subscription, price.product, etc.).
 DEFAULT_STRIPE_API_VERSION = STRIPE_VERSION_ACACIA_2025
 
-# Selectable versions shown in the source's "API version" picker, newest first. Legacy is listed so
-# sources pinned to it (framework default / migration 0058) round-trip in the picker instead of
-# rendering blank; new sources default to DEFAULT_STRIPE_API_VERSION, not legacy.
+# Selectable versions shown in the source's "API version" picker. Legacy is listed so sources
+# pinned to it (framework default / migration 0058) round-trip in the picker instead of rendering
+# blank; new sources default to DEFAULT_STRIPE_API_VERSION, not legacy.
 STRIPE_API_VERSIONS: dict[str, str] = {
-    STRIPE_VERSION_CLOVER: "Clover (2026-02-25)",
-    STRIPE_VERSION_BASIL: "Basil (2025-08-27)",
     STRIPE_VERSION_ACACIA_2025: "Acacia (2025-02-24)",
+    STRIPE_VERSION_BASIL: "Basil (2025-08-27)",
+    STRIPE_VERSION_CLOVER: "Clover (2026-02-25)",
     LEGACY_STRIPE_API_VERSION: "Acacia (2024-09-30, legacy)",
 }
 
