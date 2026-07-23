@@ -100,14 +100,44 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
 
-    def test_quality_flag_off_hides_endpoints(self) -> None:
-        # `replay-vision-quality` gates the sub-feature even when product-level `replay-vision` is on.
+    def test_based_on_counts_cover_all_ratings_beyond_briefing_cap(self) -> None:
+        # The briefing is capped to the most recent rated sessions, but based_on_* is shown in the UI
+        # next to chart totals over ALL ratings, and the agent can page through the full set via tools.
+        self._create_rated_observation("sess-1", True)
+        self._create_rated_observation("sess-2", True)
+        self._create_rated_observation("sess-3", False, "should be yes")
+
+        with patch("products.replay_vision.backend.prompt_suggestions._MAX_RATED_SESSIONS", 2):
+            resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["based_on_up"], 2)
+        self.assertEqual(resp.json()["based_on_down"], 1)
+
+    def test_generate_returns_friendly_error_when_model_client_unavailable(self) -> None:
+        # A missing/malformed Gemini key raises at client construction, before any model call.
+        # Run the real generation paths so the failure propagates as it would in production.
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.agentic_patcher.stop()
+        self.generate_patcher.stop()
+        try:
+            with patch(
+                "products.replay_vision.backend.prompt_suggestions.genai.Client",
+                side_effect=ValueError("Missing key inputs argument!"),
+            ):
+                resp = self.client.post(self._suggestions_url("generate/"))
+        finally:
+            self.mock_agentic = self.agentic_patcher.start()
+            self.mock_generate = self.generate_patcher.start()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Couldn't generate a suggestion right now", resp.json()["detail"])
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
+
+    def test_product_flag_off_hides_endpoints(self) -> None:
         self._create_rated_observation("sess-1", True)
 
-        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key != "replay-vision-quality"
-
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
             current_resp = self.client.get(self._suggestions_url("current/"))
             generate_resp = self.client.post(self._suggestions_url("generate/"))
         self.assertEqual(current_resp.status_code, 404, current_resp.content)

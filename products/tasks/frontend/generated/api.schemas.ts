@@ -355,7 +355,7 @@ export interface LoopTriggerWriteApi {
     type: LoopTriggerTypeEnumApi
     /** Whether this trigger is active. Disabling pauses only this trigger. */
     enabled?: boolean
-    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
     config?: unknown
 }
 
@@ -2339,11 +2339,6 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
-    /**
-     * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
-     * @maxLength 120
-     */
-    home_quick_action?: string
 }
 
 /**

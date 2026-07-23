@@ -75,11 +75,16 @@ class OPUSWatchSource(ResumableSource[OPUSWatchSourceConfig, OPUSWatchResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: OPUSWatchSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OPUSWatchSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         start_date = (config.start_date or "").strip()
         if start_date:

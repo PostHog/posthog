@@ -31,11 +31,11 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
+    REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
     PerQueryOptedOut,
-    PerQueryOptInNotSet,
     TooManyFilters,
     UnsupportedFilterKey,
     _oom_pin_key,
@@ -50,6 +50,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
 
@@ -112,13 +113,28 @@ class TestCheckCommonEligibilityUnrestricted(BaseTest):
             resolve_date_range=_date_range,
         )
 
-    def test_restricted_team_rejects_untouched_opt_in(self) -> None:
+    def test_restricted_team_untouched_toggle_defaults_on(self) -> None:
+        # Re-introducing the old opt-in requirement would silently send every
+        # enrolled team without the UI toggle back to the raw path.
         with override_settings(
             WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
             WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
         ):
-            with self.assertRaises(PerQueryOptInNotSet):
-                self._check(use_precompute=None)
+            self._check(use_precompute=None)
+            with self.assertRaises(PerQueryOptedOut):
+                self._check(use_precompute=False)
+
+    @override_settings(
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[],
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+    )
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
+    def test_flag_enrolled_team_defaults_on_and_respects_opt_out(self, _flag) -> None:
+        # The fleet-rollout path: enrollment via the org flag alone must grant
+        # default-on reads, and the explicit opt-out must still be honored.
+        self._check(use_precompute=None)
+        with self.assertRaises(PerQueryOptedOut):
+            self._check(use_precompute=False)
 
     def test_unrestricted_team_accepts_untouched_as_opt_out_default(self) -> None:
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
@@ -158,6 +174,27 @@ class TestCheckCommonEligibilityUnrestricted(BaseTest):
         ):
             with self.assertRaises(UnsupportedFilterKey):
                 self._check(use_precompute=True, properties=props)
+
+
+class TestCacheKeyVariesWithRolloutState(BaseTest):
+    _RUNNER_MOD = "products.web_analytics.backend.hogql_queries.web_analytics_query_runner"
+
+    def _cache_key(self) -> str:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]),
+        )
+        return runner.get_cache_key()
+
+    def test_flipping_enrollment_changes_cache_key(self) -> None:
+        # With default-on reads, disabling the rollout flag (the kill switch)
+        # must invalidate cached precompute-produced results — otherwise a bad
+        # rollout keeps serving from the result cache until it stales.
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=True):
+            key_enabled = self._cache_key()
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
+            key_disabled = self._cache_key()
+        assert key_enabled != key_disabled
 
 
 class TestHostFilterExpr(BaseTest):
@@ -493,12 +530,18 @@ class TestStaleRevalidationEnqueue(BaseTest):
 
     def tearDown(self):
         reset_query_tags()
+        # Debounce/budget keys persist in the shared test Redis; scrub so tests
+        # stay order-independent.
+        client = redis.get_client()
+        keys = client.keys(f"web_swr_reval*{self.team.pk}*")
+        if keys:
+            client.delete(*keys)
         super().tearDown()
 
     def _delay_patch(self):
         return mock.patch(
             "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
-            ".revalidate_web_analytics_precompute.delay"
+            ".revalidate_web_analytics_precompute.apply_async"
         )
 
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self):
@@ -512,7 +555,13 @@ class TestStaleRevalidationEnqueue(BaseTest):
                 handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
         assert delay.call_count == 1
-        payload = delay.call_args.kwargs
+        # The warm gets a head start delay so it never contends with the
+        # dashboard burst that enqueued it.
+        assert delay.call_args.kwargs["countdown"] == REVALIDATION_START_DELAY_SECONDS
+        # Expiry is measured from publication, so the head start must not eat
+        # into the queue's pickup window.
+        assert delay.call_args.kwargs["expires"] == REVALIDATION_START_DELAY_SECONDS + REVALIDATION_EXPIRES_SECONDS
+        payload = delay.call_args.kwargs["kwargs"]
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "WebOverviewQuery"
 
@@ -531,6 +580,39 @@ class TestStaleRevalidationEnqueue(BaseTest):
             handle_stale_served(runner=stats_runner, family="web_stats")
         assert delay.call_count == 2
 
+    def test_per_team_budget_bounds_distinct_shape_enqueues(self):
+        # Filters/dates are request-controlled, so distinct shapes are unbounded;
+        # the per-team budget must cap total enqueues per window regardless.
+        from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+            REVALIDATION_TEAM_BUDGET_PER_WINDOW,
+        )
+
+        with self._delay_patch() as delay:
+            for i in range(REVALIDATION_TEAM_BUDGET_PER_WINDOW + 10):
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from=f"2024-01-{(i % 27) + 1:02d}", date_to="2024-06-01"),
+                    properties=[
+                        EventPropertyFilter(key="$host", value=f"h{i}.example.com", operator=PropertyOperator.EXACT)
+                    ],
+                )
+                runner = WebOverviewQueryRunner(team=self.team, query=query)
+                handle_stale_served(runner=runner, family="web_overview")
+        assert delay.call_count == REVALIDATION_TEAM_BUDGET_PER_WINDOW
+
+        # A budget-rejected shape must not stay debounce-locked: once the budget
+        # window clears, the SAME shape (i=30 above was rejected) gets its warm
+        # on the next request — the rejection must release its debounce claim.
+        redis.get_client().delete(f"web_swr_reval_budget:{self.team.pk}")
+        rejected_query = WebOverviewQuery(
+            dateRange=DateRange(date_from=f"2024-01-{(30 % 27) + 1:02d}", date_to="2024-06-01"),
+            properties=[EventPropertyFilter(key="$host", value="h30.example.com", operator=PropertyOperator.EXACT)],
+        )
+        with self._delay_patch() as delay:
+            handle_stale_served(
+                runner=WebOverviewQueryRunner(team=self.team, query=rejected_query), family="web_overview"
+            )
+        assert delay.call_count == 1
+
     def test_broker_failure_does_not_break_the_stale_read_path(self):
         # handle_stale_served runs inside the families' read try/except before the stale
         # rows are read — a broker outage raising out of it would discard the stale
@@ -541,3 +623,50 @@ class TestStaleRevalidationEnqueue(BaseTest):
             delay.side_effect = Exception("broker down")
             handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
+
+
+class TestServeLiveWarmBehind(BaseTest):
+    """User-facing ensures are check-only (never insert inline); a miss enqueues
+    a background warm. Background warming triggers keep computing inline —
+    without that split, either dashboards pay for their own backfill again
+    (the inline self-DoS) or the warmers stop producing jobs entirely."""
+
+    def _runner(self):
+        runner = mock.Mock()
+        runner.team = self.team
+        runner.query = mock.Mock()
+        return runner
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_user_facing_is_check_only_and_warms_on_miss(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        runner = self._runner()
+        web_ensure_precomputed(
+            team=self.team, runner=runner, family="web_overview", ttl_seconds={"default": 3600}, table=None
+        )
+        assert mock_ensure.call_args.kwargs["run_inserts"] is False
+        assert "runner" not in mock_ensure.call_args.kwargs
+        assert "family" not in mock_ensure.call_args.kwargs
+        mock_enqueue.assert_called_once_with(team=self.team, query=runner.query, family="web_overview")
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_user_facing_hit_does_not_enqueue(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(
+            team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+        )
+        mock_enqueue.assert_not_called()
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_background_warming_still_inserts_inline(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        with tags_context(trigger="webAnalyticsEagerBaselineWarming"):
+            web_ensure_precomputed(
+                team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+            )
+        assert mock_ensure.call_args.kwargs["run_inserts"] is True
+        # The warmer IS the refresh mechanism; a miss must not re-enqueue itself.
+        mock_enqueue.assert_not_called()

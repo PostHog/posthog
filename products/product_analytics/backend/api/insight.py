@@ -552,7 +552,7 @@ class InsightFilterOverrideContext(BaseModel):
     dashboard: schema.DashboardFilter | None = PydanticField(
         default=None, description="Dashboard filters that remain active after applying tile precedence."
     )
-    tile: schema.DashboardFilter | None = PydanticField(
+    tile: schema.TileFilters | None = PydanticField(
         default=None, description="Tile filters applied above the dashboard filters."
     )
     overridden_dashboard: schema.DashboardFilter | None = PydanticField(
@@ -2341,7 +2341,7 @@ When set, the specified dashboard's filters and date range override will be appl
     ) -> dict[str, Any]:
         """Convert Filter-style params to a query and run via process_query_dict.
 
-        Uses the unified QueryRunner cache instead of the legacy @cached_by_filters system.
+        Uses the unified QueryRunner cache instead of the removed legacy filter-based cache.
         """
         team = self.team
         filter = Filter(request=request, team=team)

@@ -33,7 +33,8 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.integration import Integration
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -528,7 +529,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
+        github_integration = (
+            Integration.objects.filter(team=team, kind="github")
+            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+            .first()
+        )
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1987,6 +1993,89 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         return f"{self.name} ({self.artifact_type})"
 
 
+class SandboxSession(TeamScopedRootMixin, UUIDModel):
+    """Usage ledger for one cloud sandbox: when it ran, its resource shape, and which
+    slice of its lifetime is attributable to a user.
+
+    One row per sandbox, keyed on the provider sandbox id and upserted by the
+    provisioning activity so activity retries stay idempotent. Rows record raw usage
+    only — pricing/credit conversion happens downstream at aggregation time
+    (see logic/services/sandbox_usage.py). Pre-warmed sandboxes stay unattributed
+    (``user_attributed_at`` NULL, on PostHog's dime) until a user claims the run with
+    their first message; the boundary timestamps are deliberately redundant so any
+    future billable-window policy (wall-clock, active-plus-grace, ...) can be computed
+    from the ledger without a backfill.
+    """
+
+    class EndedReason(models.TextChoices):
+        CLEANUP = "cleanup", "Cleanup"
+        REAPED = "reaped", "Reaped"
+
+    # db_constraint=False on the team FK: adding an FK constraint to that hot table
+    # locks it and stalls deploys; Django still enforces the relation and on_delete at
+    # the app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="sandbox_sessions")
+
+    sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")
+    origin_product = models.CharField(
+        max_length=20,
+        choices=Task.OriginProduct,
+        null=True,
+        blank=True,
+        help_text="Task origin at provision time, denormalized for per-origin aggregation",
+    )
+    prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
+    vm_runtime = models.BooleanField(
+        default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
+    )
+
+    # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
+    # sandbox may consume — raw usage metrics derive from these; the burstable request
+    # floors are recorded for future pricing-policy work only (Modal bills max(request, actual)).
+    cpu_cores = models.FloatField(help_text="CPU core limit")
+    memory_gb = models.FloatField(help_text="Memory limit in GiB")
+    ttl_seconds = models.IntegerField(help_text="Hard TTL after which the provider kills the sandbox")
+    burstable = models.BooleanField(default=False)
+    cpu_request_cores = models.FloatField(null=True, blank=True, help_text="Reserved CPU floor when burstable")
+    memory_request_mb = models.IntegerField(null=True, blank=True, help_text="Reserved memory floor when burstable")
+
+    created_at = models.DateTimeField(default=django_timezone.now, help_text="Sandbox provisioned")
+    # Anchored at the Sandbox.create() boundary, not ledger-row insert time: the
+    # provider's TTL clock starts there, before repo setup runs and the row is opened.
+    ttl_expires_at = models.DateTimeField(help_text="Absolute provider kill deadline (creation boundary + TTL)")
+    user_attributed_at = models.DateTimeField(
+        null=True, blank=True, help_text="Start of the user-attributable window; NULL while (pre)warm and unclaimed"
+    )
+    last_user_activity_at = models.DateTimeField(
+        null=True, blank=True, help_text="Most recent user message routed to this sandbox's run"
+    )
+    ended_at = models.DateTimeField(
+        null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
+    )
+    ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_sandbox_session"
+        indexes = [
+            # The usage report scans sessions overlapping the period instance-wide:
+            # closed recently (ended_at > begin) or open and not yet past their TTL
+            # (ended_at IS NULL AND ttl_expires_at > begin) — the partial index keeps
+            # rows that never got a close stamp from being re-fetched forever.
+            models.Index(fields=["ended_at"], name="sandbox_session_ended_at_idx"),
+            models.Index(
+                fields=["ttl_expires_at"],
+                condition=models.Q(ended_at__isnull=True),
+                name="sandbox_session_open_ttl_idx",
+            ),
+            # For per-team/per-origin re-aggregation once pricing decides which origins bill.
+            models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
+        ]
+
+    def __str__(self):
+        return f"Sandbox session {self.sandbox_id} for run {self.task_run_id}"
+
+
 class SandboxSnapshot(UUIDModel):
     """Tracks sandbox snapshots used for sandbox environments in tasks."""
 
@@ -2438,121 +2527,6 @@ class TaskPresence(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
-
-
-class CodeWorkflowConfig(TeamScopedRootMixin):
-    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
-    version = models.PositiveIntegerField(default=1)
-    bindings = models.JSONField(default=dict, help_text="Situation id → ordered WorkflowAction list")
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_code_workflow_config"
-        constraints = [
-            models.UniqueConstraint(fields=["team", "user"], name="code_workflow_config_team_user_unique"),
-        ]
-
-    def __str__(self):
-        return f"CodeWorkflowConfig(team={self.team_id}, user={self.user_id}, v{self.version})"
-
-
-class CodePrSnapshot(TeamScopedRootMixin):
-    class State(models.TextChoices):
-        OPEN = "open", "Open"
-        DRAFT = "draft", "Draft"
-        MERGED = "merged", "Merged"
-        CLOSED = "closed", "Closed"
-
-    class CiStatus(models.TextChoices):
-        PASSING = "passing", "Passing"
-        FAILING = "failing", "Failing"
-        PENDING = "pending", "Pending"
-        NONE = "none", "None"
-
-    class ReviewDecision(models.TextChoices):
-        APPROVED = "approved", "Approved"
-        CHANGES_REQUESTED = "changes_requested", "Changes requested"
-        REVIEW_REQUIRED = "review_required", "Review required"
-
-    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    github_integration = models.ForeignKey(
-        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
-    )
-    pr_url = models.CharField(max_length=500)
-    number = models.PositiveIntegerField()
-    title = models.TextField(blank=True, default="")
-    state = models.CharField(max_length=10, choices=State.choices)
-    ci_status = models.CharField(max_length=10, choices=CiStatus.choices, default=CiStatus.NONE)
-    review_decision = models.CharField(max_length=20, choices=ReviewDecision.choices, null=True, blank=True)
-    unresolved_threads = models.PositiveIntegerField(default=0)
-    mergeable = models.BooleanField(null=True, blank=True)
-    author_login = models.CharField(max_length=255, null=True, blank=True)
-    head_branch = models.CharField(
-        max_length=255,
-        null=True,
-        blank=True,
-        help_text="PR head (source) branch, used to group follow-up task runs under this PR's workstream",
-    )
-    requested_reviewer_logins = models.JSONField(default=list, help_text="GitHub logins requested as reviewers")
-    pr_updated_at = models.DateTimeField(null=True, blank=True, help_text="PR's last-updated time on GitHub")
-    fingerprint = models.CharField(max_length=64, blank=True, default="", help_text="Change-detection hash")
-    fetched_at = models.DateTimeField(default=django_timezone.now, help_text="When this snapshot was last polled")
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_code_pr_snapshot"
-        constraints = [
-            models.UniqueConstraint(fields=["team", "pr_url"], name="code_pr_snapshot_team_url_unique"),
-        ]
-
-    def __str__(self):
-        return f"CodePrSnapshot({self.pr_url} {self.state})"
-
-
-class CodeWorkstream(TeamScopedRootMixin):
-    class WorkstreamState(models.TextChoices):
-        ATTENTION = "attention", "Needs attention"
-        IN_PROGRESS = "in_progress", "In progress"
-
-    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
-    key = models.CharField(max_length=600, help_text="Grouping key: pr:<url> | branch:<repo>#<branch> | path:<path>")
-    repo_name = models.CharField(max_length=255, null=True, blank=True)
-    repo_full_path = models.CharField(max_length=512, null=True, blank=True)
-    branch = models.CharField(max_length=255, null=True, blank=True)
-    pr_url = models.CharField(max_length=500, null=True, blank=True)
-    pr_snapshot = models.ForeignKey(CodePrSnapshot, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    pr = models.JSONField(null=True, blank=True, help_text="Per-user-resolved PrSnapshot wire shape")
-    situations = models.JSONField(default=list, help_text="List of situation ids this workstream is in")
-    primary_situation = models.CharField(max_length=20, null=True, blank=True, help_text="Board column placement")
-    state = models.CharField(max_length=20, choices=WorkstreamState.choices)
-    tasks = models.JSONField(default=list, help_text="List of {id, title, status} for grouped tasks")
-    last_activity_at = models.DateTimeField()
-    generated_at = models.DateTimeField(default=django_timezone.now, help_text="When this row was last rebuilt")
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_code_workstream"
-        ordering = ["-last_activity_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["team", "user", "key"], name="code_workstream_team_user_key_unique"),
-        ]
-        indexes = [
-            models.Index(fields=["team", "user", "state"], name="code_workstream_state_idx"),
-        ]
-
-    def __str__(self):
-        return f"CodeWorkstream({self.key} {self.state})"
 
 
 @receiver(post_save, sender=TaskRun)
