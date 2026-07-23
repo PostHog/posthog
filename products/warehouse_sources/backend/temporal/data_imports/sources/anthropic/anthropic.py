@@ -453,7 +453,8 @@ def anthropic_source(
         # Claude Code analytics: one windowed request per calendar day, driven entirely by the
         # paginator (there is no parent API resource to resolve days from).
         start_day = _claude_code_start_day(db_incremental_field_last_value)
-        paginator = ClaudeCodeDayPaginator(start_day, datetime.now(UTC).date())
+        # Annotated to the shared base so the other branches can rebind it to AnthropicCursorPaginator.
+        paginator: BasePaginator = ClaudeCodeDayPaginator(start_day, datetime.now(UTC).date())
         day_data_map: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]] = (
             _flatten_claude_code_models if endpoint == "claude_code_model_breakdown" else _flatten_claude_code_core
         )
