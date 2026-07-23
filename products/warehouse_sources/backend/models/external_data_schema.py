@@ -131,6 +131,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return NamingConvention.normalize_identifier(self.name)
 
     @property
+    def normalized_s3_folder_name(self) -> str:
+        """Normalized Delta folder leaf the loader actually wrote the table under.
+
+        Diverges from ``normalized_name`` for folder-pinned rows (e.g. Postgres ``public.users``
+        → folder ``users``); readers that resolve ``normalized_name`` point at a prefix with no
+        ``_delta_log`` and surface "No files in log segment".
+        """
+        return NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+
+    @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
 
