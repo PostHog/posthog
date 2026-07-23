@@ -90,14 +90,16 @@ function fetchFlakyTests() {
     )
 }
 
-function hogql(query) {
+// `values` bind through HogQL's {placeholder} syntax, escaped server-side — never
+// concatenate attacker-controlled test ids into the query source.
+function hogql(query, values) {
     return withRetry(() =>
         request(
             `${HOST}/api/projects/${PROJECT_ID}/query/`,
             {
                 method: 'POST',
                 headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: { kind: 'HogQLQuery', query } }),
+                body: JSON.stringify({ query: { kind: 'HogQLQuery', query, values } }),
             },
             'query'
         )
@@ -192,9 +194,9 @@ async function enrich(items) {
             bySelector.set(variant, item)
         }
     }
-    const inList = [...bySelector.keys()].map((s) => `'${s.replaceAll("'", "\\'")}'`).join(', ')
+    const selectors = [...bySelector.keys()]
     const empty = { runsRescued: null, evidence: [] }
-    if (!inList) {
+    if (selectors.length === 0) {
         return () => empty
     }
     let rows = []
@@ -205,8 +207,9 @@ async function enrich(items) {
                 arraySlice(arrayReverseSort(x -> x.1, groupUniqArray(20)((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
             FROM engineering_analytics_ci_failures f
             LEFT JOIN ${RUNS_TABLE} r ON r.id = f.run_id
-            WHERE f.timestamp >= now() - INTERVAL 7 DAY AND f.test_id IN (${inList})
-            GROUP BY f.test_id`
+            WHERE f.timestamp >= now() - INTERVAL 7 DAY AND f.test_id IN {selectors}
+            GROUP BY f.test_id`,
+            { selectors }
         )
         rows = result.results || []
     } catch (err) {
@@ -369,7 +372,8 @@ async function main() {
         .sort((a, b) => (extrasFor(b).runsRescued ?? 0) - (extrasFor(a).runsRescued ?? 0) || b.failed_run_count - a.failed_run_count)
         .slice(0, TOP_N)
     if (flaky.length === 0) {
-        console.info('No qualifying flaky tests this week.')
+        console.info('No qualifying flaky tests this week — nothing to post.')
+        return
     }
     const ownerFor = resolveOwners(flaky)
     const blocks = buildBlocks(now, tableRows(flaky, ownerFor, extrasFor))
