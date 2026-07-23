@@ -145,16 +145,19 @@ def person_property_sync_enabled_for(team_id: int, schema_id: "uuid.UUID") -> bo
 
 @dataclasses.dataclass(frozen=True)
 class PersonPropertySyncSource:
-    """One enabled person-target source's sync config, resolved through the hook below so the
-    sync job (owned by warehouse_sources) never imports the customer_analytics config models.
-    ``source_id``/``definition_id`` identify the source for provenance stamping; ``key_column``
-    holds the person identifier and ``column_property_map`` maps warehouse column -> person
-    property name."""
+    """One enabled person- or group-target source's sync config, resolved through the hook below so
+    the sync job (owned by warehouse_sources) never imports the customer_analytics config models.
+    ``source_id``/``definition_id`` identify the source for provenance stamping; ``key_column`` holds
+    the identifier (a person's distinct_id, or a group's key) and ``column_property_map`` maps
+    warehouse column -> property name. ``target`` is "person" or "group"; ``group_type_index`` is the
+    group type (0-4) for group targets, else None."""
 
     source_id: str
     definition_id: str
     key_column: str
     column_property_map: dict[str, str]
+    target: str = "person"
+    group_type_index: int | None = None
 
 
 PersonPropertySyncSourcesResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySyncSource]]]
