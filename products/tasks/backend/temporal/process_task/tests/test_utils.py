@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     RunState,
     build_imported_mcp_server_configs,
+    build_sandbox_environment_variables,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_imported_mcp_server_configs,
@@ -1066,3 +1067,24 @@ class TestGetRelayedMcpServerNames(TestCase):
         )
 
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
+
+class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_includes_otel_config_when_configured(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1)
+
+        assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
+        assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
+        assert env["POSTHOG_AGENT_OTEL_TRACES_URL"] == "https://us.i.posthog.com/i/v1/traces"
