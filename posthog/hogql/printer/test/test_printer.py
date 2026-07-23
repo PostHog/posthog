@@ -1909,6 +1909,21 @@ class TestPrinter(BaseTest):
             "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))",
         )
 
+    @parameterized.expand(
+        [
+            ("'foo' > 1", "ifNull(greater(%(hogql_val_0)s, 1), 0)"),
+            ("'foo' >= 1", "ifNull(greaterOrEquals(%(hogql_val_0)s, 1), 0)"),
+            ("'foo' < 1", "ifNull(less(%(hogql_val_0)s, 1), 0)"),
+            ("'foo' <= 1", "ifNull(lessOrEquals(%(hogql_val_0)s, 1), 0)"),
+            ("1 > 'foo'", "ifNull(greater(1, %(hogql_val_0)s), 0)"),
+        ]
+    )
+    def test_ordering_comparison_of_mismatched_constant_types_defers_to_clickhouse(self, expr: str, expected: str):
+        # Folding e.g. ``'foo' > 1`` in Python raises TypeError; the printer must emit SQL for
+        # ClickHouse to evaluate instead of crashing the query. Guards the fold-time TypeError.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), expected)
+
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr("event -- something", context), "events.event")
