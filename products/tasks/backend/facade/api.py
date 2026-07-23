@@ -18,6 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import logging
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -2581,9 +2582,14 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     if run is None:
         return None
 
+    resume_chain = run.get_resume_chain()
+    with ThreadPoolExecutor(max_workers=min(max(len(resume_chain), 1), 8)) as executor:
+        chunks = executor.map(
+            lambda ancestor: object_storage.read(ancestor.log_url, missing_ok=True) or "", resume_chain
+        )
+
     parts: list[str] = []
-    for ancestor in run.get_resume_chain():
-        chunk = object_storage.read(ancestor.log_url, missing_ok=True) or ""
+    for chunk in chunks:
         if chunk:
             if not chunk.endswith("\n"):
                 chunk = chunk + "\n"
