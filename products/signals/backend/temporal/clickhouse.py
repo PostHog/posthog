@@ -9,11 +9,14 @@ from asgiref.sync import sync_to_async
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.errors import CH_TRANSIENT_ERRORS
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Team
 
-# Errors worth retrying
-RETRIABLE_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+# Errors worth retrying. ClickHouseQueryTimeOut is included so a query that timed out because
+# ClickHouse was transiently slow gets a backed-off second chance instead of failing the activity
+# outright — the dedup scans here are now bounded, so a timeout should be transient rather than
+# a sign the query is fundamentally too big.
+RETRIABLE_ERRORS = (ClickHouseAtCapacity, ClickHouseQueryTimeOut, *CH_TRANSIENT_ERRORS)
 
 logger = structlog.get_logger(__name__)
 
