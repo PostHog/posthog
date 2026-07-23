@@ -311,7 +311,7 @@ function WorkspaceStrip(): JSX.Element {
                     icon={<IconSearch />}
                     onClick={() => {
                         captureQuickstartAction('open_search_shortcut')
-                        toggleCommand()
+                        toggleCommand('quickstart')
                     }}
                     data-attr="quickstart-search-shortcut"
                 >

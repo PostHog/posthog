@@ -9095,6 +9095,9 @@ After component`,
                 onChange,
             })
         )
+        fireEvent.doubleClick(
+            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
+        )
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9116,6 +9119,9 @@ After component`,
                 onChange,
             })
         )
+        fireEvent.doubleClick(
+            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
+        )
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9125,7 +9131,8 @@ After component`,
         fireEvent.keyDown(titleInput, { key: 'Escape' })
 
         expect(onChange).not.toHaveBeenCalled()
-        expect(titleInput.value).toEqual('')
+        // Escape closes the rename input without persisting; the title stays empty.
+        expect(container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')).toBeNull()
     })
 
     it('shows the saved component title read-only in view mode', () => {
@@ -9156,6 +9163,9 @@ After component`,
         const { container } = render(
             createElement(MarkdownNotebook, { value: '<SummaryCard id="summary-id" />', registry })
         )
+        fireEvent.doubleClick(
+            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
+        )
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9167,9 +9177,16 @@ After component`,
     })
 
     it('does not suggest the query body or schema kinds as the title placeholder', () => {
-        const getPlaceholder = (): string =>
-            (container.querySelector('input.MarkdownNotebook__component-toolbar-title--input') as HTMLInputElement)
-                .placeholder
+        const getPlaceholder = (): string => {
+            if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
+                fireEvent.doubleClick(
+                    container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
+                )
+            }
+            return (
+                container.querySelector('input.MarkdownNotebook__component-toolbar-title--input') as HTMLInputElement
+            ).placeholder
+        }
         const { container, rerender } = render(
             createElement(MarkdownNotebook, {
                 value: '<DuckSQL code="select * from events" returnVariable="duck_df" />',
@@ -9262,8 +9279,14 @@ After component`,
                 ViewComponent: () => createElement('div', { 'data-testid': 'summary-output' }, 'Loading'),
             },
         ])
-        const getTitleInput = (): HTMLInputElement =>
-            container.querySelector('input.MarkdownNotebook__component-toolbar-title--input') as HTMLInputElement
+        const getTitleInput = (): HTMLInputElement => {
+            if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
+                fireEvent.doubleClick(
+                    container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
+                )
+            }
+            return container.querySelector('input.MarkdownNotebook__component-toolbar-title--input') as HTMLInputElement
+        }
         const { container, rerender } = render(
             createElement(MarkdownNotebook, { value: '<SummaryCard id="summary-id" />', registry })
         )

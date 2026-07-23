@@ -18,6 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import logging
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -68,6 +69,8 @@ from products.tasks.backend.visibility import task_control_q, task_run_visibilit
 from . import contracts
 
 logger = logging.getLogger(__name__)
+
+_TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="task-log-read")
 
 # --- Enum re-exports ---
 # Value types (not ORM models), safe to expose. External callers compare against the
@@ -170,6 +173,7 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
+    "record_task_run_user_activity",
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -2580,9 +2584,17 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     if run is None:
         return None
 
+    resume_chain = run.get_resume_chain()
+    chunks: Iterable[str]
+    if len(resume_chain) == 1:
+        chunks = [object_storage.read(resume_chain[0].log_url, missing_ok=True) or ""]
+    else:
+        chunks = _TASK_LOG_READ_EXECUTOR.map(
+            lambda ancestor: object_storage.read(ancestor.log_url, missing_ok=True) or "", resume_chain
+        )
+
     parts: list[str] = []
-    for ancestor in run.get_resume_chain():
-        chunk = object_storage.read(ancestor.log_url, missing_ok=True) or ""
+    for chunk in chunks:
         if chunk:
             if not chunk.endswith("\n"):
                 chunk = chunk + "\n"
@@ -2710,7 +2722,22 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
+    record_task_run_user_activity(run.id, team_id)
     return True
+
+
+def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
+    """Stamp a user message against the run's open sandbox usage sessions.
+
+    Best-effort (the ledger swallows its own failures): records last-activity on
+    every message and starts the user-attributable billing window on the first one.
+    Usage ledger only — no workflow side effects.
+    """
+    from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        record_task_run_user_activity as _record_user_activity,
+    )
+
+    _record_user_activity(run_id, team_id)
 
 
 def get_task_run_sandbox_connection(

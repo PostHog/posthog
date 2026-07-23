@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import json
 import logging
+from collections.abc import Iterable
 
 from django.conf import settings
 
@@ -635,6 +636,47 @@ def _build_reviewer_routes(
     return list(routes.values())
 
 
+def _deliver_route_notification(
+    report: SignalReport,
+    route: _ChannelRoute,
+    *,
+    priority: str | None,
+    source_products: list[str],
+    repository: str | None,
+    signals: list[dict] | None = None,
+) -> bool:
+    """Post one report notification to a route's channel (with optional evidence thread).
+
+    Shared by the report-ready and reviewer-added dispatchers. Returns True if the top-level
+    message was sent. Best-effort: Slack errors are logged, not raised.
+    """
+    channel_id = _channel_id_from_target(route.channel)
+    log_context = {
+        "report_id": str(report.id),
+        "team_id": report.team_id,
+        "channel": _channel_display_name(route.channel),
+        "destination": "team" if route.is_team_channel else "user",
+    }
+    try:
+        slack = SlackIntegration(route.integration)
+        mentions = _resolve_reviewer_mentions(slack, route.users)
+        blocks, text = _build_message_blocks(
+            report,
+            priority=priority,
+            source_products=source_products,
+            reviewer_mentions=mentions,
+            repository=repository,
+        )
+        response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
+        thread_ts = response.get("ts") if hasattr(response, "get") else None
+        if signals and thread_ts:
+            _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
+        return True
+    except Exception:
+        logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
+        return False
+
+
 def dispatch_inbox_item_notifications(
     report_id: str,
     team_id: int,
@@ -701,32 +743,118 @@ def dispatch_inbox_item_notifications(
 
     sent = 0
     for route in routes:
-        channel_id = _channel_id_from_target(route.channel)
-        log_context = {
-            "report_id": report_id,
-            "team_id": team_id,
-            "channel": _channel_display_name(route.channel),
-            "destination": "team" if route.is_team_channel else "user",
-        }
-        try:
-            slack = SlackIntegration(route.integration)
-            mentions = _resolve_reviewer_mentions(slack, route.users)
-            blocks, text = _build_message_blocks(
-                report,
-                priority=priority,
-                source_products=sources,
-                reviewer_mentions=mentions,
-                repository=repository,
-            )
-            response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
+        if _deliver_route_notification(
+            report,
+            route,
+            priority=priority,
+            source_products=sources,
+            repository=repository,
+            signals=signals,
+        ):
             sent += 1
-            thread_ts = response.get("ts") if hasattr(response, "get") else None
-            if signals and thread_ts:
-                _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
-        except Exception:
-            logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
     logger.info(
         "dispatch_inbox_item_notifications: complete",
+        extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
+    )
+    return sent
+
+
+def dispatch_reviewer_added_notifications(
+    report_id: str,
+    team_id: int,
+    added_github_logins: Iterable[str],
+    source_products: list[str] | None = None,
+    exclude_user_id: int | None = None,
+) -> int:
+    """Notify reviewers a human just added to an already-actionable report.
+
+    Unlike `dispatch_inbox_item_notifications` — fired once, from the report-generation
+    pipeline, when a report first becomes READY — this fires when someone manually adds
+    reviewers afterwards, so a reviewer who wasn't on the report at generation time still
+    hears about it. It targets only the given logins and only their own configured Slack
+    channel: a manual add is a personal ping, so there's no team-default fallback (that
+    would ping the whole team for a one-person add) and a reviewer with no personal channel
+    set up (or whose min-priority filters the report out) gets nothing.
+
+    Gated on the same READY + actionable condition as the initial notification, so it only
+    fires for reports that would themselves have notified. `exclude_user_id` drops the actor
+    so someone adding themselves isn't pinged. Best-effort; returns messages sent.
+    """
+    added_logins = {s.strip().lower() for s in added_github_logins if s and s.strip()}
+    if not added_logins:
+        return 0
+
+    try:
+        report = SignalReport.objects.get(id=report_id, team_id=team_id)
+    except SignalReport.DoesNotExist:
+        logger.warning(
+            "dispatch_reviewer_added_notifications: report not found",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
+        return 0
+
+    # Mirror the initial notification's gate: only reports actually surfaced in the inbox
+    # (READY and actionable) notify. Status is checked here because — unlike the generation
+    # pipeline — this path has no upstream READY guarantee.
+    if report.status != SignalReport.Status.READY or _latest_actionability(report) not in _ACTIONABLE_VALUES:
+        return 0
+
+    login_to_user = resolve_org_github_login_to_users(team_id, added_logins)
+    user_ids = {user.id for user in login_to_user.values() if user.id != exclude_user_id}
+    # Org membership alone isn't enough: on a private project an org member without project
+    # access must not receive the report's contents, so intersect with the project's access set.
+    if user_ids:
+        user_ids &= set(report.team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
+    if not user_ids:
+        return 0
+
+    priority = _latest_priority(report)
+
+    # Personal channels only — a manual add never falls back to the team channel.
+    own_configs = _own_channel_configs_by_user(team_id, user_ids)
+    users_by_id = {user.id: user for user in User.objects.filter(id__in=user_ids)}
+
+    routes: dict[tuple[int, str], _ChannelRoute] = {}
+    for user_id in sorted(user_ids):
+        user = users_by_id.get(user_id)
+        config = own_configs.get(user_id)
+        if user is None or config is None:
+            continue
+        # An unprioritized report still pings a reviewer with no min-priority threshold: the
+        # initial path would have delivered it via the team channel, but this path has no
+        # fallback, so `_meets_min_priority`'s no-priority-never-notifies rule would lose it.
+        min_priority = config.slack_notification_min_priority
+        if (priority is not None or min_priority is not None) and not _meets_min_priority(priority, min_priority):
+            continue
+        integration = config.slack_notification_integration
+        channel = config.slack_notification_channel
+        if integration is None or not channel:
+            continue
+        key = (integration.id, _channel_id_from_target(channel))
+        route = routes.get(key)
+        if route is None:
+            route = _ChannelRoute(integration, channel, is_team_channel=False)
+            routes[key] = route
+        route.users.append(user)
+
+    if not routes:
+        return 0
+
+    sources = source_products or []
+    repository = _report_repository(report)
+
+    sent = 0
+    for route in routes.values():
+        if _deliver_route_notification(
+            report,
+            route,
+            priority=priority,
+            source_products=sources,
+            repository=repository,
+        ):
+            sent += 1
+    logger.info(
+        "dispatch_reviewer_added_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
     )
     return sent

@@ -1173,6 +1173,24 @@ describe('exec tool', () => {
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
         })
+
+        // The entity-search redirect must only steer at `system.information_schema.metrics`
+        // when the governed-metrics tool is actually registered — otherwise flag-off orgs
+        // get pointed at a catalog table they can't query.
+        it('adds governed-metrics steering to the entity-search redirect only when data-catalog-metric-run is registered', async () => {
+            const withCatalog = createExec([makeMockTool({ name: 'data-catalog-metric-run' })])
+            await expect(withCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /system\.information_schema\.metrics/
+            )
+
+            const withoutCatalog = createExec([makeMockTool()])
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /was removed/
+            )
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.not.toThrow(
+                /system\.information_schema\.metrics/
+            )
+        })
     })
 
     describe('unavailable tool recovery', () => {

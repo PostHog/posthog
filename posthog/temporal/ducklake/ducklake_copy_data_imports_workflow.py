@@ -3,6 +3,7 @@ import uuid
 import typing
 import datetime as dt
 import dataclasses
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -28,6 +29,7 @@ from posthog.ducklake.storage import (
     compute_staging_uri,
     configure_connection,
     connect_to_duckgres,
+    create_staging_read_secret,
     ensure_ducklake_bucket_exists,
     get_deltalake_storage_options,
     setup_duckgres_session,
@@ -352,6 +354,7 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
 
     with connect_to_duckgres(server) as conn:
         setup_duckgres_session(conn)
+        create_staging_read_secret(conn, bucket)
         logger.info(
             "Creating DuckLake table from staged Delta snapshot via duckgres",
             ducklake_table=table,
@@ -511,6 +514,7 @@ def _verify_data_imports_ducklake_copy_via_duckgres(
 
     with connect_to_duckgres(server) as conn:
         setup_duckgres_session(conn)
+        create_staging_read_secret(conn, urlparse(inputs.model.staging_uri).netloc)
         return _run_data_imports_verification_checks(
             conn,
             inputs,
