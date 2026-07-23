@@ -10,7 +10,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MixMaxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mixmax import MixmaxResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source import MixMaxSource

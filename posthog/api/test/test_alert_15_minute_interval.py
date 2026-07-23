@@ -11,11 +11,7 @@ from rest_framework import status
 from posthog.schema import AlertCalculationInterval, AlertConditionType, InsightThresholdType
 
 from posthog.constants import AvailableFeature
-from posthog.tasks.alerts.utils import (
-    alert_calculation_interval_to_relativedelta,
-    calculation_interval_to_order,
-    next_check_time,
-)
+from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time
 
 from products.alerts.backend.models.alert import AlertConfiguration
 
@@ -103,10 +99,6 @@ class TestAlert15MinuteScheduling:
             AlertCalculationInterval.HOURLY
         )
 
-    def test_alert_calculation_interval_to_relativedelta_every_15_minutes(self) -> None:
-        delta = alert_calculation_interval_to_relativedelta(AlertCalculationInterval.EVERY_15_MINUTES)
-        assert delta.minutes == 15
-
     def test_next_check_time_advances_by_15_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
         alert.calculation_interval = AlertCalculationInterval.EVERY_15_MINUTES
@@ -126,7 +118,3 @@ class TestAlert15MinuteScheduling:
     def test_calculation_interval_to_order_raises_for_unknown_interval(self) -> None:
         with pytest.raises(ValueError, match="Unhandled alert calculation interval"):
             calculation_interval_to_order(cast(AlertCalculationInterval, "every_5_minutes"))
-
-    def test_alert_calculation_interval_to_relativedelta_raises_for_unknown_interval(self) -> None:
-        with pytest.raises(ValueError, match="Unhandled alert calculation interval"):
-            alert_calculation_interval_to_relativedelta(cast(AlertCalculationInterval, "every_5_minutes"))

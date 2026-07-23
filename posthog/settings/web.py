@@ -351,6 +351,11 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
 # US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
+# against (products/growth/backend/enrichment). Defaults to project 2, the internal project the
+# enrichment group properties are projected onto; env-overridable since that id differs across
+# cloud deployments.
+GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 2, type_cast=int)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
@@ -562,16 +567,27 @@ SPECTACULAR_SETTINGS = {
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
+        "MetricsRecalculationStatusEnum": (
+            "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
+        ),
+        "AnnouncementStatusEnum": "products.customer_analytics.backend.models.announcement.Announcement.Status",
+        "AnnouncementDeliveryStatusEnum": "products.customer_analytics.backend.models.announcement_delivery.AnnouncementDelivery.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
+        # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
+        "LogsGroupBySourceEnum": "products.logs.backend.group_by_query_runner.GROUP_SOURCES",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "EvaluationReportFrequencyEnum": (
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
+        "EmailReputationScopeEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.Scope",
+        "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
@@ -623,10 +639,8 @@ SPECTACULAR_SETTINGS = {
             "not_configured",
             "waiting",
             "backfilling",
-            "catching_up",
             "up_to_date",
             "needs_attention",
-            "unknown",
             "sync_paused",
         ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
@@ -644,6 +658,9 @@ SPECTACULAR_SETTINGS = {
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
+        # schedule/github/api choice set — pin them to a single named enum.
+        "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -694,7 +711,7 @@ SPECTACULAR_SETTINGS = {
         # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
         # shared enum to a stable name so it doesn't collide with the other `state` enums
         # (tasks, cdp) into a component-prefixed auto-name.
-        "SignalReportStateEnum": ["suppressed", "potential"],
+        "SignalReportStateEnum": ["suppressed", "potential", "resolved"],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
@@ -738,6 +755,7 @@ SPECTACULAR_SETTINGS = {
             "span_attribute",
             "span_resource_attribute",
             "revenue_analytics",
+            "account_custom_property",
             "flag",
             "workflow_variable",
         ],
@@ -910,7 +928,11 @@ DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 ####
 # CDP
 
+# Deprecated compatibility fallback for the image CDN. New deployments should configure the
+# API-specific credentials below so a publishable key can never be reused for authenticated API calls.
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
+LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOKEN)
+LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
 # Feature flag billing analytics
@@ -954,8 +976,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 # /api/environments deprecation
 
 # Requests to /api/environments/* are served through the equivalent /api/projects/*
-# viewset via an in-process path rewrite, gated by the `api-environments-redirect`
-# feature flag — see posthog.middleware.EnvironmentsRewriteMiddleware.
+# viewset via an in-process path rewrite — see posthog.middleware.EnvironmentsRewriteMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
 API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
@@ -1195,6 +1216,20 @@ WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
     "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
 )
 
+
+# Teams whose *filtered* web overview queries (event-property filters only) run as two
+# independent scans linked by a session-id set: the events side evaluates the filters and
+# collects the matching session ids, then the sessions side aggregates only over that id
+# set (pushed below the per-session GROUP BY, executed once via GLOBAL IN instead of per
+# shard). Allowlist only — no percent rollout yet. Defaults to the Cloud dogfooding team
+# (project 2) on US Cloud, where the pattern was validated against prod; empty on EU
+# (pending its ClickHouse upgrade + verification) and on self-hosted, where project id 2
+# is an arbitrary customer.
+_SESSION_ID_SET_DEFAULT_TEAM_IDS = "2" if (CLOUD_DEPLOYMENT or "").upper() == "US" and not TEST else ""
+WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS", _SESSION_ID_SET_DEFAULT_TEAM_IDS))
+]
 # Admission control for long-lived SSE streams: the maximum number of streams
 # one worker process serves concurrently. Above the cap, sse_streaming_response()
 # returns 503 with a jittered Retry-After instead of opening the stream, keeping

@@ -427,6 +427,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                         run_id: runId,
                         run_attempt: runAttempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
+                        repo: `${props.repoOwner}/${props.repoName}`,
                     })
                     return { ...values.runJobs, [jobCacheKey(runId, runAttempt)]: jobs }
                 },

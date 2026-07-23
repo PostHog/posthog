@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RoarkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.roark import (
     RoarkResumeConfig,
     roark_source,
@@ -93,6 +93,7 @@ Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Roark exposes no server-side timestamp filter on any list endpoint, so every table is
         # full-refresh only (see settings.py). Primary keys come from the endpoint catalog.
@@ -113,7 +114,7 @@ Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is 
         return schemas
 
     def validate_credentials(
-        self, config: RoarkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: RoarkSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_roark_credentials(config.api_key):
             return True, None
@@ -132,6 +133,8 @@ Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is 
         return roark_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Roark endpoint is full refresh
         )

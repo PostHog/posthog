@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MatomoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.matomo import MatomoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.matomo import (
     MatomoResumeConfig,
     hostname_of,
@@ -60,6 +60,12 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
             "403 Client Error: Forbidden for url": "Matomo denied access. Please check your API token's permissions for this site.",
             "Matomo API error:": None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 or 5xx is retried internally; if those retries still exhaust, the failure is
+        # transient and self-recovering, so let Temporal retry the activity without surfacing
+        # it as tracked exception noise.
+        return {"Matomo API error (retryable)"}
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -118,11 +124,16 @@ Works with Matomo Cloud and self-hosted instances. Enter your instance URL (e.g.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: MatomoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MatomoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)

@@ -88,6 +88,7 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
+from posthog.hogql.database.schema.information_schema import disable_data_catalog
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -138,7 +139,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -585,7 +586,7 @@ class Database(BaseModel):
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
             if table_name in self._denied_tables:
-                raise QueryError(f"You don't have access to table `{table_name}`.") from e
+                raise TableAccessDeniedError(table_name) from e
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
@@ -1526,8 +1527,6 @@ class Database(BaseModel):
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
             if not sources.is_data_catalog_enabled:
-                # Semantic layer is flag-gated: without it the metrics table must not exist at all —
-                # absent from information_schema listings and "Unknown table" on direct queries.
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1535,7 +1534,7 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    info_schema.children.pop("metrics", None)
+                    disable_data_catalog(info_schema)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
@@ -1548,7 +1547,7 @@ class Database(BaseModel):
                     events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-                    events_table.fields["person_id"] = StringDatabaseField(name="person_id")
+                    events_table.fields["person_id"] = UUIDDatabaseField(name="person_id")
                     _use_person_properties_from_events(database)
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
@@ -2128,7 +2127,7 @@ def _use_person_properties_from_events(database: Database) -> None:
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     table = database.get_table("events")
-    table.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    table.fields["event_person_id"] = UUIDDatabaseField(name="person_id")
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),

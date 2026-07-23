@@ -1,4 +1,11 @@
-/** Default allow lists (English stopwords/UI vocabulary + safe URL segments), the fail-safe fallback. */
+/**
+ * Default allow lists (English stopwords/UI vocabulary + safe URL segments), the fail-safe fallback.
+ *
+ * The arrays below mirror the single source of truth — `default_text_words.txt` /
+ * `default_url_segments.txt` in the `posthog-replay-anonymizer` Rust crate, which the crate embeds
+ * for offline consumers. `default-dict.test.ts` reads those files and asserts this copy matches, so
+ * editing the defaults means editing the `.txt` files and this list together.
+ */
 import { AllowLists } from './allow-lists'
 
 export const DEFAULT_TEXT_WORDS: string[] = [

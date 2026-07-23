@@ -20,6 +20,24 @@ pub async fn handle_issue_created(
     context: &NotificationsContext,
     notification: IssueCreated,
 ) -> Result<(), UnhandledError> {
+    if context
+        .issue_created_workflow_starter
+        .start_if_enabled(&notification)
+        .await?
+    {
+        let sentry_integration = notification
+            .issue
+            .event_properties
+            .properties()
+            .contains_key("$sentry_event_id");
+        capture_issue_created(
+            notification.meta.team_id,
+            notification.issue.issue_id,
+            sentry_integration,
+        );
+        return Ok(());
+    }
+
     let IssueCreated {
         meta,
         issue,
@@ -42,7 +60,9 @@ pub async fn handle_issue_created(
         &event_properties,
     )
     .await?;
-    let sentry_integration = event_properties.other.contains_key("$sentry_event_id");
+    let sentry_integration = event_properties
+        .properties()
+        .contains_key("$sentry_event_id");
 
     send_issue_created_internal_event(
         &context.cyclotron_producer,
@@ -109,6 +129,7 @@ pub async fn handle_issue_spiking(
         issue,
         computed_baseline,
         current_bucket_value,
+        assignee,
     } = notification;
     let IssueNotificationContext {
         issue_id,
@@ -157,7 +178,8 @@ pub async fn handle_issue_spiking(
         &context.internal_events_topic,
         meta.notification_id,
         &issue,
-        &event_properties.fingerprint,
+        assignee,
+        &event_properties,
         detected_at,
         computed_baseline,
         current_bucket_value,

@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.source import ApolloSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ApolloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apollo import ApolloSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

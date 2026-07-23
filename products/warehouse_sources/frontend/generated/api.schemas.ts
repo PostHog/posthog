@@ -601,7 +601,6 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Dixa` - Dixa
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
- * * `Delighted` - Delighted
  * * `AzureDevOps` - AzureDevOps
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
@@ -1273,6 +1272,394 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Dubsado` - Dubsado
  * * `Campfire` - Campfire
  * * `PromptWatch` - PromptWatch
+ * * `Crisp` - Crisp
+ * * `Kommo` - Kommo
+ * * `Axiom` - Axiom
+ * * `Plivo` - Plivo
+ * * `DataForSEO` - DataForSEO
+ * * `Sleekplan` - Sleekplan
+ * * `AbTasty` - AbTasty
+ * * `Ably` - Ably
+ * * `AbnormalSecurity` - AbnormalSecurity
+ * * `Acast` - Acast
+ * * `Acculynx` - Acculynx
+ * * `Actionstep` - Actionstep
+ * * `Aftership` - Aftership
+ * * `AhaIdeas` - AhaIdeas
+ * * `AkamaiReporting` - AkamaiReporting
+ * * `Alation` - Alation
+ * * `Alegra` - Alegra
+ * * `Allegro` - Allegro
+ * * `AnodotCost` - AnodotCost
+ * * `Anomalo` - Anomalo
+ * * `Apaleo` - Apaleo
+ * * `Apitally` - Apitally
+ * * `AppStoreConnect` - AppStoreConnect
+ * * `Appdirect` - Appdirect
+ * * `Appfolio` - Appfolio
+ * * `Arxiv` - Arxiv
+ * * `Asaas` - Asaas
+ * * `Astronomer` - Astronomer
+ * * `Athenahealth` - Athenahealth
+ * * `Atlan` - Atlan
+ * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+ * * `Avalara` - Avalara
+ * * `AwsAthena` - AwsAthena
+ * * `AwsBatch` - AwsBatch
+ * * `AwsBudgets` - AwsBudgets
+ * * `AwsCloudformation` - AwsCloudformation
+ * * `AwsComputeOptimizer` - AwsComputeOptimizer
+ * * `AwsConfig` - AwsConfig
+ * * `AwsConnect` - AwsConnect
+ * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+ * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+ * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+ * * `AwsGuardduty` - AwsGuardduty
+ * * `AwsHealth` - AwsHealth
+ * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+ * * `AwsInspector` - AwsInspector
+ * * `AwsMacie` - AwsMacie
+ * * `AwsOrganizations` - AwsOrganizations
+ * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+ * * `AwsSagemaker` - AwsSagemaker
+ * * `AwsSavingsPlans` - AwsSavingsPlans
+ * * `AwsSecurityHub` - AwsSecurityHub
+ * * `AwsSes` - AwsSes
+ * * `AwsStepFunctions` - AwsStepFunctions
+ * * `AwsSupport` - AwsSupport
+ * * `AwsSystemsManager` - AwsSystemsManager
+ * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+ * * `AwsWaf` - AwsWaf
+ * * `AwsXray` - AwsXray
+ * * `AzureActivityLog` - AzureActivityLog
+ * * `AzureAdvisor` - AzureAdvisor
+ * * `AzureApiManagement` - AzureApiManagement
+ * * `AzureApplicationInsights` - AzureApplicationInsights
+ * * `AzureCostManagement` - AzureCostManagement
+ * * `AzureDataExplorer` - AzureDataExplorer
+ * * `AzureDataFactory` - AzureDataFactory
+ * * `AzureLogAnalytics` - AzureLogAnalytics
+ * * `AzureMonitorAlerts` - AzureMonitorAlerts
+ * * `AzureMonitorMetrics` - AzureMonitorMetrics
+ * * `AzureOpenaiUsage` - AzureOpenaiUsage
+ * * `AzurePolicyInsights` - AzurePolicyInsights
+ * * `AzureReservations` - AzureReservations
+ * * `AzureResourceGraph` - AzureResourceGraph
+ * * `AzureResourceHealth` - AzureResourceHealth
+ * * `AzureServiceHealth` - AzureServiceHealth
+ * * `AzureSynapse` - AzureSynapse
+ * * `BackMarket` - BackMarket
+ * * `Beehiiv` - Beehiiv
+ * * `Bigeye` - Bigeye
+ * * `BillCom` - BillCom
+ * * `Billomat` - Billomat
+ * * `BingWebmasterTools` - BingWebmasterTools
+ * * `Bitwarden` - Bitwarden
+ * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+ * * `BlackboardLearn` - BlackboardLearn
+ * * `Bling` - Bling
+ * * `Bloomerang` - Bloomerang
+ * * `Bluesky` - Bluesky
+ * * `BolRetailer` - BolRetailer
+ * * `Boulevard` - Boulevard
+ * * `Buffer` - Buffer
+ * * `Bugherd` - Bugherd
+ * * `Buildium` - Buildium
+ * * `Buttondown` - Buttondown
+ * * `BuyMeACoffee` - BuyMeACoffee
+ * * `Calendarific` - Calendarific
+ * * `Calibre` - Calibre
+ * * `CanvasLms` - CanvasLms
+ * * `Captivate` - Captivate
+ * * `Cashfree` - Cashfree
+ * * `CastAi` - CastAi
+ * * `Catchpoint` - Catchpoint
+ * * `CdcOpenData` - CdcOpenData
+ * * `Census` - Census
+ * * `Checkly` - Checkly
+ * * `CircleSo` - CircleSo
+ * * `Classy` - Classy
+ * * `Cleartax` - Cleartax
+ * * `Clever` - Clever
+ * * `Clevertap` - Clevertap
+ * * `Cliniko` - Cliniko
+ * * `Clio` - Clio
+ * * `Clip` - Clip
+ * * `Cloudability` - Cloudability
+ * * `Cloudsmith` - Cloudsmith
+ * * `Cloudzero` - Cloudzero
+ * * `Clover` - Clover
+ * * `Codemagic` - Codemagic
+ * * `Codescene` - Codescene
+ * * `Collibra` - Collibra
+ * * `Companycam` - Companycam
+ * * `Conekta` - Conekta
+ * * `ContaAzul` - ContaAzul
+ * * `Contentsquare` - Contentsquare
+ * * `Cortex` - Cortex
+ * * `Courier` - Courier
+ * * `Crossref` - Crossref
+ * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+ * * `CubeCloud` - CubeCloud
+ * * `D2lBrightspace` - D2lBrightspace
+ * * `Dayforce` - Dayforce
+ * * `Debugbear` - Debugbear
+ * * `Descope` - Descope
+ * * `Develocity` - Develocity
+ * * `Dialpad` - Dialpad
+ * * `Discord` - Discord
+ * * `Discourse` - Discourse
+ * * `Donorbox` - Donorbox
+ * * `Doorloop` - Doorloop
+ * * `Dovetail` - Dovetail
+ * * `Drchrono` - Drchrono
+ * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+ * * `EcbDataPortal` - EcbDataPortal
+ * * `Emarsys` - Emarsys
+ * * `Embrace` - Embrace
+ * * `Entsoe` - Entsoe
+ * * `Eppo` - Eppo
+ * * `Etsy` - Etsy
+ * * `Eurostat` - Eurostat
+ * * `Faire` - Faire
+ * * `FarosAi` - FarosAi
+ * * `Fieldpulse` - Fieldpulse
+ * * `Fieldwire` - Fieldwire
+ * * `Filevine` - Filevine
+ * * `Finout` - Finout
+ * * `Five9` - Five9
+ * * `FlexeraCloudCost` - FlexeraCloudCost
+ * * `Flutterwave` - Flutterwave
+ * * `Fortnox` - Fortnox
+ * * `Fourthwall` - Fourthwall
+ * * `Fred` - Fred
+ * * `Frontegg` - Frontegg
+ * * `FusionAuth` - FusionAuth
+ * * `G2` - G2
+ * * `Gcore` - Gcore
+ * * `GcpApigee` - GcpApigee
+ * * `GcpArtifactRegistry` - GcpArtifactRegistry
+ * * `GcpBigtable` - GcpBigtable
+ * * `GcpChronicle` - GcpChronicle
+ * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+ * * `GcpCloudBilling` - GcpCloudBilling
+ * * `GcpCloudBuild` - GcpCloudBuild
+ * * `GcpCloudDeploy` - GcpCloudDeploy
+ * * `GcpCloudDns` - GcpCloudDns
+ * * `GcpCloudFunctions` - GcpCloudFunctions
+ * * `GcpCloudLogging` - GcpCloudLogging
+ * * `GcpCloudMonitoring` - GcpCloudMonitoring
+ * * `GcpCloudRun` - GcpCloudRun
+ * * `GcpCloudSpanner` - GcpCloudSpanner
+ * * `GcpCloudSql` - GcpCloudSql
+ * * `GcpCloudTrace` - GcpCloudTrace
+ * * `GcpCloudWorkflows` - GcpCloudWorkflows
+ * * `GcpComputeEngine` - GcpComputeEngine
+ * * `GcpContainerAnalysis` - GcpContainerAnalysis
+ * * `GcpDataflow` - GcpDataflow
+ * * `GcpDataplex` - GcpDataplex
+ * * `GcpDataproc` - GcpDataproc
+ * * `GcpErrorReporting` - GcpErrorReporting
+ * * `GcpGke` - GcpGke
+ * * `GcpPubsub` - GcpPubsub
+ * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+ * * `GcpRecommender` - GcpRecommender
+ * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+ * * `Gdelt` - Gdelt
+ * * `GenesysCloud` - GenesysCloud
+ * * `Getdx` - Getdx
+ * * `Ghost` - Ghost
+ * * `Givebutter` - Givebutter
+ * * `Gleif` - Gleif
+ * * `GooglePlayConsole` - GooglePlayConsole
+ * * `Guesty` - Guesty
+ * * `Gumroad` - Gumroad
+ * * `HarnessCcm` - HarnessCcm
+ * * `HarnessSei` - HarnessSei
+ * * `Harvest` - Harvest
+ * * `Healthie` - Healthie
+ * * `Hitpay` - Hitpay
+ * * `Hivebrite` - Hivebrite
+ * * `Holded` - Holded
+ * * `Hostaway` - Hostaway
+ * * `HousecallPro` - HousecallPro
+ * * `Humanitec` - Humanitec
+ * * `ImfData` - ImfData
+ * * `Imperva` - Imperva
+ * * `InfluxdbCloud` - InfluxdbCloud
+ * * `Iyzico` - Iyzico
+ * * `Jobtread` - Jobtread
+ * * `Kameleoon` - Kameleoon
+ * * `KauflandMarketplace` - KauflandMarketplace
+ * * `Kestra` - Kestra
+ * * `Kick` - Kick
+ * * `Kinde` - Kinde
+ * * `Kion` - Kion
+ * * `Knowbe4` - Knowbe4
+ * * `Komodor` - Komodor
+ * * `Labelbox` - Labelbox
+ * * `Lawmatics` - Lawmatics
+ * * `Learnworlds` - Learnworlds
+ * * `LexwareOffice` - LexwareOffice
+ * * `Lightdash` - Lightdash
+ * * `Lodgify` - Lodgify
+ * * `Logicmonitor` - Logicmonitor
+ * * `Logrocket` - Logrocket
+ * * `LoopReturns` - LoopReturns
+ * * `Mastodon` - Mastodon
+ * * `Meetup` - Meetup
+ * * `Memberful` - Memberful
+ * * `MercadoPago` - MercadoPago
+ * * `Meteostat` - Meteostat
+ * * `Mews` - Mews
+ * * `Mezmo` - Mezmo
+ * * `Microsoft365UsageReports` - Microsoft365UsageReports
+ * * `MicrosoftAdvertising` - MicrosoftAdvertising
+ * * `MicrosoftClarity` - MicrosoftClarity
+ * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+ * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+ * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+ * * `MicrosoftIntune` - MicrosoftIntune
+ * * `MicrosoftPurview` - MicrosoftPurview
+ * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+ * * `MicrosoftSentinel` - MicrosoftSentinel
+ * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+ * * `Midtrans` - Midtrans
+ * * `MightyNetworks` - MightyNetworks
+ * * `Mindbody` - Mindbody
+ * * `Mirakl` - Mirakl
+ * * `Moesif` - Moesif
+ * * `Moneybird` - Moneybird
+ * * `Moodle` - Moodle
+ * * `Motherduck` - Motherduck
+ * * `Mycase` - Mycase
+ * * `NagerDate` - NagerDate
+ * * `NeonCrm` - NeonCrm
+ * * `Nexhealth` - Nexhealth
+ * * `NoaaCdo` - NoaaCdo
+ * * `Nobl9` - Nobl9
+ * * `Nolt` - Nolt
+ * * `Nops` - Nops
+ * * `NpmRegistry` - NpmRegistry
+ * * `Oecd` - Oecd
+ * * `Okendo` - Okendo
+ * * `Omni` - Omni
+ * * `Onelogin` - Onelogin
+ * * `OpenDental` - OpenDental
+ * * `OpenMeteo` - OpenMeteo
+ * * `Openalex` - Openalex
+ * * `Opencorporates` - Opencorporates
+ * * `Openfec` - Openfec
+ * * `OpnPayments` - OpnPayments
+ * * `Opslevel` - Opslevel
+ * * `OttoMarket` - OttoMarket
+ * * `Ownerrez` - Ownerrez
+ * * `Pagbank` - Pagbank
+ * * `Patreon` - Patreon
+ * * `Pax8` - Pax8
+ * * `Paychex` - Paychex
+ * * `Paymob` - Paymob
+ * * `Paymongo` - Paymongo
+ * * `Phonepe` - Phonepe
+ * * `Pike13` - Pike13
+ * * `Pingone` - Pingone
+ * * `PinterestOrganic` - PinterestOrganic
+ * * `PlanningCenter` - PlanningCenter
+ * * `PluralsightFlow` - PluralsightFlow
+ * * `Podbean` - Podbean
+ * * `Postscript` - Postscript
+ * * `PowerBiAdmin` - PowerBiAdmin
+ * * `Practicepanther` - Practicepanther
+ * * `Preset` - Preset
+ * * `Procore` - Procore
+ * * `Productiv` - Productiv
+ * * `ProofpointTap` - ProofpointTap
+ * * `Propertyware` - Propertyware
+ * * `Pubnub` - Pubnub
+ * * `Quay` - Quay
+ * * `Raken` - Raken
+ * * `RedpandaCloud` - RedpandaCloud
+ * * `RentManager` - RentManager
+ * * `Reverb` - Reverb
+ * * `RocketMatter` - RocketMatter
+ * * `Rubygems` - Rubygems
+ * * `Scalr` - Scalr
+ * * `SecEdgar` - SecEdgar
+ * * `SelectStar` - SelectStar
+ * * `SemanticScholar` - SemanticScholar
+ * * `Semrush` - Semrush
+ * * `ServiceFusion` - ServiceFusion
+ * * `Servicem8` - Servicem8
+ * * `Servicetitan` - Servicetitan
+ * * `Servicetrade` - Servicetrade
+ * * `Sevdesk` - Sevdesk
+ * * `Similarweb` - Similarweb
+ * * `Simpro` - Simpro
+ * * `Sinch` - Sinch
+ * * `Singlestore` - Singlestore
+ * * `Site24x7` - Site24x7
+ * * `Sleuth` - Sleuth
+ * * `Smartlook` - Smartlook
+ * * `Smartrecruiters` - Smartrecruiters
+ * * `Smokeball` - Smokeball
+ * * `SodaCloud` - SodaCloud
+ * * `Speedcurve` - Speedcurve
+ * * `SpotIo` - SpotIo
+ * * `Sprig` - Sprig
+ * * `Sprinklr` - Sprinklr
+ * * `SproutSocial` - SproutSocial
+ * * `StackOverflowForTeams` - StackOverflowForTeams
+ * * `Stockx` - Stockx
+ * * `TackleIo` - TackleIo
+ * * `Talkdesk` - Talkdesk
+ * * `TeamupFitness` - TeamupFitness
+ * * `Tebra` - Tebra
+ * * `Telnyx` - Telnyx
+ * * `Ternary` - Ternary
+ * * `Thoughtspot` - Thoughtspot
+ * * `Thousandeyes` - Thousandeyes
+ * * `Threads` - Threads
+ * * `TiktokShop` - TiktokShop
+ * * `TinyErp` - TinyErp
+ * * `Tinybird` - Tinybird
+ * * `Tipalti` - Tipalti
+ * * `Toast` - Toast
+ * * `Torii` - Torii
+ * * `Transistor` - Transistor
+ * * `TrunkIo` - TrunkIo
+ * * `Trustradius` - Trustradius
+ * * `Twitch` - Twitch
+ * * `TwoC2p` - TwoC2p
+ * * `UkCompaniesHouse` - UkCompaniesHouse
+ * * `UkOns` - UkOns
+ * * `UnComtrade` - UnComtrade
+ * * `UsBea` - UsBea
+ * * `UsBls` - UsBls
+ * * `UsEia` - UsEia
+ * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+ * * `Vanta` - Vanta
+ * * `Vendr` - Vendr
+ * * `Virtuous` - Virtuous
+ * * `Vonage` - Vonage
+ * * `WalmartMarketplace` - WalmartMarketplace
+ * * `Waydev` - Waydev
+ * * `Wayfair` - Wayfair
+ * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+ * * `WhoGho` - WhoGho
+ * * `Whop` - Whop
+ * * `Wiz` - Wiz
+ * * `Wompi` - Wompi
+ * * `Workiz` - Workiz
+ * * `WorldBank` - WorldBank
+ * * `Xendit` - Xendit
+ * * `Yoco` - Yoco
+ * * `ZalandoZdirect` - ZalandoZdirect
+ * * `Zluri` - Zluri
+ * * `Zylo` - Zylo
+ * * `Tally` - Tally
+ * * `Nuntly` - Nuntly
+ * * `Vturb` - Vturb
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1464,7 +1851,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Dixa: 'Dixa',
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
-    Delighted: 'Delighted',
     AzureDevOps: 'AzureDevOps',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
@@ -2136,6 +2522,394 @@ export const ExternalDataSourceTypeEnumApi = {
     Dubsado: 'Dubsado',
     Campfire: 'Campfire',
     PromptWatch: 'PromptWatch',
+    Crisp: 'Crisp',
+    Kommo: 'Kommo',
+    Axiom: 'Axiom',
+    Plivo: 'Plivo',
+    DataForSEO: 'DataForSEO',
+    Sleekplan: 'Sleekplan',
+    AbTasty: 'AbTasty',
+    Ably: 'Ably',
+    AbnormalSecurity: 'AbnormalSecurity',
+    Acast: 'Acast',
+    Acculynx: 'Acculynx',
+    Actionstep: 'Actionstep',
+    Aftership: 'Aftership',
+    AhaIdeas: 'AhaIdeas',
+    AkamaiReporting: 'AkamaiReporting',
+    Alation: 'Alation',
+    Alegra: 'Alegra',
+    Allegro: 'Allegro',
+    AnodotCost: 'AnodotCost',
+    Anomalo: 'Anomalo',
+    Apaleo: 'Apaleo',
+    Apitally: 'Apitally',
+    AppStoreConnect: 'AppStoreConnect',
+    Appdirect: 'Appdirect',
+    Appfolio: 'Appfolio',
+    Arxiv: 'Arxiv',
+    Asaas: 'Asaas',
+    Astronomer: 'Astronomer',
+    Athenahealth: 'Athenahealth',
+    Atlan: 'Atlan',
+    AutodeskConstructionCloud: 'AutodeskConstructionCloud',
+    Avalara: 'Avalara',
+    AwsAthena: 'AwsAthena',
+    AwsBatch: 'AwsBatch',
+    AwsBudgets: 'AwsBudgets',
+    AwsCloudformation: 'AwsCloudformation',
+    AwsComputeOptimizer: 'AwsComputeOptimizer',
+    AwsConfig: 'AwsConfig',
+    AwsConnect: 'AwsConnect',
+    AwsCostAndUsageReport: 'AwsCostAndUsageReport',
+    AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
+    AwsCostExplorer: 'AwsCostExplorer',
+    AwsGlueDataCatalog: 'AwsGlueDataCatalog',
+    AwsGuardduty: 'AwsGuardduty',
+    AwsHealth: 'AwsHealth',
+    AwsIamAccessAnalyzer: 'AwsIamAccessAnalyzer',
+    AwsInspector: 'AwsInspector',
+    AwsMacie: 'AwsMacie',
+    AwsOrganizations: 'AwsOrganizations',
+    AwsRdsPerformanceInsights: 'AwsRdsPerformanceInsights',
+    AwsSagemaker: 'AwsSagemaker',
+    AwsSavingsPlans: 'AwsSavingsPlans',
+    AwsSecurityHub: 'AwsSecurityHub',
+    AwsSes: 'AwsSes',
+    AwsStepFunctions: 'AwsStepFunctions',
+    AwsSupport: 'AwsSupport',
+    AwsSystemsManager: 'AwsSystemsManager',
+    AwsTrustedAdvisor: 'AwsTrustedAdvisor',
+    AwsWaf: 'AwsWaf',
+    AwsXray: 'AwsXray',
+    AzureActivityLog: 'AzureActivityLog',
+    AzureAdvisor: 'AzureAdvisor',
+    AzureApiManagement: 'AzureApiManagement',
+    AzureApplicationInsights: 'AzureApplicationInsights',
+    AzureCostManagement: 'AzureCostManagement',
+    AzureDataExplorer: 'AzureDataExplorer',
+    AzureDataFactory: 'AzureDataFactory',
+    AzureLogAnalytics: 'AzureLogAnalytics',
+    AzureMonitorAlerts: 'AzureMonitorAlerts',
+    AzureMonitorMetrics: 'AzureMonitorMetrics',
+    AzureOpenaiUsage: 'AzureOpenaiUsage',
+    AzurePolicyInsights: 'AzurePolicyInsights',
+    AzureReservations: 'AzureReservations',
+    AzureResourceGraph: 'AzureResourceGraph',
+    AzureResourceHealth: 'AzureResourceHealth',
+    AzureServiceHealth: 'AzureServiceHealth',
+    AzureSynapse: 'AzureSynapse',
+    BackMarket: 'BackMarket',
+    Beehiiv: 'Beehiiv',
+    Bigeye: 'Bigeye',
+    BillCom: 'BillCom',
+    Billomat: 'Billomat',
+    BingWebmasterTools: 'BingWebmasterTools',
+    Bitwarden: 'Bitwarden',
+    BlackbaudRaisersEdgeNxt: 'BlackbaudRaisersEdgeNxt',
+    BlackboardLearn: 'BlackboardLearn',
+    Bling: 'Bling',
+    Bloomerang: 'Bloomerang',
+    Bluesky: 'Bluesky',
+    BolRetailer: 'BolRetailer',
+    Boulevard: 'Boulevard',
+    Buffer: 'Buffer',
+    Bugherd: 'Bugherd',
+    Buildium: 'Buildium',
+    Buttondown: 'Buttondown',
+    BuyMeACoffee: 'BuyMeACoffee',
+    Calendarific: 'Calendarific',
+    Calibre: 'Calibre',
+    CanvasLms: 'CanvasLms',
+    Captivate: 'Captivate',
+    Cashfree: 'Cashfree',
+    CastAi: 'CastAi',
+    Catchpoint: 'Catchpoint',
+    CdcOpenData: 'CdcOpenData',
+    Census: 'Census',
+    Checkly: 'Checkly',
+    CircleSo: 'CircleSo',
+    Classy: 'Classy',
+    Cleartax: 'Cleartax',
+    Clever: 'Clever',
+    Clevertap: 'Clevertap',
+    Cliniko: 'Cliniko',
+    Clio: 'Clio',
+    Clip: 'Clip',
+    Cloudability: 'Cloudability',
+    Cloudsmith: 'Cloudsmith',
+    Cloudzero: 'Cloudzero',
+    Clover: 'Clover',
+    Codemagic: 'Codemagic',
+    Codescene: 'Codescene',
+    Collibra: 'Collibra',
+    Companycam: 'Companycam',
+    Conekta: 'Conekta',
+    ContaAzul: 'ContaAzul',
+    Contentsquare: 'Contentsquare',
+    Cortex: 'Cortex',
+    Courier: 'Courier',
+    Crossref: 'Crossref',
+    CrowdstrikeFalcon: 'CrowdstrikeFalcon',
+    CubeCloud: 'CubeCloud',
+    D2lBrightspace: 'D2lBrightspace',
+    Dayforce: 'Dayforce',
+    Debugbear: 'Debugbear',
+    Descope: 'Descope',
+    Develocity: 'Develocity',
+    Dialpad: 'Dialpad',
+    Discord: 'Discord',
+    Discourse: 'Discourse',
+    Donorbox: 'Donorbox',
+    Doorloop: 'Doorloop',
+    Dovetail: 'Dovetail',
+    Drchrono: 'Drchrono',
+    Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
+    EcbDataPortal: 'EcbDataPortal',
+    Emarsys: 'Emarsys',
+    Embrace: 'Embrace',
+    Entsoe: 'Entsoe',
+    Eppo: 'Eppo',
+    Etsy: 'Etsy',
+    Eurostat: 'Eurostat',
+    Faire: 'Faire',
+    FarosAi: 'FarosAi',
+    Fieldpulse: 'Fieldpulse',
+    Fieldwire: 'Fieldwire',
+    Filevine: 'Filevine',
+    Finout: 'Finout',
+    Five9: 'Five9',
+    FlexeraCloudCost: 'FlexeraCloudCost',
+    Flutterwave: 'Flutterwave',
+    Fortnox: 'Fortnox',
+    Fourthwall: 'Fourthwall',
+    Fred: 'Fred',
+    Frontegg: 'Frontegg',
+    FusionAuth: 'FusionAuth',
+    G2: 'G2',
+    Gcore: 'Gcore',
+    GcpApigee: 'GcpApigee',
+    GcpArtifactRegistry: 'GcpArtifactRegistry',
+    GcpBigtable: 'GcpBigtable',
+    GcpChronicle: 'GcpChronicle',
+    GcpCloudAssetInventory: 'GcpCloudAssetInventory',
+    GcpCloudBilling: 'GcpCloudBilling',
+    GcpCloudBuild: 'GcpCloudBuild',
+    GcpCloudDeploy: 'GcpCloudDeploy',
+    GcpCloudDns: 'GcpCloudDns',
+    GcpCloudFunctions: 'GcpCloudFunctions',
+    GcpCloudLogging: 'GcpCloudLogging',
+    GcpCloudMonitoring: 'GcpCloudMonitoring',
+    GcpCloudRun: 'GcpCloudRun',
+    GcpCloudSpanner: 'GcpCloudSpanner',
+    GcpCloudSql: 'GcpCloudSql',
+    GcpCloudTrace: 'GcpCloudTrace',
+    GcpCloudWorkflows: 'GcpCloudWorkflows',
+    GcpComputeEngine: 'GcpComputeEngine',
+    GcpContainerAnalysis: 'GcpContainerAnalysis',
+    GcpDataflow: 'GcpDataflow',
+    GcpDataplex: 'GcpDataplex',
+    GcpDataproc: 'GcpDataproc',
+    GcpErrorReporting: 'GcpErrorReporting',
+    GcpGke: 'GcpGke',
+    GcpPubsub: 'GcpPubsub',
+    GcpRecaptchaEnterprise: 'GcpRecaptchaEnterprise',
+    GcpRecommender: 'GcpRecommender',
+    GcpSecurityCommandCenter: 'GcpSecurityCommandCenter',
+    Gdelt: 'Gdelt',
+    GenesysCloud: 'GenesysCloud',
+    Getdx: 'Getdx',
+    Ghost: 'Ghost',
+    Givebutter: 'Givebutter',
+    Gleif: 'Gleif',
+    GooglePlayConsole: 'GooglePlayConsole',
+    Guesty: 'Guesty',
+    Gumroad: 'Gumroad',
+    HarnessCcm: 'HarnessCcm',
+    HarnessSei: 'HarnessSei',
+    Harvest: 'Harvest',
+    Healthie: 'Healthie',
+    Hitpay: 'Hitpay',
+    Hivebrite: 'Hivebrite',
+    Holded: 'Holded',
+    Hostaway: 'Hostaway',
+    HousecallPro: 'HousecallPro',
+    Humanitec: 'Humanitec',
+    ImfData: 'ImfData',
+    Imperva: 'Imperva',
+    InfluxdbCloud: 'InfluxdbCloud',
+    Iyzico: 'Iyzico',
+    Jobtread: 'Jobtread',
+    Kameleoon: 'Kameleoon',
+    KauflandMarketplace: 'KauflandMarketplace',
+    Kestra: 'Kestra',
+    Kick: 'Kick',
+    Kinde: 'Kinde',
+    Kion: 'Kion',
+    Knowbe4: 'Knowbe4',
+    Komodor: 'Komodor',
+    Labelbox: 'Labelbox',
+    Lawmatics: 'Lawmatics',
+    Learnworlds: 'Learnworlds',
+    LexwareOffice: 'LexwareOffice',
+    Lightdash: 'Lightdash',
+    Lodgify: 'Lodgify',
+    Logicmonitor: 'Logicmonitor',
+    Logrocket: 'Logrocket',
+    LoopReturns: 'LoopReturns',
+    Mastodon: 'Mastodon',
+    Meetup: 'Meetup',
+    Memberful: 'Memberful',
+    MercadoPago: 'MercadoPago',
+    Meteostat: 'Meteostat',
+    Mews: 'Mews',
+    Mezmo: 'Mezmo',
+    Microsoft365UsageReports: 'Microsoft365UsageReports',
+    MicrosoftAdvertising: 'MicrosoftAdvertising',
+    MicrosoftClarity: 'MicrosoftClarity',
+    MicrosoftDefenderCloudApps: 'MicrosoftDefenderCloudApps',
+    MicrosoftDefenderEndpoint: 'MicrosoftDefenderEndpoint',
+    MicrosoftDefenderForCloud: 'MicrosoftDefenderForCloud',
+    MicrosoftIntune: 'MicrosoftIntune',
+    MicrosoftPurview: 'MicrosoftPurview',
+    MicrosoftPurviewAudit: 'MicrosoftPurviewAudit',
+    MicrosoftSentinel: 'MicrosoftSentinel',
+    MicrosoftTeamsCallRecords: 'MicrosoftTeamsCallRecords',
+    Midtrans: 'Midtrans',
+    MightyNetworks: 'MightyNetworks',
+    Mindbody: 'Mindbody',
+    Mirakl: 'Mirakl',
+    Moesif: 'Moesif',
+    Moneybird: 'Moneybird',
+    Moodle: 'Moodle',
+    Motherduck: 'Motherduck',
+    Mycase: 'Mycase',
+    NagerDate: 'NagerDate',
+    NeonCrm: 'NeonCrm',
+    Nexhealth: 'Nexhealth',
+    NoaaCdo: 'NoaaCdo',
+    Nobl9: 'Nobl9',
+    Nolt: 'Nolt',
+    Nops: 'Nops',
+    NpmRegistry: 'NpmRegistry',
+    Oecd: 'Oecd',
+    Okendo: 'Okendo',
+    Omni: 'Omni',
+    Onelogin: 'Onelogin',
+    OpenDental: 'OpenDental',
+    OpenMeteo: 'OpenMeteo',
+    Openalex: 'Openalex',
+    Opencorporates: 'Opencorporates',
+    Openfec: 'Openfec',
+    OpnPayments: 'OpnPayments',
+    Opslevel: 'Opslevel',
+    OttoMarket: 'OttoMarket',
+    Ownerrez: 'Ownerrez',
+    Pagbank: 'Pagbank',
+    Patreon: 'Patreon',
+    Pax8: 'Pax8',
+    Paychex: 'Paychex',
+    Paymob: 'Paymob',
+    Paymongo: 'Paymongo',
+    Phonepe: 'Phonepe',
+    Pike13: 'Pike13',
+    Pingone: 'Pingone',
+    PinterestOrganic: 'PinterestOrganic',
+    PlanningCenter: 'PlanningCenter',
+    PluralsightFlow: 'PluralsightFlow',
+    Podbean: 'Podbean',
+    Postscript: 'Postscript',
+    PowerBiAdmin: 'PowerBiAdmin',
+    Practicepanther: 'Practicepanther',
+    Preset: 'Preset',
+    Procore: 'Procore',
+    Productiv: 'Productiv',
+    ProofpointTap: 'ProofpointTap',
+    Propertyware: 'Propertyware',
+    Pubnub: 'Pubnub',
+    Quay: 'Quay',
+    Raken: 'Raken',
+    RedpandaCloud: 'RedpandaCloud',
+    RentManager: 'RentManager',
+    Reverb: 'Reverb',
+    RocketMatter: 'RocketMatter',
+    Rubygems: 'Rubygems',
+    Scalr: 'Scalr',
+    SecEdgar: 'SecEdgar',
+    SelectStar: 'SelectStar',
+    SemanticScholar: 'SemanticScholar',
+    Semrush: 'Semrush',
+    ServiceFusion: 'ServiceFusion',
+    Servicem8: 'Servicem8',
+    Servicetitan: 'Servicetitan',
+    Servicetrade: 'Servicetrade',
+    Sevdesk: 'Sevdesk',
+    Similarweb: 'Similarweb',
+    Simpro: 'Simpro',
+    Sinch: 'Sinch',
+    Singlestore: 'Singlestore',
+    Site24x7: 'Site24x7',
+    Sleuth: 'Sleuth',
+    Smartlook: 'Smartlook',
+    Smartrecruiters: 'Smartrecruiters',
+    Smokeball: 'Smokeball',
+    SodaCloud: 'SodaCloud',
+    Speedcurve: 'Speedcurve',
+    SpotIo: 'SpotIo',
+    Sprig: 'Sprig',
+    Sprinklr: 'Sprinklr',
+    SproutSocial: 'SproutSocial',
+    StackOverflowForTeams: 'StackOverflowForTeams',
+    Stockx: 'Stockx',
+    TackleIo: 'TackleIo',
+    Talkdesk: 'Talkdesk',
+    TeamupFitness: 'TeamupFitness',
+    Tebra: 'Tebra',
+    Telnyx: 'Telnyx',
+    Ternary: 'Ternary',
+    Thoughtspot: 'Thoughtspot',
+    Thousandeyes: 'Thousandeyes',
+    Threads: 'Threads',
+    TiktokShop: 'TiktokShop',
+    TinyErp: 'TinyErp',
+    Tinybird: 'Tinybird',
+    Tipalti: 'Tipalti',
+    Toast: 'Toast',
+    Torii: 'Torii',
+    Transistor: 'Transistor',
+    TrunkIo: 'TrunkIo',
+    Trustradius: 'Trustradius',
+    Twitch: 'Twitch',
+    TwoC2p: 'TwoC2p',
+    UkCompaniesHouse: 'UkCompaniesHouse',
+    UkOns: 'UkOns',
+    UnComtrade: 'UnComtrade',
+    UsBea: 'UsBea',
+    UsBls: 'UsBls',
+    UsEia: 'UsEia',
+    UsTreasuryFiscalData: 'UsTreasuryFiscalData',
+    Vanta: 'Vanta',
+    Vendr: 'Vendr',
+    Virtuous: 'Virtuous',
+    Vonage: 'Vonage',
+    WalmartMarketplace: 'WalmartMarketplace',
+    Waydev: 'Waydev',
+    Wayfair: 'Wayfair',
+    WhatsappBusinessManagement: 'WhatsappBusinessManagement',
+    WhoGho: 'WhoGho',
+    Whop: 'Whop',
+    Wiz: 'Wiz',
+    Wompi: 'Wompi',
+    Workiz: 'Workiz',
+    WorldBank: 'WorldBank',
+    Xendit: 'Xendit',
+    Yoco: 'Yoco',
+    ZalandoZdirect: 'ZalandoZdirect',
+    Zluri: 'Zluri',
+    Zylo: 'Zylo',
+    Tally: 'Tally',
+    Nuntly: 'Nuntly',
+    Vturb: 'Vturb',
 } as const
 
 /**
@@ -2208,6 +2982,15 @@ export interface ExternalDataSourceSerializersApi {
     readonly access_method: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2455,7 +3238,6 @@ export interface ExternalDataSourceCreateApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -3126,7 +3908,395 @@ export interface ExternalDataSourceCreateApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `AbTasty` - AbTasty
+     * * `Ably` - Ably
+     * * `AbnormalSecurity` - AbnormalSecurity
+     * * `Acast` - Acast
+     * * `Acculynx` - Acculynx
+     * * `Actionstep` - Actionstep
+     * * `Aftership` - Aftership
+     * * `AhaIdeas` - AhaIdeas
+     * * `AkamaiReporting` - AkamaiReporting
+     * * `Alation` - Alation
+     * * `Alegra` - Alegra
+     * * `Allegro` - Allegro
+     * * `AnodotCost` - AnodotCost
+     * * `Anomalo` - Anomalo
+     * * `Apaleo` - Apaleo
+     * * `Apitally` - Apitally
+     * * `AppStoreConnect` - AppStoreConnect
+     * * `Appdirect` - Appdirect
+     * * `Appfolio` - Appfolio
+     * * `Arxiv` - Arxiv
+     * * `Asaas` - Asaas
+     * * `Astronomer` - Astronomer
+     * * `Athenahealth` - Athenahealth
+     * * `Atlan` - Atlan
+     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+     * * `Avalara` - Avalara
+     * * `AwsAthena` - AwsAthena
+     * * `AwsBatch` - AwsBatch
+     * * `AwsBudgets` - AwsBudgets
+     * * `AwsCloudformation` - AwsCloudformation
+     * * `AwsComputeOptimizer` - AwsComputeOptimizer
+     * * `AwsConfig` - AwsConfig
+     * * `AwsConnect` - AwsConnect
+     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+     * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+     * * `AwsGuardduty` - AwsGuardduty
+     * * `AwsHealth` - AwsHealth
+     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+     * * `AwsInspector` - AwsInspector
+     * * `AwsMacie` - AwsMacie
+     * * `AwsOrganizations` - AwsOrganizations
+     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+     * * `AwsSagemaker` - AwsSagemaker
+     * * `AwsSavingsPlans` - AwsSavingsPlans
+     * * `AwsSecurityHub` - AwsSecurityHub
+     * * `AwsSes` - AwsSes
+     * * `AwsStepFunctions` - AwsStepFunctions
+     * * `AwsSupport` - AwsSupport
+     * * `AwsSystemsManager` - AwsSystemsManager
+     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+     * * `AwsWaf` - AwsWaf
+     * * `AwsXray` - AwsXray
+     * * `AzureActivityLog` - AzureActivityLog
+     * * `AzureAdvisor` - AzureAdvisor
+     * * `AzureApiManagement` - AzureApiManagement
+     * * `AzureApplicationInsights` - AzureApplicationInsights
+     * * `AzureCostManagement` - AzureCostManagement
+     * * `AzureDataExplorer` - AzureDataExplorer
+     * * `AzureDataFactory` - AzureDataFactory
+     * * `AzureLogAnalytics` - AzureLogAnalytics
+     * * `AzureMonitorAlerts` - AzureMonitorAlerts
+     * * `AzureMonitorMetrics` - AzureMonitorMetrics
+     * * `AzureOpenaiUsage` - AzureOpenaiUsage
+     * * `AzurePolicyInsights` - AzurePolicyInsights
+     * * `AzureReservations` - AzureReservations
+     * * `AzureResourceGraph` - AzureResourceGraph
+     * * `AzureResourceHealth` - AzureResourceHealth
+     * * `AzureServiceHealth` - AzureServiceHealth
+     * * `AzureSynapse` - AzureSynapse
+     * * `BackMarket` - BackMarket
+     * * `Beehiiv` - Beehiiv
+     * * `Bigeye` - Bigeye
+     * * `BillCom` - BillCom
+     * * `Billomat` - Billomat
+     * * `BingWebmasterTools` - BingWebmasterTools
+     * * `Bitwarden` - Bitwarden
+     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+     * * `BlackboardLearn` - BlackboardLearn
+     * * `Bling` - Bling
+     * * `Bloomerang` - Bloomerang
+     * * `Bluesky` - Bluesky
+     * * `BolRetailer` - BolRetailer
+     * * `Boulevard` - Boulevard
+     * * `Buffer` - Buffer
+     * * `Bugherd` - Bugherd
+     * * `Buildium` - Buildium
+     * * `Buttondown` - Buttondown
+     * * `BuyMeACoffee` - BuyMeACoffee
+     * * `Calendarific` - Calendarific
+     * * `Calibre` - Calibre
+     * * `CanvasLms` - CanvasLms
+     * * `Captivate` - Captivate
+     * * `Cashfree` - Cashfree
+     * * `CastAi` - CastAi
+     * * `Catchpoint` - Catchpoint
+     * * `CdcOpenData` - CdcOpenData
+     * * `Census` - Census
+     * * `Checkly` - Checkly
+     * * `CircleSo` - CircleSo
+     * * `Classy` - Classy
+     * * `Cleartax` - Cleartax
+     * * `Clever` - Clever
+     * * `Clevertap` - Clevertap
+     * * `Cliniko` - Cliniko
+     * * `Clio` - Clio
+     * * `Clip` - Clip
+     * * `Cloudability` - Cloudability
+     * * `Cloudsmith` - Cloudsmith
+     * * `Cloudzero` - Cloudzero
+     * * `Clover` - Clover
+     * * `Codemagic` - Codemagic
+     * * `Codescene` - Codescene
+     * * `Collibra` - Collibra
+     * * `Companycam` - Companycam
+     * * `Conekta` - Conekta
+     * * `ContaAzul` - ContaAzul
+     * * `Contentsquare` - Contentsquare
+     * * `Cortex` - Cortex
+     * * `Courier` - Courier
+     * * `Crossref` - Crossref
+     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+     * * `CubeCloud` - CubeCloud
+     * * `D2lBrightspace` - D2lBrightspace
+     * * `Dayforce` - Dayforce
+     * * `Debugbear` - Debugbear
+     * * `Descope` - Descope
+     * * `Develocity` - Develocity
+     * * `Dialpad` - Dialpad
+     * * `Discord` - Discord
+     * * `Discourse` - Discourse
+     * * `Donorbox` - Donorbox
+     * * `Doorloop` - Doorloop
+     * * `Dovetail` - Dovetail
+     * * `Drchrono` - Drchrono
+     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+     * * `EcbDataPortal` - EcbDataPortal
+     * * `Emarsys` - Emarsys
+     * * `Embrace` - Embrace
+     * * `Entsoe` - Entsoe
+     * * `Eppo` - Eppo
+     * * `Etsy` - Etsy
+     * * `Eurostat` - Eurostat
+     * * `Faire` - Faire
+     * * `FarosAi` - FarosAi
+     * * `Fieldpulse` - Fieldpulse
+     * * `Fieldwire` - Fieldwire
+     * * `Filevine` - Filevine
+     * * `Finout` - Finout
+     * * `Five9` - Five9
+     * * `FlexeraCloudCost` - FlexeraCloudCost
+     * * `Flutterwave` - Flutterwave
+     * * `Fortnox` - Fortnox
+     * * `Fourthwall` - Fourthwall
+     * * `Fred` - Fred
+     * * `Frontegg` - Frontegg
+     * * `FusionAuth` - FusionAuth
+     * * `G2` - G2
+     * * `Gcore` - Gcore
+     * * `GcpApigee` - GcpApigee
+     * * `GcpArtifactRegistry` - GcpArtifactRegistry
+     * * `GcpBigtable` - GcpBigtable
+     * * `GcpChronicle` - GcpChronicle
+     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+     * * `GcpCloudBilling` - GcpCloudBilling
+     * * `GcpCloudBuild` - GcpCloudBuild
+     * * `GcpCloudDeploy` - GcpCloudDeploy
+     * * `GcpCloudDns` - GcpCloudDns
+     * * `GcpCloudFunctions` - GcpCloudFunctions
+     * * `GcpCloudLogging` - GcpCloudLogging
+     * * `GcpCloudMonitoring` - GcpCloudMonitoring
+     * * `GcpCloudRun` - GcpCloudRun
+     * * `GcpCloudSpanner` - GcpCloudSpanner
+     * * `GcpCloudSql` - GcpCloudSql
+     * * `GcpCloudTrace` - GcpCloudTrace
+     * * `GcpCloudWorkflows` - GcpCloudWorkflows
+     * * `GcpComputeEngine` - GcpComputeEngine
+     * * `GcpContainerAnalysis` - GcpContainerAnalysis
+     * * `GcpDataflow` - GcpDataflow
+     * * `GcpDataplex` - GcpDataplex
+     * * `GcpDataproc` - GcpDataproc
+     * * `GcpErrorReporting` - GcpErrorReporting
+     * * `GcpGke` - GcpGke
+     * * `GcpPubsub` - GcpPubsub
+     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+     * * `GcpRecommender` - GcpRecommender
+     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+     * * `Gdelt` - Gdelt
+     * * `GenesysCloud` - GenesysCloud
+     * * `Getdx` - Getdx
+     * * `Ghost` - Ghost
+     * * `Givebutter` - Givebutter
+     * * `Gleif` - Gleif
+     * * `GooglePlayConsole` - GooglePlayConsole
+     * * `Guesty` - Guesty
+     * * `Gumroad` - Gumroad
+     * * `HarnessCcm` - HarnessCcm
+     * * `HarnessSei` - HarnessSei
+     * * `Harvest` - Harvest
+     * * `Healthie` - Healthie
+     * * `Hitpay` - Hitpay
+     * * `Hivebrite` - Hivebrite
+     * * `Holded` - Holded
+     * * `Hostaway` - Hostaway
+     * * `HousecallPro` - HousecallPro
+     * * `Humanitec` - Humanitec
+     * * `ImfData` - ImfData
+     * * `Imperva` - Imperva
+     * * `InfluxdbCloud` - InfluxdbCloud
+     * * `Iyzico` - Iyzico
+     * * `Jobtread` - Jobtread
+     * * `Kameleoon` - Kameleoon
+     * * `KauflandMarketplace` - KauflandMarketplace
+     * * `Kestra` - Kestra
+     * * `Kick` - Kick
+     * * `Kinde` - Kinde
+     * * `Kion` - Kion
+     * * `Knowbe4` - Knowbe4
+     * * `Komodor` - Komodor
+     * * `Labelbox` - Labelbox
+     * * `Lawmatics` - Lawmatics
+     * * `Learnworlds` - Learnworlds
+     * * `LexwareOffice` - LexwareOffice
+     * * `Lightdash` - Lightdash
+     * * `Lodgify` - Lodgify
+     * * `Logicmonitor` - Logicmonitor
+     * * `Logrocket` - Logrocket
+     * * `LoopReturns` - LoopReturns
+     * * `Mastodon` - Mastodon
+     * * `Meetup` - Meetup
+     * * `Memberful` - Memberful
+     * * `MercadoPago` - MercadoPago
+     * * `Meteostat` - Meteostat
+     * * `Mews` - Mews
+     * * `Mezmo` - Mezmo
+     * * `Microsoft365UsageReports` - Microsoft365UsageReports
+     * * `MicrosoftAdvertising` - MicrosoftAdvertising
+     * * `MicrosoftClarity` - MicrosoftClarity
+     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+     * * `MicrosoftIntune` - MicrosoftIntune
+     * * `MicrosoftPurview` - MicrosoftPurview
+     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+     * * `MicrosoftSentinel` - MicrosoftSentinel
+     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+     * * `Midtrans` - Midtrans
+     * * `MightyNetworks` - MightyNetworks
+     * * `Mindbody` - Mindbody
+     * * `Mirakl` - Mirakl
+     * * `Moesif` - Moesif
+     * * `Moneybird` - Moneybird
+     * * `Moodle` - Moodle
+     * * `Motherduck` - Motherduck
+     * * `Mycase` - Mycase
+     * * `NagerDate` - NagerDate
+     * * `NeonCrm` - NeonCrm
+     * * `Nexhealth` - Nexhealth
+     * * `NoaaCdo` - NoaaCdo
+     * * `Nobl9` - Nobl9
+     * * `Nolt` - Nolt
+     * * `Nops` - Nops
+     * * `NpmRegistry` - NpmRegistry
+     * * `Oecd` - Oecd
+     * * `Okendo` - Okendo
+     * * `Omni` - Omni
+     * * `Onelogin` - Onelogin
+     * * `OpenDental` - OpenDental
+     * * `OpenMeteo` - OpenMeteo
+     * * `Openalex` - Openalex
+     * * `Opencorporates` - Opencorporates
+     * * `Openfec` - Openfec
+     * * `OpnPayments` - OpnPayments
+     * * `Opslevel` - Opslevel
+     * * `OttoMarket` - OttoMarket
+     * * `Ownerrez` - Ownerrez
+     * * `Pagbank` - Pagbank
+     * * `Patreon` - Patreon
+     * * `Pax8` - Pax8
+     * * `Paychex` - Paychex
+     * * `Paymob` - Paymob
+     * * `Paymongo` - Paymongo
+     * * `Phonepe` - Phonepe
+     * * `Pike13` - Pike13
+     * * `Pingone` - Pingone
+     * * `PinterestOrganic` - PinterestOrganic
+     * * `PlanningCenter` - PlanningCenter
+     * * `PluralsightFlow` - PluralsightFlow
+     * * `Podbean` - Podbean
+     * * `Postscript` - Postscript
+     * * `PowerBiAdmin` - PowerBiAdmin
+     * * `Practicepanther` - Practicepanther
+     * * `Preset` - Preset
+     * * `Procore` - Procore
+     * * `Productiv` - Productiv
+     * * `ProofpointTap` - ProofpointTap
+     * * `Propertyware` - Propertyware
+     * * `Pubnub` - Pubnub
+     * * `Quay` - Quay
+     * * `Raken` - Raken
+     * * `RedpandaCloud` - RedpandaCloud
+     * * `RentManager` - RentManager
+     * * `Reverb` - Reverb
+     * * `RocketMatter` - RocketMatter
+     * * `Rubygems` - Rubygems
+     * * `Scalr` - Scalr
+     * * `SecEdgar` - SecEdgar
+     * * `SelectStar` - SelectStar
+     * * `SemanticScholar` - SemanticScholar
+     * * `Semrush` - Semrush
+     * * `ServiceFusion` - ServiceFusion
+     * * `Servicem8` - Servicem8
+     * * `Servicetitan` - Servicetitan
+     * * `Servicetrade` - Servicetrade
+     * * `Sevdesk` - Sevdesk
+     * * `Similarweb` - Similarweb
+     * * `Simpro` - Simpro
+     * * `Sinch` - Sinch
+     * * `Singlestore` - Singlestore
+     * * `Site24x7` - Site24x7
+     * * `Sleuth` - Sleuth
+     * * `Smartlook` - Smartlook
+     * * `Smartrecruiters` - Smartrecruiters
+     * * `Smokeball` - Smokeball
+     * * `SodaCloud` - SodaCloud
+     * * `Speedcurve` - Speedcurve
+     * * `SpotIo` - SpotIo
+     * * `Sprig` - Sprig
+     * * `Sprinklr` - Sprinklr
+     * * `SproutSocial` - SproutSocial
+     * * `StackOverflowForTeams` - StackOverflowForTeams
+     * * `Stockx` - Stockx
+     * * `TackleIo` - TackleIo
+     * * `Talkdesk` - Talkdesk
+     * * `TeamupFitness` - TeamupFitness
+     * * `Tebra` - Tebra
+     * * `Telnyx` - Telnyx
+     * * `Ternary` - Ternary
+     * * `Thoughtspot` - Thoughtspot
+     * * `Thousandeyes` - Thousandeyes
+     * * `Threads` - Threads
+     * * `TiktokShop` - TiktokShop
+     * * `TinyErp` - TinyErp
+     * * `Tinybird` - Tinybird
+     * * `Tipalti` - Tipalti
+     * * `Toast` - Toast
+     * * `Torii` - Torii
+     * * `Transistor` - Transistor
+     * * `TrunkIo` - TrunkIo
+     * * `Trustradius` - Trustradius
+     * * `Twitch` - Twitch
+     * * `TwoC2p` - TwoC2p
+     * * `UkCompaniesHouse` - UkCompaniesHouse
+     * * `UkOns` - UkOns
+     * * `UnComtrade` - UnComtrade
+     * * `UsBea` - UsBea
+     * * `UsBls` - UsBls
+     * * `UsEia` - UsEia
+     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+     * * `Vanta` - Vanta
+     * * `Vendr` - Vendr
+     * * `Virtuous` - Virtuous
+     * * `Vonage` - Vonage
+     * * `WalmartMarketplace` - WalmartMarketplace
+     * * `Waydev` - Waydev
+     * * `Wayfair` - Wayfair
+     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+     * * `WhoGho` - WhoGho
+     * * `Whop` - Whop
+     * * `Wiz` - Wiz
+     * * `Wompi` - Wompi
+     * * `Workiz` - Workiz
+     * * `WorldBank` - WorldBank
+     * * `Xendit` - Xendit
+     * * `Yoco` - Yoco
+     * * `ZalandoZdirect` - ZalandoZdirect
+     * * `Zluri` - Zluri
+     * * `Zylo` - Zylo
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `Vturb` - Vturb */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -3199,6 +4369,15 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly access_method?: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -3287,6 +4466,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem[] | null
+    /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+    apply_sync_defaults?: boolean
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -3519,7 +4700,6 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -4190,7 +5370,395 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `AbTasty` - AbTasty
+     * * `Ably` - Ably
+     * * `AbnormalSecurity` - AbnormalSecurity
+     * * `Acast` - Acast
+     * * `Acculynx` - Acculynx
+     * * `Actionstep` - Actionstep
+     * * `Aftership` - Aftership
+     * * `AhaIdeas` - AhaIdeas
+     * * `AkamaiReporting` - AkamaiReporting
+     * * `Alation` - Alation
+     * * `Alegra` - Alegra
+     * * `Allegro` - Allegro
+     * * `AnodotCost` - AnodotCost
+     * * `Anomalo` - Anomalo
+     * * `Apaleo` - Apaleo
+     * * `Apitally` - Apitally
+     * * `AppStoreConnect` - AppStoreConnect
+     * * `Appdirect` - Appdirect
+     * * `Appfolio` - Appfolio
+     * * `Arxiv` - Arxiv
+     * * `Asaas` - Asaas
+     * * `Astronomer` - Astronomer
+     * * `Athenahealth` - Athenahealth
+     * * `Atlan` - Atlan
+     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+     * * `Avalara` - Avalara
+     * * `AwsAthena` - AwsAthena
+     * * `AwsBatch` - AwsBatch
+     * * `AwsBudgets` - AwsBudgets
+     * * `AwsCloudformation` - AwsCloudformation
+     * * `AwsComputeOptimizer` - AwsComputeOptimizer
+     * * `AwsConfig` - AwsConfig
+     * * `AwsConnect` - AwsConnect
+     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+     * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+     * * `AwsGuardduty` - AwsGuardduty
+     * * `AwsHealth` - AwsHealth
+     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+     * * `AwsInspector` - AwsInspector
+     * * `AwsMacie` - AwsMacie
+     * * `AwsOrganizations` - AwsOrganizations
+     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+     * * `AwsSagemaker` - AwsSagemaker
+     * * `AwsSavingsPlans` - AwsSavingsPlans
+     * * `AwsSecurityHub` - AwsSecurityHub
+     * * `AwsSes` - AwsSes
+     * * `AwsStepFunctions` - AwsStepFunctions
+     * * `AwsSupport` - AwsSupport
+     * * `AwsSystemsManager` - AwsSystemsManager
+     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+     * * `AwsWaf` - AwsWaf
+     * * `AwsXray` - AwsXray
+     * * `AzureActivityLog` - AzureActivityLog
+     * * `AzureAdvisor` - AzureAdvisor
+     * * `AzureApiManagement` - AzureApiManagement
+     * * `AzureApplicationInsights` - AzureApplicationInsights
+     * * `AzureCostManagement` - AzureCostManagement
+     * * `AzureDataExplorer` - AzureDataExplorer
+     * * `AzureDataFactory` - AzureDataFactory
+     * * `AzureLogAnalytics` - AzureLogAnalytics
+     * * `AzureMonitorAlerts` - AzureMonitorAlerts
+     * * `AzureMonitorMetrics` - AzureMonitorMetrics
+     * * `AzureOpenaiUsage` - AzureOpenaiUsage
+     * * `AzurePolicyInsights` - AzurePolicyInsights
+     * * `AzureReservations` - AzureReservations
+     * * `AzureResourceGraph` - AzureResourceGraph
+     * * `AzureResourceHealth` - AzureResourceHealth
+     * * `AzureServiceHealth` - AzureServiceHealth
+     * * `AzureSynapse` - AzureSynapse
+     * * `BackMarket` - BackMarket
+     * * `Beehiiv` - Beehiiv
+     * * `Bigeye` - Bigeye
+     * * `BillCom` - BillCom
+     * * `Billomat` - Billomat
+     * * `BingWebmasterTools` - BingWebmasterTools
+     * * `Bitwarden` - Bitwarden
+     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+     * * `BlackboardLearn` - BlackboardLearn
+     * * `Bling` - Bling
+     * * `Bloomerang` - Bloomerang
+     * * `Bluesky` - Bluesky
+     * * `BolRetailer` - BolRetailer
+     * * `Boulevard` - Boulevard
+     * * `Buffer` - Buffer
+     * * `Bugherd` - Bugherd
+     * * `Buildium` - Buildium
+     * * `Buttondown` - Buttondown
+     * * `BuyMeACoffee` - BuyMeACoffee
+     * * `Calendarific` - Calendarific
+     * * `Calibre` - Calibre
+     * * `CanvasLms` - CanvasLms
+     * * `Captivate` - Captivate
+     * * `Cashfree` - Cashfree
+     * * `CastAi` - CastAi
+     * * `Catchpoint` - Catchpoint
+     * * `CdcOpenData` - CdcOpenData
+     * * `Census` - Census
+     * * `Checkly` - Checkly
+     * * `CircleSo` - CircleSo
+     * * `Classy` - Classy
+     * * `Cleartax` - Cleartax
+     * * `Clever` - Clever
+     * * `Clevertap` - Clevertap
+     * * `Cliniko` - Cliniko
+     * * `Clio` - Clio
+     * * `Clip` - Clip
+     * * `Cloudability` - Cloudability
+     * * `Cloudsmith` - Cloudsmith
+     * * `Cloudzero` - Cloudzero
+     * * `Clover` - Clover
+     * * `Codemagic` - Codemagic
+     * * `Codescene` - Codescene
+     * * `Collibra` - Collibra
+     * * `Companycam` - Companycam
+     * * `Conekta` - Conekta
+     * * `ContaAzul` - ContaAzul
+     * * `Contentsquare` - Contentsquare
+     * * `Cortex` - Cortex
+     * * `Courier` - Courier
+     * * `Crossref` - Crossref
+     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+     * * `CubeCloud` - CubeCloud
+     * * `D2lBrightspace` - D2lBrightspace
+     * * `Dayforce` - Dayforce
+     * * `Debugbear` - Debugbear
+     * * `Descope` - Descope
+     * * `Develocity` - Develocity
+     * * `Dialpad` - Dialpad
+     * * `Discord` - Discord
+     * * `Discourse` - Discourse
+     * * `Donorbox` - Donorbox
+     * * `Doorloop` - Doorloop
+     * * `Dovetail` - Dovetail
+     * * `Drchrono` - Drchrono
+     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+     * * `EcbDataPortal` - EcbDataPortal
+     * * `Emarsys` - Emarsys
+     * * `Embrace` - Embrace
+     * * `Entsoe` - Entsoe
+     * * `Eppo` - Eppo
+     * * `Etsy` - Etsy
+     * * `Eurostat` - Eurostat
+     * * `Faire` - Faire
+     * * `FarosAi` - FarosAi
+     * * `Fieldpulse` - Fieldpulse
+     * * `Fieldwire` - Fieldwire
+     * * `Filevine` - Filevine
+     * * `Finout` - Finout
+     * * `Five9` - Five9
+     * * `FlexeraCloudCost` - FlexeraCloudCost
+     * * `Flutterwave` - Flutterwave
+     * * `Fortnox` - Fortnox
+     * * `Fourthwall` - Fourthwall
+     * * `Fred` - Fred
+     * * `Frontegg` - Frontegg
+     * * `FusionAuth` - FusionAuth
+     * * `G2` - G2
+     * * `Gcore` - Gcore
+     * * `GcpApigee` - GcpApigee
+     * * `GcpArtifactRegistry` - GcpArtifactRegistry
+     * * `GcpBigtable` - GcpBigtable
+     * * `GcpChronicle` - GcpChronicle
+     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+     * * `GcpCloudBilling` - GcpCloudBilling
+     * * `GcpCloudBuild` - GcpCloudBuild
+     * * `GcpCloudDeploy` - GcpCloudDeploy
+     * * `GcpCloudDns` - GcpCloudDns
+     * * `GcpCloudFunctions` - GcpCloudFunctions
+     * * `GcpCloudLogging` - GcpCloudLogging
+     * * `GcpCloudMonitoring` - GcpCloudMonitoring
+     * * `GcpCloudRun` - GcpCloudRun
+     * * `GcpCloudSpanner` - GcpCloudSpanner
+     * * `GcpCloudSql` - GcpCloudSql
+     * * `GcpCloudTrace` - GcpCloudTrace
+     * * `GcpCloudWorkflows` - GcpCloudWorkflows
+     * * `GcpComputeEngine` - GcpComputeEngine
+     * * `GcpContainerAnalysis` - GcpContainerAnalysis
+     * * `GcpDataflow` - GcpDataflow
+     * * `GcpDataplex` - GcpDataplex
+     * * `GcpDataproc` - GcpDataproc
+     * * `GcpErrorReporting` - GcpErrorReporting
+     * * `GcpGke` - GcpGke
+     * * `GcpPubsub` - GcpPubsub
+     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+     * * `GcpRecommender` - GcpRecommender
+     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+     * * `Gdelt` - Gdelt
+     * * `GenesysCloud` - GenesysCloud
+     * * `Getdx` - Getdx
+     * * `Ghost` - Ghost
+     * * `Givebutter` - Givebutter
+     * * `Gleif` - Gleif
+     * * `GooglePlayConsole` - GooglePlayConsole
+     * * `Guesty` - Guesty
+     * * `Gumroad` - Gumroad
+     * * `HarnessCcm` - HarnessCcm
+     * * `HarnessSei` - HarnessSei
+     * * `Harvest` - Harvest
+     * * `Healthie` - Healthie
+     * * `Hitpay` - Hitpay
+     * * `Hivebrite` - Hivebrite
+     * * `Holded` - Holded
+     * * `Hostaway` - Hostaway
+     * * `HousecallPro` - HousecallPro
+     * * `Humanitec` - Humanitec
+     * * `ImfData` - ImfData
+     * * `Imperva` - Imperva
+     * * `InfluxdbCloud` - InfluxdbCloud
+     * * `Iyzico` - Iyzico
+     * * `Jobtread` - Jobtread
+     * * `Kameleoon` - Kameleoon
+     * * `KauflandMarketplace` - KauflandMarketplace
+     * * `Kestra` - Kestra
+     * * `Kick` - Kick
+     * * `Kinde` - Kinde
+     * * `Kion` - Kion
+     * * `Knowbe4` - Knowbe4
+     * * `Komodor` - Komodor
+     * * `Labelbox` - Labelbox
+     * * `Lawmatics` - Lawmatics
+     * * `Learnworlds` - Learnworlds
+     * * `LexwareOffice` - LexwareOffice
+     * * `Lightdash` - Lightdash
+     * * `Lodgify` - Lodgify
+     * * `Logicmonitor` - Logicmonitor
+     * * `Logrocket` - Logrocket
+     * * `LoopReturns` - LoopReturns
+     * * `Mastodon` - Mastodon
+     * * `Meetup` - Meetup
+     * * `Memberful` - Memberful
+     * * `MercadoPago` - MercadoPago
+     * * `Meteostat` - Meteostat
+     * * `Mews` - Mews
+     * * `Mezmo` - Mezmo
+     * * `Microsoft365UsageReports` - Microsoft365UsageReports
+     * * `MicrosoftAdvertising` - MicrosoftAdvertising
+     * * `MicrosoftClarity` - MicrosoftClarity
+     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+     * * `MicrosoftIntune` - MicrosoftIntune
+     * * `MicrosoftPurview` - MicrosoftPurview
+     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+     * * `MicrosoftSentinel` - MicrosoftSentinel
+     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+     * * `Midtrans` - Midtrans
+     * * `MightyNetworks` - MightyNetworks
+     * * `Mindbody` - Mindbody
+     * * `Mirakl` - Mirakl
+     * * `Moesif` - Moesif
+     * * `Moneybird` - Moneybird
+     * * `Moodle` - Moodle
+     * * `Motherduck` - Motherduck
+     * * `Mycase` - Mycase
+     * * `NagerDate` - NagerDate
+     * * `NeonCrm` - NeonCrm
+     * * `Nexhealth` - Nexhealth
+     * * `NoaaCdo` - NoaaCdo
+     * * `Nobl9` - Nobl9
+     * * `Nolt` - Nolt
+     * * `Nops` - Nops
+     * * `NpmRegistry` - NpmRegistry
+     * * `Oecd` - Oecd
+     * * `Okendo` - Okendo
+     * * `Omni` - Omni
+     * * `Onelogin` - Onelogin
+     * * `OpenDental` - OpenDental
+     * * `OpenMeteo` - OpenMeteo
+     * * `Openalex` - Openalex
+     * * `Opencorporates` - Opencorporates
+     * * `Openfec` - Openfec
+     * * `OpnPayments` - OpnPayments
+     * * `Opslevel` - Opslevel
+     * * `OttoMarket` - OttoMarket
+     * * `Ownerrez` - Ownerrez
+     * * `Pagbank` - Pagbank
+     * * `Patreon` - Patreon
+     * * `Pax8` - Pax8
+     * * `Paychex` - Paychex
+     * * `Paymob` - Paymob
+     * * `Paymongo` - Paymongo
+     * * `Phonepe` - Phonepe
+     * * `Pike13` - Pike13
+     * * `Pingone` - Pingone
+     * * `PinterestOrganic` - PinterestOrganic
+     * * `PlanningCenter` - PlanningCenter
+     * * `PluralsightFlow` - PluralsightFlow
+     * * `Podbean` - Podbean
+     * * `Postscript` - Postscript
+     * * `PowerBiAdmin` - PowerBiAdmin
+     * * `Practicepanther` - Practicepanther
+     * * `Preset` - Preset
+     * * `Procore` - Procore
+     * * `Productiv` - Productiv
+     * * `ProofpointTap` - ProofpointTap
+     * * `Propertyware` - Propertyware
+     * * `Pubnub` - Pubnub
+     * * `Quay` - Quay
+     * * `Raken` - Raken
+     * * `RedpandaCloud` - RedpandaCloud
+     * * `RentManager` - RentManager
+     * * `Reverb` - Reverb
+     * * `RocketMatter` - RocketMatter
+     * * `Rubygems` - Rubygems
+     * * `Scalr` - Scalr
+     * * `SecEdgar` - SecEdgar
+     * * `SelectStar` - SelectStar
+     * * `SemanticScholar` - SemanticScholar
+     * * `Semrush` - Semrush
+     * * `ServiceFusion` - ServiceFusion
+     * * `Servicem8` - Servicem8
+     * * `Servicetitan` - Servicetitan
+     * * `Servicetrade` - Servicetrade
+     * * `Sevdesk` - Sevdesk
+     * * `Similarweb` - Similarweb
+     * * `Simpro` - Simpro
+     * * `Sinch` - Sinch
+     * * `Singlestore` - Singlestore
+     * * `Site24x7` - Site24x7
+     * * `Sleuth` - Sleuth
+     * * `Smartlook` - Smartlook
+     * * `Smartrecruiters` - Smartrecruiters
+     * * `Smokeball` - Smokeball
+     * * `SodaCloud` - SodaCloud
+     * * `Speedcurve` - Speedcurve
+     * * `SpotIo` - SpotIo
+     * * `Sprig` - Sprig
+     * * `Sprinklr` - Sprinklr
+     * * `SproutSocial` - SproutSocial
+     * * `StackOverflowForTeams` - StackOverflowForTeams
+     * * `Stockx` - Stockx
+     * * `TackleIo` - TackleIo
+     * * `Talkdesk` - Talkdesk
+     * * `TeamupFitness` - TeamupFitness
+     * * `Tebra` - Tebra
+     * * `Telnyx` - Telnyx
+     * * `Ternary` - Ternary
+     * * `Thoughtspot` - Thoughtspot
+     * * `Thousandeyes` - Thousandeyes
+     * * `Threads` - Threads
+     * * `TiktokShop` - TiktokShop
+     * * `TinyErp` - TinyErp
+     * * `Tinybird` - Tinybird
+     * * `Tipalti` - Tipalti
+     * * `Toast` - Toast
+     * * `Torii` - Torii
+     * * `Transistor` - Transistor
+     * * `TrunkIo` - TrunkIo
+     * * `Trustradius` - Trustradius
+     * * `Twitch` - Twitch
+     * * `TwoC2p` - TwoC2p
+     * * `UkCompaniesHouse` - UkCompaniesHouse
+     * * `UkOns` - UkOns
+     * * `UnComtrade` - UnComtrade
+     * * `UsBea` - UsBea
+     * * `UsBls` - UsBls
+     * * `UsEia` - UsEia
+     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+     * * `Vanta` - Vanta
+     * * `Vendr` - Vendr
+     * * `Virtuous` - Virtuous
+     * * `Vonage` - Vonage
+     * * `WalmartMarketplace` - WalmartMarketplace
+     * * `Waydev` - Waydev
+     * * `Wayfair` - Wayfair
+     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+     * * `WhoGho` - WhoGho
+     * * `Whop` - Whop
+     * * `Wiz` - Wiz
+     * * `Wompi` - Wompi
+     * * `Workiz` - Workiz
+     * * `WorldBank` - WorldBank
+     * * `Xendit` - Xendit
+     * * `Yoco` - Yoco
+     * * `ZalandoZdirect` - ZalandoZdirect
+     * * `Zluri` - Zluri
+     * * `Zylo` - Zylo
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `Vturb` - Vturb */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -4404,7 +5972,6 @@ export interface DatabaseSchemaRequestApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -5075,7 +6642,395 @@ export interface DatabaseSchemaRequestApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `AbTasty` - AbTasty
+     * * `Ably` - Ably
+     * * `AbnormalSecurity` - AbnormalSecurity
+     * * `Acast` - Acast
+     * * `Acculynx` - Acculynx
+     * * `Actionstep` - Actionstep
+     * * `Aftership` - Aftership
+     * * `AhaIdeas` - AhaIdeas
+     * * `AkamaiReporting` - AkamaiReporting
+     * * `Alation` - Alation
+     * * `Alegra` - Alegra
+     * * `Allegro` - Allegro
+     * * `AnodotCost` - AnodotCost
+     * * `Anomalo` - Anomalo
+     * * `Apaleo` - Apaleo
+     * * `Apitally` - Apitally
+     * * `AppStoreConnect` - AppStoreConnect
+     * * `Appdirect` - Appdirect
+     * * `Appfolio` - Appfolio
+     * * `Arxiv` - Arxiv
+     * * `Asaas` - Asaas
+     * * `Astronomer` - Astronomer
+     * * `Athenahealth` - Athenahealth
+     * * `Atlan` - Atlan
+     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+     * * `Avalara` - Avalara
+     * * `AwsAthena` - AwsAthena
+     * * `AwsBatch` - AwsBatch
+     * * `AwsBudgets` - AwsBudgets
+     * * `AwsCloudformation` - AwsCloudformation
+     * * `AwsComputeOptimizer` - AwsComputeOptimizer
+     * * `AwsConfig` - AwsConfig
+     * * `AwsConnect` - AwsConnect
+     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+     * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+     * * `AwsGuardduty` - AwsGuardduty
+     * * `AwsHealth` - AwsHealth
+     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+     * * `AwsInspector` - AwsInspector
+     * * `AwsMacie` - AwsMacie
+     * * `AwsOrganizations` - AwsOrganizations
+     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+     * * `AwsSagemaker` - AwsSagemaker
+     * * `AwsSavingsPlans` - AwsSavingsPlans
+     * * `AwsSecurityHub` - AwsSecurityHub
+     * * `AwsSes` - AwsSes
+     * * `AwsStepFunctions` - AwsStepFunctions
+     * * `AwsSupport` - AwsSupport
+     * * `AwsSystemsManager` - AwsSystemsManager
+     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+     * * `AwsWaf` - AwsWaf
+     * * `AwsXray` - AwsXray
+     * * `AzureActivityLog` - AzureActivityLog
+     * * `AzureAdvisor` - AzureAdvisor
+     * * `AzureApiManagement` - AzureApiManagement
+     * * `AzureApplicationInsights` - AzureApplicationInsights
+     * * `AzureCostManagement` - AzureCostManagement
+     * * `AzureDataExplorer` - AzureDataExplorer
+     * * `AzureDataFactory` - AzureDataFactory
+     * * `AzureLogAnalytics` - AzureLogAnalytics
+     * * `AzureMonitorAlerts` - AzureMonitorAlerts
+     * * `AzureMonitorMetrics` - AzureMonitorMetrics
+     * * `AzureOpenaiUsage` - AzureOpenaiUsage
+     * * `AzurePolicyInsights` - AzurePolicyInsights
+     * * `AzureReservations` - AzureReservations
+     * * `AzureResourceGraph` - AzureResourceGraph
+     * * `AzureResourceHealth` - AzureResourceHealth
+     * * `AzureServiceHealth` - AzureServiceHealth
+     * * `AzureSynapse` - AzureSynapse
+     * * `BackMarket` - BackMarket
+     * * `Beehiiv` - Beehiiv
+     * * `Bigeye` - Bigeye
+     * * `BillCom` - BillCom
+     * * `Billomat` - Billomat
+     * * `BingWebmasterTools` - BingWebmasterTools
+     * * `Bitwarden` - Bitwarden
+     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+     * * `BlackboardLearn` - BlackboardLearn
+     * * `Bling` - Bling
+     * * `Bloomerang` - Bloomerang
+     * * `Bluesky` - Bluesky
+     * * `BolRetailer` - BolRetailer
+     * * `Boulevard` - Boulevard
+     * * `Buffer` - Buffer
+     * * `Bugherd` - Bugherd
+     * * `Buildium` - Buildium
+     * * `Buttondown` - Buttondown
+     * * `BuyMeACoffee` - BuyMeACoffee
+     * * `Calendarific` - Calendarific
+     * * `Calibre` - Calibre
+     * * `CanvasLms` - CanvasLms
+     * * `Captivate` - Captivate
+     * * `Cashfree` - Cashfree
+     * * `CastAi` - CastAi
+     * * `Catchpoint` - Catchpoint
+     * * `CdcOpenData` - CdcOpenData
+     * * `Census` - Census
+     * * `Checkly` - Checkly
+     * * `CircleSo` - CircleSo
+     * * `Classy` - Classy
+     * * `Cleartax` - Cleartax
+     * * `Clever` - Clever
+     * * `Clevertap` - Clevertap
+     * * `Cliniko` - Cliniko
+     * * `Clio` - Clio
+     * * `Clip` - Clip
+     * * `Cloudability` - Cloudability
+     * * `Cloudsmith` - Cloudsmith
+     * * `Cloudzero` - Cloudzero
+     * * `Clover` - Clover
+     * * `Codemagic` - Codemagic
+     * * `Codescene` - Codescene
+     * * `Collibra` - Collibra
+     * * `Companycam` - Companycam
+     * * `Conekta` - Conekta
+     * * `ContaAzul` - ContaAzul
+     * * `Contentsquare` - Contentsquare
+     * * `Cortex` - Cortex
+     * * `Courier` - Courier
+     * * `Crossref` - Crossref
+     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+     * * `CubeCloud` - CubeCloud
+     * * `D2lBrightspace` - D2lBrightspace
+     * * `Dayforce` - Dayforce
+     * * `Debugbear` - Debugbear
+     * * `Descope` - Descope
+     * * `Develocity` - Develocity
+     * * `Dialpad` - Dialpad
+     * * `Discord` - Discord
+     * * `Discourse` - Discourse
+     * * `Donorbox` - Donorbox
+     * * `Doorloop` - Doorloop
+     * * `Dovetail` - Dovetail
+     * * `Drchrono` - Drchrono
+     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+     * * `EcbDataPortal` - EcbDataPortal
+     * * `Emarsys` - Emarsys
+     * * `Embrace` - Embrace
+     * * `Entsoe` - Entsoe
+     * * `Eppo` - Eppo
+     * * `Etsy` - Etsy
+     * * `Eurostat` - Eurostat
+     * * `Faire` - Faire
+     * * `FarosAi` - FarosAi
+     * * `Fieldpulse` - Fieldpulse
+     * * `Fieldwire` - Fieldwire
+     * * `Filevine` - Filevine
+     * * `Finout` - Finout
+     * * `Five9` - Five9
+     * * `FlexeraCloudCost` - FlexeraCloudCost
+     * * `Flutterwave` - Flutterwave
+     * * `Fortnox` - Fortnox
+     * * `Fourthwall` - Fourthwall
+     * * `Fred` - Fred
+     * * `Frontegg` - Frontegg
+     * * `FusionAuth` - FusionAuth
+     * * `G2` - G2
+     * * `Gcore` - Gcore
+     * * `GcpApigee` - GcpApigee
+     * * `GcpArtifactRegistry` - GcpArtifactRegistry
+     * * `GcpBigtable` - GcpBigtable
+     * * `GcpChronicle` - GcpChronicle
+     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+     * * `GcpCloudBilling` - GcpCloudBilling
+     * * `GcpCloudBuild` - GcpCloudBuild
+     * * `GcpCloudDeploy` - GcpCloudDeploy
+     * * `GcpCloudDns` - GcpCloudDns
+     * * `GcpCloudFunctions` - GcpCloudFunctions
+     * * `GcpCloudLogging` - GcpCloudLogging
+     * * `GcpCloudMonitoring` - GcpCloudMonitoring
+     * * `GcpCloudRun` - GcpCloudRun
+     * * `GcpCloudSpanner` - GcpCloudSpanner
+     * * `GcpCloudSql` - GcpCloudSql
+     * * `GcpCloudTrace` - GcpCloudTrace
+     * * `GcpCloudWorkflows` - GcpCloudWorkflows
+     * * `GcpComputeEngine` - GcpComputeEngine
+     * * `GcpContainerAnalysis` - GcpContainerAnalysis
+     * * `GcpDataflow` - GcpDataflow
+     * * `GcpDataplex` - GcpDataplex
+     * * `GcpDataproc` - GcpDataproc
+     * * `GcpErrorReporting` - GcpErrorReporting
+     * * `GcpGke` - GcpGke
+     * * `GcpPubsub` - GcpPubsub
+     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+     * * `GcpRecommender` - GcpRecommender
+     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+     * * `Gdelt` - Gdelt
+     * * `GenesysCloud` - GenesysCloud
+     * * `Getdx` - Getdx
+     * * `Ghost` - Ghost
+     * * `Givebutter` - Givebutter
+     * * `Gleif` - Gleif
+     * * `GooglePlayConsole` - GooglePlayConsole
+     * * `Guesty` - Guesty
+     * * `Gumroad` - Gumroad
+     * * `HarnessCcm` - HarnessCcm
+     * * `HarnessSei` - HarnessSei
+     * * `Harvest` - Harvest
+     * * `Healthie` - Healthie
+     * * `Hitpay` - Hitpay
+     * * `Hivebrite` - Hivebrite
+     * * `Holded` - Holded
+     * * `Hostaway` - Hostaway
+     * * `HousecallPro` - HousecallPro
+     * * `Humanitec` - Humanitec
+     * * `ImfData` - ImfData
+     * * `Imperva` - Imperva
+     * * `InfluxdbCloud` - InfluxdbCloud
+     * * `Iyzico` - Iyzico
+     * * `Jobtread` - Jobtread
+     * * `Kameleoon` - Kameleoon
+     * * `KauflandMarketplace` - KauflandMarketplace
+     * * `Kestra` - Kestra
+     * * `Kick` - Kick
+     * * `Kinde` - Kinde
+     * * `Kion` - Kion
+     * * `Knowbe4` - Knowbe4
+     * * `Komodor` - Komodor
+     * * `Labelbox` - Labelbox
+     * * `Lawmatics` - Lawmatics
+     * * `Learnworlds` - Learnworlds
+     * * `LexwareOffice` - LexwareOffice
+     * * `Lightdash` - Lightdash
+     * * `Lodgify` - Lodgify
+     * * `Logicmonitor` - Logicmonitor
+     * * `Logrocket` - Logrocket
+     * * `LoopReturns` - LoopReturns
+     * * `Mastodon` - Mastodon
+     * * `Meetup` - Meetup
+     * * `Memberful` - Memberful
+     * * `MercadoPago` - MercadoPago
+     * * `Meteostat` - Meteostat
+     * * `Mews` - Mews
+     * * `Mezmo` - Mezmo
+     * * `Microsoft365UsageReports` - Microsoft365UsageReports
+     * * `MicrosoftAdvertising` - MicrosoftAdvertising
+     * * `MicrosoftClarity` - MicrosoftClarity
+     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+     * * `MicrosoftIntune` - MicrosoftIntune
+     * * `MicrosoftPurview` - MicrosoftPurview
+     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+     * * `MicrosoftSentinel` - MicrosoftSentinel
+     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+     * * `Midtrans` - Midtrans
+     * * `MightyNetworks` - MightyNetworks
+     * * `Mindbody` - Mindbody
+     * * `Mirakl` - Mirakl
+     * * `Moesif` - Moesif
+     * * `Moneybird` - Moneybird
+     * * `Moodle` - Moodle
+     * * `Motherduck` - Motherduck
+     * * `Mycase` - Mycase
+     * * `NagerDate` - NagerDate
+     * * `NeonCrm` - NeonCrm
+     * * `Nexhealth` - Nexhealth
+     * * `NoaaCdo` - NoaaCdo
+     * * `Nobl9` - Nobl9
+     * * `Nolt` - Nolt
+     * * `Nops` - Nops
+     * * `NpmRegistry` - NpmRegistry
+     * * `Oecd` - Oecd
+     * * `Okendo` - Okendo
+     * * `Omni` - Omni
+     * * `Onelogin` - Onelogin
+     * * `OpenDental` - OpenDental
+     * * `OpenMeteo` - OpenMeteo
+     * * `Openalex` - Openalex
+     * * `Opencorporates` - Opencorporates
+     * * `Openfec` - Openfec
+     * * `OpnPayments` - OpnPayments
+     * * `Opslevel` - Opslevel
+     * * `OttoMarket` - OttoMarket
+     * * `Ownerrez` - Ownerrez
+     * * `Pagbank` - Pagbank
+     * * `Patreon` - Patreon
+     * * `Pax8` - Pax8
+     * * `Paychex` - Paychex
+     * * `Paymob` - Paymob
+     * * `Paymongo` - Paymongo
+     * * `Phonepe` - Phonepe
+     * * `Pike13` - Pike13
+     * * `Pingone` - Pingone
+     * * `PinterestOrganic` - PinterestOrganic
+     * * `PlanningCenter` - PlanningCenter
+     * * `PluralsightFlow` - PluralsightFlow
+     * * `Podbean` - Podbean
+     * * `Postscript` - Postscript
+     * * `PowerBiAdmin` - PowerBiAdmin
+     * * `Practicepanther` - Practicepanther
+     * * `Preset` - Preset
+     * * `Procore` - Procore
+     * * `Productiv` - Productiv
+     * * `ProofpointTap` - ProofpointTap
+     * * `Propertyware` - Propertyware
+     * * `Pubnub` - Pubnub
+     * * `Quay` - Quay
+     * * `Raken` - Raken
+     * * `RedpandaCloud` - RedpandaCloud
+     * * `RentManager` - RentManager
+     * * `Reverb` - Reverb
+     * * `RocketMatter` - RocketMatter
+     * * `Rubygems` - Rubygems
+     * * `Scalr` - Scalr
+     * * `SecEdgar` - SecEdgar
+     * * `SelectStar` - SelectStar
+     * * `SemanticScholar` - SemanticScholar
+     * * `Semrush` - Semrush
+     * * `ServiceFusion` - ServiceFusion
+     * * `Servicem8` - Servicem8
+     * * `Servicetitan` - Servicetitan
+     * * `Servicetrade` - Servicetrade
+     * * `Sevdesk` - Sevdesk
+     * * `Similarweb` - Similarweb
+     * * `Simpro` - Simpro
+     * * `Sinch` - Sinch
+     * * `Singlestore` - Singlestore
+     * * `Site24x7` - Site24x7
+     * * `Sleuth` - Sleuth
+     * * `Smartlook` - Smartlook
+     * * `Smartrecruiters` - Smartrecruiters
+     * * `Smokeball` - Smokeball
+     * * `SodaCloud` - SodaCloud
+     * * `Speedcurve` - Speedcurve
+     * * `SpotIo` - SpotIo
+     * * `Sprig` - Sprig
+     * * `Sprinklr` - Sprinklr
+     * * `SproutSocial` - SproutSocial
+     * * `StackOverflowForTeams` - StackOverflowForTeams
+     * * `Stockx` - Stockx
+     * * `TackleIo` - TackleIo
+     * * `Talkdesk` - Talkdesk
+     * * `TeamupFitness` - TeamupFitness
+     * * `Tebra` - Tebra
+     * * `Telnyx` - Telnyx
+     * * `Ternary` - Ternary
+     * * `Thoughtspot` - Thoughtspot
+     * * `Thousandeyes` - Thousandeyes
+     * * `Threads` - Threads
+     * * `TiktokShop` - TiktokShop
+     * * `TinyErp` - TinyErp
+     * * `Tinybird` - Tinybird
+     * * `Tipalti` - Tipalti
+     * * `Toast` - Toast
+     * * `Torii` - Torii
+     * * `Transistor` - Transistor
+     * * `TrunkIo` - TrunkIo
+     * * `Trustradius` - Trustradius
+     * * `Twitch` - Twitch
+     * * `TwoC2p` - TwoC2p
+     * * `UkCompaniesHouse` - UkCompaniesHouse
+     * * `UkOns` - UkOns
+     * * `UnComtrade` - UnComtrade
+     * * `UsBea` - UsBea
+     * * `UsBls` - UsBls
+     * * `UsEia` - UsEia
+     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+     * * `Vanta` - Vanta
+     * * `Vendr` - Vendr
+     * * `Virtuous` - Virtuous
+     * * `Vonage` - Vonage
+     * * `WalmartMarketplace` - WalmartMarketplace
+     * * `Waydev` - Waydev
+     * * `Wayfair` - Wayfair
+     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+     * * `WhoGho` - WhoGho
+     * * `Whop` - Whop
+     * * `Wiz` - Wiz
+     * * `Wompi` - Wompi
+     * * `Workiz` - Workiz
+     * * `WorldBank` - WorldBank
+     * * `Xendit` - Xendit
+     * * `Yoco` - Yoco
+     * * `ZalandoZdirect` - ZalandoZdirect
+     * * `Zluri` - Zluri
+     * * `Zylo` - Zylo
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `Vturb` - Vturb */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -5349,7 +7304,6 @@ export interface SourcePreviewRequestApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -6020,7 +7974,395 @@ export interface SourcePreviewRequestApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `AbTasty` - AbTasty
+     * * `Ably` - Ably
+     * * `AbnormalSecurity` - AbnormalSecurity
+     * * `Acast` - Acast
+     * * `Acculynx` - Acculynx
+     * * `Actionstep` - Actionstep
+     * * `Aftership` - Aftership
+     * * `AhaIdeas` - AhaIdeas
+     * * `AkamaiReporting` - AkamaiReporting
+     * * `Alation` - Alation
+     * * `Alegra` - Alegra
+     * * `Allegro` - Allegro
+     * * `AnodotCost` - AnodotCost
+     * * `Anomalo` - Anomalo
+     * * `Apaleo` - Apaleo
+     * * `Apitally` - Apitally
+     * * `AppStoreConnect` - AppStoreConnect
+     * * `Appdirect` - Appdirect
+     * * `Appfolio` - Appfolio
+     * * `Arxiv` - Arxiv
+     * * `Asaas` - Asaas
+     * * `Astronomer` - Astronomer
+     * * `Athenahealth` - Athenahealth
+     * * `Atlan` - Atlan
+     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+     * * `Avalara` - Avalara
+     * * `AwsAthena` - AwsAthena
+     * * `AwsBatch` - AwsBatch
+     * * `AwsBudgets` - AwsBudgets
+     * * `AwsCloudformation` - AwsCloudformation
+     * * `AwsComputeOptimizer` - AwsComputeOptimizer
+     * * `AwsConfig` - AwsConfig
+     * * `AwsConnect` - AwsConnect
+     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+     * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+     * * `AwsGuardduty` - AwsGuardduty
+     * * `AwsHealth` - AwsHealth
+     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+     * * `AwsInspector` - AwsInspector
+     * * `AwsMacie` - AwsMacie
+     * * `AwsOrganizations` - AwsOrganizations
+     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+     * * `AwsSagemaker` - AwsSagemaker
+     * * `AwsSavingsPlans` - AwsSavingsPlans
+     * * `AwsSecurityHub` - AwsSecurityHub
+     * * `AwsSes` - AwsSes
+     * * `AwsStepFunctions` - AwsStepFunctions
+     * * `AwsSupport` - AwsSupport
+     * * `AwsSystemsManager` - AwsSystemsManager
+     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+     * * `AwsWaf` - AwsWaf
+     * * `AwsXray` - AwsXray
+     * * `AzureActivityLog` - AzureActivityLog
+     * * `AzureAdvisor` - AzureAdvisor
+     * * `AzureApiManagement` - AzureApiManagement
+     * * `AzureApplicationInsights` - AzureApplicationInsights
+     * * `AzureCostManagement` - AzureCostManagement
+     * * `AzureDataExplorer` - AzureDataExplorer
+     * * `AzureDataFactory` - AzureDataFactory
+     * * `AzureLogAnalytics` - AzureLogAnalytics
+     * * `AzureMonitorAlerts` - AzureMonitorAlerts
+     * * `AzureMonitorMetrics` - AzureMonitorMetrics
+     * * `AzureOpenaiUsage` - AzureOpenaiUsage
+     * * `AzurePolicyInsights` - AzurePolicyInsights
+     * * `AzureReservations` - AzureReservations
+     * * `AzureResourceGraph` - AzureResourceGraph
+     * * `AzureResourceHealth` - AzureResourceHealth
+     * * `AzureServiceHealth` - AzureServiceHealth
+     * * `AzureSynapse` - AzureSynapse
+     * * `BackMarket` - BackMarket
+     * * `Beehiiv` - Beehiiv
+     * * `Bigeye` - Bigeye
+     * * `BillCom` - BillCom
+     * * `Billomat` - Billomat
+     * * `BingWebmasterTools` - BingWebmasterTools
+     * * `Bitwarden` - Bitwarden
+     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+     * * `BlackboardLearn` - BlackboardLearn
+     * * `Bling` - Bling
+     * * `Bloomerang` - Bloomerang
+     * * `Bluesky` - Bluesky
+     * * `BolRetailer` - BolRetailer
+     * * `Boulevard` - Boulevard
+     * * `Buffer` - Buffer
+     * * `Bugherd` - Bugherd
+     * * `Buildium` - Buildium
+     * * `Buttondown` - Buttondown
+     * * `BuyMeACoffee` - BuyMeACoffee
+     * * `Calendarific` - Calendarific
+     * * `Calibre` - Calibre
+     * * `CanvasLms` - CanvasLms
+     * * `Captivate` - Captivate
+     * * `Cashfree` - Cashfree
+     * * `CastAi` - CastAi
+     * * `Catchpoint` - Catchpoint
+     * * `CdcOpenData` - CdcOpenData
+     * * `Census` - Census
+     * * `Checkly` - Checkly
+     * * `CircleSo` - CircleSo
+     * * `Classy` - Classy
+     * * `Cleartax` - Cleartax
+     * * `Clever` - Clever
+     * * `Clevertap` - Clevertap
+     * * `Cliniko` - Cliniko
+     * * `Clio` - Clio
+     * * `Clip` - Clip
+     * * `Cloudability` - Cloudability
+     * * `Cloudsmith` - Cloudsmith
+     * * `Cloudzero` - Cloudzero
+     * * `Clover` - Clover
+     * * `Codemagic` - Codemagic
+     * * `Codescene` - Codescene
+     * * `Collibra` - Collibra
+     * * `Companycam` - Companycam
+     * * `Conekta` - Conekta
+     * * `ContaAzul` - ContaAzul
+     * * `Contentsquare` - Contentsquare
+     * * `Cortex` - Cortex
+     * * `Courier` - Courier
+     * * `Crossref` - Crossref
+     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+     * * `CubeCloud` - CubeCloud
+     * * `D2lBrightspace` - D2lBrightspace
+     * * `Dayforce` - Dayforce
+     * * `Debugbear` - Debugbear
+     * * `Descope` - Descope
+     * * `Develocity` - Develocity
+     * * `Dialpad` - Dialpad
+     * * `Discord` - Discord
+     * * `Discourse` - Discourse
+     * * `Donorbox` - Donorbox
+     * * `Doorloop` - Doorloop
+     * * `Dovetail` - Dovetail
+     * * `Drchrono` - Drchrono
+     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+     * * `EcbDataPortal` - EcbDataPortal
+     * * `Emarsys` - Emarsys
+     * * `Embrace` - Embrace
+     * * `Entsoe` - Entsoe
+     * * `Eppo` - Eppo
+     * * `Etsy` - Etsy
+     * * `Eurostat` - Eurostat
+     * * `Faire` - Faire
+     * * `FarosAi` - FarosAi
+     * * `Fieldpulse` - Fieldpulse
+     * * `Fieldwire` - Fieldwire
+     * * `Filevine` - Filevine
+     * * `Finout` - Finout
+     * * `Five9` - Five9
+     * * `FlexeraCloudCost` - FlexeraCloudCost
+     * * `Flutterwave` - Flutterwave
+     * * `Fortnox` - Fortnox
+     * * `Fourthwall` - Fourthwall
+     * * `Fred` - Fred
+     * * `Frontegg` - Frontegg
+     * * `FusionAuth` - FusionAuth
+     * * `G2` - G2
+     * * `Gcore` - Gcore
+     * * `GcpApigee` - GcpApigee
+     * * `GcpArtifactRegistry` - GcpArtifactRegistry
+     * * `GcpBigtable` - GcpBigtable
+     * * `GcpChronicle` - GcpChronicle
+     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+     * * `GcpCloudBilling` - GcpCloudBilling
+     * * `GcpCloudBuild` - GcpCloudBuild
+     * * `GcpCloudDeploy` - GcpCloudDeploy
+     * * `GcpCloudDns` - GcpCloudDns
+     * * `GcpCloudFunctions` - GcpCloudFunctions
+     * * `GcpCloudLogging` - GcpCloudLogging
+     * * `GcpCloudMonitoring` - GcpCloudMonitoring
+     * * `GcpCloudRun` - GcpCloudRun
+     * * `GcpCloudSpanner` - GcpCloudSpanner
+     * * `GcpCloudSql` - GcpCloudSql
+     * * `GcpCloudTrace` - GcpCloudTrace
+     * * `GcpCloudWorkflows` - GcpCloudWorkflows
+     * * `GcpComputeEngine` - GcpComputeEngine
+     * * `GcpContainerAnalysis` - GcpContainerAnalysis
+     * * `GcpDataflow` - GcpDataflow
+     * * `GcpDataplex` - GcpDataplex
+     * * `GcpDataproc` - GcpDataproc
+     * * `GcpErrorReporting` - GcpErrorReporting
+     * * `GcpGke` - GcpGke
+     * * `GcpPubsub` - GcpPubsub
+     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+     * * `GcpRecommender` - GcpRecommender
+     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+     * * `Gdelt` - Gdelt
+     * * `GenesysCloud` - GenesysCloud
+     * * `Getdx` - Getdx
+     * * `Ghost` - Ghost
+     * * `Givebutter` - Givebutter
+     * * `Gleif` - Gleif
+     * * `GooglePlayConsole` - GooglePlayConsole
+     * * `Guesty` - Guesty
+     * * `Gumroad` - Gumroad
+     * * `HarnessCcm` - HarnessCcm
+     * * `HarnessSei` - HarnessSei
+     * * `Harvest` - Harvest
+     * * `Healthie` - Healthie
+     * * `Hitpay` - Hitpay
+     * * `Hivebrite` - Hivebrite
+     * * `Holded` - Holded
+     * * `Hostaway` - Hostaway
+     * * `HousecallPro` - HousecallPro
+     * * `Humanitec` - Humanitec
+     * * `ImfData` - ImfData
+     * * `Imperva` - Imperva
+     * * `InfluxdbCloud` - InfluxdbCloud
+     * * `Iyzico` - Iyzico
+     * * `Jobtread` - Jobtread
+     * * `Kameleoon` - Kameleoon
+     * * `KauflandMarketplace` - KauflandMarketplace
+     * * `Kestra` - Kestra
+     * * `Kick` - Kick
+     * * `Kinde` - Kinde
+     * * `Kion` - Kion
+     * * `Knowbe4` - Knowbe4
+     * * `Komodor` - Komodor
+     * * `Labelbox` - Labelbox
+     * * `Lawmatics` - Lawmatics
+     * * `Learnworlds` - Learnworlds
+     * * `LexwareOffice` - LexwareOffice
+     * * `Lightdash` - Lightdash
+     * * `Lodgify` - Lodgify
+     * * `Logicmonitor` - Logicmonitor
+     * * `Logrocket` - Logrocket
+     * * `LoopReturns` - LoopReturns
+     * * `Mastodon` - Mastodon
+     * * `Meetup` - Meetup
+     * * `Memberful` - Memberful
+     * * `MercadoPago` - MercadoPago
+     * * `Meteostat` - Meteostat
+     * * `Mews` - Mews
+     * * `Mezmo` - Mezmo
+     * * `Microsoft365UsageReports` - Microsoft365UsageReports
+     * * `MicrosoftAdvertising` - MicrosoftAdvertising
+     * * `MicrosoftClarity` - MicrosoftClarity
+     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+     * * `MicrosoftIntune` - MicrosoftIntune
+     * * `MicrosoftPurview` - MicrosoftPurview
+     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+     * * `MicrosoftSentinel` - MicrosoftSentinel
+     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+     * * `Midtrans` - Midtrans
+     * * `MightyNetworks` - MightyNetworks
+     * * `Mindbody` - Mindbody
+     * * `Mirakl` - Mirakl
+     * * `Moesif` - Moesif
+     * * `Moneybird` - Moneybird
+     * * `Moodle` - Moodle
+     * * `Motherduck` - Motherduck
+     * * `Mycase` - Mycase
+     * * `NagerDate` - NagerDate
+     * * `NeonCrm` - NeonCrm
+     * * `Nexhealth` - Nexhealth
+     * * `NoaaCdo` - NoaaCdo
+     * * `Nobl9` - Nobl9
+     * * `Nolt` - Nolt
+     * * `Nops` - Nops
+     * * `NpmRegistry` - NpmRegistry
+     * * `Oecd` - Oecd
+     * * `Okendo` - Okendo
+     * * `Omni` - Omni
+     * * `Onelogin` - Onelogin
+     * * `OpenDental` - OpenDental
+     * * `OpenMeteo` - OpenMeteo
+     * * `Openalex` - Openalex
+     * * `Opencorporates` - Opencorporates
+     * * `Openfec` - Openfec
+     * * `OpnPayments` - OpnPayments
+     * * `Opslevel` - Opslevel
+     * * `OttoMarket` - OttoMarket
+     * * `Ownerrez` - Ownerrez
+     * * `Pagbank` - Pagbank
+     * * `Patreon` - Patreon
+     * * `Pax8` - Pax8
+     * * `Paychex` - Paychex
+     * * `Paymob` - Paymob
+     * * `Paymongo` - Paymongo
+     * * `Phonepe` - Phonepe
+     * * `Pike13` - Pike13
+     * * `Pingone` - Pingone
+     * * `PinterestOrganic` - PinterestOrganic
+     * * `PlanningCenter` - PlanningCenter
+     * * `PluralsightFlow` - PluralsightFlow
+     * * `Podbean` - Podbean
+     * * `Postscript` - Postscript
+     * * `PowerBiAdmin` - PowerBiAdmin
+     * * `Practicepanther` - Practicepanther
+     * * `Preset` - Preset
+     * * `Procore` - Procore
+     * * `Productiv` - Productiv
+     * * `ProofpointTap` - ProofpointTap
+     * * `Propertyware` - Propertyware
+     * * `Pubnub` - Pubnub
+     * * `Quay` - Quay
+     * * `Raken` - Raken
+     * * `RedpandaCloud` - RedpandaCloud
+     * * `RentManager` - RentManager
+     * * `Reverb` - Reverb
+     * * `RocketMatter` - RocketMatter
+     * * `Rubygems` - Rubygems
+     * * `Scalr` - Scalr
+     * * `SecEdgar` - SecEdgar
+     * * `SelectStar` - SelectStar
+     * * `SemanticScholar` - SemanticScholar
+     * * `Semrush` - Semrush
+     * * `ServiceFusion` - ServiceFusion
+     * * `Servicem8` - Servicem8
+     * * `Servicetitan` - Servicetitan
+     * * `Servicetrade` - Servicetrade
+     * * `Sevdesk` - Sevdesk
+     * * `Similarweb` - Similarweb
+     * * `Simpro` - Simpro
+     * * `Sinch` - Sinch
+     * * `Singlestore` - Singlestore
+     * * `Site24x7` - Site24x7
+     * * `Sleuth` - Sleuth
+     * * `Smartlook` - Smartlook
+     * * `Smartrecruiters` - Smartrecruiters
+     * * `Smokeball` - Smokeball
+     * * `SodaCloud` - SodaCloud
+     * * `Speedcurve` - Speedcurve
+     * * `SpotIo` - SpotIo
+     * * `Sprig` - Sprig
+     * * `Sprinklr` - Sprinklr
+     * * `SproutSocial` - SproutSocial
+     * * `StackOverflowForTeams` - StackOverflowForTeams
+     * * `Stockx` - Stockx
+     * * `TackleIo` - TackleIo
+     * * `Talkdesk` - Talkdesk
+     * * `TeamupFitness` - TeamupFitness
+     * * `Tebra` - Tebra
+     * * `Telnyx` - Telnyx
+     * * `Ternary` - Ternary
+     * * `Thoughtspot` - Thoughtspot
+     * * `Thousandeyes` - Thousandeyes
+     * * `Threads` - Threads
+     * * `TiktokShop` - TiktokShop
+     * * `TinyErp` - TinyErp
+     * * `Tinybird` - Tinybird
+     * * `Tipalti` - Tipalti
+     * * `Toast` - Toast
+     * * `Torii` - Torii
+     * * `Transistor` - Transistor
+     * * `TrunkIo` - TrunkIo
+     * * `Trustradius` - Trustradius
+     * * `Twitch` - Twitch
+     * * `TwoC2p` - TwoC2p
+     * * `UkCompaniesHouse` - UkCompaniesHouse
+     * * `UkOns` - UkOns
+     * * `UnComtrade` - UnComtrade
+     * * `UsBea` - UsBea
+     * * `UsBls` - UsBls
+     * * `UsEia` - UsEia
+     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+     * * `Vanta` - Vanta
+     * * `Vendr` - Vendr
+     * * `Virtuous` - Virtuous
+     * * `Vonage` - Vonage
+     * * `WalmartMarketplace` - WalmartMarketplace
+     * * `Waydev` - Waydev
+     * * `Wayfair` - Wayfair
+     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+     * * `WhoGho` - WhoGho
+     * * `Whop` - Whop
+     * * `Wiz` - Wiz
+     * * `Wompi` - Wompi
+     * * `Workiz` - Workiz
+     * * `WorldBank` - WorldBank
+     * * `Xendit` - Xendit
+     * * `Yoco` - Yoco
+     * * `ZalandoZdirect` - ZalandoZdirect
+     * * `Zluri` - Zluri
+     * * `Zylo` - Zylo
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `Vturb` - Vturb */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -6251,7 +8593,6 @@ export interface SourceSetupApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -6922,7 +9263,395 @@ export interface SourceSetupApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `AbTasty` - AbTasty
+     * * `Ably` - Ably
+     * * `AbnormalSecurity` - AbnormalSecurity
+     * * `Acast` - Acast
+     * * `Acculynx` - Acculynx
+     * * `Actionstep` - Actionstep
+     * * `Aftership` - Aftership
+     * * `AhaIdeas` - AhaIdeas
+     * * `AkamaiReporting` - AkamaiReporting
+     * * `Alation` - Alation
+     * * `Alegra` - Alegra
+     * * `Allegro` - Allegro
+     * * `AnodotCost` - AnodotCost
+     * * `Anomalo` - Anomalo
+     * * `Apaleo` - Apaleo
+     * * `Apitally` - Apitally
+     * * `AppStoreConnect` - AppStoreConnect
+     * * `Appdirect` - Appdirect
+     * * `Appfolio` - Appfolio
+     * * `Arxiv` - Arxiv
+     * * `Asaas` - Asaas
+     * * `Astronomer` - Astronomer
+     * * `Athenahealth` - Athenahealth
+     * * `Atlan` - Atlan
+     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+     * * `Avalara` - Avalara
+     * * `AwsAthena` - AwsAthena
+     * * `AwsBatch` - AwsBatch
+     * * `AwsBudgets` - AwsBudgets
+     * * `AwsCloudformation` - AwsCloudformation
+     * * `AwsComputeOptimizer` - AwsComputeOptimizer
+     * * `AwsConfig` - AwsConfig
+     * * `AwsConnect` - AwsConnect
+     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+     * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+     * * `AwsGuardduty` - AwsGuardduty
+     * * `AwsHealth` - AwsHealth
+     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+     * * `AwsInspector` - AwsInspector
+     * * `AwsMacie` - AwsMacie
+     * * `AwsOrganizations` - AwsOrganizations
+     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+     * * `AwsSagemaker` - AwsSagemaker
+     * * `AwsSavingsPlans` - AwsSavingsPlans
+     * * `AwsSecurityHub` - AwsSecurityHub
+     * * `AwsSes` - AwsSes
+     * * `AwsStepFunctions` - AwsStepFunctions
+     * * `AwsSupport` - AwsSupport
+     * * `AwsSystemsManager` - AwsSystemsManager
+     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+     * * `AwsWaf` - AwsWaf
+     * * `AwsXray` - AwsXray
+     * * `AzureActivityLog` - AzureActivityLog
+     * * `AzureAdvisor` - AzureAdvisor
+     * * `AzureApiManagement` - AzureApiManagement
+     * * `AzureApplicationInsights` - AzureApplicationInsights
+     * * `AzureCostManagement` - AzureCostManagement
+     * * `AzureDataExplorer` - AzureDataExplorer
+     * * `AzureDataFactory` - AzureDataFactory
+     * * `AzureLogAnalytics` - AzureLogAnalytics
+     * * `AzureMonitorAlerts` - AzureMonitorAlerts
+     * * `AzureMonitorMetrics` - AzureMonitorMetrics
+     * * `AzureOpenaiUsage` - AzureOpenaiUsage
+     * * `AzurePolicyInsights` - AzurePolicyInsights
+     * * `AzureReservations` - AzureReservations
+     * * `AzureResourceGraph` - AzureResourceGraph
+     * * `AzureResourceHealth` - AzureResourceHealth
+     * * `AzureServiceHealth` - AzureServiceHealth
+     * * `AzureSynapse` - AzureSynapse
+     * * `BackMarket` - BackMarket
+     * * `Beehiiv` - Beehiiv
+     * * `Bigeye` - Bigeye
+     * * `BillCom` - BillCom
+     * * `Billomat` - Billomat
+     * * `BingWebmasterTools` - BingWebmasterTools
+     * * `Bitwarden` - Bitwarden
+     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+     * * `BlackboardLearn` - BlackboardLearn
+     * * `Bling` - Bling
+     * * `Bloomerang` - Bloomerang
+     * * `Bluesky` - Bluesky
+     * * `BolRetailer` - BolRetailer
+     * * `Boulevard` - Boulevard
+     * * `Buffer` - Buffer
+     * * `Bugherd` - Bugherd
+     * * `Buildium` - Buildium
+     * * `Buttondown` - Buttondown
+     * * `BuyMeACoffee` - BuyMeACoffee
+     * * `Calendarific` - Calendarific
+     * * `Calibre` - Calibre
+     * * `CanvasLms` - CanvasLms
+     * * `Captivate` - Captivate
+     * * `Cashfree` - Cashfree
+     * * `CastAi` - CastAi
+     * * `Catchpoint` - Catchpoint
+     * * `CdcOpenData` - CdcOpenData
+     * * `Census` - Census
+     * * `Checkly` - Checkly
+     * * `CircleSo` - CircleSo
+     * * `Classy` - Classy
+     * * `Cleartax` - Cleartax
+     * * `Clever` - Clever
+     * * `Clevertap` - Clevertap
+     * * `Cliniko` - Cliniko
+     * * `Clio` - Clio
+     * * `Clip` - Clip
+     * * `Cloudability` - Cloudability
+     * * `Cloudsmith` - Cloudsmith
+     * * `Cloudzero` - Cloudzero
+     * * `Clover` - Clover
+     * * `Codemagic` - Codemagic
+     * * `Codescene` - Codescene
+     * * `Collibra` - Collibra
+     * * `Companycam` - Companycam
+     * * `Conekta` - Conekta
+     * * `ContaAzul` - ContaAzul
+     * * `Contentsquare` - Contentsquare
+     * * `Cortex` - Cortex
+     * * `Courier` - Courier
+     * * `Crossref` - Crossref
+     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+     * * `CubeCloud` - CubeCloud
+     * * `D2lBrightspace` - D2lBrightspace
+     * * `Dayforce` - Dayforce
+     * * `Debugbear` - Debugbear
+     * * `Descope` - Descope
+     * * `Develocity` - Develocity
+     * * `Dialpad` - Dialpad
+     * * `Discord` - Discord
+     * * `Discourse` - Discourse
+     * * `Donorbox` - Donorbox
+     * * `Doorloop` - Doorloop
+     * * `Dovetail` - Dovetail
+     * * `Drchrono` - Drchrono
+     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+     * * `EcbDataPortal` - EcbDataPortal
+     * * `Emarsys` - Emarsys
+     * * `Embrace` - Embrace
+     * * `Entsoe` - Entsoe
+     * * `Eppo` - Eppo
+     * * `Etsy` - Etsy
+     * * `Eurostat` - Eurostat
+     * * `Faire` - Faire
+     * * `FarosAi` - FarosAi
+     * * `Fieldpulse` - Fieldpulse
+     * * `Fieldwire` - Fieldwire
+     * * `Filevine` - Filevine
+     * * `Finout` - Finout
+     * * `Five9` - Five9
+     * * `FlexeraCloudCost` - FlexeraCloudCost
+     * * `Flutterwave` - Flutterwave
+     * * `Fortnox` - Fortnox
+     * * `Fourthwall` - Fourthwall
+     * * `Fred` - Fred
+     * * `Frontegg` - Frontegg
+     * * `FusionAuth` - FusionAuth
+     * * `G2` - G2
+     * * `Gcore` - Gcore
+     * * `GcpApigee` - GcpApigee
+     * * `GcpArtifactRegistry` - GcpArtifactRegistry
+     * * `GcpBigtable` - GcpBigtable
+     * * `GcpChronicle` - GcpChronicle
+     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+     * * `GcpCloudBilling` - GcpCloudBilling
+     * * `GcpCloudBuild` - GcpCloudBuild
+     * * `GcpCloudDeploy` - GcpCloudDeploy
+     * * `GcpCloudDns` - GcpCloudDns
+     * * `GcpCloudFunctions` - GcpCloudFunctions
+     * * `GcpCloudLogging` - GcpCloudLogging
+     * * `GcpCloudMonitoring` - GcpCloudMonitoring
+     * * `GcpCloudRun` - GcpCloudRun
+     * * `GcpCloudSpanner` - GcpCloudSpanner
+     * * `GcpCloudSql` - GcpCloudSql
+     * * `GcpCloudTrace` - GcpCloudTrace
+     * * `GcpCloudWorkflows` - GcpCloudWorkflows
+     * * `GcpComputeEngine` - GcpComputeEngine
+     * * `GcpContainerAnalysis` - GcpContainerAnalysis
+     * * `GcpDataflow` - GcpDataflow
+     * * `GcpDataplex` - GcpDataplex
+     * * `GcpDataproc` - GcpDataproc
+     * * `GcpErrorReporting` - GcpErrorReporting
+     * * `GcpGke` - GcpGke
+     * * `GcpPubsub` - GcpPubsub
+     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+     * * `GcpRecommender` - GcpRecommender
+     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+     * * `Gdelt` - Gdelt
+     * * `GenesysCloud` - GenesysCloud
+     * * `Getdx` - Getdx
+     * * `Ghost` - Ghost
+     * * `Givebutter` - Givebutter
+     * * `Gleif` - Gleif
+     * * `GooglePlayConsole` - GooglePlayConsole
+     * * `Guesty` - Guesty
+     * * `Gumroad` - Gumroad
+     * * `HarnessCcm` - HarnessCcm
+     * * `HarnessSei` - HarnessSei
+     * * `Harvest` - Harvest
+     * * `Healthie` - Healthie
+     * * `Hitpay` - Hitpay
+     * * `Hivebrite` - Hivebrite
+     * * `Holded` - Holded
+     * * `Hostaway` - Hostaway
+     * * `HousecallPro` - HousecallPro
+     * * `Humanitec` - Humanitec
+     * * `ImfData` - ImfData
+     * * `Imperva` - Imperva
+     * * `InfluxdbCloud` - InfluxdbCloud
+     * * `Iyzico` - Iyzico
+     * * `Jobtread` - Jobtread
+     * * `Kameleoon` - Kameleoon
+     * * `KauflandMarketplace` - KauflandMarketplace
+     * * `Kestra` - Kestra
+     * * `Kick` - Kick
+     * * `Kinde` - Kinde
+     * * `Kion` - Kion
+     * * `Knowbe4` - Knowbe4
+     * * `Komodor` - Komodor
+     * * `Labelbox` - Labelbox
+     * * `Lawmatics` - Lawmatics
+     * * `Learnworlds` - Learnworlds
+     * * `LexwareOffice` - LexwareOffice
+     * * `Lightdash` - Lightdash
+     * * `Lodgify` - Lodgify
+     * * `Logicmonitor` - Logicmonitor
+     * * `Logrocket` - Logrocket
+     * * `LoopReturns` - LoopReturns
+     * * `Mastodon` - Mastodon
+     * * `Meetup` - Meetup
+     * * `Memberful` - Memberful
+     * * `MercadoPago` - MercadoPago
+     * * `Meteostat` - Meteostat
+     * * `Mews` - Mews
+     * * `Mezmo` - Mezmo
+     * * `Microsoft365UsageReports` - Microsoft365UsageReports
+     * * `MicrosoftAdvertising` - MicrosoftAdvertising
+     * * `MicrosoftClarity` - MicrosoftClarity
+     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+     * * `MicrosoftIntune` - MicrosoftIntune
+     * * `MicrosoftPurview` - MicrosoftPurview
+     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+     * * `MicrosoftSentinel` - MicrosoftSentinel
+     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+     * * `Midtrans` - Midtrans
+     * * `MightyNetworks` - MightyNetworks
+     * * `Mindbody` - Mindbody
+     * * `Mirakl` - Mirakl
+     * * `Moesif` - Moesif
+     * * `Moneybird` - Moneybird
+     * * `Moodle` - Moodle
+     * * `Motherduck` - Motherduck
+     * * `Mycase` - Mycase
+     * * `NagerDate` - NagerDate
+     * * `NeonCrm` - NeonCrm
+     * * `Nexhealth` - Nexhealth
+     * * `NoaaCdo` - NoaaCdo
+     * * `Nobl9` - Nobl9
+     * * `Nolt` - Nolt
+     * * `Nops` - Nops
+     * * `NpmRegistry` - NpmRegistry
+     * * `Oecd` - Oecd
+     * * `Okendo` - Okendo
+     * * `Omni` - Omni
+     * * `Onelogin` - Onelogin
+     * * `OpenDental` - OpenDental
+     * * `OpenMeteo` - OpenMeteo
+     * * `Openalex` - Openalex
+     * * `Opencorporates` - Opencorporates
+     * * `Openfec` - Openfec
+     * * `OpnPayments` - OpnPayments
+     * * `Opslevel` - Opslevel
+     * * `OttoMarket` - OttoMarket
+     * * `Ownerrez` - Ownerrez
+     * * `Pagbank` - Pagbank
+     * * `Patreon` - Patreon
+     * * `Pax8` - Pax8
+     * * `Paychex` - Paychex
+     * * `Paymob` - Paymob
+     * * `Paymongo` - Paymongo
+     * * `Phonepe` - Phonepe
+     * * `Pike13` - Pike13
+     * * `Pingone` - Pingone
+     * * `PinterestOrganic` - PinterestOrganic
+     * * `PlanningCenter` - PlanningCenter
+     * * `PluralsightFlow` - PluralsightFlow
+     * * `Podbean` - Podbean
+     * * `Postscript` - Postscript
+     * * `PowerBiAdmin` - PowerBiAdmin
+     * * `Practicepanther` - Practicepanther
+     * * `Preset` - Preset
+     * * `Procore` - Procore
+     * * `Productiv` - Productiv
+     * * `ProofpointTap` - ProofpointTap
+     * * `Propertyware` - Propertyware
+     * * `Pubnub` - Pubnub
+     * * `Quay` - Quay
+     * * `Raken` - Raken
+     * * `RedpandaCloud` - RedpandaCloud
+     * * `RentManager` - RentManager
+     * * `Reverb` - Reverb
+     * * `RocketMatter` - RocketMatter
+     * * `Rubygems` - Rubygems
+     * * `Scalr` - Scalr
+     * * `SecEdgar` - SecEdgar
+     * * `SelectStar` - SelectStar
+     * * `SemanticScholar` - SemanticScholar
+     * * `Semrush` - Semrush
+     * * `ServiceFusion` - ServiceFusion
+     * * `Servicem8` - Servicem8
+     * * `Servicetitan` - Servicetitan
+     * * `Servicetrade` - Servicetrade
+     * * `Sevdesk` - Sevdesk
+     * * `Similarweb` - Similarweb
+     * * `Simpro` - Simpro
+     * * `Sinch` - Sinch
+     * * `Singlestore` - Singlestore
+     * * `Site24x7` - Site24x7
+     * * `Sleuth` - Sleuth
+     * * `Smartlook` - Smartlook
+     * * `Smartrecruiters` - Smartrecruiters
+     * * `Smokeball` - Smokeball
+     * * `SodaCloud` - SodaCloud
+     * * `Speedcurve` - Speedcurve
+     * * `SpotIo` - SpotIo
+     * * `Sprig` - Sprig
+     * * `Sprinklr` - Sprinklr
+     * * `SproutSocial` - SproutSocial
+     * * `StackOverflowForTeams` - StackOverflowForTeams
+     * * `Stockx` - Stockx
+     * * `TackleIo` - TackleIo
+     * * `Talkdesk` - Talkdesk
+     * * `TeamupFitness` - TeamupFitness
+     * * `Tebra` - Tebra
+     * * `Telnyx` - Telnyx
+     * * `Ternary` - Ternary
+     * * `Thoughtspot` - Thoughtspot
+     * * `Thousandeyes` - Thousandeyes
+     * * `Threads` - Threads
+     * * `TiktokShop` - TiktokShop
+     * * `TinyErp` - TinyErp
+     * * `Tinybird` - Tinybird
+     * * `Tipalti` - Tipalti
+     * * `Toast` - Toast
+     * * `Torii` - Torii
+     * * `Transistor` - Transistor
+     * * `TrunkIo` - TrunkIo
+     * * `Trustradius` - Trustradius
+     * * `Twitch` - Twitch
+     * * `TwoC2p` - TwoC2p
+     * * `UkCompaniesHouse` - UkCompaniesHouse
+     * * `UkOns` - UkOns
+     * * `UnComtrade` - UnComtrade
+     * * `UsBea` - UsBea
+     * * `UsBls` - UsBls
+     * * `UsEia` - UsEia
+     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+     * * `Vanta` - Vanta
+     * * `Vendr` - Vendr
+     * * `Virtuous` - Virtuous
+     * * `Vonage` - Vonage
+     * * `WalmartMarketplace` - WalmartMarketplace
+     * * `Waydev` - Waydev
+     * * `Wayfair` - Wayfair
+     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+     * * `WhoGho` - WhoGho
+     * * `Whop` - Whop
+     * * `Wiz` - Wiz
+     * * `Wompi` - Wompi
+     * * `Workiz` - Workiz
+     * * `WorldBank` - WorldBank
+     * * `Xendit` - Xendit
+     * * `Yoco` - Yoco
+     * * `ZalandoZdirect` - ZalandoZdirect
+     * * `Zluri` - Zluri
+     * * `Zylo` - Zylo
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `Vturb` - Vturb */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -7160,7 +9889,6 @@ export interface SourceCredentialCreateApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -7831,7 +10559,395 @@ export interface SourceCredentialCreateApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `AbTasty` - AbTasty
+     * * `Ably` - Ably
+     * * `AbnormalSecurity` - AbnormalSecurity
+     * * `Acast` - Acast
+     * * `Acculynx` - Acculynx
+     * * `Actionstep` - Actionstep
+     * * `Aftership` - Aftership
+     * * `AhaIdeas` - AhaIdeas
+     * * `AkamaiReporting` - AkamaiReporting
+     * * `Alation` - Alation
+     * * `Alegra` - Alegra
+     * * `Allegro` - Allegro
+     * * `AnodotCost` - AnodotCost
+     * * `Anomalo` - Anomalo
+     * * `Apaleo` - Apaleo
+     * * `Apitally` - Apitally
+     * * `AppStoreConnect` - AppStoreConnect
+     * * `Appdirect` - Appdirect
+     * * `Appfolio` - Appfolio
+     * * `Arxiv` - Arxiv
+     * * `Asaas` - Asaas
+     * * `Astronomer` - Astronomer
+     * * `Athenahealth` - Athenahealth
+     * * `Atlan` - Atlan
+     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+     * * `Avalara` - Avalara
+     * * `AwsAthena` - AwsAthena
+     * * `AwsBatch` - AwsBatch
+     * * `AwsBudgets` - AwsBudgets
+     * * `AwsCloudformation` - AwsCloudformation
+     * * `AwsComputeOptimizer` - AwsComputeOptimizer
+     * * `AwsConfig` - AwsConfig
+     * * `AwsConnect` - AwsConnect
+     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+     * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+     * * `AwsGuardduty` - AwsGuardduty
+     * * `AwsHealth` - AwsHealth
+     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+     * * `AwsInspector` - AwsInspector
+     * * `AwsMacie` - AwsMacie
+     * * `AwsOrganizations` - AwsOrganizations
+     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+     * * `AwsSagemaker` - AwsSagemaker
+     * * `AwsSavingsPlans` - AwsSavingsPlans
+     * * `AwsSecurityHub` - AwsSecurityHub
+     * * `AwsSes` - AwsSes
+     * * `AwsStepFunctions` - AwsStepFunctions
+     * * `AwsSupport` - AwsSupport
+     * * `AwsSystemsManager` - AwsSystemsManager
+     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+     * * `AwsWaf` - AwsWaf
+     * * `AwsXray` - AwsXray
+     * * `AzureActivityLog` - AzureActivityLog
+     * * `AzureAdvisor` - AzureAdvisor
+     * * `AzureApiManagement` - AzureApiManagement
+     * * `AzureApplicationInsights` - AzureApplicationInsights
+     * * `AzureCostManagement` - AzureCostManagement
+     * * `AzureDataExplorer` - AzureDataExplorer
+     * * `AzureDataFactory` - AzureDataFactory
+     * * `AzureLogAnalytics` - AzureLogAnalytics
+     * * `AzureMonitorAlerts` - AzureMonitorAlerts
+     * * `AzureMonitorMetrics` - AzureMonitorMetrics
+     * * `AzureOpenaiUsage` - AzureOpenaiUsage
+     * * `AzurePolicyInsights` - AzurePolicyInsights
+     * * `AzureReservations` - AzureReservations
+     * * `AzureResourceGraph` - AzureResourceGraph
+     * * `AzureResourceHealth` - AzureResourceHealth
+     * * `AzureServiceHealth` - AzureServiceHealth
+     * * `AzureSynapse` - AzureSynapse
+     * * `BackMarket` - BackMarket
+     * * `Beehiiv` - Beehiiv
+     * * `Bigeye` - Bigeye
+     * * `BillCom` - BillCom
+     * * `Billomat` - Billomat
+     * * `BingWebmasterTools` - BingWebmasterTools
+     * * `Bitwarden` - Bitwarden
+     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+     * * `BlackboardLearn` - BlackboardLearn
+     * * `Bling` - Bling
+     * * `Bloomerang` - Bloomerang
+     * * `Bluesky` - Bluesky
+     * * `BolRetailer` - BolRetailer
+     * * `Boulevard` - Boulevard
+     * * `Buffer` - Buffer
+     * * `Bugherd` - Bugherd
+     * * `Buildium` - Buildium
+     * * `Buttondown` - Buttondown
+     * * `BuyMeACoffee` - BuyMeACoffee
+     * * `Calendarific` - Calendarific
+     * * `Calibre` - Calibre
+     * * `CanvasLms` - CanvasLms
+     * * `Captivate` - Captivate
+     * * `Cashfree` - Cashfree
+     * * `CastAi` - CastAi
+     * * `Catchpoint` - Catchpoint
+     * * `CdcOpenData` - CdcOpenData
+     * * `Census` - Census
+     * * `Checkly` - Checkly
+     * * `CircleSo` - CircleSo
+     * * `Classy` - Classy
+     * * `Cleartax` - Cleartax
+     * * `Clever` - Clever
+     * * `Clevertap` - Clevertap
+     * * `Cliniko` - Cliniko
+     * * `Clio` - Clio
+     * * `Clip` - Clip
+     * * `Cloudability` - Cloudability
+     * * `Cloudsmith` - Cloudsmith
+     * * `Cloudzero` - Cloudzero
+     * * `Clover` - Clover
+     * * `Codemagic` - Codemagic
+     * * `Codescene` - Codescene
+     * * `Collibra` - Collibra
+     * * `Companycam` - Companycam
+     * * `Conekta` - Conekta
+     * * `ContaAzul` - ContaAzul
+     * * `Contentsquare` - Contentsquare
+     * * `Cortex` - Cortex
+     * * `Courier` - Courier
+     * * `Crossref` - Crossref
+     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+     * * `CubeCloud` - CubeCloud
+     * * `D2lBrightspace` - D2lBrightspace
+     * * `Dayforce` - Dayforce
+     * * `Debugbear` - Debugbear
+     * * `Descope` - Descope
+     * * `Develocity` - Develocity
+     * * `Dialpad` - Dialpad
+     * * `Discord` - Discord
+     * * `Discourse` - Discourse
+     * * `Donorbox` - Donorbox
+     * * `Doorloop` - Doorloop
+     * * `Dovetail` - Dovetail
+     * * `Drchrono` - Drchrono
+     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+     * * `EcbDataPortal` - EcbDataPortal
+     * * `Emarsys` - Emarsys
+     * * `Embrace` - Embrace
+     * * `Entsoe` - Entsoe
+     * * `Eppo` - Eppo
+     * * `Etsy` - Etsy
+     * * `Eurostat` - Eurostat
+     * * `Faire` - Faire
+     * * `FarosAi` - FarosAi
+     * * `Fieldpulse` - Fieldpulse
+     * * `Fieldwire` - Fieldwire
+     * * `Filevine` - Filevine
+     * * `Finout` - Finout
+     * * `Five9` - Five9
+     * * `FlexeraCloudCost` - FlexeraCloudCost
+     * * `Flutterwave` - Flutterwave
+     * * `Fortnox` - Fortnox
+     * * `Fourthwall` - Fourthwall
+     * * `Fred` - Fred
+     * * `Frontegg` - Frontegg
+     * * `FusionAuth` - FusionAuth
+     * * `G2` - G2
+     * * `Gcore` - Gcore
+     * * `GcpApigee` - GcpApigee
+     * * `GcpArtifactRegistry` - GcpArtifactRegistry
+     * * `GcpBigtable` - GcpBigtable
+     * * `GcpChronicle` - GcpChronicle
+     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+     * * `GcpCloudBilling` - GcpCloudBilling
+     * * `GcpCloudBuild` - GcpCloudBuild
+     * * `GcpCloudDeploy` - GcpCloudDeploy
+     * * `GcpCloudDns` - GcpCloudDns
+     * * `GcpCloudFunctions` - GcpCloudFunctions
+     * * `GcpCloudLogging` - GcpCloudLogging
+     * * `GcpCloudMonitoring` - GcpCloudMonitoring
+     * * `GcpCloudRun` - GcpCloudRun
+     * * `GcpCloudSpanner` - GcpCloudSpanner
+     * * `GcpCloudSql` - GcpCloudSql
+     * * `GcpCloudTrace` - GcpCloudTrace
+     * * `GcpCloudWorkflows` - GcpCloudWorkflows
+     * * `GcpComputeEngine` - GcpComputeEngine
+     * * `GcpContainerAnalysis` - GcpContainerAnalysis
+     * * `GcpDataflow` - GcpDataflow
+     * * `GcpDataplex` - GcpDataplex
+     * * `GcpDataproc` - GcpDataproc
+     * * `GcpErrorReporting` - GcpErrorReporting
+     * * `GcpGke` - GcpGke
+     * * `GcpPubsub` - GcpPubsub
+     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+     * * `GcpRecommender` - GcpRecommender
+     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+     * * `Gdelt` - Gdelt
+     * * `GenesysCloud` - GenesysCloud
+     * * `Getdx` - Getdx
+     * * `Ghost` - Ghost
+     * * `Givebutter` - Givebutter
+     * * `Gleif` - Gleif
+     * * `GooglePlayConsole` - GooglePlayConsole
+     * * `Guesty` - Guesty
+     * * `Gumroad` - Gumroad
+     * * `HarnessCcm` - HarnessCcm
+     * * `HarnessSei` - HarnessSei
+     * * `Harvest` - Harvest
+     * * `Healthie` - Healthie
+     * * `Hitpay` - Hitpay
+     * * `Hivebrite` - Hivebrite
+     * * `Holded` - Holded
+     * * `Hostaway` - Hostaway
+     * * `HousecallPro` - HousecallPro
+     * * `Humanitec` - Humanitec
+     * * `ImfData` - ImfData
+     * * `Imperva` - Imperva
+     * * `InfluxdbCloud` - InfluxdbCloud
+     * * `Iyzico` - Iyzico
+     * * `Jobtread` - Jobtread
+     * * `Kameleoon` - Kameleoon
+     * * `KauflandMarketplace` - KauflandMarketplace
+     * * `Kestra` - Kestra
+     * * `Kick` - Kick
+     * * `Kinde` - Kinde
+     * * `Kion` - Kion
+     * * `Knowbe4` - Knowbe4
+     * * `Komodor` - Komodor
+     * * `Labelbox` - Labelbox
+     * * `Lawmatics` - Lawmatics
+     * * `Learnworlds` - Learnworlds
+     * * `LexwareOffice` - LexwareOffice
+     * * `Lightdash` - Lightdash
+     * * `Lodgify` - Lodgify
+     * * `Logicmonitor` - Logicmonitor
+     * * `Logrocket` - Logrocket
+     * * `LoopReturns` - LoopReturns
+     * * `Mastodon` - Mastodon
+     * * `Meetup` - Meetup
+     * * `Memberful` - Memberful
+     * * `MercadoPago` - MercadoPago
+     * * `Meteostat` - Meteostat
+     * * `Mews` - Mews
+     * * `Mezmo` - Mezmo
+     * * `Microsoft365UsageReports` - Microsoft365UsageReports
+     * * `MicrosoftAdvertising` - MicrosoftAdvertising
+     * * `MicrosoftClarity` - MicrosoftClarity
+     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+     * * `MicrosoftIntune` - MicrosoftIntune
+     * * `MicrosoftPurview` - MicrosoftPurview
+     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+     * * `MicrosoftSentinel` - MicrosoftSentinel
+     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+     * * `Midtrans` - Midtrans
+     * * `MightyNetworks` - MightyNetworks
+     * * `Mindbody` - Mindbody
+     * * `Mirakl` - Mirakl
+     * * `Moesif` - Moesif
+     * * `Moneybird` - Moneybird
+     * * `Moodle` - Moodle
+     * * `Motherduck` - Motherduck
+     * * `Mycase` - Mycase
+     * * `NagerDate` - NagerDate
+     * * `NeonCrm` - NeonCrm
+     * * `Nexhealth` - Nexhealth
+     * * `NoaaCdo` - NoaaCdo
+     * * `Nobl9` - Nobl9
+     * * `Nolt` - Nolt
+     * * `Nops` - Nops
+     * * `NpmRegistry` - NpmRegistry
+     * * `Oecd` - Oecd
+     * * `Okendo` - Okendo
+     * * `Omni` - Omni
+     * * `Onelogin` - Onelogin
+     * * `OpenDental` - OpenDental
+     * * `OpenMeteo` - OpenMeteo
+     * * `Openalex` - Openalex
+     * * `Opencorporates` - Opencorporates
+     * * `Openfec` - Openfec
+     * * `OpnPayments` - OpnPayments
+     * * `Opslevel` - Opslevel
+     * * `OttoMarket` - OttoMarket
+     * * `Ownerrez` - Ownerrez
+     * * `Pagbank` - Pagbank
+     * * `Patreon` - Patreon
+     * * `Pax8` - Pax8
+     * * `Paychex` - Paychex
+     * * `Paymob` - Paymob
+     * * `Paymongo` - Paymongo
+     * * `Phonepe` - Phonepe
+     * * `Pike13` - Pike13
+     * * `Pingone` - Pingone
+     * * `PinterestOrganic` - PinterestOrganic
+     * * `PlanningCenter` - PlanningCenter
+     * * `PluralsightFlow` - PluralsightFlow
+     * * `Podbean` - Podbean
+     * * `Postscript` - Postscript
+     * * `PowerBiAdmin` - PowerBiAdmin
+     * * `Practicepanther` - Practicepanther
+     * * `Preset` - Preset
+     * * `Procore` - Procore
+     * * `Productiv` - Productiv
+     * * `ProofpointTap` - ProofpointTap
+     * * `Propertyware` - Propertyware
+     * * `Pubnub` - Pubnub
+     * * `Quay` - Quay
+     * * `Raken` - Raken
+     * * `RedpandaCloud` - RedpandaCloud
+     * * `RentManager` - RentManager
+     * * `Reverb` - Reverb
+     * * `RocketMatter` - RocketMatter
+     * * `Rubygems` - Rubygems
+     * * `Scalr` - Scalr
+     * * `SecEdgar` - SecEdgar
+     * * `SelectStar` - SelectStar
+     * * `SemanticScholar` - SemanticScholar
+     * * `Semrush` - Semrush
+     * * `ServiceFusion` - ServiceFusion
+     * * `Servicem8` - Servicem8
+     * * `Servicetitan` - Servicetitan
+     * * `Servicetrade` - Servicetrade
+     * * `Sevdesk` - Sevdesk
+     * * `Similarweb` - Similarweb
+     * * `Simpro` - Simpro
+     * * `Sinch` - Sinch
+     * * `Singlestore` - Singlestore
+     * * `Site24x7` - Site24x7
+     * * `Sleuth` - Sleuth
+     * * `Smartlook` - Smartlook
+     * * `Smartrecruiters` - Smartrecruiters
+     * * `Smokeball` - Smokeball
+     * * `SodaCloud` - SodaCloud
+     * * `Speedcurve` - Speedcurve
+     * * `SpotIo` - SpotIo
+     * * `Sprig` - Sprig
+     * * `Sprinklr` - Sprinklr
+     * * `SproutSocial` - SproutSocial
+     * * `StackOverflowForTeams` - StackOverflowForTeams
+     * * `Stockx` - Stockx
+     * * `TackleIo` - TackleIo
+     * * `Talkdesk` - Talkdesk
+     * * `TeamupFitness` - TeamupFitness
+     * * `Tebra` - Tebra
+     * * `Telnyx` - Telnyx
+     * * `Ternary` - Ternary
+     * * `Thoughtspot` - Thoughtspot
+     * * `Thousandeyes` - Thousandeyes
+     * * `Threads` - Threads
+     * * `TiktokShop` - TiktokShop
+     * * `TinyErp` - TinyErp
+     * * `Tinybird` - Tinybird
+     * * `Tipalti` - Tipalti
+     * * `Toast` - Toast
+     * * `Torii` - Torii
+     * * `Transistor` - Transistor
+     * * `TrunkIo` - TrunkIo
+     * * `Trustradius` - Trustradius
+     * * `Twitch` - Twitch
+     * * `TwoC2p` - TwoC2p
+     * * `UkCompaniesHouse` - UkCompaniesHouse
+     * * `UkOns` - UkOns
+     * * `UnComtrade` - UnComtrade
+     * * `UsBea` - UsBea
+     * * `UsBls` - UsBls
+     * * `UsEia` - UsEia
+     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+     * * `Vanta` - Vanta
+     * * `Vendr` - Vendr
+     * * `Virtuous` - Virtuous
+     * * `Vonage` - Vonage
+     * * `WalmartMarketplace` - WalmartMarketplace
+     * * `Waydev` - Waydev
+     * * `Wayfair` - Wayfair
+     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+     * * `WhoGho` - WhoGho
+     * * `Whop` - Whop
+     * * `Wiz` - Wiz
+     * * `Wompi` - Wompi
+     * * `Workiz` - Workiz
+     * * `WorldBank` - WorldBank
+     * * `Xendit` - Xendit
+     * * `Yoco` - Yoco
+     * * `ZalandoZdirect` - ZalandoZdirect
+     * * `Zluri` - Zluri
+     * * `Zylo` - Zylo
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `Vturb` - Vturb */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -7932,6 +11048,10 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
+}
+
+export type ExternalDataSourcesResumeCdcCreate200 = {
+    success?: boolean
 }
 
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {

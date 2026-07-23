@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SpaceliftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spacelift import (
+    SpaceliftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -129,6 +131,7 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -151,7 +154,11 @@ Your account name is the subdomain you use to access Spacelift (e.g. `my-company
         return schemas
 
     def validate_credentials(
-        self, config: SpaceliftSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SpaceliftSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_spacelift_credentials(config.account_name, config.api_key_id, config.api_key_secret)
 

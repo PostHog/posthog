@@ -31,6 +31,7 @@ members = [
   "common/s3",
   "common/serve_metrics",
   "common/symbol_data",
+  "common/temporal",
   "common/types",
   "common/compression",
   "common/hypercache",
@@ -111,6 +112,16 @@ debug = "line-tables-only"
 opt-level = 3
 
 [profile.dev.package.stateright]
+opt-level = 3
+
+# The model's rebalance action runs the production placement computation
+# (plan_partial_rebalance, the sticky strategy, the handoff diff) in every
+# explored state, so the crates that host it need the same treatment or
+# the checker's hot loop drops back to opt-level 0.
+[profile.dev.package.personhog-coordination]
+opt-level = 3
+
+[profile.dev.package.assignment-coordination]
 opt-level = 3
 
 [workspace.dependencies]
@@ -206,7 +217,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.20.0", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.21.0", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",
