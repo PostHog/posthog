@@ -251,12 +251,15 @@ def _fetch_event_properties(team: Team, inputs: IssueCreatedWorkflowInputs) -> d
     return _fetch_event_properties_from_clickhouse(team, inputs)
 
 
-@activity.defn
 @posthoganalytics.scoped()
 @close_db_connections
-def generate_issue_created_embedding_activity(
+def _prepare_issue_created_embedding(
     inputs: IssueCreatedWorkflowInputs,
-) -> IssueEmbeddingPreparationResult:
+) -> IssueEmbeddingPreparationResult | None:
+    # Returns None when the embedding worker is transiently unavailable. That condition is
+    # already handled by the workflow (it fails open) and is pure noise if captured, so the
+    # caller re-raises it as a retryable ApplicationError *outside* this @scoped() context to
+    # keep it out of error tracking. Genuine unexpected errors still raise here and get captured.
     try:
         team = Team.objects.get(id=inputs.team_id)
     except Team.DoesNotExist:
@@ -284,15 +287,9 @@ def generate_issue_created_embedding_activity(
                 type="EmbeddingRequestRejected",
                 non_retryable=True,
             ) from error
-        raise ApplicationError(
-            "Embedding service is unavailable",
-            type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
-        ) from error
-    except (KeyError, TypeError) as error:
-        raise ApplicationError(
-            "Embedding service returned an invalid response",
-            type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
-        ) from error
+        return None
+    except (KeyError, TypeError):
+        return None
     return IssueEmbeddingPreparationResult(
         team_exists=True,
         embedding=GeneratedIssueEmbedding(
@@ -308,6 +305,22 @@ def generate_issue_created_embedding_activity(
             content=content,
         ),
     )
+
+
+@activity.defn
+def generate_issue_created_embedding_activity(
+    inputs: IssueCreatedWorkflowInputs,
+) -> IssueEmbeddingPreparationResult:
+    preparation = _prepare_issue_created_embedding(inputs)
+    if preparation is None:
+        # Raised outside the @scoped() context above so it is not captured into error tracking.
+        # Temporal still retries on this, and the workflow fails open after the final attempt —
+        # the condition stays observable via the fail-open warning log and metric.
+        raise ApplicationError(
+            "Embedding service is unavailable",
+            type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+        )
+    return preparation
 
 
 @activity.defn
