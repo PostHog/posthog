@@ -85,4 +85,14 @@ describe('visionActionRunsLogic', () => {
         expect(posted).toBe(true)
         expect(logic.values.runningNow).toBe(false)
     })
+
+    it('runInProgress reflects a running run so Run now can be disabled against spam clicks', async () => {
+        // The button disables while a run is actively processing — a repeat run coalesces server-side,
+        // but the disable is what makes that obvious in the UI.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runInProgress).toBe(false) // seeded runs are completed/skipped
+
+        logic.actions.loadRunsSuccess([run('r-live', { status: 'running' })], 1)
+        expect(logic.values.runInProgress).toBe(true)
+    })
 })

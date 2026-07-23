@@ -44,7 +44,7 @@ function ActionOverview({
     // `action.scanner` is only the id — the action's own user_access_level would just reflect the
     // replay_scanner resource default, not a per-scanner object grant, so load the scanner itself.
     const { scanner } = useValues(replayScannerLogic({ id: action.scanner }))
-    const { runningNow } = useValues(visionActionRunsLogic)
+    const { runningNow, runInProgress } = useValues(visionActionRunsLogic)
     const { runNow } = useActions(visionActionRunsLogic)
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
@@ -70,10 +70,12 @@ function ActionOverview({
                                 icon={<IconPlay />}
                                 onClick={runNow}
                                 loading={runningNow}
-                                disabledReason={editDisabledReason}
+                                disabledReason={
+                                    editDisabledReason ?? (runInProgress ? 'A run is already in progress' : undefined)
+                                }
                                 data-attr="vision-action-run-now"
                             >
-                                Run now
+                                {runInProgress ? 'Running…' : 'Run now'}
                             </LemonButton>
                         )}
                         <LemonButton

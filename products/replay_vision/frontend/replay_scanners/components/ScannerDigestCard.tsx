@@ -41,11 +41,22 @@ export function ScannerDigestCard({
     scannerName: string
 }): JSX.Element | null {
     const logic = scannerDigestLogic({ scannerId, scannerName })
-    const { digest, latestRun, latestRunLoading, digestCreating, expanded, visionActionsLoading, runningNow } =
-        useValues(logic)
+    const {
+        digest,
+        latestRun,
+        latestRunLoading,
+        digestCreating,
+        expanded,
+        visionActionsLoading,
+        runningNow,
+        runInProgress,
+    } = useValues(logic)
     const { createDigest, toggleExpanded, toggleActionEnabled, runNow } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
+    // Disable Run now while a run is actually processing (not just during the trigger request). A
+    // second run coalesces server-side anyway, but disabling makes that obvious and stops spam clicks.
+    const runNowDisabledReason = editDisabledReason ?? (runInProgress ? 'A run is already in progress' : undefined)
 
     if (visionActionsLoading && !digest) {
         return null
@@ -119,10 +130,10 @@ export function ScannerDigestCard({
                             size="small"
                             onClick={runNow}
                             loading={runningNow}
-                            disabledReason={editDisabledReason}
+                            disabledReason={runNowDisabledReason}
                             data-attr="vision-scanner-digest-run-now-empty"
                         >
-                            Run now
+                            {runInProgress ? 'Running…' : 'Run now'}
                         </LemonButton>
                         <LemonButton
                             type="secondary"
@@ -185,10 +196,10 @@ export function ScannerDigestCard({
                     type="secondary"
                     onClick={runNow}
                     loading={runningNow}
-                    disabledReason={editDisabledReason}
+                    disabledReason={runNowDisabledReason}
                     data-attr="vision-scanner-digest-run-now"
                 >
-                    Run now
+                    {runInProgress ? 'Running…' : 'Run now'}
                 </LemonButton>
                 {!delivers && (
                     <LemonButton
