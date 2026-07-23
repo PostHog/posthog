@@ -4,6 +4,7 @@ import datetime
 import tempfile
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, patch
 
 from django.db import OperationalError
@@ -206,6 +207,7 @@ class TestRepartitionDetection:
         assert schema.repartition_pending["partition_mode"] == "md5"
         assert schema.repartition_pending["partition_keys"] == ["id"]
 
+    @freeze_time("2024-01-01")
     @pytest.mark.parametrize("elapsed", [False, True])
     def test_abandoned_backoff_gates_detection(self, team, elapsed):
         # The circuit breaker's two halves. While the backoff is live, detection must skip an over-budget
@@ -253,6 +255,7 @@ class TestRepartitionDetection:
         pytest.param({"retry_after": "not-a-date"}, True, id="unparseable_retry_after_fails_safe"),
     ],
 )
+@freeze_time("2024-01-01")
 def test_is_repartition_backing_off(marker, expected):
     # The gate the detection paths consult. A missing or unparseable `retry_after` must fail safe to
     # "still backing off" so a malformed marker can't silently reopen the rewrite loop.
