@@ -18,7 +18,7 @@
           "variant": "test"
         }
       },
-      "$geoip_accuracy_radius": 50,
+      "$geoip_accuracy_radius": 20,
       "$geoip_city_name": "Karlstad",
       "$geoip_continent_code": "EU",
       "$geoip_continent_name": "Europe",
@@ -26,7 +26,7 @@
       "$geoip_country_name": "Sweden",
       "$geoip_latitude": 59.3784,
       "$geoip_longitude": 13.5123,
-      "$geoip_postal_code": "652 30",
+      "$geoip_postal_code": "650 02",
       "$geoip_subdivision_1_code": "S",
       "$geoip_subdivision_1_name": "Värmland County",
       "$geoip_time_zone": "Europe/Stockholm",
@@ -41,7 +41,7 @@
       "$screen_width": 1920,
       "$session_id": "01900000-0000-7000-8000-000000000000",
       "$set": {
-        "$geoip_accuracy_radius": 50,
+        "$geoip_accuracy_radius": 20,
         "$geoip_city_confidence": null,
         "$geoip_city_name": "Karlstad",
         "$geoip_continent_code": "EU",
@@ -50,7 +50,7 @@
         "$geoip_country_name": "Sweden",
         "$geoip_latitude": 59.3784,
         "$geoip_longitude": 13.5123,
-        "$geoip_postal_code": "652 30",
+        "$geoip_postal_code": "650 02",
         "$geoip_subdivision_1_code": "S",
         "$geoip_subdivision_1_name": "Värmland County",
         "$geoip_subdivision_2_code": null,
@@ -60,7 +60,7 @@
         "plan": "scale"
       },
       "$set_once": {
-        "$initial_geoip_accuracy_radius": 50,
+        "$initial_geoip_accuracy_radius": 20,
         "$initial_geoip_city_confidence": null,
         "$initial_geoip_city_name": "Karlstad",
         "$initial_geoip_continent_code": "EU",
@@ -69,7 +69,7 @@
         "$initial_geoip_country_name": "Sweden",
         "$initial_geoip_latitude": 59.3784,
         "$initial_geoip_longitude": 13.5123,
-        "$initial_geoip_postal_code": "652 30",
+        "$initial_geoip_postal_code": "650 02",
         "$initial_geoip_subdivision_1_code": "S",
         "$initial_geoip_subdivision_1_name": "Värmland County",
         "$initial_geoip_subdivision_2_code": null,
