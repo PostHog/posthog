@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/common/api/router'
+import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -126,6 +127,9 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
+    // Same limiter name/config as HogFlowInvocationPipeline, so manual invocations draw from the
+    // same per-workflow token bucket as event-driven ones instead of bypassing it.
+    private hogFlowRateLimiter: KeyedRateLimiterService
     // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
     // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
     // isn't provisioned — the route then fails closed.
@@ -178,6 +182,15 @@ export class CdpApi {
             this.invocationResultsService
         )
         this.batchResolverProducer = batchResolverProducer
+        this.hogFlowRateLimiter = new KeyedRateLimiterService(
+            {
+                name: 'hog-rate-limiter',
+                bucketSize: config.CDP_RATE_LIMITER_BUCKET_SIZE,
+                refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
+                ttlSeconds: config.CDP_RATE_LIMITER_TTL,
+            },
+            services.redis
+        )
         this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
             ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
             : null
@@ -780,6 +793,12 @@ export class CdpApi {
             const quotaResult = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
             if (quotaResult.isLimited) {
                 return res.status(429).json({ error: 'Team is over quota for the actions in this workflow' })
+            }
+            // Draw from the same per-workflow token bucket as the event pipeline, so repeated manual
+            // runs can't bypass the rate limit and monopolize shared worker capacity.
+            const [[, rateLimit]] = await this.hogFlowRateLimiter.rateLimitGrouped([{ id: hogFlow.id, cost: 1 }])
+            if (rateLimit.isRateLimited) {
+                return res.status(429).json({ error: 'Workflow is being run too frequently — try again shortly' })
             }
 
             const isPlainObject = (value: unknown): value is Record<string, any> =>

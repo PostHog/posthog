@@ -1198,6 +1198,12 @@ describe('CDP API', () => {
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
         })
 
+        afterEach(() => {
+            // clearMocks only clears calls; restore spy implementations (watcher, rate limiter)
+            // so they don't leak into later tests in this file.
+            jest.restoreAllMocks()
+        })
+
         it('runs any active workflow regardless of trigger type', async () => {
             // Unlike scheduled_invocations, an event-triggered workflow is accepted here.
             const hogFlow = await insertHogFlow(activeEventHogFlow())
@@ -1242,6 +1248,22 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(400)
             expect(res.body.error).toEqual('event.properties must be an object')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('rejects a run when the per-workflow rate limit is exhausted', async () => {
+            // Manual runs must draw from the same token bucket as event-driven invocations, or the
+            // route becomes a rate-limit bypass that can monopolize shared worker capacity.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            jest.spyOn(api['hogFlowRateLimiter'], 'rateLimitGrouped').mockResolvedValue([
+                [hogFlow.id, { isRateLimited: true, tokens: 0 } as any],
+            ])
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(429)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
