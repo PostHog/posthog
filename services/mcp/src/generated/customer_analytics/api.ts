@@ -676,7 +676,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
             ),
         source_column: zod
             .string()
@@ -687,13 +687,13 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person.'
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
             ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
             .describe(
-                "Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources."
+                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources."
             ),
         is_enabled: zod
             .boolean()
@@ -703,7 +703,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
     )
 
 export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
@@ -759,8 +759,9 @@ export const CustomPropertySourcesDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Person sources only: start a backfill that reads the whole warehouse table and populates
- * person properties for historical rows. Coalesces if one is already running for the table.
+ * Person and group sources only: start a backfill that reads the whole warehouse table and
+ * populates person or group properties for historical rows. Coalesces if one is already running
+ * for the table.
  */
 export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -772,8 +773,9 @@ export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Person sources only: the source's sync/backfill run history, newest first. Gated on the
- * caller's warehouse-source viewer access, since the runs expose its row counts and sync errors.
+ * Person and group sources only: the source's sync/backfill run history, newest first. Gated
+ * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
+ * errors.
  */
 export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -790,8 +792,9 @@ export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
- * real (billable) warehouse sync; the incremental person-property update runs off it.
+ * Person and group sources only: trigger the underlying warehouse schema's sync now. This
+ * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
+ * off it.
  */
 export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
