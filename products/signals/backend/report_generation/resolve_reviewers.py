@@ -181,7 +181,7 @@ def resolve_suggested_reviewers(
 
     for i, (sha, reason) in enumerate(items):
         author_info = author_results.get(i)
-        if author_info:
+        if author_info and not author_info.is_bot:
             # Lowercased to match the activity map's keys (and the persisted artefact shape).
             login = author_info.login.lower()
             weight = total - i

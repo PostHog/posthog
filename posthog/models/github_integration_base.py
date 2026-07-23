@@ -55,6 +55,7 @@ class GitHubCommitAuthor:
     commit_url: str
     # GitHub caps the file listing at 300 entries.
     file_paths: tuple[str, ...] = ()
+    is_bot: bool = False
 
 
 @dataclass(frozen=True)
@@ -686,7 +687,13 @@ class GitHubIntegrationBase:
             if isinstance(files, list)
             else ()
         )
-        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url, file_paths=file_paths)
+        return GitHubCommitAuthor(
+            login=author["login"],
+            name=name,
+            commit_url=commit_url,
+            file_paths=file_paths,
+            is_bot=author.get("type") == "Bot",
+        )
 
     def list_commit_attributions(
         self,
