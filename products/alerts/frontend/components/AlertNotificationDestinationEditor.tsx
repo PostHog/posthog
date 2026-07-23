@@ -67,6 +67,7 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
     }
     slack: {
         notificationType: NotificationType
+        integrationsLoading: boolean
         integrations?: IntegrationType[]
         integration?: IntegrationType
         onIntegrationChange?: (integrationId: number | null) => void
@@ -210,9 +211,25 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     url,
     add,
 }: AlertNotificationDestinationEditorProps<NotificationType>): JSX.Element {
+    const addDestinationButton = (
+        <LemonButton
+            type="primary"
+            size="small"
+            onClick={add.onClick}
+            disabledReason={add.disabledReason}
+            className="shrink-0"
+        >
+            Add destination
+        </LemonButton>
+    )
+    const addDestinationButtonIsInline =
+        (notificationType.value === slack.notificationType && Boolean(slack.integration)) || Boolean(url)
+
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {
-        if (slack.integration) {
+        if (slack.integrationsLoading) {
+            slackDestinationInput = <LemonSkeleton className="h-10" />
+        } else if (slack.integration) {
             slackDestinationInput = (
                 <div className="space-y-3">
                     {(slack.integrations?.length ?? 0) > 1 ? (
@@ -232,11 +249,16 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                     ) : null}
                     <fieldset className="space-y-1">
                         <legend className="text-sm font-medium">Channel</legend>
-                        <SlackChannelPicker
-                            value={slack.channelValue ?? undefined}
-                            onChange={slack.onChannelValueChange}
-                            integration={slack.integration}
-                        />
+                        <div className="flex flex-col sm:flex-row items-start gap-2">
+                            <div className="flex-1 min-w-0 w-full">
+                                <SlackChannelPicker
+                                    value={slack.channelValue ?? undefined}
+                                    onChange={slack.onChannelValueChange}
+                                    integration={slack.integration}
+                                />
+                            </div>
+                            {addDestinationButton}
+                        </div>
                     </fieldset>
                 </div>
             )
@@ -267,19 +289,20 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
 
                 {url ? (
                     <div className="space-y-1">
-                        <LemonInput
-                            placeholder={url.input.placeholder}
-                            value={url.value}
-                            onChange={url.onChange}
-                            fullWidth
-                        />
+                        <div className="flex flex-col sm:flex-row items-start gap-2">
+                            <LemonInput
+                                placeholder={url.input.placeholder}
+                                value={url.value}
+                                onChange={url.onChange}
+                                fullWidth
+                            />
+                            {addDestinationButton}
+                        </div>
                         {url.input.helpText ? <p className="text-xs text-muted-alt m-0">{url.input.helpText}</p> : null}
                     </div>
                 ) : null}
 
-                <LemonButton type="secondary" size="small" onClick={add.onClick} disabledReason={add.disabledReason}>
-                    Add notification
-                </LemonButton>
+                {!addDestinationButtonIsInline ? addDestinationButton : null}
             </div>
         </div>
     )

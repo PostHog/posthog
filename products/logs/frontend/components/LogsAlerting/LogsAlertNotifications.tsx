@@ -34,6 +34,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         existingHogFunctionsLoading,
         destinationGroups,
         pendingNotifications,
+        integrationsLoading,
         firstSlackIntegration,
         selectedType,
         slackChannelValue,
@@ -107,6 +108,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             }}
             slack={{
                 notificationType: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+                integrationsLoading,
                 integration: firstSlackIntegration,
                 channelValue: slackChannelValue,
                 onChannelValueChange: setSlackChannelValue,

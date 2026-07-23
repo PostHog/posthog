@@ -211,6 +211,7 @@ function NotificationsStory(): JSX.Element {
                 }}
                 slack={{
                     notificationType: 'slack',
+                    integrationsLoading: false,
                     channelValue: slackChannelValue,
                     onChannelValueChange: setSlackChannelValue,
                 }}

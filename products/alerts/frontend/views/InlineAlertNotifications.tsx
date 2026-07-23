@@ -168,6 +168,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         existingHogFunctions,
         existingHogFunctionsLoading,
         pendingNotifications,
+        integrationsLoading,
         slackIntegrations,
         selectedSlackIntegration,
         selectedType,
@@ -267,6 +268,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             }}
             slack={{
                 notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
+                integrationsLoading,
                 integrations: slackIntegrations,
                 integration: selectedSlackIntegration,
                 onIntegrationChange: setSelectedSlackIntegrationId,
