@@ -572,6 +572,8 @@ SPECTACULAR_SETTINGS = {
         "MetricsRecalculationStatusEnum": (
             "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
         ),
+        "AnnouncementStatusEnum": "products.customer_analytics.backend.models.announcement.Announcement.Status",
+        "AnnouncementDeliveryStatusEnum": "products.customer_analytics.backend.models.announcement_delivery.AnnouncementDelivery.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
@@ -926,7 +928,11 @@ DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 ####
 # CDP
 
+# Deprecated compatibility fallback for the image CDN. New deployments should configure the
+# API-specific credentials below so a publishable key can never be reused for authenticated API calls.
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
+LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOKEN)
+LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
 # Feature flag billing analytics

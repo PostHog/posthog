@@ -33,6 +33,10 @@ const POSTHOG_DESTRUCTIVE_SUBTOOL_RE = /(^|-)(partial-update|update|patch|delete
  * `annotations.destructive: true` tools in `products/*\/mcp/*.yaml` — update both together.
  */
 const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
+    // confirmed_action tools register only `<name>-execute` (and `-prepare`); the bare name is
+    // never a runtime tool, so the destructive `-execute` variant is what must be gated.
+    'change-requests-approve-execute',
+    'change-requests-reject-execute',
     'error-tracking-bypass-rules-create',
     'error-tracking-issues-merge-create',
     'error-tracking-issues-split-create',
@@ -44,6 +48,8 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'inbox-reports-bulk-set-state',
     'inbox-reports-set-state',
     'llma-prompt-label-set',
+    'organization-enforce-2fa',
+    'organization-enforce-2fa-execute',
     'scout-scratchpad-forget',
     'signals-scout-scratchpad-forget',
     'skill-archive',

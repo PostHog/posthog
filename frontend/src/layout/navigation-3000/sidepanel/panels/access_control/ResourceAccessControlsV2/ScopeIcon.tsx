@@ -13,6 +13,7 @@ import {
     IconLive,
     IconListTree,
     IconLlmAnalytics,
+    IconLlmPromptManagement,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -22,6 +23,7 @@ import {
     IconPulse,
     IconRewindPlay,
     IconRocket,
+    IconShare,
     IconScatter,
     IconSpotlight,
     IconToggle,
@@ -68,6 +70,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconTrends />
         case 'llm_analytics':
             return <IconLlmAnalytics />
+        case 'llm_skill':
+            return <IconLlmPromptManagement />
         case 'ai_observability_clusters':
             return <IconScatter />
         case 'live_debugger':
@@ -88,6 +92,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconPiggyBank />
         case 'session_recording':
             return <IconRewindPlay />
+        case 'sharing_configuration':
+            return <IconShare />
         case 'survey':
             return <IconMessage />
         case 'task':

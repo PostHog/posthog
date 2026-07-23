@@ -103,13 +103,17 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             raise ValueError("Slack access token not found")
         return oauth_token, self._get_authed_user_id(integration), str(integration.id)
 
-    def create_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: SlackSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return WebhookCreationResult(
             success=False,
             error="Slack does not support automatic webhook creation. Please follow the manual setup instructions.",
         )
 
-    def delete_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: SlackSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         # Slack does not expose an API to remove an Events API Request URL — the user has to
         # toggle it off manually in the app settings. Returning success lets the HogFunction
         # be cleaned up without showing the user a misleading "deletion failed" error.
@@ -274,6 +278,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
@@ -314,7 +319,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         return schemas
 
     def validate_credentials(
-        self, config: SlackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: SlackSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             access_token, _authed_user, _cache_id = self._resolve_access_token(config, team_id)

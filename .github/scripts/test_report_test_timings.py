@@ -84,6 +84,21 @@ def test_derive_suite_segment_and_group(dir_name: str, expected: tuple[str, str,
     assert report_test_timings.derive_suite_segment_and_group(dir_name) == expected
 
 
+@pytest.mark.parametrize(
+    "dir_name,expected",
+    [
+        # A suffix folded into the segment would mis-key the shard and break recovery pairing.
+        ("junit-results-backend-core-29-attempt2", ("junit-results-backend-core-29", 2)),
+        ("junit-results-backend-core-29-attempt10", ("junit-results-backend-core-29", 10)),
+        ("junit-results-backend-core-29", ("junit-results-backend-core-29", 1)),
+        # No digits is not an attempt suffix: a segment could legitimately end in a word.
+        ("junit-results-backend-core-attempt", ("junit-results-backend-core-attempt", 1)),
+    ],
+)
+def test_split_attempt_suffix(dir_name: str, expected: tuple[str, int]) -> None:
+    assert report_test_timings.split_attempt_suffix(dir_name) == expected
+
+
 # ---------- shard parsing end-to-end ----------
 
 
@@ -313,6 +328,61 @@ def test_filter_shards_preserves_parse_time_test_windows(tmp_path: Path) -> None
     assert filtered[0].tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 300000, tzinfo=UTC)
 
 
+# ---------- re-run attempts ----------
+
+
+def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes(tmp_path: Path) -> None:
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-1",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body="""\
+            <testcase classname="pkg.t.T" name="test_flaky" time="0.1"><failure message="x"/></testcase>
+            <testcase classname="pkg.t.T" name="test_untouched" time="0.1"/>
+        """,
+    )
+    # Not re-executed on attempt 2: must not be re-reported under the new attempt.
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body='<testcase classname="pkg.t.T" name="test_other" time="0.1"><failure message="x"/></testcase>',
+    )
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-1-attempt2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T11:00:00",
+        time="1.0",
+        body="""\
+            <testcase classname="pkg.t.T" name="test_flaky" time="0.1"/>
+            <testcase classname="pkg.t.T" name="test_untouched" time="0.1"/>
+        """,
+    )
+    # A pass in a different leg runs a different config and must not read as recovery.
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-3-attempt2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T11:00:00",
+        time="1.0",
+        body='<testcase classname="pkg.t.T" name="test_flaky" time="0.1"/>',
+    )
+
+    current, prior_failed = report_test_timings.partition_run_attempt(report_test_timings.collect_shards(tmp_path), 2)
+    filtered = report_test_timings.filter_shards(current, 0.5, prior_failed)
+
+    assert [(s.info.group, s.info.attempt) for s in filtered] == [(1, 2), (3, 2)]
+    assert prior_failed == {
+        "backend:core:1": frozenset({"pkg/t/T::test_flaky"}),
+        "backend:core:2": frozenset({"pkg/t/T::test_other"}),
+    }
+    # Only the same-leg recovery pass survives the threshold filter; the fast pass that never
+    # failed and the cross-leg pass are dropped.
+    assert [test.name for test in filtered[0].tests] == ["test_flaky"]
+    assert filtered[1].tests == []
+
+
 class _FakeSpan:
     def __init__(self, name: str, start_time: int) -> None:
         self.name = name
@@ -535,3 +605,18 @@ def test_job_trace_key_distinguishes_jobs() -> None:
     assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "core", 2))
     assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "temporal", 1))
     assert key(_artifact("backend", "core", 1)) == key(_artifact("backend", "core", 1))
+
+
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a", "POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_b"}, ["phc_a", "phc_b"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a", "POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_a"}, ["phc_a"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "phc_a"}, ["phc_a"]),
+        ({"POSTHOG_CI_TRACES_EXTRA_TOKEN": "phc_b"}, ["phc_b"]),
+        ({"POSTHOG_DEVEX_PROJECT_API_TOKEN": "", "POSTHOG_CI_TRACES_EXTRA_TOKEN": ""}, []),
+        ({}, []),
+    ],
+)
+def test_emission_tokens(env: dict[str, str], expected: list[str]) -> None:
+    assert report_test_timings.emission_tokens(env) == expected

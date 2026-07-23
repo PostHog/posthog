@@ -1,30 +1,36 @@
 import {
     IconAI,
+    IconApps,
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
     IconFlask,
-    IconFunnels,
     IconGraph,
     IconHogQL,
-    IconLifecycle,
     IconLineGraph,
     IconLive,
     IconLlmAnalytics,
     IconPerson,
     IconPieChart,
     IconPiggyBank,
-    IconRetention,
-    IconRetentionHeatmap,
-    IconStickiness,
     IconTrends,
-    IconUserPaths,
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
+import {
+    IconAction,
+    IconBracketsChart,
+    IconInsightCalendarHeatmap,
+    IconInsightFunnels,
+    IconInsightLifecycle,
+    IconInsightRetention,
+    IconInsightStickiness,
+    IconInsightTrends,
+    IconInsightUserPaths,
+    IconTableChart,
+} from 'lib/lemon-ui/icons'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
@@ -43,42 +49,42 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
         name: 'Calendar heatmap (BETA)',
         description: 'Visualize total or unique users broken down by day and hour.',
-        icon: IconRetentionHeatmap,
+        icon: IconInsightCalendarHeatmap,
         inMenu: true,
         // tooltipDescription TODO: Add tooltip description
     },
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
         description: 'Visualize and break down how actions or events vary over time.',
-        icon: IconTrends,
+        icon: IconInsightTrends,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/trends/overview',
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions.',
-        icon: IconFunnels,
+        icon: IconInsightFunnels,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/funnels',
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an initial action.',
-        icon: IconRetention,
+        icon: IconInsightRetention,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/retention',
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off.',
-        icon: IconUserPaths,
+        icon: IconInsightUserPaths,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
-        icon: IconStickiness,
+        icon: IconInsightStickiness,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/stickiness',
     },
@@ -86,7 +92,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         tooltipDescription: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
-        icon: IconLifecycle,
+        icon: IconInsightLifecycle,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
     },
@@ -207,7 +213,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.DataVisualizationNode]: {
         name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: false,
     },
     [NodeKind.SavedInsightNode]: {
@@ -231,25 +237,25 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'SQL',
         description: 'Direct SQL query.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
         description: 'Metadata for a SQL query.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
     },
     [NodeKind.HogQLAutocomplete]: {
         name: 'SQL Autocomplete',
         description: 'Autocomplete for the SQL query editor.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: false,
     },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
     },
     [NodeKind.RevenueAnalyticsMetricsQuery]: {
@@ -628,6 +634,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPToolFailureOccurrencesQuery]: {
+        name: 'MCP tool failure occurrences',
+        description: 'Individual errored calls within one failure bucket of an MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPToolQualityRowsQuery]: {
         name: 'MCP tool quality rows',
         description: 'Per-tool quality metrics for the Tool quality tab.',
@@ -664,7 +676,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },
@@ -689,7 +701,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
-    { value: 'All types', label: 'All types' },
+    { value: 'All types', label: 'All types', icon: <IconApps /> },
     ...Object.entries(INSIGHT_TYPES_METADATA)
         .filter(([, meta]) => meta.inMenu !== false)
         .map(([value, meta]) => ({
