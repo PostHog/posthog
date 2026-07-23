@@ -1,12 +1,22 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
+
+from django.core.exceptions import ObjectDoesNotExist
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
 
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
+
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
 from posthog.models.team.team import Team
@@ -17,6 +27,27 @@ from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 class BlastRadiusResult:
     affected: int
     total: int
+
+
+@contextmanager
+def unevaluable_filters_as_validation_errors() -> Iterator[None]:
+    # Sizing runs caller-supplied condition filters through HogQL and ClickHouse. Shapes those
+    # layers reject - behavioral or event filters in person scope, deleted or malformed cohort
+    # references, malformed regexes, values that don't cast to the property's type - fail
+    # deterministically on every request, so they're the caller's input, not a server fault:
+    # surface them as a 400 carrying the layer's own message instead of an opaque 500. ValueError
+    # and ObjectDoesNotExist are caught only inside this block, where filter parsing and cohort
+    # resolution are the dominant sources.
+    try:
+        yield
+    except (
+        ExposedHogQLError,
+        HogQLNotImplementedError,
+        ExposedCHQueryError,
+        ObjectDoesNotExist,
+        ValueError,
+    ) as e:
+        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -54,12 +85,13 @@ def get_user_blast_radius(
     group_type_index: Optional[GroupTypeIndex] = None,
 ) -> BlastRadiusResult:
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
-    cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
-    if group_type_index is not None:
-        affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
-    else:
-        affected, total = _get_person_blast_radius(team, cleaned_filter)
+        if group_type_index is not None:
+            affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
+        else:
+            affected, total = _get_person_blast_radius(team, cleaned_filter)
     return BlastRadiusResult(affected=affected, total=total)
 
 
@@ -70,12 +102,13 @@ def get_user_blast_radius_persons(
     cursor: Optional[str] = None,
 ):
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
-    cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
-    if group_type_index is not None:
-        return _get_group_blast_radius_persons(team, cleaned_filter, group_type_index, cursor=cursor)
-    else:
-        return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
+        if group_type_index is not None:
+            return _get_group_blast_radius_persons(team, cleaned_filter, group_type_index, cursor=cursor)
+        else:
+            return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:

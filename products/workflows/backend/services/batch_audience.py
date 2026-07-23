@@ -13,7 +13,11 @@ from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons, replace_proxy_properties
+from products.feature_flags.backend.user_blast_radius import (
+    get_user_blast_radius_persons,
+    replace_proxy_properties,
+    unevaluable_filters_as_validation_errors,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -73,11 +77,12 @@ def get_batch_audience_person_ids(
         # Group keys are already unique; the flags-owned group query needs no dedup.
         return get_user_blast_radius_persons(team, filters, group_type_index, cursor)
 
-    cleaned_filter = replace_proxy_properties(team, filters)
-    select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, filters)
+        select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
-    tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-    response = execute_hogql_query(query=select_query, team=team)
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+        response = execute_hogql_query(query=select_query, team=team)
 
     return [str(row[0]) for row in response.results] if response.results else []
 
@@ -100,25 +105,26 @@ def get_batch_audience_count(
     else:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
-    cleaned_filter = replace_proxy_properties(team, filters)
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, filters)
 
-    where_exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["persons", "team_id"]),
-            right=ast.Constant(value=team.pk),
-        ),
-        property_to_expr(cleaned_filter.property_groups, team, scope="person"),
-    ]
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["persons", "team_id"]),
+                right=ast.Constant(value=team.pk),
+            ),
+            property_to_expr(cleaned_filter.property_groups, team, scope="person"),
+        ]
 
-    select_query = ast.SelectQuery(
-        select=[ast.Call(name="count", distinct=True, args=[group_expr])],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-        where=ast.And(exprs=where_exprs),
-    )
+        select_query = ast.SelectQuery(
+            select=[ast.Call(name="count", distinct=True, args=[group_expr])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            where=ast.And(exprs=where_exprs),
+        )
 
-    tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-    response = execute_hogql_query(query=select_query, team=team)
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+        response = execute_hogql_query(query=select_query, team=team)
 
     return response.results[0][0] if response.results else 0
 
