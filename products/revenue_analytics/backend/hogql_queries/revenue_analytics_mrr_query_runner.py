@@ -42,6 +42,19 @@ ZERO_IN_DECIMAL_PRECISION = ast.Call(
 ZERO_PLACEHOLDERS: dict[str, ast.Expr] = {"zero": ZERO_IN_DECIMAL_PRECISION}
 
 
+# The upstream revenue view's `amount` can carry any Decimal scale: Stripe/events views land on the
+# exchange-rate precision, but data-warehouse-backed revenue views can be e.g. Decimal(18, 2). ClickHouse
+# requires every branch of an `if`/`multiIf` to share a single Decimal scale, and downstream we mix `amount`
+# with the scale-`EXCHANGE_RATE_DECIMAL_PRECISION` zeros above (both directly and via the `lagInFrame` default),
+# so normalize `amount` to that same precision up front. Decimal128 keeps plenty of headroom so the cast never
+# overflows to NULL for realistic revenue values.
+def amount_in_exchange_rate_precision(expr: ast.Expr) -> ast.Call:
+    return ast.Call(
+        name="accurateCastOrNull",
+        args=[expr, ast.Constant(value=f"Decimal128({EXCHANGE_RATE_DECIMAL_PRECISION})")],
+    )
+
+
 class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalyticsMRRQueryResponse]):
     query: RevenueAnalyticsMRRQuery
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
@@ -452,7 +465,12 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]),
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]),
                 ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]),
-                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
+                ast.Alias(
+                    alias="amount",
+                    expr=amount_in_exchange_rate_precision(
+                        ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
+                    ),
+                ),
             ],
             select_from=self._with_where_property_and_breakdown_joins(
                 ast.JoinExpr(

@@ -14,6 +14,7 @@ from unittest.mock import ANY, patch
 
 from posthog.schema import (
     CurrencyCode,
+    DatabaseSchemaManagedViewTableKind,
     DateRange,
     HogQLQueryModifiers,
     PropertyOperator,
@@ -38,6 +39,8 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -1423,3 +1426,82 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # No MRR data because events have no subscription
         assert all(entry == 0 for result in results for entry in result.total["data"])
+
+
+class TestRevenueAnalyticsMRRQueryRunnerNonScale10Amount(ClickhouseTestMixin, APIBaseTest):
+    # Data-warehouse-backed revenue views can expose `amount` at a Decimal scale other than 10 (e.g.
+    # Decimal(18, 2)), while the MRR query mixes `amount` with scale-10 zero constants in its `if`/`multiIf`
+    # branches (and the `lagInFrame` default). ClickHouse rejects conditional branches with mismatched Decimal
+    # scales, so this used to crash the whole MRR view. Every other fixture normalizes `amount` to scale 10, so
+    # nothing exercised this path.
+    QUERY_TIMESTAMP = "2025-05-31"
+
+    REVENUE_ITEM_FIELDS = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM].fields
+
+    def _decimal_scale_2_view(self) -> RevenueAnalyticsRevenueItemView:
+        # `amount` (and the helper amounts) deliberately land on Decimal(18, 2) via `toDecimal(x, 2)`.
+        # Charges are dated on the last day of the month so the MRR change surfaces on the kept month-end row.
+        def _row(row_id: str, timestamp: str, amount: int) -> str:
+            return f"""SELECT
+                '{row_id}' AS id, '{row_id}_item' AS invoice_item_id, 'warehouse' AS source_label,
+                toDateTime('{timestamp}') AS timestamp, toDateTime('{timestamp}') AS created_at,
+                true AS is_recurring, 'prod_1' AS product_id, 'cust_1' AS customer_id,
+                NULL AS group_0_key, NULL AS group_1_key, NULL AS group_2_key, NULL AS group_3_key,
+                NULL AS group_4_key, '{row_id}_invoice' AS invoice_id, 'sub_1' AS subscription_id,
+                NULL AS session_id, NULL AS event_name, NULL AS coupon, NULL AS coupon_id,
+                'USD' AS original_currency, toDecimal({amount}, 2) AS original_amount,
+                false AS enable_currency_aware_divider, toDecimal(1, 2) AS currency_aware_divider,
+                toDecimal({amount}, 2) AS currency_aware_amount, 'USD' AS currency, toDecimal({amount}, 2) AS amount"""
+
+        query = " UNION ALL ".join(
+            [
+                _row("ri_jan", "2025-01-31 00:00:00", 2000),
+                _row("ri_feb", "2025-02-28 00:00:00", 3000),
+            ]
+        )
+
+        return RevenueAnalyticsRevenueItemView(
+            id="warehouse.decimal_scale.revenue_item_revenue_view",
+            name="warehouse.decimal_scale.revenue_item_revenue_view",
+            prefix="warehouse.decimal_scale",
+            query=query,
+            fields=self.REVENUE_ITEM_FIELDS,
+        )
+
+    def _run(self) -> RevenueAnalyticsMRRQueryResponse:
+        query = RevenueAnalyticsMRRQuery(
+            dateRange=DateRange(date_from="2024-11-01", date_to="2026-05-01"),
+            interval=SimpleIntervalType.MONTH,
+            breakdown=[],
+            properties=[],
+            modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+        )
+        with (
+            freeze_time(self.QUERY_TIMESTAMP),
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.build_all_revenue_analytics_views",
+                return_value=[self._decimal_scale_2_view()],
+            ),
+        ):
+            runner = RevenueAnalyticsMRRQueryRunner(team=self.team, query=query, user=self.user)
+            response = runner.calculate()
+
+        RevenueAnalyticsMRRQueryResponse.model_validate(response)
+        return response
+
+    def test_mrr_query_runs_for_decimal_scale_2_amount(self):
+        results = self._run().results
+
+        self.assertEqual(len(results), 1)
+
+        total = results[0].total
+        jan = total["days"].index("2025-01-31")
+        feb = total["days"].index("2025-02-28")
+
+        # Total MRR carries the last charge; new/expansion decompose the month-over-month change. All of these
+        # come from `if`/`multiIf` branches that mix `amount` with scale-10 zeros, so a scale regression would
+        # crash the query before any of them returned.
+        self.assertEqual(total["data"][jan], Decimal(2000))
+        self.assertEqual(total["data"][feb], Decimal(3000))
+        self.assertEqual(results[0].new["data"][jan], Decimal(2000))
+        self.assertEqual(results[0].expansion["data"][feb], Decimal(1000))
