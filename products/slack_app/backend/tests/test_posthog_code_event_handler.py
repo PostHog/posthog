@@ -4,11 +4,12 @@ from typing import Any
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
+from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -19,7 +20,7 @@ from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
-class TestPostHogCodeEventHandler(TestCase):
+class TestPostHogCodeEventHandler(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
         self.signing_secret = "posthog-code-test-secret"
@@ -101,6 +102,46 @@ class TestPostHogCodeEventHandler(TestCase):
             mock_route.assert_called_once()
         else:
             mock_route.assert_not_called()
+
+    @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_link_shared_logs_unfurl_context(self, mock_config, mock_route):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_route.return_value = "handled_locally"
+        payload = {
+            "type": "event_callback",
+            "team_id": "T12345",
+            "event_id": "Ev12345",
+            "is_ext_shared_channel": True,
+            "event": {
+                "type": "link_shared",
+                "channel": "C001",
+                "message_ts": "1234.5678",
+                "user": "U123",
+                "links": [
+                    {"url": "https://us.posthog.com/project/2/insights/abc123"},
+                    {"url": "https://us.posthog.com/project/2/dashboard/456"},
+                    {"url": "https://example.com/project/2/insights/not-posthog"},
+                ],
+            },
+        }
+
+        with capture_logs() as logs:
+            response = self._post_event(payload)
+
+        assert response.status_code == 202
+        unfurl_log = next(log for log in logs if log["event"] == "slack_link_unfurl_received")
+        assert unfurl_log == {
+            "event": "slack_link_unfurl_received",
+            "slack_team_id": "T12345",
+            "event_id": "Ev12345",
+            "channel": "C001",
+            "message_ts": "1234.5678",
+            "is_ext_shared_channel": True,
+            "is_ext_shared_channel_type": "bool",
+            "resources": [{"type": "insight", "ref": "abc123"}, {"type": "dashboard", "ref": "456"}],
+            "log_level": "info",
+        }
 
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):

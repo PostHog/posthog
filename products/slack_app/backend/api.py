@@ -106,7 +106,7 @@ from products.slack_app.backend.services.slack_user_oauth import (
     find_linked_posthog_user,
     post_link_invite_message,
 )
-from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
+from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl, parse_posthog_resource_link
 
 logger = structlog.get_logger(__name__)
 
@@ -2552,7 +2552,19 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
             # ``is_ext_shared_channel`` lives on the event envelope (Slack adds it for
             # any event delivered from a Slack Connect channel). Reading it here avoids
             # a per-mention ``conversations.info`` round-trip.
-            is_ext_shared = bool(data.get("is_ext_shared_channel", False))
+            raw_is_ext_shared_channel = data.get("is_ext_shared_channel", False)
+            if event.get("type") == "link_shared":
+                logger.info(
+                    "slack_link_unfurl_received",
+                    slack_team_id=slack_team_id,
+                    event_id=event_id,
+                    channel=event.get("channel"),
+                    message_ts=event.get("message_ts"),
+                    is_ext_shared_channel=raw_is_ext_shared_channel,
+                    is_ext_shared_channel_type=type(raw_is_ext_shared_channel).__name__,
+                    resources=_link_shared_resource_refs(event),
+                )
+            is_ext_shared = bool(raw_is_ext_shared_channel)
             result = route_posthog_code_event_to_relevant_region(
                 request,
                 event,
@@ -2573,6 +2585,35 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
 
     # posthog_code_event_handler: unrecognized event type
     return HttpResponse(status=200)
+
+
+def _is_posthog_app_url(url: str) -> bool:
+    hostname = urlparse(url).hostname
+    return hostname == urlparse(settings.SITE_URL).hostname or hostname in {
+        "app.posthog.com",
+        "eu.posthog.com",
+        "posthog.com",
+        "us.posthog.com",
+    }
+
+
+def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
+    links = event.get("links")
+    if not isinstance(links, list):
+        return []
+
+    resources: list[dict[str, str]] = []
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        url = link.get("url")
+        if not isinstance(url, str) or not _is_posthog_app_url(url):
+            continue
+        parsed = parse_posthog_resource_link(url)
+        if parsed:
+            resource_type, resource_ref = parsed
+            resources.append({"type": resource_type, "ref": str(resource_ref)})
+    return resources
 
 
 def _extract_context_token(payload: dict) -> str:
