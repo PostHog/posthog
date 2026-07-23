@@ -332,9 +332,11 @@ class ConversionGoalProcessor:
                 currency_from: ast.Expr = ast.Field(chain=[currency.property])
             else:
                 currency_from = ast.Field(chain=["events", "properties", currency.property])
-            currency_from = ast.Call(name="upper", args=[currency_from])
-            # A row can be missing the currency property; treat those as already in the base currency
-            # rather than letting convertCurrency null the whole amount out.
+            currency_from = ast.Call(
+                name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
+            )
+            # A row can be missing the currency property or carry an empty string; treat those as already
+            # in the base currency rather than letting convertCurrency null the whole amount out.
             return ast.Call(
                 name="if",
                 args=[
