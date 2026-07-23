@@ -1,3 +1,5 @@
+import './ScannerSummary.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
@@ -10,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerDigestLogic } from '../scannerDigestLogic'
+import { resolveObservationCitations } from '../visionActionRunSceneLogic'
 
 function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
     return (
@@ -148,9 +151,10 @@ export function ScannerDigestCard({
                         : 'max-h-60 overflow-hidden [mask-image:linear-gradient(to_bottom,black_12rem,transparent_15rem)]'
                 }
             >
-                {/* LLM/replay-derived content: render non-PostHog images as links, not auto-fetched <img>s. */}
-                <LemonMarkdown className="text-sm" disableImages>
-                    {latestRun.synthesized_markdown}
+                {/* LLM/replay-derived content: render non-PostHog images as links, not auto-fetched <img>s.
+                    Resolve the summarizer's [obs N] markers into links to each cited observation. */}
+                <LemonMarkdown className="ScannerSummaryMarkdown text-sm" disableImages>
+                    {resolveObservationCitations(latestRun.synthesized_markdown, latestRun.observations)}
                 </LemonMarkdown>
             </div>
             <div className="flex flex-wrap items-center gap-2 border-t pt-2">
