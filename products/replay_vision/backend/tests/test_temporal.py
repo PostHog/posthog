@@ -555,6 +555,32 @@ class TestObservationStateActivities:
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 1
 
+    def test_mark_succeeded_captures_scan_completed_telemetry_once(self) -> None:
+        # Cross-customer dashboards count this event; a retry after the sticky transition must not double-count.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+        inputs = MarkObservationSucceededInputs(
+            observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            mark_observation_succeeded_activity(inputs)
+            mark_observation_succeeded_activity(inputs)  # retry: the transition is sticky, so no second event
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        assert kwargs["event"] == "replay_vision_scan_completed"
+        assert kwargs["distinct_id"] == f"replay-vision:{observation.team_id}"
+        properties = kwargs["properties"]
+        assert properties["scanner_id"] == str(scanner.id)
+        assert properties["scanner_type"] == "monitor"
+        assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
+        assert properties["organization_id"] == str(observation.team.organization_id)
+        assert kwargs["groups"]["organization"] == str(observation.team.organization_id)
+
     def test_mark_failed_writes_no_usage_receipt(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
