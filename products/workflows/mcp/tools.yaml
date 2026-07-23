@@ -389,7 +389,8 @@ tools:
             after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
             Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side
             effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of
-            its live config — always do this before workflows-publish.
+            its live config — always do this before workflows-publish. use_draft requires a staged draft to exist
+            (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.
         exclude_params:
             - configuration
     workflows-update:
