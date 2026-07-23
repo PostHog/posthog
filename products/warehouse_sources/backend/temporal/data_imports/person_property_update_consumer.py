@@ -107,8 +107,9 @@ register_policy(_RATE_DOMAIN, _rate_policy)
 
 
 def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
-    """Map a topic message to capture_internal kwargs. Raises InvalidPersonPropertyMessage for a
-    shape that can never succeed (missing token/distinct_id, or no properties)."""
+    """Map a topic message to capture_internal kwargs. Person messages become a `$set`; group messages
+    (``kind == "group"``) become a `$groupidentify` carrying `$group_type`/`$group_key`/`$group_set`.
+    Raises InvalidPersonPropertyMessage for a shape that can never succeed."""
     token = payload.get("token")
     distinct_id = payload.get("distinct_id")
     properties = payload.get("properties")
@@ -123,10 +124,27 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         json.dumps(properties, allow_nan=False)
     except ValueError as exc:
         raise InvalidPersonPropertyMessage("message has non-finite property values") from exc
+
+    event_source = payload.get("event_source") or EVENT_SOURCE
+    if payload.get("kind") == "group":
+        group_type = payload.get("group_type")
+        group_key = payload.get("group_key")
+        if not group_type or not group_key:
+            raise InvalidPersonPropertyMessage("group message missing group_type or group_key")
+        # Mirror the canonical group-identify write (ee/clickhouse/views/groups.py::trigger_group_identify):
+        # distinct_id is the team-uuid placeholder, group type is the name, process_person_profile=False.
+        return {
+            "token": token,
+            "event_name": "$groupidentify",
+            "event_source": event_source,
+            "distinct_id": str(distinct_id),
+            "properties": {"$group_type": group_type, "$group_key": str(group_key), "$group_set": properties},
+            "process_person_profile": False,
+        }
     return {
         "token": token,
         "event_name": "$set",
-        "event_source": payload.get("event_source") or EVENT_SOURCE,
+        "event_source": event_source,
         "distinct_id": str(distinct_id),
         "properties": {"$set": properties},
         "process_person_profile": True,

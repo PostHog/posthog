@@ -281,6 +281,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_connect_with_transient_retry` already retries this exact drop in-process (see
+        # `_is_transient_connect_drop` in mysql.py) before re-raising once its attempt budget is
+        # exhausted; the streaming path's FORCE INDEX fallback does the same for a mid-query drop
+        # (see `_is_bad_plan_error`). Either way, Temporal retries the whole activity next and the
+        # failure is transient and self-recovering, so don't surface it as tracked exception noise.
+        return {"Lost connection to MySQL server during query"}
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",

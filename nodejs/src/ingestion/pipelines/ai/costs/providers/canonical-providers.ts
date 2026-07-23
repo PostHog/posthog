@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-22 20:22:16 UTC
+// Generated at: 2026-07-23 10:43:52 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -40,8 +40,6 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'crusoe-bf16'
-    | 'crusoe-fp4'
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'decart-fp4'
