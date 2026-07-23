@@ -58,6 +58,8 @@ jobs:
                         # MCP service and per-product tool/UI-app configs
                         - 'services/mcp/**'
                         - 'products/*/mcp/**'
+                        # Bundled into the MCP server (parser recipe tools)
+                        - 'packages/llm-normalizer/**'
                         # MCP integration tests exercise the full PostHog backend
                         - 'posthog/**/*.py'
                         - 'ee/**/*.py'

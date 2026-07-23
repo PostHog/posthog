@@ -1,6 +1,13 @@
 import posthog from 'posthog-js'
 
-import { mergeRecipes, RecipeNormalizer, RunOutcome, setNormalizerTelemetry, StoredRecipe } from './normalizer'
+import {
+    mergeRecipes,
+    RecipeNormalizer,
+    RunOutcome,
+    setNormalizerTelemetry,
+    StoredRecipe,
+} from '@posthog/llm-normalizer'
+
 import { CompatMessage } from './types'
 
 export type NormalizationResult = RunOutcome

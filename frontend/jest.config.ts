@@ -89,6 +89,7 @@ function rootDirectories(): string[] {
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
+        '<rootDir>/../packages/llm-normalizer/src',
     ]
 }
 
@@ -212,6 +213,8 @@ const config: Config = {
         '^common/(.*)$': '<rootDir>/../common/$1',
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/llm-normalizer$': '<rootDir>/../packages/llm-normalizer/src/index.ts',
+        '^@posthog/llm-normalizer/(.*)$': '<rootDir>/../packages/llm-normalizer/src/$1',
         '^@posthog/quill$': '<rootDir>/../packages/quill/packages/quill/src/index.ts',
         '^@posthog/quill-blocks$': '<rootDir>/../packages/quill/packages/blocks/src/index.ts',
         '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',

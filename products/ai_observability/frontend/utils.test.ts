@@ -1,6 +1,7 @@
+import { RecipeNormalizer } from '@posthog/llm-normalizer'
+
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { RecipeNormalizer } from './normalizer'
 import { AnthropicInputMessage, CompatMessage, OpenAICompletionMessage } from './types'
 import {
     asString,

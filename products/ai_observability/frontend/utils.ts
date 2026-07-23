@@ -826,7 +826,7 @@ export function isOTelPartsMessage(input: unknown): input is OTelPartsMessage {
 
 // Role helpers live in the portable normalizer module (leaf, no browser deps);
 // re-exported here so the many frontend consumers keep their import paths.
-export { roleMap, normalizeRole, AVAILABLE_TOOLS_ROLE } from './normalizer/roles'
+export { roleMap, normalizeRole, AVAILABLE_TOOLS_ROLE } from '@posthog/llm-normalizer'
 
 export const INTERNAL_THINKING_ROLE = 'assistant (thinking)'
 export const INTERNAL_TOOL_RESULT_ROLE = 'assistant (tool result)'
