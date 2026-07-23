@@ -555,10 +555,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_oversized_session_context_truncated_not_rejected(self):
-        long_url = (
-            "https://app.example.com/person/abc?sessionRecordingId=rec-123#state="
-            + "x" * SESSION_CONTEXT_VALUE_MAX_LENGTH
-        )
+        long_url = "https://app.example.com/search?q=" + "x" * SESSION_CONTEXT_VALUE_MAX_LENGTH
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             {
@@ -571,10 +568,7 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
-        self.assertEqual(
-            ticket.session_context["current_url"],
-            "https://app.example.com/person/abc?sessionRecordingId=rec-123",
-        )
+        self.assertEqual(ticket.session_context["current_url"], long_url[:SESSION_CONTEXT_VALUE_MAX_LENGTH])
         self.assertIs(ticket.session_context["current_url_truncated"], True)
 
 
@@ -929,35 +923,42 @@ class TestWidgetMessageSanitization(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "url_fragment_dropped",
+                "url_fragment_carries_length_not_flagged",
                 "https://us.posthog.com/person/abc?sessionRecordingId=rec#" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH,
                 "https://us.posthog.com/person/abc?sessionRecordingId=rec",
+                False,
             ),
             (
-                "url_without_fragment_hard_truncated",
+                "url_without_fragment_hard_cut_flagged",
                 "https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH,
                 ("https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH)[
                     :SESSION_CONTEXT_VALUE_MAX_LENGTH
                 ],
+                True,
             ),
             (
-                "url_still_oversized_after_fragment_drop",
+                "url_still_over_after_fragment_drop_flagged",
                 "https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH + "#frag",
                 ("https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH)[
                     :SESSION_CONTEXT_VALUE_MAX_LENGTH
                 ],
+                True,
             ),
             (
-                "non_url_hard_truncated",
+                "non_url_hard_cut_flagged",
                 "s" * (SESSION_CONTEXT_VALUE_MAX_LENGTH + 100),
                 "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH,
+                True,
             ),
         ]
     )
-    def test_oversized_session_context_value_truncated(self, _name, raw, expected):
+    def test_oversized_session_context_value_shortened(self, _name, raw, expected, expected_marked):
         context = self._validated(session_context={"current_url": raw})["session_context"]
         self.assertEqual(context["current_url"], expected)
-        self.assertIs(context["current_url_truncated"], True)
+        if expected_marked:
+            self.assertIs(context["current_url_truncated"], True)
+        else:
+            self.assertNotIn("current_url_truncated", context)
 
     def test_session_context_under_caps_untouched(self):
         context = self._validated(session_context={"current_url": "https://example.com/page#state", "count": 3})[

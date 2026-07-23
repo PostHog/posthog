@@ -236,6 +236,7 @@ class ExternalTicketView(APIView):
                 "snoozed_until": ticket.snoozed_until.isoformat() if ticket.snoozed_until else None,
                 "assignee": assignee,
                 "url": session_context.get("current_url"),
+                "url_truncated": bool(session_context.get("current_url_truncated")),
                 "slack_channel_id": ticket.slack_channel_id,
                 "slack_thread_ts": ticket.slack_thread_ts,
                 "slack_team_id": ticket.slack_team_id,

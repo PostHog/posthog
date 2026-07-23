@@ -76,15 +76,18 @@ TRAIT_KEY_MAX_LENGTH = 200
 TRAIT_VALUE_MAX_LENGTH = 500
 SESSION_CONTEXT_MAX_FIELDS = 20
 SESSION_CONTEXT_KEY_MAX_LENGTH = 100
-SESSION_CONTEXT_VALUE_MAX_LENGTH = 8192
+SESSION_CONTEXT_VALUE_MAX_LENGTH = 10000
 
 
-def _truncate_long_value(value: str, max_length: int) -> str:
-    """URL fragments carry encoded UI state and are where oversized values come from in
-    practice — drop the fragment first so the stored value stays a clean, working link."""
+def _shorten_context_value(value: str, max_length: int) -> tuple[str, bool]:
+    """Shorten an over-length value to `max_length`, returning (value, was_hard_cut).
+    URLs drop their fragment first; a value still over the cap after that is hard-cut."""
     if value.startswith(("http://", "https://")) and "#" in value:
-        value = value.split("#", 1)[0]
-    return value[:max_length]
+        without_fragment = value.split("#", 1)[0]
+        if len(without_fragment) <= max_length:
+            return without_fragment, False
+        value = without_fragment
+    return value[:max_length], True
 
 
 class WidgetMessageSerializer(WidgetAuthSerializer):
@@ -101,7 +104,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
     session_context = serializers.DictField(
         required=False,
         default=dict,
-        help_text="Session context (replay URL, current URL, etc.). Oversized values are truncated, never rejected",
+        help_text="Session context (replay URL, current URL, etc.). Oversized values are shortened, never rejected",
     )
 
     def validate(self, data):
@@ -148,8 +151,9 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
     def validate_session_context(self, value: Any) -> dict[str, Any]:
         """Session context is attached automatically by the widget (current URL, replay URL,
         ...), so it is sanitized rather than rejected: the customer can't shorten the page URL
-        they're on, and context must never block submission. Truncated values get a
-        `<key>_truncated: true` marker so consumers know the stored value is partial."""
+        they're on, and context must never block submission. Values that are hard-cut (not
+        just fragment-trimmed) get a `<key>_truncated: true` marker so consumers can flag the
+        stored value as unreliable."""
         if not isinstance(value, dict):
             return {}
 
@@ -166,8 +170,9 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
                 continue
 
             if isinstance(val, str) and len(val) > SESSION_CONTEXT_VALUE_MAX_LENGTH:
-                val = _truncate_long_value(val, SESSION_CONTEXT_VALUE_MAX_LENGTH)
-                truncated_keys.append(key)
+                val, was_hard_cut = _shorten_context_value(val, SESSION_CONTEXT_VALUE_MAX_LENGTH)
+                if was_hard_cut:
+                    truncated_keys.append(key)
 
             validated[key] = val
 
