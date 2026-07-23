@@ -81,6 +81,10 @@ pub struct HogVM<'a> {
     // the pointer is currently pointing into to e.g. "arrayExists", as part of the function call that branches into
     // that function.
     current_symbol: Option<Symbol>,
+    // The decoded token slice of the chunk `current_symbol` names, kept in lockstep with it (via
+    // `set_chunk`) so the per-step fetch is a bounds-checked index instead of a symbol match plus
+    // table lookup. Borrows from the context, like every other program view.
+    current_tokens: &'a [Token],
 }
 
 struct CallFrame {
@@ -112,6 +116,7 @@ impl<'a> HogVM<'a> {
             ops: 0,
             telemetry: Vec::new(),
             current_symbol: None,
+            current_tokens: context.chunk_tokens(&None)?,
             context,
             heap: VmHeap::new(context.max_heap_size),
         })
@@ -407,7 +412,7 @@ impl<'a> HogVM<'a> {
                 //     return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
                 // };
                 //
-                self.current_symbol = frame.ret_symbol;
+                self.set_chunk(frame.ret_symbol)?;
                 self.truncate_stack(frame.stack_start)?;
                 self.ip = frame.ret_ptr;
                 self.push_stack(result)?;
@@ -613,7 +618,7 @@ impl<'a> HogVM<'a> {
                 self.truncate_stack(frame.stack_start)?;
                 self.stack_frames.truncate(frame.call_depth);
                 self.ip = frame.catch_ptr;
-                self.current_symbol = frame.catch_symbol;
+                self.set_chunk(frame.catch_symbol)?;
                 self.push_stack(exception)?;
             }
             Operation::Callable => {
@@ -720,7 +725,7 @@ impl<'a> HogVM<'a> {
                     closure,
                 };
                 self.stack_frames.push(frame);
-                self.current_symbol = symbol; // Prep to jump across the module boundary, if that's what we're doing
+                self.set_chunk(symbol)?; // Prep to jump across the module boundary, if that's what we're doing
                 self.ip = ip; // Do the jump
             }
             Operation::GetUpvalue => {
@@ -837,13 +842,23 @@ impl<'a> HogVM<'a> {
         }
     }
 
+    // Change the chunk being executed, keeping `current_tokens` in lockstep with
+    // `current_symbol`. Every assignment of `current_symbol` must go through here.
+    fn set_chunk(&mut self, symbol: Option<Symbol>) -> Result<(), VmError> {
+        self.current_tokens = self.context.chunk_tokens(&symbol)?;
+        self.current_symbol = symbol;
+        Ok(())
+    }
+
     // Instruction fetches read the pre-decoded token stream — enum matches, no serde and no
     // allocation per step. Error strings are built only on an actual mismatch (malformed
     // bytecode), never on the hot path. The returned borrow is tied to the context's lifetime
     // (`'a`), not to `&mut self`, so callers can keep it across further VM mutation.
     fn next_token(&mut self) -> Result<&'a Token, VmError> {
-        let context = self.context;
-        let token = context.get_token(self.ip, &self.current_symbol)?;
+        let token = self
+            .current_tokens
+            .get(self.ip)
+            .ok_or_else(|| VmError::EndOfProgram(self.ip))?;
         self.ip += 1;
         Ok(token)
     }
@@ -1133,7 +1148,7 @@ impl<'a> HogVM<'a> {
         };
 
         self.stack_frames.push(frame);
-        self.current_symbol = Some(symbol);
+        self.set_chunk(Some(symbol))?;
         self.ip = 0;
 
         Ok(StepOutcome::Continue)
@@ -1407,7 +1422,7 @@ impl<'a> HogVM<'a> {
             return Err(VmError::Other("snapshot callStack is empty".to_string()));
         };
         vm.ip = Self::rust_ip(active.ip, &active.chunk, context);
-        vm.current_symbol = chunk_to_symbol(&active.chunk);
+        vm.set_chunk(chunk_to_symbol(&active.chunk))?;
 
         let n = call_stack.len() - 1;
         let mut stack_frames = Vec::with_capacity(n);

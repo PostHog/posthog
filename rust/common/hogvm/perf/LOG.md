@@ -323,3 +323,39 @@ this file does not yet contain one.
   frame-cached token-slice pointer (backlog item 6) skips the per-fetch
   `Option<Symbol>` match + `HashMap` lookup for root-chunk execution; geoip runs
   ~100% in the root chunk. (3) `hog_to_json` BTreeMap output path.
+
+## 2026-07-23 — iteration 7: frame-cached token slice for the fetch path
+
+- Machine: same runner, moderate background load (HEAD measures ~177 us/op vs ~145
+  quiet / ~225 contended earlier today — absolute numbers remain session-relative;
+  the interleaved A/B carries the decision).
+- Baseline (HEAD binary, median of 3): **177.4 us/op** (178.5 / 176.1 / 177.4).
+- Hypothesis (backlog item 6): every token fetch calls
+  `context.get_token(ip, &current_symbol)`, which matches on `Option<Symbol>` and, for
+  module chunks, hashes two Strings for a `HashMap<Symbol, _>` lookup — and even the
+  root-chunk path goes through the match + program indirection. Cache the current
+  chunk's `&[Token]` slice in the VM (`current_tokens`), updated at the five places
+  `current_symbol` changes (init, CallLocal, Return, Throw, cross-module call), so
+  `next_token` becomes a bounds-checked slice index. `step` + `get_token` +
+  `next_usize` is ~13% of self-time and every single opcode pays the fetch. Gate
+  >= 2%; predicted 2-4%.
+- Diff summary: `Program::body_tokens()` / `ExportedFunction::body_tokens()` slice
+  accessors, `ExecutionContext::chunk_tokens(&Option<Symbol>)`, and a `current_tokens:
+  &'a [Token]` field on `HogVM` kept in lockstep with `current_symbol` via a `set_chunk`
+  helper (all six assignment sites routed through it, including the resume path).
+  `next_token` is now `current_tokens.get(ip)`.
+- Gates: 77 crate + 19 addon tests, fixture parity, cymbal/cohort-core compile,
+  fmt/clippy/shear both workspaces — all green.
+- Measurement (interleaved A/B, 5 rounds, 100k iters each): per-round ratios
+  0.979 / 0.949 / 0.938 / 0.959 / 0.959 — median **0.959 (~4.1% improvement)**;
+  base median 176.1, cand median 167.6.
+- Verdict: **COMMITTED** (`perf(hogvm): cache chunk token slice for fetches (176.1 -> 167.6 us/op)`).
+- Iteration score: committed improvement — consecutive-no-commit counter resets to 0.
+- Cumulative committed same-machine ratios: 0.894 x 0.968 x 0.934 x 0.959 x 0.959 =
+  **~0.743 (~25.7% cumulative reduction vs loop start)**; stretch (~38%) still open.
+- Next-iteration candidates: (1) `json_to_hog_impl` capacity reservation (+ possibly
+  `hog_to_json` reservations) — retry now that quieter measurement patterns (per-round
+  ratios) are established. (2) `HogLiteral::size` walk on SetProperty. (3) profile
+  again — allocator block should now dominate even more; consider whether the
+  remaining malloc traffic (globals conversion + result serialization) needs a
+  structural change (reusing buffers across events in run_batch_program).

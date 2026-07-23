@@ -142,6 +142,12 @@ impl Program {
         self.decoded.get(idx + self.program_start_offset)
     }
 
+    /// The decoded body (header stripped), so `body_tokens()[ip]` == `get_token(ip)`. The VM
+    /// caches this slice per chunk to keep the per-step fetch a plain bounds-checked index.
+    pub fn body_tokens(&self) -> &[Token] {
+        &self.decoded[self.program_start_offset..]
+    }
+
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -195,5 +201,10 @@ impl ExportedFunction {
 
     pub fn get_token(&self, idx: usize) -> Option<&Token> {
         self.decoded.get(idx)
+    }
+
+    /// The decoded body as a slice (see [`Program::body_tokens`]).
+    pub fn body_tokens(&self) -> &[Token] {
+        &self.decoded
     }
 }

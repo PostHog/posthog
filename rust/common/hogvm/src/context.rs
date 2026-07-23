@@ -257,6 +257,19 @@ impl ExecutionContext {
         res.ok_or_else(|| VmError::EndOfProgram(ip))
     }
 
+    /// The full decoded token slice for a chunk (root program or module function) — cached by
+    /// the VM per chunk so per-step fetches skip the symbol match and table lookup entirely.
+    pub fn chunk_tokens(&self, symbol: &Option<Symbol>) -> Result<&[Token], VmError> {
+        match symbol {
+            Some(symbol) => Ok(self
+                .symbol_table
+                .get(symbol)
+                .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))?
+                .body_tokens()),
+            None => Ok(self.program.body_tokens()),
+        }
+    }
+
     /// The pre-decoded form of `get_bytecode` — the interpreter's per-step fetch path.
     pub fn get_token(&self, ip: usize, symbol: &Option<Symbol>) -> Result<&Token, VmError> {
         let res = match symbol {
