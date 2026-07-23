@@ -70,6 +70,19 @@ BUCKET_MINUTES_CHOICES = [5, 15, 30, 60]
 MAX_TIME_BUCKETS = 600
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
+# `by_input_size` buckets on `$ai_input_tokens`, ascending by lower bound. This is the
+# primary cost driver: large-context turns dominate spend regardless of which tool they
+# called (~half of spend comes from turns over 300k input tokens, verified against
+# production). Single source of truth for both the query's `multiIf` and the row labels.
+INPUT_SIZE_BUCKETS: list[tuple[str, int]] = [
+    ("<50k", 0),
+    ("50k-100k", 50_000),
+    ("100k-150k", 100_000),
+    ("150k-200k", 150_000),
+    ("200k-300k", 200_000),
+    (">300k", 300_000),
+]
+
 MIN_LIMIT = 1
 MAX_LIMIT = 200
 DEFAULT_LIMIT = 50
@@ -181,8 +194,9 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         allow_blank=False,
         max_length=MAX_PRODUCT_KEY_LENGTH,
         help_text=(
-            "Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. "
-            f"Only the following products are currently supported: {', '.join(sorted(SUPPORTED_PRODUCTS))}."
+            "Required `ai_product` key to scope the tool / model / input-size / day breakdowns to a "
+            f"single product. Only the following products are currently supported: "
+            f"{', '.join(sorted(SUPPORTED_PRODUCTS))}."
         ),
     )
     limit = serializers.IntegerField(
@@ -242,7 +256,10 @@ class _ToolBreakdownRowSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations "
-            "store a comma-separated list). Null = pure text response with no tool call."
+            "store a comma-separated list). Null = pure text response with no tool call. Skill "
+            "invocations all collapse to the single `Skill` token, because the specific skill name "
+            "isn't recorded at ingestion — treat that row as an upper bound across every skill "
+            "combined, not any one skill."
         ),
     )
     generation_count = serializers.IntegerField(
@@ -252,19 +269,38 @@ class _ToolBreakdownRowSerializer(serializers.Serializer):
         help_text=(
             "Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool "
             "generations contribute their full cost to every tool they invoked, so this sum can exceed "
-            "`summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed "
-            "per row and doesn't require the totals to reconcile."
+            "`summary.scoped_cost_usd` and rows can't be added together. It measures co-occurrence, not "
+            "cost caused by the tool. Use `cost_attributed_usd` for a number that reconciles."
         ),
     )
     share_of_scoped = serializers.FloatField(
         help_text=(
-            "This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent "
-            "per row, so co-occurring tools can each show a substantial share — the headline number to "
-            "present (e.g. `'Bash drove 47% of your spend'`)."
+            "This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Computed "
+            "independently per row from `cost_usd`, so it inherits the same co-occurrence overstatement: "
+            "a tool that's simply present in most generations (e.g. Bash) shows a large share even when "
+            "it isn't what drove the cost, and shares across rows don't reconcile to 1. Use "
+            "`share_attributed` for an honest per-tool percentage."
         ),
     )
     avg_input_tokens = serializers.FloatField(
         help_text="Average `$ai_input_tokens` across these generations — high values signal context bloat per call.",
+    )
+    cost_attributed_usd = serializers.FloatField(
+        help_text=(
+            "This tool's fractional share of generation cost: each generation's `$ai_total_cost_usd` is "
+            "divided evenly across the distinct tools it called, and a generation that called no tools "
+            "attributes its full cost to this same null `tool` row. Summed across all rows (when not "
+            "truncated), this reconciles to `summary.scoped_cost_usd` for the GENERATION cost only -- "
+            "embeddings carry no tools, so they're excluded here and the sum can land slightly under the "
+            "full scoped cost. Prefer this over `cost_usd` for an honest per-tool number."
+        ),
+    )
+    share_attributed = serializers.FloatField(
+        help_text=(
+            "`cost_attributed_usd` normalized to `summary.scoped_cost_usd`, as a float in `[0, 1]`. Shares "
+            "across rows reconcile (summing to at most 1, short by the embedding-cost fraction which "
+            "carries no tools) — this is the honest headline percentage, unlike `share_of_scoped`."
+        ),
     )
 
 
@@ -274,6 +310,28 @@ class _ModelBreakdownRowSerializer(serializers.Serializer):
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this model.")
     input_tokens = serializers.IntegerField(help_text="Sum of `$ai_input_tokens` for this model.")
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` for this model.")
+
+
+class _InputSizeBreakdownRowSerializer(serializers.Serializer):
+    bucket = serializers.CharField(
+        help_text=(
+            "Label for this `$ai_input_tokens` bucket (e.g. `100k-150k`). Buckets: "
+            f"{', '.join(label for label, _ in INPUT_SIZE_BUCKETS)}."
+        )
+    )
+    min_input_tokens = serializers.IntegerField(
+        help_text="Inclusive lower bound of `$ai_input_tokens` for this bucket. Use to order or re-derive the bucket."
+    )
+    generation_count = serializers.IntegerField(
+        help_text="Number of $ai_generation + $ai_embedding events with `$ai_input_tokens` in this bucket."
+    )
+    cost_usd = serializers.FloatField(help_text="Sum of `$ai_total_cost_usd` for events in this bucket.")
+    share_of_scoped = serializers.FloatField(
+        help_text="This bucket's share of `summary.scoped_cost_usd`, as a float in `[0, 1]`. Reconciles across buckets."
+    )
+    avg_cost_per_generation = serializers.FloatField(
+        help_text="Average `$ai_total_cost_usd` per event in this bucket -- `cost_usd / generation_count`."
+    )
 
 
 class _DayBreakdownRowSerializer(serializers.Serializer):
@@ -333,28 +391,16 @@ class _BucketBreakdownRowSerializer(serializers.Serializer):
     )
 
 
-class _TopTraceRowSerializer(serializers.Serializer):
-    trace_id = serializers.CharField(
-        allow_null=True,
-        help_text=(
-            "`$ai_trace_id` of the session — opaque string scoped to the originating product. Format is "
-            "not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like "
-            '`{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque '
-            "identifier (URL-encode before linking to a trace view)."
-        ),
-    )
-    generation_count = serializers.IntegerField(help_text="Number of $ai_generation events in this trace.")
-    cost_usd = serializers.FloatField(help_text="Total cost in USD for this trace.")
-    started_at = serializers.DateTimeField(allow_null=True, help_text="Timestamp of the earliest event in this trace.")
-
-
 class _SummarySerializer(serializers.Serializer):
     date_from = serializers.DateTimeField(
         help_text="Inclusive UTC start of the spend window resolved from the request."
     )
     date_to = serializers.DateTimeField(help_text="Exclusive UTC end of the spend window resolved from the request.")
     product = serializers.CharField(
-        help_text="The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`.",
+        help_text=(
+            "The `ai_product` filter applied to tool / model / input-size / day breakdowns — echoes the "
+            "request `product`."
+        ),
     )
     total_cost_usd = serializers.FloatField(
         help_text="Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter."
@@ -400,6 +446,24 @@ class _ModelBreakdownSerializer(serializers.Serializer):
     )
 
 
+class _InputSizeBreakdownSerializer(serializers.Serializer):
+    items = _InputSizeBreakdownRowSerializer(
+        many=True,
+        help_text=(
+            "One row per `$ai_input_tokens` bucket that has events, ordered by `min_input_tokens` "
+            "ascending. This is the primary cost driver: large-context turns dominate spend regardless "
+            "of which tool they called, so check this before attributing spend to a tool. Buckets with "
+            "no events are omitted."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "Always false: there are only six buckets and `by_input_size` ignores `limit` because "
+            "truncating by cost would drop whole buckets rather than individual rows."
+        )
+    )
+
+
 class _DayBreakdownSerializer(serializers.Serializer):
     items = _DayBreakdownRowSerializer(
         many=True,
@@ -437,13 +501,6 @@ class _BucketBreakdownSerializer(serializers.Serializer):
     )
 
 
-class _TopTracesSerializer(serializers.Serializer):
-    items = _TopTraceRowSerializer(many=True, help_text="Rows of top traces by cost, ordered by cost descending.")
-    truncated = serializers.BooleanField(
-        help_text="True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them."
-    )
-
-
 class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     """Structured personal LLM spend analysis for the requesting user."""
 
@@ -453,6 +510,13 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     )
     by_tool = _ToolBreakdownSerializer(help_text="Spend grouped by tool. Scoped to `product` when set.")
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
+    by_input_size = _InputSizeBreakdownSerializer(
+        help_text=(
+            "Spend grouped by `$ai_input_tokens` bucket. Scoped to `product`. Not subject to `limit`. This "
+            "is the primary cost driver: large-context turns dominate spend regardless of which tool they "
+            "called, so check this before attributing spend to a tool."
+        )
+    )
     by_day = _DayBreakdownSerializer(
         help_text="Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`."
     )
@@ -462,14 +526,6 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
             "Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. "
             "Scoped to `product`. Only present when the request set `bucket_minutes`."
         ),
-    )
-    top_traces = _TopTracesSerializer(
-        help_text=(
-            "Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings "
-            "that aren't actionable in the UI. Kept in the response shape so existing consumers don't "
-            "crash; remove your rendering of this field and we'll drop it from the response entirely "
-            "in a follow-up."
-        )
     )
 
 
@@ -603,6 +659,60 @@ def _fetch_by_product(
     return _truncate(rows, limit)
 
 
+def _fetch_tool_cost_attribution(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+) -> dict[str | None, float]:
+    """Splits each generation's cost evenly across the DISTINCT tools it called,
+    so the sum across tools reconciles to the scoped generation cost instead of
+    overcounting co-occurring tools. `$ai_tools_called` can list the same tool more
+    than once (tools are recorded in call order, e.g. "Bash,Read,Bash"); `arrayDistinct`
+    collapses those repeats before dividing, since a tool called twice in one
+    generation still only "caused" that generation's cost once. Generations with no
+    tools attribute their full cost to the same NULL bucket the unattributed
+    `_fetch_by_tool` rows use. Not truncated by `limit` -- callers merge by `tool`
+    into an already-truncated row set, so untruncated tools here simply have no
+    matching row to attach to.
+    """
+    query = parse_select(
+        """
+        SELECT
+            tool,
+            round(sum(cost_share), 6) AS cost_attributed_usd
+        FROM (
+            SELECT
+                nullIf(arrayJoin(if(empty(tools), [''], tools)), '') AS tool,
+                cost / length(if(empty(tools), [''], tools)) AS cost_share
+            FROM (
+                SELECT
+                    arrayDistinct(arrayFilter(x -> x != '', splitByChar(',', coalesce(properties.$ai_tools_called, '')))) AS tools,
+                    toFloat(properties.$ai_total_cost_usd) AS cost
+                FROM events
+                WHERE equals(event, '$ai_generation')
+                    AND {product_filter}
+                    AND {email_filter}
+                    AND {timestamp_filter}
+            )
+        )
+        GROUP BY tool
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+        },
+        team=team,
+        query_type="PersonalSpendToolCostAttribution",
+    )
+    return {(row[0] if row[0] is not None else None): float(row[1] or 0.0) for row in (result.results or [])}
+
+
 def _fetch_by_tool(
     team: Team,
     email: str,
@@ -652,7 +762,16 @@ def _fetch_by_tool(
         }
         for row in (result.results or [])
     ]
-    return _truncate(rows, limit)
+    truncated = _truncate(rows, limit)
+
+    # Merged by `tool` rather than requeried per-row: the attribution query isn't
+    # itself truncated, so a tool absent from the (possibly truncated) row set above
+    # just has no row to attach `cost_attributed_usd` to.
+    attribution = _fetch_tool_cost_attribution(team, email, from_dt, to_dt, product)
+    for row in truncated["items"]:
+        row["cost_attributed_usd"] = attribution.get(row["tool"], 0.0)
+
+    return truncated
 
 
 def _fetch_by_model(
@@ -704,6 +823,83 @@ def _fetch_by_model(
         for row in (result.results or [])
     ]
     return _truncate(rows, limit)
+
+
+def _input_size_bucket_case_sql() -> str:
+    """Builds the `multiIf(...)` branches from `INPUT_SIZE_BUCKETS`: each bucket (other
+    than the last) becomes `$ai_input_tokens < <next bucket's min>, '<label>'`, checked in
+    ascending order so `multiIf` matches the first (lowest) bucket the value clears; the
+    last bucket is the unconditional fallback. Bucket bounds are fixed constants defined
+    in this module, not request input, so interpolating them into the query text is safe.
+    """
+    branches = [
+        f"toFloat(properties.$ai_input_tokens) < {INPUT_SIZE_BUCKETS[i + 1][1]}, '{label}'"
+        for i, (label, _min_tokens) in enumerate(INPUT_SIZE_BUCKETS[:-1])
+    ]
+    fallback_label = INPUT_SIZE_BUCKETS[-1][0]
+    return f"multiIf({', '.join(branches)}, '{fallback_label}')"
+
+
+def _fetch_by_input_size(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+) -> dict[str, Any]:
+    """Buckets $ai_generation + $ai_embedding events by `$ai_input_tokens` -- the primary
+    cost driver, since large-context turns dominate spend regardless of which tool they
+    called. Same event set and product scoping as `_fetch_by_model`. Not subject to
+    `limit`: there are only as many rows as there are buckets (six), so truncating by
+    cost would drop whole buckets rather than individual rows."""
+    query = parse_select(
+        f"""
+        SELECT
+            {_input_size_bucket_case_sql()} AS bucket,
+            count() AS generation_count,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
+        FROM events
+        WHERE {{event_in}}
+            AND {{product_filter}}
+            AND {{email_filter}}
+            AND {{timestamp_filter}}
+        GROUP BY bucket
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+        },
+        team=team,
+        query_type="PersonalSpendByInputSize",
+    )
+    rows_by_label = {
+        row[0]: {
+            "generation_count": int(row[1] or 0),
+            "cost_usd": float(row[2] or 0.0),
+        }
+        for row in (result.results or [])
+    }
+    items = [
+        {
+            "bucket": label,
+            "min_input_tokens": min_tokens,
+            "generation_count": rows_by_label[label]["generation_count"],
+            "cost_usd": rows_by_label[label]["cost_usd"],
+            "avg_cost_per_generation": (
+                rows_by_label[label]["cost_usd"] / rows_by_label[label]["generation_count"]
+                if rows_by_label[label]["generation_count"] > 0
+                else 0.0
+            ),
+        }
+        for label, min_tokens in INPUT_SIZE_BUCKETS
+        if label in rows_by_label
+    ]
+    return {"items": items, "truncated": False}
 
 
 def _fetch_by_day(
@@ -877,9 +1073,17 @@ def _compute_spend_analysis(
         by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
         scoped = summary["scoped_cost_usd"] or 0.0
         # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
-        # contribute to every tool. `share_of_scoped` is independent per row, so agents can
-        # present headline percentages directly without reconciling sums.
+        # contribute to every tool; `share_of_scoped` is independent per row, so it can't
+        # be used as a headline percentage either -- see its help_text. `share_attributed`
+        # is `cost_attributed_usd` normalized the same way, and its sum across rows does
+        # reconcile to (at most) 1 -- see `cost_attributed_usd`'s help_text for why it can
+        # land slightly under 1 rather than exactly at it.
         for row in by_tool["items"]:
+            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
+            row["share_attributed"] = (row["cost_attributed_usd"] / scoped) if scoped > 0 else 0.0
+
+        by_input_size = _fetch_by_input_size(team, email, from_dt, to_dt, product)
+        for row in by_input_size["items"]:
             row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
 
         payload = {
@@ -887,16 +1091,13 @@ def _compute_spend_analysis(
             "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
             "by_tool": by_tool,
             "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+            "by_input_size": by_input_size,
             "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
             **(
                 {"by_bucket": _fetch_by_bucket(team, email, from_dt, to_dt, product, bucket_minutes)}
                 if bucket_minutes is not None
                 else {}
             ),
-            # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
-            # existing consumers don't crash while they remove the rendering. Drop the field
-            # entirely once no consumer reads it.
-            "top_traces": {"items": [], "truncated": False},
         }
 
     response_data = PersonalSpendAnalysisResponseSerializer(payload).data
@@ -952,12 +1153,13 @@ class PersonalSpendViewSet(_PersonalSpendUserViewSet):
     when registered -- so this path should be comparable to what the
     satellite would have served. The endpoint is cached for 5 minutes per
     user (see `CACHE_TIMEOUT_SECONDS`). The `product` query param is required
-    and scopes tool / model / trace breakdowns to a single `ai_product`; see
-    `SUPPORTED_PRODUCTS` for the currently accepted values. `by_product` always
-    returns the full cross-product breakdown. The endpoint is only registered
-    on US Cloud + dev/test envs; hobby / self-hosted deploys never see this
-    URL; EU deploys serve it via `PersonalSpendEUProxyViewSet` (or a 302 to
-    the US URL while the cross-region secret is unprovisioned).
+    and scopes the tool / model / input-size / day breakdowns to a single
+    `ai_product`; see `SUPPORTED_PRODUCTS` for the currently accepted values.
+    `by_product` always returns the full cross-product breakdown. The
+    endpoint is only registered on US Cloud + dev/test envs; hobby /
+    self-hosted deploys never see this URL; EU deploys serve it via
+    `PersonalSpendEUProxyViewSet` (or a 302 to the US URL while the
+    cross-region secret is unprovisioned).
     """
 
     @extend_schema(
@@ -975,12 +1177,16 @@ class PersonalSpendViewSet(_PersonalSpendUserViewSet):
             "Return a structured personal LLM spend analysis for the requesting user. Pass "
             "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
             "the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` "
-            "query param is required and scopes the tool / model / day / trace breakdowns to a single "
-            f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
-            "always returned for cross-product visibility. `by_day` returns a day-ascending spend "
-            "series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span "
-            f"at most {MAX_TIME_BUCKETS} buckets) to additionally get `by_bucket`, a time-ascending "
-            "series with per-bucket cost split into uncached input / output / cache read / cache creation "
+            "query param is required and scopes the tool / model / input-size / day breakdowns to a "
+            f"single product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` "
+            "is always returned for cross-product visibility. `by_tool` reports both a co-occurrence "
+            "share (`share_of_scoped`) and an honest per-tool split (`cost_attributed_usd` / "
+            "`share_attributed`) that reconciles across rows. `by_input_size` groups spend by "
+            "`$ai_input_tokens` bucket and is usually the more useful lens: context size drives cost "
+            "regardless of which tool a turn called. `by_day` returns a day-ascending spend series for "
+            "the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span at most "
+            f"{MAX_TIME_BUCKETS} buckets) to additionally get `by_bucket`, a time-ascending series with "
+            "per-bucket cost split into uncached input / output / cache read / cache creation "
             "components. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["AI observability"],
