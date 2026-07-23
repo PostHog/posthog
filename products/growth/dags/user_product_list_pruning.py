@@ -37,7 +37,7 @@ one would make used products look unused):
         'customer_analytics', 'dashboard', 'data-ops', 'early_access_features', 'endpoints',
         'engineering-analytics', 'error_tracking', 'experiments', 'feature_flags', 'heatmaps',
         'identity-matching', 'insights', 'links', 'live-debugger', 'logs', 'marketing',
-        'mcp-analytics', 'metrics', 'notebooks', 'product_tours', 'prompt-management', 'pulse',
+        'mcp-analytics', 'metrics', 'notebooks', 'outcomes', 'product_tours', 'prompt-management', 'pulse',
         'replay', 'replay-vision', 'revenue_analytics', 'skills', 'sql', 'support', 'surveys',
         'tasks', 'toolbar', 'tracing', 'user_research', 'visual_review', 'web', 'web-scripts',
         'workflows'
@@ -128,6 +128,7 @@ URL_KEY_TO_PRODUCT_PATH: dict[str, str] = {
     "tasks": "Tasks",
     "insights": "Product analytics",
     "notebooks": "Notebooks",
+    "outcomes": "Outcomes",
     "product_tours": "Product tours",
     "pulse": "Pulse",
     "replay": "Session replay",
