@@ -115,8 +115,8 @@ function SurveyAutoCloseHelper({
             ) : hasCloseDatePassed ? (
                 <span>
                     This survey's schedule ended on{' '}
-                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>. Because that date has
-                    passed, it will close automatically the next time its schedule is checked (within 12 hours).
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, so it will close
+                    automatically soon.
                 </span>
             ) : (
                 <span>

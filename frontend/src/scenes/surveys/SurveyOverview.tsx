@@ -39,8 +39,7 @@ function SurveySchedule(): JSX.Element {
                         </span>
                     ) : scheduleInfo.autoCloseDate.isBefore(dayjs()) ? (
                         <span className="text-xs text-muted">
-                            Schedule ended {scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}; closes automatically
-                            within 12 hours
+                            Schedule ended {scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}; closing soon
                         </span>
                     ) : (
                         <span className="text-xs text-muted">
