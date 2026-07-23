@@ -616,20 +616,16 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             funnelsFilter=FunnelsFilter(funnelWindowInterval=7, funnelWindowIntervalUnit="day"),
         )
 
-        funnel_actors_query = FunnelsActorsQuery(
-            source=funnels_query,
-            funnelStep=3,
-        )
+        def actors_at(funnel_step: int) -> int:
+            funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=funnel_step)
+            actors_query = ActorsQuery(source=funnel_actors_query, select=["id", "person"])
+            return len(ActorsQueryRunner(query=actors_query, team=self.team).calculate().results)
 
-        actors_query = ActorsQuery(
-            source=funnel_actors_query,
-            select=["id", "person"],
-        )
-
-        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
-        results = response.results
-
-        self.assertEqual(len(results), 1)
+        # The user reached step 3 having skipped optional step 2. Both the step-3 count and the
+        # optional step-2 count include them, so the actor lists must too — otherwise the step's
+        # "completed" modal shows 0 people yet lists real users.
+        self.assertEqual(actors_at(3), 1)
+        self.assertEqual(actors_at(2), 1)
 
     def test_optional_funnel_step_dropoff_actors_query(self):
         journeys_for(

@@ -56,7 +56,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two')), and(or(ifNull(ilike(toString(e__person.properties___email), '%g0%'), 0), ifNull(ilike(toString(e__person.properties___name), '%g0%'), 0), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'distinct_id'), ''), 'null'), '^"|"$', '')), '%g0%'), 0), ifNull(ilike(toString(e__group_0.properties___name), '%g0%'), 0), ifNull(ilike(toString(e__group_0.properties___slug), '%g0%'), 0)), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1)), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.actor_id ASC
   LIMIT 101

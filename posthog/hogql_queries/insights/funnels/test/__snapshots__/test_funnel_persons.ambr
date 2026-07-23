@@ -42,7 +42,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 0)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 7), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -129,7 +129,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE bitTest(steps_bitfield, 1)
+     WHERE ifNull(notEquals(bitAnd(steps_bitfield, 6), 0), 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -216,7 +216,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(bitTest(steps_bitfield, 1), not(bitTest(steps_bitfield, 2)))
+     WHERE and(ifNull(notEquals(bitAnd(steps_bitfield, 6), 0), 1), ifNull(equals(bitAnd(steps_bitfield, 4), 0), 0))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
