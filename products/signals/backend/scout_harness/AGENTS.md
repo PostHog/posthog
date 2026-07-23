@@ -181,8 +181,9 @@ one sandbox session → zero or more emitted signals.
   DB constraint is still a possible follow-up for stronger single-flight guarantees.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; each scout has its own
-  `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
-  `run_interval_minutes` schedule the coordinator's per-scout due-check honors.
+  `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag,
+  `run_interval_minutes`, and optional project-local cron `run_cron_schedule` the
+  coordinator's per-scout due-check honors.
 - Scout sandbox GitHub credentials are **always read-only**: the runner requests
   `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped
   installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never
@@ -203,6 +204,13 @@ one sandbox session → zero or more emitted signals.
   (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
+  The bridge row does carry a write-once `metadata` JSON column stamped at creation — the
+  API-native record of run context that isn't worth a dedicated column. Known keys today:
+  `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
+  `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (`{}` on the
+  default path). Surfaced verbatim on the run serializers / `scout-runs-*` MCP tools; new
+  operationally-relevant run dimensions should be stamped there by `_create_run_row`, not grown
+  as ad-hoc columns.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
   `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
   `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit
@@ -248,9 +256,9 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default every 24 hours) is due, most-overdue
-  first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
-  drop ticks rather than queue them.
+  per-scout schedule (`run_interval_minutes`, default every 24 hours, or an optional
+  project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap
+  `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
   `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with

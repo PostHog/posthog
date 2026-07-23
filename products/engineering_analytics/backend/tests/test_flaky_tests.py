@@ -10,7 +10,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.engineering_analytics.backend.logic.queries._test_spans import selector_from_nodeid
-from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 T_PRS = "posthog/api/test/test_prs/TestPRs::test_flaky_on_prs"

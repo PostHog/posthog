@@ -124,6 +124,7 @@ Your **API key** is on your Freshservice profile settings page (click your profi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only the endpoints with a genuine server-side `updated_since` filter carry incremental
         # fields, so they alone default to supports_incremental / supports_append; the rest are
@@ -131,7 +132,11 @@ Your **API key** is on your Freshservice profile settings page (click your profi
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: FreshserviceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FreshserviceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not _DOMAIN_REGEX.match(normalize_domain(config.domain)):
             return False, "Freshservice domain is invalid"

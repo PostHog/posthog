@@ -103,6 +103,7 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LINODE_ENDPOINTS[endpoint]
@@ -124,7 +125,11 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
         return schemas
 
     def validate_credentials(
-        self, config: LinodeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LinodeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_linode_credentials(config.api_token)
 

@@ -274,6 +274,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "github_issue_number",
             "zendesk_ticket_id",
             "organization_id",
+            "organization_id_source",
             "person",
             "tags",
         ]
@@ -303,6 +304,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "github_issue_number",
             "zendesk_ticket_id",
             "organization_id",
+            "organization_id_source",
             "person",
             "ai_triage",
             "identity_verified",
@@ -322,6 +324,11 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
+            },
+            "organization_id_source": {
+                "help_text": "How organization_id was resolved: 'person' (from the requester's identity) or "
+                "'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). "
+                "Null when organization_id is unset."
             },
             "ai_triage": {
                 "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."

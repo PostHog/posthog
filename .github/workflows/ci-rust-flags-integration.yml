@@ -49,8 +49,8 @@ env:
 
 jobs:
     rust-flags-integration:
-        name: Rust /flags Integration Tests (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Rust /flags Integration Tests (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
 
         services:

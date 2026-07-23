@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
-use posthog_symbol_data::{write_symbol_data, ElfDebugInfo};
+use posthog_symbol_data::{write_symbol_data, AppleDsym, ElfDebugInfo};
 use symbolic::debuginfo::{Archive, FileFormat, ObjectKind};
 use tracing::{info, warn};
 
@@ -11,17 +11,30 @@ use crate::dsym::{source_bundle, DsymFile};
 pub mod upload;
 
 const ELF_MAGIC: &[u8; 4] = b"\x7fELF";
+// Thin little-endian 64/32-bit Mach-O and the big-endian fat header — the
+// on-disk layouts produced by Apple toolchains and Go, and the ones the
+// symbolic archive parser understands (fat64, `0xcafebabf`, is not supported
+// and stays skipped).
+const MACHO_MAGICS: [[u8; 4]; 3] = [
+    [0xcf, 0xfa, 0xed, 0xfe],
+    [0xce, 0xfa, 0xed, 0xfe],
+    [0xca, 0xfe, 0xba, 0xbe],
+];
 
 /// A native debug-info file discovered on disk, parsed and validated,
 /// ready to be packaged for upload.
 pub struct DebugSymbolFile {
-    /// The debug id derived from the GNU build id (used as chunk_id)
+    /// The debug id used as chunk_id: derived from the GNU build id for ELF
+    /// (lowercase), or the `LC_UUID` for Mach-O (uppercase, matching the SDK
+    /// and `dsym upload`)
     pub debug_id: String,
     pub path: PathBuf,
-    /// Raw file contents
+    /// Raw contents: the whole file for ELF, one architecture slice for Mach-O
+    /// (a fat binary yields one `DebugSymbolFile` per slice)
     data: Vec<u8>,
-    /// Size of the file, used to pick the richer candidate on debug_id collisions
+    /// Size of the data, used to pick the richer candidate on debug_id collisions
     size: usize,
+    format: FileFormat,
 }
 
 /// The outcome of scanning a directory for native debug symbols.
@@ -29,10 +42,15 @@ pub struct DebugSymbolFile {
 pub struct DiscoveryReport {
     /// Validated files, deduplicated by debug id
     pub files: Vec<DebugSymbolFile>,
-    /// ELF executables/libraries that carry no debug info (skipped)
+    /// ELF/Mach-O executables/libraries that carry no debug info (skipped)
     pub without_debug_info: Vec<PathBuf>,
     /// ELFs with debug info but no GNU build id (cannot be uploaded)
     pub missing_build_id: Vec<PathBuf>,
+    /// Mach-O binaries with debug info but no `LC_UUID` (cannot be uploaded)
+    pub missing_uuid: Vec<PathBuf>,
+    /// Mach-O binaries whose DWARF is compressed (`__zdebug_*` sections, Go's
+    /// default on macOS), which the symbolication server can't read yet
+    pub compressed_dwarf: Vec<PathBuf>,
     /// Apple dSYM bundles spotted while scanning (packaged via the dsym path)
     pub dsym_bundles: Vec<PathBuf>,
     /// Split-DWARF artifacts spotted while scanning (unsupported)
@@ -42,7 +60,8 @@ pub struct DiscoveryReport {
 impl DebugSymbolFile {
     /// Package the file for upload: a ZIP with the binary stored as `dwarf` at
     /// the root (plus an optional `__source/` bundle), wrapped in the
-    /// `ElfDebugInfo` symbol_data container.
+    /// symbol_data container matching its format (`ElfDebugInfo` for ELF,
+    /// `AppleDsym` for Mach-O — the layout the server expects per chunk kind).
     pub fn into_upload(
         self,
         release_id: Option<String>,
@@ -91,9 +110,12 @@ impl DebugSymbolFile {
             zip.finish()?;
         }
 
-        let wrapped = write_symbol_data(ElfDebugInfo {
-            data: buffer.into_inner(),
-        })?;
+        let zip_data = buffer.into_inner();
+        let wrapped = if self.format == FileFormat::MachO {
+            write_symbol_data(AppleDsym { data: zip_data })?
+        } else {
+            write_symbol_data(ElfDebugInfo { data: zip_data })?
+        };
 
         Ok(SymbolSetUpload {
             chunk_id: self.debug_id,
@@ -128,9 +150,9 @@ fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
 }
 
 /// Walk `directory` and classify everything that looks like native debug
-/// symbols. Only ELF executables, shared libraries, and debug companions
-/// (e.g. from `objcopy --only-keep-debug`) are considered; relocatable
-/// objects and other ELF kinds are ignored.
+/// symbols. Only ELF and Mach-O executables, shared libraries, and debug
+/// companions (e.g. from `objcopy --only-keep-debug`) are considered;
+/// relocatable objects and other kinds are ignored.
 pub fn discover(directory: &Path) -> Result<DiscoveryReport> {
     use walkdir::WalkDir;
 
@@ -166,30 +188,40 @@ pub fn discover(directory: &Path) -> Result<DiscoveryReport> {
             continue;
         }
 
-        let Some(file) = parse_candidate(path)? else {
+        // Files inside a .dSYM bundle (its inner DWARF Mach-O) belong to the
+        // bundle, which is packaged wholesale via the dsym path.
+        if path
+            .ancestors()
+            .skip(1)
+            .any(|p| p.extension().is_some_and(|e| e == "dSYM"))
+        {
             continue;
-        };
+        }
 
-        match file {
-            Candidate::NoDebugInfo => report.without_debug_info.push(path.to_path_buf()),
-            Candidate::NoBuildId => report.missing_build_id.push(path.to_path_buf()),
-            Candidate::Valid(file) => {
-                // Dedup by debug id (e.g. a binary and its objcopy companion):
-                // keep the larger file, which carries at least as much debug data.
-                if let Some(&existing) = seen.get(&file.debug_id) {
-                    let existing_file = &report.files[existing];
-                    warn!(
-                        "Duplicate debug id {} for {} and {}; keeping the larger file",
-                        file.debug_id,
-                        existing_file.path.display(),
-                        file.path.display()
-                    );
-                    if file.size > existing_file.size {
-                        report.files[existing] = file;
+        for file in parse_candidates(path)? {
+            match file {
+                Candidate::NoDebugInfo => report.without_debug_info.push(path.to_path_buf()),
+                Candidate::NoBuildId => report.missing_build_id.push(path.to_path_buf()),
+                Candidate::MissingUuid => report.missing_uuid.push(path.to_path_buf()),
+                Candidate::CompressedDwarf => report.compressed_dwarf.push(path.to_path_buf()),
+                Candidate::Valid(file) => {
+                    // Dedup by debug id (e.g. a binary and its objcopy companion):
+                    // keep the larger file, which carries at least as much debug data.
+                    if let Some(&existing) = seen.get(&file.debug_id) {
+                        let existing_file = &report.files[existing];
+                        warn!(
+                            "Duplicate debug id {} for {} and {}; keeping the larger file",
+                            file.debug_id,
+                            existing_file.path.display(),
+                            file.path.display()
+                        );
+                        if file.size > existing_file.size {
+                            report.files[existing] = file;
+                        }
+                    } else {
+                        seen.insert(file.debug_id.clone(), report.files.len());
+                        report.files.push(file);
                     }
-                } else {
-                    seen.insert(file.debug_id.clone(), report.files.len());
-                    report.files.push(file);
                 }
             }
         }
@@ -202,50 +234,58 @@ enum Candidate {
     Valid(DebugSymbolFile),
     NoDebugInfo,
     NoBuildId,
+    MissingUuid,
+    CompressedDwarf,
 }
 
-fn has_elf_magic(path: &Path) -> bool {
+fn has_native_magic(path: &Path) -> bool {
     use std::io::Read;
 
     let Ok(mut file) = std::fs::File::open(path) else {
         warn!("Could not open {} (skipping)", path.display());
         return false;
     };
-    let mut magic = [0u8; ELF_MAGIC.len()];
-    file.read_exact(&mut magic).is_ok() && &magic == ELF_MAGIC
+    let mut magic = [0u8; 4];
+    if file.read_exact(&mut magic).is_err() {
+        return false;
+    }
+    &magic == ELF_MAGIC || MACHO_MAGICS.contains(&magic)
 }
 
-/// Parse a file as a native debug-symbol candidate. Returns `None` for
-/// anything that isn't an ELF executable/library/debug companion.
-fn parse_candidate(path: &Path) -> Result<Option<Candidate>> {
+/// Parse a file into native debug-symbol candidates. Returns an empty vec for
+/// anything that isn't an ELF or Mach-O executable/library/debug companion.
+/// A universal (fat) Mach-O yields one candidate per architecture slice, each
+/// carrying just that slice's bytes and its own `LC_UUID`.
+fn parse_candidates(path: &Path) -> Result<Vec<Candidate>> {
     // Check the magic before loading the file: build trees contain large
-    // non-ELF artifacts that shouldn't be read into memory just to be skipped.
-    if !has_elf_magic(path) {
-        return Ok(None);
+    // unrelated artifacts that shouldn't be read into memory just to be skipped.
+    if !has_native_magic(path) {
+        return Ok(Vec::new());
     }
 
     let Ok(data) = std::fs::read(path) else {
         warn!("Could not read {} (skipping)", path.display());
-        return Ok(None);
+        return Ok(Vec::new());
     };
 
-    // Scope the parsed archive so `data` can move into the result afterwards.
-    let debug_id = {
-        let archive = match Archive::parse(&data) {
-            Ok(archive) => archive,
-            Err(e) => {
-                warn!("Could not parse {} as ELF: {e} (skipping)", path.display());
-                return Ok(None);
-            }
+    let archive = match Archive::parse(&data) {
+        Ok(archive) => archive,
+        Err(e) => {
+            warn!("Could not parse {} (skipping): {e}", path.display());
+            return Ok(Vec::new());
+        }
+    };
+
+    let mut candidates = Vec::new();
+    for object in archive.objects() {
+        let Ok(object) = object else {
+            warn!("Unparseable object in {} (skipping it)", path.display());
+            continue;
         };
 
-        let Some(Ok(object)) = archive.objects().next() else {
-            warn!("No objects in {} (skipping)", path.display());
-            return Ok(None);
-        };
-
-        if object.file_format() != FileFormat::Elf {
-            return Ok(None);
+        let format = object.file_format();
+        if format != FileFormat::Elf && format != FileFormat::MachO {
+            continue;
         }
 
         // Relocatable objects (.o) and other kinds aren't loadable images.
@@ -253,34 +293,64 @@ fn parse_candidate(path: &Path) -> Result<Option<Candidate>> {
             object.kind(),
             ObjectKind::Executable | ObjectKind::Library | ObjectKind::Debug
         ) {
-            return Ok(None);
+            continue;
         }
 
         if !object.has_debug_info() {
-            return Ok(Some(Candidate::NoDebugInfo));
+            // Go's darwin linker compresses the DWARF it embeds (`__zdebug_*`
+            // sections) by default, which the server can't read — surface
+            // that as its own case so the guidance can name the fix.
+            if format == FileFormat::MachO && contains_zdebug_section(object.data()) {
+                candidates.push(Candidate::CompressedDwarf);
+            } else {
+                candidates.push(Candidate::NoDebugInfo);
+            }
+            continue;
         }
 
-        // Without a GNU build id (code id), symbolic synthesizes a
-        // content-derived debug id that the SDK cannot reproduce at runtime,
-        // so the upload would never match any crash event.
-        if object.code_id().is_none() {
-            return Ok(Some(Candidate::NoBuildId));
-        }
-
+        // Without an identity the SDK can reproduce at runtime — the GNU
+        // build id for ELF, the LC_UUID for Mach-O — the upload would never
+        // match any crash event. For ELF specifically, symbolic synthesizes a
+        // content-derived debug id when the build id is missing, so the
+        // code_id check must come first.
         let debug_id = object.debug_id();
-        if debug_id.is_nil() {
-            return Ok(Some(Candidate::NoBuildId));
+        if (format == FileFormat::Elf && object.code_id().is_none()) || debug_id.is_nil() {
+            candidates.push(match format {
+                FileFormat::MachO => Candidate::MissingUuid,
+                _ => Candidate::NoBuildId,
+            });
+            continue;
         }
-        debug_id.to_string()
-    };
 
-    let size = data.len();
-    Ok(Some(Candidate::Valid(DebugSymbolFile {
-        debug_id,
-        path: path.to_path_buf(),
-        data,
-        size,
-    })))
+        // Chunk id casing is per-format and case-sensitive on the server:
+        // ELF ids are lowercase, Mach-O ids are uppercase (matching the SDKs
+        // and `dsym upload`).
+        let debug_id = match format {
+            FileFormat::MachO => debug_id.to_string().to_uppercase(),
+            _ => debug_id.to_string(),
+        };
+
+        // For a fat Mach-O, upload the slice, not the whole container: the
+        // server resolves one binary per chunk id.
+        let object_data = object.data().to_vec();
+        candidates.push(Candidate::Valid(DebugSymbolFile {
+            debug_id,
+            path: path.to_path_buf(),
+            size: object_data.len(),
+            data: object_data,
+            format,
+        }));
+    }
+
+    Ok(candidates)
+}
+
+/// Detect Go-style compressed DWARF in a Mach-O slice. Section names live
+/// verbatim in the section headers, so a plain byte scan is sufficient for a
+/// diagnostic.
+fn contains_zdebug_section(data: &[u8]) -> bool {
+    data.windows(b"__zdebug_".len())
+        .any(|window| window == b"__zdebug_")
 }
 
 /// Render guidance for files that couldn't be uploaded; returns an error when
@@ -304,6 +374,25 @@ pub fn report_problems(report: &DiscoveryReport, directory: &Path) -> Result<()>
             "{} has no debug info (skipping). For release builds, set \
              `debug = \"line-tables-only\"` (or `true`) in [profile.release], \
              and upload before stripping.",
+            path.display()
+        );
+    }
+
+    for path in &report.missing_uuid {
+        warn!(
+            "{} has debug info but no LC_UUID, so it cannot be matched to \
+             crash events (skipping). Relink without stripping the UUID load \
+             command (ld adds one by default; `-no_uuid` removes it).",
+            path.display()
+        );
+    }
+
+    for path in &report.compressed_dwarf {
+        warn!(
+            "{} carries compressed DWARF (`__zdebug` sections), which can't be \
+             used for symbolication yet (skipping). Go compresses DWARF by \
+             default on macOS — rebuild with `-ldflags=-compressdwarf=false` \
+             and upload that binary.",
             path.display()
         );
     }
@@ -333,7 +422,7 @@ pub fn report_problems(report: &DiscoveryReport, directory: &Path) -> Result<()>
 
     if nothing_to_upload {
         anyhow::bail!(
-            "No ELF files with debug info or dSYM bundles found in {}",
+            "No ELF or Mach-O files with debug info or dSYM bundles found in {}",
             directory.display()
         );
     }
@@ -375,11 +464,12 @@ pub fn package_dsym_bundles(bundles: &[PathBuf], include_source: bool) -> Vec<Sy
 
 /// Coalesce uploads that share a chunk_id, keeping the first occurrence.
 ///
-/// ELF chunk_ids are lowercase (derived by `symbolic`) and Mach-O dSYM chunk_ids
-/// are uppercase (to match what the SDK and `dsym upload` emit), so the two
-/// formats never collide — this only merges the same dSYM UUID appearing in more
-/// than one bundle. Casing is preserved exactly and must never be normalized:
-/// the SDK matches chunk_ids case-sensitively, per format.
+/// ELF chunk_ids are lowercase (derived by `symbolic`) and Mach-O chunk_ids —
+/// executables and dSYMs alike — are uppercase (to match what the SDKs emit),
+/// so the two formats never collide; this merges the same Mach-O UUID
+/// appearing both as a binary and in a dSYM bundle, or a dSYM UUID appearing
+/// in more than one bundle. Casing is preserved exactly and must never be
+/// normalized: the SDK matches chunk_ids case-sensitively, per format.
 pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
     let mut seen = std::collections::HashSet::new();
     let mut deduped = Vec::with_capacity(uploads.len());

@@ -20,6 +20,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -91,6 +92,41 @@ _MAX_TAG_LENGTH = 100
 _MAX_DESCRIPTION_LENGTH = 1_000
 
 logger = structlog.get_logger(__name__)
+
+
+# Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
+# and stripped on save, so they never count as user-chosen filters.
+_QUERY_FILTER_KEYS = (
+    "events",
+    "actions",
+    "properties",
+    "console_log_filters",
+    "having_predicates",
+    "duration",
+    "distinct_ids",
+)
+
+
+def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
+    """Config choices at save time, so launch dashboards can see whether the defaults get changed.
+    Filter *values* stay out: they can carry customer data (URLs, emails)."""
+    query = scanner.query if isinstance(scanner.query, dict) else {}
+    estimate = scanner.estimated_monthly_observations
+    return {
+        "scanner_id": str(scanner.id),
+        "scanner_type": scanner.scanner_type,
+        "model": scanner.model,
+        "sampling_rate": scanner.sampling_rate,
+        "sampling_mode": scanner.sampling_mode,
+        "enabled": scanner.enabled,
+        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS),
+        "estimated_monthly_observations": estimate,
+        "estimated_monthly_credits": (
+            estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
+        ),
+        "team_id": scanner.team_id,
+        "organization_id": str(scanner.team.organization_id),
+    }
 
 
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
@@ -431,6 +467,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
         if is_replay_vision_actions_enabled(user, team):
             provision_scanner_digest(scanner, user)
+        report_user_action(user, "replay vision scanner created", _scanner_lifecycle_properties(scanner), team=team)
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
@@ -446,6 +483,13 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
+        if scanner.enabled != was_enabled:
+            report_user_action(
+                cast(User, self.context["request"].user),
+                "replay vision scanner enabled" if scanner.enabled else "replay vision scanner disabled",
+                _scanner_lifecycle_properties(scanner),
+                team=self.context["get_team"](),
+            )
         return scanner
 
     @staticmethod
@@ -482,7 +526,8 @@ class _ScannerOrderByFilter(OrderByFilter):
             organization_id = qs.values_list("team__organization_id", flat=True).first()
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)
-            period_start, period_end = current_period_bounds(organization_id)
+            period = current_period_bounds(organization_id)
+            period_start, period_end = period.start, period.end
             spend = (
                 ReplayObservation.objects.filter(
                     scanner_id=OuterRef("pk"),
@@ -686,7 +731,7 @@ class EstimateRequestSerializer(serializers.Serializer):
     model = serializers.ChoiceField(
         choices=ScannerModel.choices,
         required=False,
-        default=ScannerModel.GEMINI_3_6_FLASH,
+        default=ScannerModel.GEMINI_3_FLASH_PREVIEW,
         help_text="Proposed model; determines `credits_per_observation` in the response.",
     )
 

@@ -1978,13 +1978,6 @@ class TaskRunBootstrapCreateRequestSerializer(
             "follows the server-side default (enabled); false opts this run out."
         ),
     )
-    home_quick_action = serializers.CharField(
-        required=False,
-        default=None,
-        allow_blank=False,
-        max_length=120,
-        help_text="Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.",
-    )
 
     def validate(self, attrs):
         errors: dict[str, str] = {}

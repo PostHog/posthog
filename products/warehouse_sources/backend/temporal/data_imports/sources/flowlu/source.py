@@ -114,6 +114,7 @@ You can create an API key under **Portal Settings → API Settings** in Flowlu. 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Flowlu's list endpoints expose no documented
         # server-side timestamp filter, so there is no incremental cursor to advance
@@ -121,7 +122,11 @@ You can create an API key under **Portal Settings → API Settings** in Flowlu. 
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: FlowluSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FlowluSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not SUBDOMAIN_REGEX.match(config.subdomain):
             return False, "Flowlu account subdomain is invalid"

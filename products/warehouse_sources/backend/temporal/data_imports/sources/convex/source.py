@@ -80,6 +80,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         clean_url = validate_deploy_url(config.deploy_url)
         schemas_response = get_json_schemas(clean_url, config.deploy_key)
@@ -123,7 +124,11 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         }
 
     def validate_credentials(
-        self, config: ConvexSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConvexSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_convex_credentials(config.deploy_url, config.deploy_key)
 

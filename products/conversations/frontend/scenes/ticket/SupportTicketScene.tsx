@@ -200,6 +200,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         olderMessagesLoading={olderMessagesLoading}
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
+                        channel={ticket?.channel_source}
                         showPrivateOption
                         unreadCustomerCount={ticket?.unread_customer_count}
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
@@ -464,8 +465,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     </LemonCard>
 
                     {/* Related Groups Panel */}
-                    {person?.uuid && (
-                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    {(person?.uuid || ticket?.organization_id) && (
+                        <RelatedGroupsPanel
+                            personUuid={person?.uuid}
+                            organizationId={ticket?.organization_id}
+                            organizationIdSource={ticket?.organization_id_source}
+                        />
                     )}
 
                     {/* Staff Actions Panel */}
