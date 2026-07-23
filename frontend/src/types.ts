@@ -7756,6 +7756,7 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+    PATH_CLEANING = 'path_cleaning',
 }
 
 export interface Dataset {

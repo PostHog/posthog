@@ -613,6 +613,67 @@ export interface PatchedWebAnalyticsFilterPresetApi {
     readonly last_modified_by?: UserBasicApi
 }
 
+export interface ApplyPathCleaningSuggestionResponseApi {
+    /** Number of rules merged into the team's path_cleaning_filters. */
+    applied: number
+}
+
+export interface PathCleaningPreviewExampleApi {
+    /** A real sampled path before the suggested rules are applied. */
+    before: string
+    /** The same path after all suggested rules run in order. */
+    after: string
+    /** Pageviews this path received in the sampling window. */
+    views: number
+}
+
+export interface PreviewPathCleaningSuggestionResponseApi {
+    /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
+    examples: PathCleaningPreviewExampleApi[]
+    /** How many of the sampled paths the suggested rules rewrite in total. */
+    changed_path_count: number
+    /** How many top paths were sampled for this preview. */
+    sampled_path_count: number
+}
+
+export interface SuggestedRuleApi {
+    /** re2 pattern matching the dynamic path segment. */
+    regex: string
+    /** Replacement with angle-bracket placeholders, e.g. /users/<id>. */
+    alias: string
+    /** Apply order; rules run sequentially, output feeds the next. */
+    order: number
+    /** Short rationale for the rule from the model. */
+    reason?: string
+    /** How many of the sampled paths this rule rewrites — evidence the rule was validated on real traffic. */
+    match_count: number
+}
+
+/**
+ * A path-cleaning suggestion, stored as a `path_cleaning_suggestions` health issue.
+ */
+export interface PathCleaningSuggestionIssueApi {
+    /** Health-issue id; pass it to the apply endpoint or the health-issues API. */
+    id: string
+    /** When the suggestion was generated (ISO 8601). */
+    created_at: string
+    /** Validated path-cleaning rules proposed for this team, most specific first. */
+    rules: SuggestedRuleApi[]
+    /** LLM that generated the rules. */
+    model: string
+    /** How many real paths were sampled for generation. */
+    sampled_path_count: number
+    /** Distinct pathnames seen in the sampling window. */
+    distinct_path_count: number
+}
+
+export interface GeneratePathCleaningSuggestionResponseApi {
+    /** generated, skipped_low_cardinality, skipped_no_paths, skipped_configured, or error. */
+    status: string
+    /** The stored suggestion when status is generated, else null. */
+    suggestion?: PathCleaningSuggestionIssueApi | null
+}
+
 export type HeatmapScreenshotsContentRetrieveParams = {
     /**
      * Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for this width the closest available one is returned.

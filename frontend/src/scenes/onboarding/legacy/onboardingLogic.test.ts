@@ -103,6 +103,16 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.flow).toEqual([])
             expect(logic.values.currentFlowStep).toBeNull()
         })
+
+        it('includes the web analytics path cleaning step only when its flag is enabled', () => {
+            featureFlagLogic
+                .findMounted()
+                ?.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS], {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS]: true,
+                })
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            expect(flowIds()).toContain('path_cleaning:web_analytics')
+        })
     })
 
     describe('install-step dedup — POSTHOG_JS', () => {

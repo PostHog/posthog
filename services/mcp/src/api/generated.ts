@@ -10281,6 +10281,11 @@ export namespace Schemas {
       date: string | null;
     }
 
+    export interface ApplyPathCleaningSuggestionResponse {
+      /** Number of rules merged into the team's path_cleaning_filters. */
+      applied: number;
+    }
+
     export interface ApplyPromptSuggestionRequest {
       /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
       config?: unknown;
@@ -31758,6 +31763,44 @@ export namespace Schemas {
       config_id?: string | null;
       /** Period the brief should cover. Defaults to the last 7 days. */
       period?: Period;
+    }
+
+    export interface SuggestedRule {
+      /** re2 pattern matching the dynamic path segment. */
+      regex: string;
+      /** Replacement with angle-bracket placeholders, e.g. /users/<id>. */
+      alias: string;
+      /** Apply order; rules run sequentially, output feeds the next. */
+      order: number;
+      /** Short rationale for the rule from the model. */
+      reason?: string;
+      /** How many of the sampled paths this rule rewrites — evidence the rule was validated on real traffic. */
+      match_count: number;
+    }
+
+    /**
+     * A path-cleaning suggestion, stored as a `path_cleaning_suggestions` health issue.
+     */
+    export interface PathCleaningSuggestionIssue {
+      /** Health-issue id; pass it to the apply endpoint or the health-issues API. */
+      id: string;
+      /** When the suggestion was generated (ISO 8601). */
+      created_at: string;
+      /** Validated path-cleaning rules proposed for this team, most specific first. */
+      rules: SuggestedRule[];
+      /** LLM that generated the rules. */
+      model: string;
+      /** How many real paths were sampled for generation. */
+      sampled_path_count: number;
+      /** Distinct pathnames seen in the sampling window. */
+      distinct_path_count: number;
+    }
+
+    export interface GeneratePathCleaningSuggestionResponse {
+      /** generated, skipped_low_cardinality, skipped_no_paths, skipped_configured, or error. */
+      status: string;
+      /** The stored suggestion when status is generated, else null. */
+      suggestion?: PathCleaningSuggestionIssue | null;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -53859,6 +53902,15 @@ export namespace Schemas {
       variants?: unknown;
     }
 
+    export interface PathCleaningPreviewExample {
+      /** A real sampled path before the suggested rules are applied. */
+      before: string;
+      /** The same path after all suggested rules run in order. */
+      after: string;
+      /** Pageviews this path received in the sampling window. */
+      views: number;
+    }
+
     export interface PauseResponse {
       /** Always 'paused'. */
       status: string;
@@ -54229,6 +54281,15 @@ export namespace Schemas {
       emailable: boolean;
       /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
+    }
+
+    export interface PreviewPathCleaningSuggestionResponse {
+      /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
+      examples: PathCleaningPreviewExample[];
+      /** How many of the sampled paths the suggested rules rewrite in total. */
+      changed_path_count: number;
+      /** How many top paths were sampled for this preview. */
+      sampled_path_count: number;
     }
 
     /**

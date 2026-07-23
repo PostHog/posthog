@@ -35,6 +35,7 @@ export enum HealthCheckId {
 
     AUTHORIZED_URLS = 'authorized_urls',
     REVERSE_PROXY = 'reverse_proxy',
+    PATH_CLEANING_SUGGESTIONS = 'path_cleaning_suggestions',
 
     WEB_VITALS = 'web_vitals',
 }
