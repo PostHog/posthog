@@ -92,7 +92,8 @@ on:
         # turbo-tests skip PRs. The full matrices run on the merge queue's
         # trunk-merge/** draft PRs — the merge gate. Add the `run-ci-backend`
         # label (labeled/unlabeled re-trigger) to force the full matrices on a
-        # PR. Mirrors canonical.
+        # PR; the `no-ci` label silences the workflow on a draft entirely.
+        # Mirrors canonical.
         types: [opened, synchronize, reopened, labeled, unlabeled]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -186,9 +187,14 @@ jobs:
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
-        # at percent 0/unset), which cascades the whole workflow off.
+        # at percent 0/unset), which cascades the whole workflow off. Also skipped on
+        # draft PRs labeled `no-ci`, mirroring canonical.
         needs: sample
-        if: needs.sample.outputs.sampled == 'true'
+        if: >-
+            needs.sample.outputs.sampled == 'true'
+            && (github.event_name != 'pull_request'
+                || github.event.pull_request.draft != true
+                || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run backend and migration checks

@@ -293,8 +293,9 @@ CONSTANCE_CONFIG = {
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
-        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10, type_cast=int),
-        "Minimum query count threshold for web analytics cache warming",
+        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=2, type_cast=int),
+        "Per-shape floor: minimum runs in the lookback window for a query shape to be warmed. "
+        "2 covers every shape a user returned to; misses cost only a live serve (warm-behind).",
         int,
     ),
     "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
@@ -303,8 +304,9 @@ CONSTANCE_CONFIG = {
         list[int],
     ),
     "WEB_ANALYTICS_WARMING_MAX_SHAPES": (
-        get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=20000, type_cast=int),
-        "Cap on the number of hot query shapes web analytics warming selects fleet-wide per run",
+        get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=40000, type_cast=int),
+        "Cap on the number of hot query shapes web analytics warming selects fleet-wide per run. "
+        "Sized above the ~29k shapes the min=2 selection produces so the cap doesn't silently truncate.",
         int,
     ),
 }

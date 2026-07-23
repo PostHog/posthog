@@ -14,9 +14,9 @@ from products.engineering_analytics.backend.logic.queries.flaky_tests import que
 # (per-test spans are high-volume and the short Traces retention makes older data spotty anyway).
 # The signal thresholds double as the bar for the team CI health rollups.
 _DEFAULT_FLAKY_WINDOW = "-7d"
-_MAX_FLAKY_WINDOW_DAYS = 30
-_DEFAULT_FLAKY_MIN_RERUN_PASSES = 1
-_DEFAULT_FLAKY_MIN_FAILED_PRS = 3
+MAX_FLAKY_WINDOW_DAYS = 30
+DEFAULT_FLAKY_MIN_RERUN_PASSES = 1
+DEFAULT_FLAKY_MIN_FAILED_PRS = 3
 _DEFAULT_FLAKY_LIMIT = 50
 _MAX_FLAKY_LIMIT = 200
 
@@ -37,10 +37,10 @@ def build_flaky_tests(
     limit: int | None = None,
 ) -> FlakyTestList:
     parsed_from, parsed_to = _parse_window(
-        curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+        curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
     )
-    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
-    min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
+    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else DEFAULT_FLAKY_MIN_RERUN_PASSES
+    min_failed_prs = min_failed_prs if min_failed_prs is not None else DEFAULT_FLAKY_MIN_FAILED_PRS
     # A zero threshold would make its HAVING arm trivially true and silently qualify every
     # test with any signal span — require an explicit positive bar instead.
     if min_rerun_passes < 1 or min_failed_prs < 1:

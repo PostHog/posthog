@@ -31,6 +31,17 @@ from products.engineering_analytics.backend.presentation.views._base import (
 
 
 class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
+    READ_ACTIONS = [
+        "ci_cards",
+        "pull_requests",
+        "pr_lifecycle",
+        "resolve_branch",
+        "pr_runs",
+        "ci_failure_logs",
+        "pr_cost",
+        "author_workflow_costs",
+    ]
+
     @extend_schema(
         operation_id="engineering_analytics_ci_cards",
         parameters=[_SOURCE_ID, _REPO],

@@ -6,7 +6,8 @@ on:
         # chromium matrix (the merge gate) runs on the merge queue's trunk-merge/**
         # draft PRs. To force the full matrix on a PR, add the `run-ci-frontend`
         # label — labeled/unlabeled re-trigger the run so it starts without needing
-        # a push.
+        # a push. The `no-ci` label does the opposite: it silences this workflow on
+        # a draft entirely (prototypes), until it is removed or the PR leaves draft.
         types: [opened, synchronize, reopened, labeled, unlabeled]
     push:
         branches:
@@ -25,6 +26,14 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # The merge queue's trunk-merge/** draft PRs never carry the label, so the
+        # merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run storybook checks
         # Set job outputs to values from filter step
         outputs:
