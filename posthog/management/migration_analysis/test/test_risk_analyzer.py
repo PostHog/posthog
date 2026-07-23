@@ -7,7 +7,11 @@ from parameterized import parameterized
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
-from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy, HotTableAlterPolicy
+from posthog.management.migration_analysis.policies import (
+    AtomicFalsePolicy,
+    ConcurrentIndexIdempotencyPolicy,
+    HotTableAlterPolicy,
+)
 from posthog.management.migration_analysis.utils import _model_name_for_table
 from posthog.migration_helpers import (
     AddConstraintNotValid,
@@ -1769,6 +1773,22 @@ class TestAtomicFalsePolicy:
 
         assert any("WARNING" in v for v in migration_risk.policy_violations)
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_acknowledged_atomic_false_data_migration_not_flagged(self, tmp_path, monkeypatch):
+        ack_file = tmp_path / "acks.txt"
+        ack_file.write_text("# comment\nposthog.0001_test\n")
+        monkeypatch.setattr(AtomicFalsePolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
+
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [create_mock_operation(migrations.RunPython, code=lambda a, s: None)]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+        assert migration_risk.level != RiskLevel.BLOCKED
 
     def test_atomic_false_with_add_index_concurrently_ok(self):
         """AtomicFalsePolicy does not flag AddIndexConcurrently with atomic=False.
