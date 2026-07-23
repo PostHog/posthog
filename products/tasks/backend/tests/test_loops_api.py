@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from contextlib import nullcontext
 from datetime import timedelta
 from uuid import UUID
@@ -229,6 +231,104 @@ class LoopPartialUpdateAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertFalse(response.json()["triggers"][0]["enabled"])
+
+
+class LoopSkillBundlesAPITest(LoopsAPITestCase):
+    def _skill_bundles_url(self, loop_id: str) -> str:
+        return f"{self._loop_url(loop_id)}skill_bundles/"
+
+    def _bundle_payload(self, name: str = "my-skill", content: bytes = b"zip-bytes") -> dict:
+        return {
+            "file_name": f"{name}.zip",
+            "skill_name": name,
+            "skill_source": "user",
+            "content_sha256": hashlib.sha256(content).hexdigest(),
+            "bundle_format": "zip",
+            "content_base64": base64.b64encode(content).decode("ascii"),
+        }
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_owner_replaces_and_clears_skill_bundles(self, mock_write, mock_tag, mock_delete):
+        loop = self._create_loop(self.owner_client)
+        content = b"zip-bytes"
+
+        replaced = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]),
+            {"bundles": [self._bundle_payload(content=content)]},
+            format="json",
+        )
+
+        self.assertEqual(replaced.status_code, status.HTTP_200_OK, replaced.content)
+        bundles = replaced.json()["skill_bundles"]
+        self.assertEqual(len(bundles), 1)
+        self.assertEqual(bundles[0]["skill_name"], "my-skill")
+        self.assertEqual(bundles[0]["skill_source"], "user")
+        self.assertEqual(bundles[0]["size"], len(content))
+        self.assertEqual(bundles[0]["content_sha256"], hashlib.sha256(content).hexdigest())
+        mock_write.assert_called_once()
+
+        row = Loop.objects.unscoped().get(id=loop["id"])
+        stored = row.skill_bundles[0]
+        self.assertEqual(stored["type"], "skill_bundle")
+        self.assertTrue(stored["storage_path"].startswith(row.get_skill_bundle_s3_prefix()))
+        self.assertEqual(stored["metadata"]["skill_name"], "my-skill")
+        first_storage_path = stored["storage_path"]
+
+        retrieved = self.owner_client.get(self._loop_url(loop["id"]))
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(retrieved.json()["skill_bundles"]), 1)
+
+        cleared = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": []}, format="json")
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.content)
+        self.assertEqual(cleared.json()["skill_bundles"], [])
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+        mock_delete.assert_called_once_with([first_storage_path])
+
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_sha_mismatch(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload()
+        payload["content_sha256"] = "0" * 64
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("sha256", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    def test_replace_rejects_too_many_bundles(self):
+        loop = self._create_loop(self.owner_client)
+        bundles = [self._bundle_payload(name=f"skill-{index}") for index in range(11)]
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": bundles}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_is_owner_gated_on_a_team_loop(self, mock_write, mock_tag):
+        loop = self._create_loop(self.owner_client, visibility="team")
+
+        denied = self.peer_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN, denied.content)
+
+        allowed = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK, allowed.content)
+
+    def test_replace_on_someone_elses_personal_loop_is_a_404(self):
+        loop = self._create_loop(self.owner_client, visibility="personal")
+
+        response = self.peer_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
 
 class LoopSafetyLimitAPITest(LoopsAPITestCase):

@@ -29,6 +29,7 @@ from products.tasks.backend.presentation.serializers_loops import (
     LoopRunPageSerializer,
     LoopRunsQuerySerializer,
     LoopSerializer,
+    LoopSkillBundlesWriteSerializer,
     LoopWriteSerializer,
 )
 
@@ -142,7 +143,9 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # (`runs`), so a service that triggers can also poll the outcome. Everything else (CRUD,
     # manual run, preview) stays session/PAT/OAuth-only.
     psak_allowed_actions = ["trigger", "runs"]
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    # "put" is routed only by the skill_bundles action (wholesale replace); the loop
+    # resource itself stays PATCH-only.
+    http_method_names = ["get", "post", "patch", "put", "delete", "head", "options"]
     pagination_class = LoopsPagination
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
@@ -275,6 +278,36 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not deleted:
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        summary="Replace a loop's skill bundles",
+        description=(
+            "Replaces the loop's attached skill bundles wholesale: zipped local skills whose "
+            "contents are seeded into every fired run's sandbox. Send an empty list to detach "
+            "every skill. Owner-only on team loops, like other identity-bearing configuration."
+        ),
+        request=LoopSkillBundlesWriteSerializer,
+        responses={
+            200: LoopSerializer,
+            403: OpenApiResponse(description="Not permitted to change this loop's skills"),
+            404: OpenApiResponse(description="Loop not found"),
+        },
+    )
+    @action(detail=True, methods=["put"], url_path="skill_bundles", required_scopes=["loop:write"])
+    def skill_bundles(self, request, pk=None, **kwargs):
+        serializer = LoopSkillBundlesWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            loop = loops_facade.replace_loop_skill_bundles(
+                pk, self.team_id, request.user, bundles=list(serializer.validated_data["bundles"])
+            )
+        except loops_facade.LoopPermissionError as exc:
+            raise PermissionDenied(str(exc))
+        except loops_facade.LoopValidationError as exc:
+            raise ValidationError(str(exc))
+        if loop is None:
+            raise NotFound()
+        return Response(LoopSerializer(loop).data)
 
     @extend_schema(
         summary="Run a loop manually",

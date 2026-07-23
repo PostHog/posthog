@@ -537,6 +537,69 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
             self.assertNotIn("sandbox_environment_id", task_run.state)
 
 
+class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
+    def _bundle_entry(self, **overrides) -> dict:
+        entry = {
+            "id": "abcdef0123456789abcdef0123456789",
+            "name": "my-skill.zip",
+            "type": "skill_bundle",
+            "source": "posthog_code_skill",
+            "size": 9,
+            "content_type": "application/zip",
+            "storage_path": "tasks/artifacts/team_1/loop_x/abcdef01_my-skill.zip",
+            "uploaded_at": "2026-07-22T00:00:00+00:00",
+            "metadata": {
+                "skill_name": "my-skill",
+                "skill_source": "user",
+                "content_sha256": "a" * 64,
+                "bundle_format": "zip",
+                "schema_version": 1,
+            },
+        }
+        entry.update(overrides)
+        return entry
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.copy")
+    def test_fire_copies_loop_skill_bundles_into_the_run_manifest(self, mock_copy, mock_tag):
+        entry = self._bundle_entry()
+        loop = self.create_loop(skill_bundles=[entry])
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, "fire-1", "ctx")
+
+        self.assertTrue(result.created)
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        expected_target = f"{task_run.get_artifact_s3_prefix()}/abcdef01_my-skill.zip"
+        mock_copy.assert_called_once_with(entry["storage_path"], expected_target)
+        seeded = [artifact for artifact in task_run.artifacts if artifact["type"] == "skill_bundle"]
+        self.assertEqual(len(seeded), 1)
+        self.assertEqual(seeded[0]["storage_path"], expected_target)
+        self.assertEqual(seeded[0]["metadata"], entry["metadata"])
+        loop.refresh_from_db()
+        self.assertEqual(loop.skill_bundles[0]["storage_path"], entry["storage_path"])
+
+    def test_fire_without_bundles_does_not_touch_storage(self):
+        loop = self.create_loop()
+        trigger = self.create_trigger(loop)
+
+        with patch("posthog.storage.object_storage.copy") as mock_copy:
+            result = fire_loop(loop, trigger, "fire-1", "ctx")
+
+        self.assertTrue(result.created)
+        mock_copy.assert_not_called()
+
+    @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
+    def test_fire_fails_when_a_bundle_cannot_be_seeded(self, mock_copy):
+        loop = self.create_loop(skill_bundles=[self._bundle_entry()])
+        trigger = self.create_trigger(loop)
+
+        with self.assertRaises(RuntimeError):
+            fire_loop(loop, trigger, "fire-1", "ctx")
+
+        self.assertEqual(self.active_run_count(loop), 0)
+
+
 class TestFireLoopContextTarget(LoopRunsTestCase):
     FOLDER_ID = "11111111-1111-1111-1111-111111111111"
     CANVAS_ID = "22222222-2222-2222-2222-222222222222"

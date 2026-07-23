@@ -99,6 +99,7 @@ IDENTITY_FIELDS: frozenset[str] = frozenset(
         "connectors",
         "context_target",
         "triggers",
+        "skill_bundles",
     }
 )
 _PAUSE_FIELD = "enabled"
@@ -213,6 +214,19 @@ class LoopContextTargetDTO:
 
 
 @dataclass(frozen=True)
+class LoopSkillBundleDTO:
+    """A skill bundle attached to a loop, sans storage internals. `content_sha256` lets the
+    client detect when its local copy of the skill has drifted from the stored snapshot."""
+
+    id: str
+    skill_name: str
+    skill_source: str
+    size: int
+    content_sha256: str
+    uploaded_at: str
+
+
+@dataclass(frozen=True)
 class LoopTriggerDTO:
     """A single loop trigger. `config` shape depends on `type` — see LOOPS.md `LoopTrigger`."""
 
@@ -257,6 +271,7 @@ class LoopDTO:
     updated_at: datetime
     context_target: LoopContextTargetDTO | None = None
     triggers: list[LoopTriggerDTO] = Field(default_factory=list)
+    skill_bundles: list[LoopSkillBundleDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -425,7 +440,27 @@ def _loop_to_dto(loop: Loop) -> LoopDTO:
         updated_at=loop.updated_at,
         context_target=_context_target_dto(loop.context_target),
         triggers=[_trigger_to_dto(trigger) for trigger in triggers],
+        skill_bundles=_skill_bundle_dtos(loop.skill_bundles),
     )
+
+
+def _skill_bundle_dtos(entries: list | None) -> list[LoopSkillBundleDTO]:
+    dtos: list[LoopSkillBundleDTO] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        metadata = entry.get("metadata") or {}
+        dtos.append(
+            LoopSkillBundleDTO(
+                id=str(entry.get("id", "")),
+                skill_name=str(metadata.get("skill_name", "")),
+                skill_source=str(metadata.get("skill_source", "")),
+                size=int(entry.get("size", 0)),
+                content_sha256=str(metadata.get("content_sha256", "")),
+                uploaded_at=str(entry.get("uploaded_at", "")),
+            )
+        )
+    return dtos
 
 
 def _parse_uuid(value: Any) -> UUID | None:
@@ -955,6 +990,105 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     return _loop_to_dto(loop)
 
 
+MAX_LOOP_SKILL_BUNDLES = 10
+MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 30 * 1024 * 1024
+
+
+def replace_loop_skill_bundles(
+    loop_id: str | UUID, team_id: int, user: User | None, *, bundles: list[dict]
+) -> LoopDTO | None:
+    """Replace the loop's attached skill bundles wholesale — the client sends the full
+    declarative set on every save, so there is no per-bundle add/remove surface. Bundle
+    bytes land under the loop's own S3 prefix (not any run's, so run retention never
+    reaps them); superseded objects are deleted best-effort after the manifest swap.
+    Owner-gated like every other identity-bearing field. Returns `None` if the loop is
+    not found/reachable."""
+    import hashlib  # noqa: PLC0415
+
+    from django.utils import timezone as django_timezone  # noqa: PLC0415
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
+
+    if len(bundles) > MAX_LOOP_SKILL_BUNDLES:
+        raise LoopValidationError(f"A loop can carry at most {MAX_LOOP_SKILL_BUNDLES} skill bundles.")
+
+    loop = _fetch_loop_for_write(loop_id, team_id, user)
+    if loop is None:
+        return None
+    _authorize_update(loop, user, {"skill_bundles": bundles})
+
+    prefix = loop.get_skill_bundle_s3_prefix()
+    previous_paths = [
+        entry["storage_path"]
+        for entry in (loop.skill_bundles or [])
+        if isinstance(entry, dict) and entry.get("storage_path")
+    ]
+
+    entries: list[dict] = []
+    for bundle in bundles:
+        try:
+            content_bytes = base64.b64decode(bundle["content_base64"], validate=True)
+        except (ValueError, TypeError):
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not valid base64.")
+        if len(content_bytes) > MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' exceeds the "
+                f"{MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES // (1024 * 1024)}MB limit."
+            )
+        if hashlib.sha256(content_bytes).hexdigest() != bundle["content_sha256"]:
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' does not match its declared sha256.")
+
+        bundle_id = uuid4().hex
+        safe_name = get_safe_artifact_name(bundle["file_name"])
+        storage_path = f"{prefix}/{bundle_id[:8]}_{safe_name}"
+        object_storage.write(storage_path, content_bytes, {"ContentType": "application/zip"})
+        try:
+            object_storage.tag(storage_path, {"team_id": str(loop.team_id)})
+        except Exception as exc:
+            logger.warning(
+                "loop.skill_bundle_tag_failed",
+                extra={"loop_id": str(loop.id), "storage_path": storage_path, "error": str(exc)},
+            )
+        entries.append(
+            {
+                "id": bundle_id,
+                "name": safe_name,
+                "type": "skill_bundle",
+                "source": "posthog_code_skill",
+                "size": len(content_bytes),
+                "content_type": "application/zip",
+                "storage_path": storage_path,
+                "uploaded_at": django_timezone.now().isoformat(),
+                "metadata": {
+                    "skill_name": bundle["skill_name"],
+                    "skill_source": bundle["skill_source"],
+                    "content_sha256": bundle["content_sha256"],
+                    "bundle_format": "zip",
+                    "schema_version": 1,
+                },
+            }
+        )
+
+    with transaction.atomic():
+        loop.skill_bundles = entries
+        loop.save(update_fields=["skill_bundles", "updated_at"])
+
+    stale_paths = [path for path in previous_paths if path.startswith(prefix)]
+    if stale_paths:
+        try:
+            object_storage.delete_objects(stale_paths)
+        except Exception as exc:
+            logger.warning(
+                "loop.skill_bundle_cleanup_failed",
+                extra={"loop_id": str(loop.id), "paths": stale_paths, "error": str(exc)},
+            )
+
+    loop.refresh_from_db()
+    return _loop_to_dto(loop)
+
+
 def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bool:
     loop = _fetch_loop_for_write(loop_id, team_id, user)
     if loop is None:
@@ -1242,6 +1376,9 @@ __all__ = [
     "LoopRunDTO",
     "LoopRunPageDTO",
     "LoopScheduleSyncStatus",
+    "LoopSkillBundleDTO",
+    "MAX_LOOP_SKILL_BUNDLES",
+    "MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES",
     "LoopTriggerDTO",
     "LoopTriggerType",
     "LoopVisibility",
@@ -1266,6 +1403,7 @@ __all__ = [
     "pause_loops_for_removed_member",
     "pause_loops_referencing_integrations",
     "preview_loop",
+    "replace_loop_skill_bundles",
     "repository_accessible_via_integration",
     "sandbox_environment_queryset",
     "soft_delete_loop",

@@ -490,6 +490,38 @@ def _team_rate_capped(loop: Loop) -> bool:
     return fire_count >= LOOP_TEAM_RATE_CAP_PER_DAY
 
 
+def _seed_skill_bundle_artifacts(loop: Loop, task_run: TaskRun) -> None:
+    """Copy the loop's stored skill bundles into the new run: S3 objects under the run's
+    artifact prefix plus matching ``skill_bundle`` manifest entries, so the sandbox
+    agent-server installs them exactly like bundles a client uploaded at task creation.
+    Raises on a failed copy — a fire whose skills can't be seeded rolls back and retries
+    cleanly rather than running with silently missing skills."""
+    bundles = [entry for entry in (loop.skill_bundles or []) if isinstance(entry, dict) and entry.get("storage_path")]
+    if not bundles:
+        return
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the fire path import
+
+    run_prefix = task_run.get_artifact_s3_prefix()
+    manifest = list(task_run.artifacts or [])
+    for bundle in bundles:
+        entry = dict(bundle)
+        target_path = f"{run_prefix}/{str(entry['id'])[:8]}_{entry['name']}"
+        object_storage.copy(entry["storage_path"], target_path)
+        try:
+            object_storage.tag(target_path, {"ttl_days": "30", "team_id": str(task_run.team_id)})
+        except Exception as exc:
+            logger.warning(
+                "loop_run.skill_bundle_tag_failed",
+                extra={"task_run_id": str(task_run.id), "storage_path": target_path, "error": str(exc)},
+            )
+        entry["storage_path"] = target_path
+        manifest.append(entry)
+
+    task_run.artifacts = manifest
+    task_run.save(update_fields=["artifacts", "updated_at"])
+
+
 def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_context: str) -> tuple[Task, TaskRun]:
     repository: str | None = None
     github_integration_id: int | None = None
@@ -572,6 +604,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "workflow_id_prefix": None,
     }
     task_run = task.create_run(mode="background", extra_state=extra_state)
+    _seed_skill_bundle_artifacts(loop, task_run)
 
     team_id = loop.team_id
     user_id = loop.created_by_id
