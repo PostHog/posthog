@@ -2,9 +2,13 @@
 
 PostHog web analytics has two parallel precomputation systems. They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
 
+For how these tiers fit into the full serving ladder (fast paths, full join, dispatch order, query_type tags), see [docs/internal/web-analytics-query-serving.md](../../docs/internal/web-analytics-query-serving.md).
+
 ## The two systems
 
 ### v2 pre-aggregated tables
+
+**Status: deprecated.** No new enrollments — retained only for the largest existing customers until lazy computation fully replaces it, at which point this system goes away.
 
 DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bounces`) that store hourly-rollup data computed in the background. Gated per-team by the `useWebAnalyticsPreAggregatedTables` modifier plus the `SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES` feature flag.
 
@@ -18,7 +22,7 @@ DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bo
 The newer general-purpose framework at `products/analytics_platform/backend/lazy_computation/`. Computes precomputed buckets on first read, caches them in a dedicated CH table per query family, and serves subsequent reads from the cache. Gated per-org by the `web-analytics-precompute-toggle` PostHog feature flag (evaluated against the team's organization).
 
 - **Owned by**: web analytics team, riding on the analytics_platform framework
-- **Population**: synchronous, on first read miss; subsequent reads hit the cache
+- **Population**: background-only since #72959 — user reads never build inline; a miss serves live and enqueues a debounced background warm. The hourly demand-driven warmer (`dags/cache_warming.py`) and stale revalidation keep hot shapes fresh
 - **Coverage** (today): `web_overview_query` and the PATHS (`WebStatsBreakdown.PAGE` + `includeBounceRate`) tile of `web_stats_table_query`. See `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` and `web_stats_paths_lazy_precompute.py`
 - **Adoption** (as of 2026-05): freshly enabled, org feature flag gates further rollout
 
