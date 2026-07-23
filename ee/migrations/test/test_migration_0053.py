@@ -9,7 +9,7 @@ from parameterized import parameterized
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
-migration_module = importlib.import_module("ee.migrations.0052_backfill_tagger_access_control")
+migration_module = importlib.import_module("ee.migrations.0053_backfill_tagger_access_control")
 backfill_tagger_access_control = migration_module.backfill_tagger_access_control
 
 
