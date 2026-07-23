@@ -125,6 +125,16 @@ class TestDiffRetentionResults(TestCase):
         self.assertEqual(diff.row_count_legacy, 1)
         self.assertEqual(diff.row_count_dwh, 0)
 
+    def test_row_label_mismatch_with_equal_counts_is_flagged(self):
+        # Equal row counts and identical breakdown sets, but a differing row label must not be
+        # silently dropped into an OK verdict.
+        legacy = [_result(None, "Day 0", [_value(10, "Day 0")]), _result(None, "Day 1", [_value(5, "Day 0")])]
+        dwh = [_result(None, "Day 0", [_value(10, "Day 0")]), _result(None, "Day 2", [_value(5, "Day 0")])]
+        diff = diff_retention_results(legacy, dwh)
+        self.assertEqual(diff.status, "MISMATCH")
+        self.assertTrue(any("missing in DWH" in note for note in diff.notes))
+        self.assertTrue(any("missing in legacy" in note for note in diff.notes))
+
 
 class TestClickhouseSeconds(TestCase):
     def test_matches_leaf_key(self):

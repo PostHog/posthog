@@ -277,6 +277,14 @@ def diff_retention_results(
 
     cell_diffs: list[CellDiff] = []
     notes: list[str] = []
+    # Row keys should be identical between variants (format_results is shared); flag — never
+    # silently drop — any that aren't, so an OK verdict can't mask differing row coverage.
+    rows_only_legacy = [k for k in legacy_by_key if k not in dwh_by_key]
+    rows_only_dwh = [k for k in dwh_by_key if k not in legacy_by_key]
+    for key in rows_only_legacy:
+        notes.append(f"row (breakdown={key[0]!r}, label={key[1]!r}) present in legacy but missing in DWH")
+    for key in rows_only_dwh:
+        notes.append(f"row (breakdown={key[0]!r}, label={key[1]!r}) present in DWH but missing in legacy")
     for key in legacy_by_key:
         if key not in dwh_by_key:
             continue
@@ -324,7 +332,14 @@ def diff_retention_results(
                     )
 
     cell_diffs.sort(key=lambda c: c.abs_diff, reverse=True)
-    is_mismatch = len(legacy) != len(dwh) or bool(only_legacy) or bool(only_dwh) or bool(cell_diffs)
+    is_mismatch = (
+        len(legacy) != len(dwh)
+        or bool(only_legacy)
+        or bool(only_dwh)
+        or bool(rows_only_legacy)
+        or bool(rows_only_dwh)
+        or bool(cell_diffs)
+    )
     return CorrectnessDiff(
         status="MISMATCH" if is_mismatch else "OK",
         row_count_legacy=len(legacy),
@@ -527,10 +542,15 @@ def run_variant(
         if capture_query_ids
         else nullcontext()
     )
-    with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=use_dwh), capture_ctx:
-        start = perf_counter()
-        response = get_query_runner(source, insight.team, modifiers=deepcopy(modifiers)).calculate()
-        wall_s = perf_counter() - start
+    try:
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=use_dwh), capture_ctx:
+            start = perf_counter()
+            response = get_query_runner(source, insight.team, modifiers=deepcopy(modifiers)).calculate()
+            wall_s = perf_counter() - start
+    finally:
+        if marker:
+            # Clear the marker so later perf-only iterations don't tag their query-log rows with it.
+            tag_queries(client_query_id=None)
 
     return VariantRun(
         results=response.results or [],
