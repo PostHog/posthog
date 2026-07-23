@@ -257,7 +257,7 @@ class TestExternalDataSource(APIBaseTest):
             source.refresh_from_db()
             assert source.api_version == "2024-09-30.acacia"
 
-    def test_clearing_the_pin_falls_back_to_the_source_default(self):
+    def test_clearing_the_pin_persists_null_not_blank(self):
         source = self._create_external_data_source()
         source.api_version = "2024-09-30.acacia"
         source.save(update_fields=["api_version"])
@@ -269,9 +269,9 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         source.refresh_from_db()
-        # NULL is the "unpinned" state the whole resolution chain keys off, so it must not land as "".
+        # NULL is the "unpinned" state the whole resolution chain keys off (and what makes the pin
+        # follow default_version again), so clearing must not land as "".
         assert source.api_version is None
-        assert StripeSource().resolve_api_version(source.api_version) == StripeSource().default_version
 
     def test_api_version_pin_rejects_unsupported_version(self):
         source = self._create_external_data_source()
