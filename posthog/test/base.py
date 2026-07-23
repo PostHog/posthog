@@ -1571,6 +1571,10 @@ class BaseTestMigrations(QueryMatchingTest):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
         )
+        # Guard against connections that died after setUpClass (e.g. idle_in_transaction_session_timeout
+        # killed the socket while a prior test's CPU-bound project_state() held the GIL).
+        if connection.connection is not None and not connection.is_usable():
+            connection.close()
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)

@@ -1,14 +1,19 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class BackfillGoogleAdsIncrementalLookbackMigrationTest(TestMigrations):
+class BackfillGoogleAdsIncrementalLookbackMigrationTest(NonAtomicTestMigrations):
     """0051 backfills a default incremental lookback onto existing Google Ads incremental stats
     schemas, which were created before the source set one and so re-fetch only the newest day,
     freezing every prior day at its first-imported, not-yet-final value. It must touch only Google
     Ads incremental schemas with no lookback yet — never full_refresh, never other sources, never a
     soft-deleted row, and never an explicit user value (including 0, which means "no overlap").
+
+    NonAtomic: setUp's MigrationExecutor spends minutes CPU-bound building migration project state.
+    Under the atomic TestCase wrapper the connection sits idle in transaction for that whole stretch,
+    tripping the CI Postgres idle_in_transaction_session_timeout (300s), which kills the session
+    mid-test with "the connection is closed".
     """
 
     migrate_from = "0051_warehousecolumnstatistics"
