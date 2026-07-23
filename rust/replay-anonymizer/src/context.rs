@@ -11,7 +11,9 @@ use std::collections::HashMap;
 use anyhow::{bail, Result};
 
 use crate::allow_lists::AllowLists;
-use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
+use crate::assets::PLACEHOLDER_SRC;
+use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
+use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
 use crate::timings::PhaseTimings;
 
 /// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
@@ -19,7 +21,8 @@ use crate::timings::PhaseTimings;
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
-/// Scrub context: the allow lists, the cv decompression budget, and the blur memo.
+/// Scrub context: the allow lists, the cv decompression budget, the blur memo, and the image
+/// scrub policy (inline blur, or deferred onto the shared worker pool).
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
     pub cv_budget: Cell<usize>,
@@ -27,20 +30,71 @@ pub struct Ctx<'a> {
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
     timings: Option<&'a PhaseTimings>,
+    image_policy: ImagePolicy,
+    images: ImageQueue,
 }
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
-        Self::with_timings(allow, None)
+        Self::with_options(allow, None, ImagePolicy::Inline)
     }
 
     pub fn with_timings(allow: &'a AllowLists, timings: Option<&'a PhaseTimings>) -> Self {
+        Self::with_options(allow, timings, ImagePolicy::Inline)
+    }
+
+    // pub(crate): the token-patch barriers live only in the kafka snapshot pipeline, so a
+    // caller-built Parallel Ctx on the other entry points would emit unresolved tokens.
+    pub(crate) fn with_options(
+        allow: &'a AllowLists,
+        timings: Option<&'a PhaseTimings>,
+        image_policy: ImagePolicy,
+    ) -> Self {
         Self {
             allow,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
             blur_cache: RefCell::new(HashMap::new()),
             timings,
+            image_policy,
+            images: ImageQueue::default(),
         }
+    }
+
+    /// Scrub one image data URI per the policy: the blurred URI (inline), or a token the patch
+    /// pass later replaces (parallel). Failures resolve to `fallback` either way. A message that
+    /// exhausts the queued-bytes budget degrades to inline for the remainder — bounded memory,
+    /// identical output.
+    pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
+        if self.image_policy == ImagePolicy::Parallel {
+            if let Some(token) = self.images.submit(
+                original,
+                fallback,
+                true,
+                crate::images::MAX_QUEUED_URI_BYTES,
+            ) {
+                return token;
+            }
+        }
+        match (self.blur_data_uri(original), fallback) {
+            (Some(blurred), _) => blurred,
+            (None, ImageFallback::Blank) => blank_image_data_uri(),
+            (None, ImageFallback::Placeholder) => PLACEHOLDER_SRC.to_string(),
+        }
+    }
+
+    pub(crate) fn has_pending_images(&self) -> bool {
+        self.images.has_pending()
+    }
+
+    /// Replace any outstanding image tokens in serialized output, waiting for their jobs. Must run
+    /// wherever bytes become immutable: before a cv payload compresses, and on the final lines.
+    /// Worker-side blur time lands in the timings sink here, as jobs are claimed.
+    pub(crate) fn patch_pending_images(&self, buf: Vec<u8>) -> Vec<u8> {
+        let out = self.images.patch(buf);
+        if let Some(t) = self.timings {
+            self.images.drain_blur_time_into(t);
+        }
+        out
     }
 
     fn timed<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {
