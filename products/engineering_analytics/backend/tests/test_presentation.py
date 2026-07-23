@@ -15,7 +15,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
 )
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT
 from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
-from products.engineering_analytics.backend.tests.test_views import (
+from products.engineering_analytics.backend.tests._github_fixtures import (
     connect_github_source_without_data,
     create_github_source,
 )

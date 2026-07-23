@@ -23,6 +23,9 @@ class _CISignalsConfigUpdateData(TypedDict):
 
 
 class CISignalsConfigMixin(EngineeringAnalyticsViewSetBase):
+    READ_ACTIONS = ["ci_signals_config"]
+    WRITE_ACTIONS = ["update_ci_signals_config"]
+
     @extend_schema(
         operation_id="engineering_analytics_ci_signals_config_retrieve",
         responses={200: CISignalsConfigSerializer},

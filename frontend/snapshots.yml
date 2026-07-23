@@ -4709,7 +4709,7 @@ snapshots:
     products-alerts-alert-modal--create-wizard--dark:
         hash: v1.k794b7964.e3efb1235db76f2fe8b3ccff465df9b84263211b8648d57a725cfcf3a92c08c9.mTtZUY5-gkDVf9yjhBIR_Cx1_5arKEIEJh-2g-cLQBQ
     products-alerts-alert-modal--create-wizard--light:
-        hash: v1.k794b7964.5d3e5771de5e54394886c7912e522f324add97132f71b60692b5d6efaeb8fdd3.mki0HDX74WZcOqtylWsX2ebTI-U1tVS9-5XcmKpY-bo
+        hash: v1.k794b7964.494bd726adc6e478744c5418538e1e5bc6e3afdffd7ffc6ee5db7f9447736ad8.XrOtsQ190MyCOe3g_QspkQn_2iNZXZmb0QaWh1xt-t8
     products-alerts-alert-modal--edit-alert--dark:
         hash: v1.k794b7964.1b0b3ec51cc999c02f8442559b676a2e2f352998c0f3d4a9b10da7da8fc3aac1.ZktPS8oprYMZQ-rLsncCgMlyidqF97zUzqDfKjQGo1A
     products-alerts-alert-modal--edit-alert--light:
@@ -4754,6 +4754,10 @@ snapshots:
         hash: v1.k794b7964.3f137bbf7a90843202ca75d89d5dec7f102945cf55f2c4532ccac3b4e8073c9b.phN1IPBCANIC0EsrGxopacxr96qniH5DnAm-ZnKVUz0
     products-alerts-shared-components--notifications--light:
         hash: v1.k794b7964.240b6085693c57e601cf978fe479a2cb6124c80c7cd743f44ff61744e94c90bb.v4D0nGdwscIlnUoeTqwHQsyEggk4eOm3GBGvgvFkXII
+    products-alerts-shared-components--notifications-multiple-slack-workspaces--dark:
+        hash: v1.k794b7964.44080ef3cc8fb24fb5ad535ee387b4911358d8804045747939750530be5c6235.7UCJ4oJX1LEan-IVOu2iA5Hzz14HQQoZENCw_SMOxss
+    products-alerts-shared-components--notifications-multiple-slack-workspaces--light:
+        hash: v1.k794b7964.7af987b36145b9e49adca1cbc6d1a4616ae94866476f72bc510ab96d286e4133.3H70LHwnl5IAqi3fUW4lQZZ7UT9o23krCbiAdBvWpvY
     products-alerts-shared-components--quiet-hours--dark:
         hash: v1.k794b7964.3a4e054512c5b607cf75f1cc3e6dd2212333d05e4fb89274b580b47f01e5aeaf.nPp2_jJIgcpjkQgHQA63v-eqzVox-oIfDi3SQKPdRis
     products-alerts-shared-components--quiet-hours--light:

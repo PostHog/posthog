@@ -91,6 +91,7 @@ from products.signals.backend.scout_harness.serializers import (
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
+    SignalScoutConfigUpdateSerializer,
     SignalScoutEmissionSerializer,
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
@@ -1360,10 +1361,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List scout configs",
         description=(
-            "List the per-(team, skill) scout configs for this project — schedule "
-            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly "
-            "authored scout skill appears here once its config is registered, either "
-            "explicitly via create or by the coordinator's next tick."
+            "List the per-(team, skill) scout configs for this project. Each row includes its schedule "
+            "(rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, "
+            "and `emit` posture. A freshly authored scout skill appears here once its config is registered, "
+            "either explicitly via create or by the coordinator's next tick."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -1402,10 +1403,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Create a scout config",
         description=(
             "Register the config for a `signals-scout-*` skill immediately, without waiting "
-            "for the coordinator to auto-register it — optionally setting `run_interval_minutes`, "
-            "`enabled`, and `emit` in the same call. The skill must already exist on this "
-            "project. Upsert: if a config already exists for the skill, the provided fields "
-            "are applied to it."
+            "for the coordinator to auto-register it. The same call can optionally set "
+            "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, and `emit`. "
+            "The skill must already exist on this project. Upsert: if a config already exists "
+            "for the skill, the provided fields are applied to it."
         ),
         operation_id="signals_scout_config_create",
     )
@@ -1448,7 +1449,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not created and tunables:
             # The coordinator tick (or a concurrent caller) won the race — apply the provided
             # fields to the existing row so the call still lands the requested settings.
-            update = SignalScoutConfigSerializer(config, data=tunables, partial=True)
+            update = SignalScoutConfigUpdateSerializer(config, data=tunables, partial=True)
             update.is_valid(raise_exception=True)
             save_kwargs = {}
             if not config.enabled and update.validated_data.get("enabled"):
@@ -1461,7 +1462,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @extend_schema(
-        request=SignalScoutConfigSerializer,
+        request=SignalScoutConfigUpdateSerializer,
         responses={
             200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Updated config."),
             400: OpenApiResponse(
@@ -1471,9 +1472,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Update a scout config",
         description=(
-            "Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` "
-            "(dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is "
-            "activity-logged since it drives spend."
+            "Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron "
+            "`run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) "
+            "posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged "
+            "since it drives spend."
         ),
         operation_id="signals_scout_config_update",
     )
@@ -1483,7 +1485,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
             raise exceptions.NotFound()
-        serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
+        serializer = SignalScoutConfigUpdateSerializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         enabling = not config.enabled and serializer.validated_data.get("enabled")
         if enabling:

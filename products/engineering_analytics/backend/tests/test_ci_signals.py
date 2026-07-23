@@ -53,7 +53,10 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.engineering_analytics.backend.tests.test_views import create_github_source, create_warehouse_table_row
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    create_github_source,
+    create_warehouse_table_row,
+)
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import set_signal_source_types_enabled, validate_signal_input

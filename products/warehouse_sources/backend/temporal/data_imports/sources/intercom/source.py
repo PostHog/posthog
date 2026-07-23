@@ -36,8 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2.13",)
-    default_version = "2.13"
+    supported_versions = ("2.13", "2.15")
+    default_version = "2.15"
     api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property
@@ -132,7 +132,11 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         if not integration.access_token:
             return False, "Intercom integration has no access token. Please reconnect."
 
-        return validate_intercom_credentials(integration.access_token, schema_name=schema_name)
+        # Probe under the source's resolved pin so a 2.13-pinned source validates against the
+        # version it syncs on; `None` (pre-creation) resolves to `default_version`.
+        return validate_intercom_credentials(
+            integration.access_token, schema_name=schema_name, api_version=self.resolve_api_version(api_version)
+        )
 
     def source_for_pipeline(self, config: IntercomSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.intercom_integration_id, inputs.team_id)
@@ -145,6 +149,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

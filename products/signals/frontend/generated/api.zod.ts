@@ -226,13 +226,15 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, and `emit`. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
+
+export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     .object({
@@ -255,17 +257,26 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+        run_cron_schedule: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyRunCronScheduleMax)
+            .nullish()
+            .describe(
+                "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+            ),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
     )
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
+
+export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -284,13 +295,16 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
             .optional()
+            .describe('Minutes between runs (30–43200). Use 1440 for a daily schedule.'),
+        run_cron_schedule: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyRunCronScheduleMax)
+            .nullish()
             .describe(
-                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
+                "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule."
             ),
     })
-    .describe(
-        'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-\*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
-    )
+    .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
  * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.

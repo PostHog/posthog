@@ -10134,6 +10134,109 @@ export namespace Schemas {
       hidden_in_user_interface?: boolean | null;
     }
 
+    /**
+     * * `pending` - Pending
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `partially_failed` - Partially failed
+     * * `failed` - Failed
+     */
+    export type AnnouncementStatusEnum = typeof AnnouncementStatusEnum[keyof typeof AnnouncementStatusEnum];
+
+
+    export const AnnouncementStatusEnum = {
+      Pending: 'pending',
+      Sending: 'sending',
+      Sent: 'sent',
+      PartiallyFailed: 'partially_failed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `sent` - Sent
+     * * `failed` - Failed
+     */
+    export type AnnouncementDeliveryStatusEnum = typeof AnnouncementDeliveryStatusEnum[keyof typeof AnnouncementDeliveryStatusEnum];
+
+
+    export const AnnouncementDeliveryStatusEnum = {
+      Pending: 'pending',
+      Sent: 'sent',
+      Failed: 'failed',
+    } as const;
+
+    export interface AnnouncementDelivery {
+      readonly id: string;
+      /** Slack channel ID the message was sent to (e.g. C0123ABCD). */
+      readonly slack_channel_id: string;
+      /** Slack channel display name at send time (without the leading #). */
+      readonly slack_channel_name: string;
+      /** Per-channel delivery status: pending, sent, or failed.
+       *
+       * * `pending` - Pending
+       * * `sent` - Sent
+       * * `failed` - Failed */
+      readonly status: AnnouncementDeliveryStatusEnum;
+      /** Slack error code when delivery to this channel failed; empty otherwise. */
+      readonly error: string;
+      /** Timestamp ID of the posted Slack message, when delivery succeeded. */
+      readonly slack_message_ts: string;
+      /**
+         * When the message was delivered to this channel. Null until sent.
+         * @nullable
+         */
+      readonly sent_at: string | null;
+    }
+
+    export interface Announcement {
+      readonly id: string;
+      /** Short human-friendly identifier for the announcement. */
+      readonly short_id: string;
+      /** Message body to send, rendered as Slack mrkdwn. */
+      message: string;
+      /** Overall status: pending, sending, sent, partially_failed, or failed.
+       *
+       * * `pending` - Pending
+       * * `sending` - Sending
+       * * `sent` - Sent
+       * * `partially_failed` - Partially failed
+       * * `failed` - Failed */
+      readonly status: AnnouncementStatusEnum;
+      /** Number of channels this announcement targets. */
+      readonly total_channels: number;
+      /** Number of channels the message was successfully delivered to. */
+      readonly sent_count: number;
+      /** Number of channels delivery failed for. */
+      readonly failed_count: number;
+      /**
+         * When delivery finished (all channels resolved). Null while pending/sending.
+         * @nullable
+         */
+      readonly sent_at: string | null;
+      /** When the announcement was created. */
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** Per-channel delivery rows, one per selected Slack channel. */
+      readonly deliveries: readonly AnnouncementDelivery[];
+      /** Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side. */
+      channels: string[];
+    }
+
+    export interface AnnouncementChannel {
+      /** Slack channel ID (e.g. C0123ABCD). */
+      id: string;
+      /** Slack channel display name (without the leading #). */
+      name: string;
+      /** Whether the SupportHog bot is a member of this channel. */
+      is_member: boolean;
+      /**
+         * Name of the customer account whose slack_channel_id points at this channel, or null if unmapped.
+         * @nullable
+         */
+      customer_name: string | null;
+    }
+
     export interface AppContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
@@ -12536,6 +12639,38 @@ export namespace Schemas {
          * @nullable
          */
       inflight_total_size: number | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type BatchImportResponseCreatedBy = { [key: string]: unknown } | null;
+
+    /**
+     * Serializer for BatchImport responses that matches frontend expectations
+     */
+    export interface BatchImportResponse {
+      readonly id: string;
+      readonly source_type: string;
+      readonly content_type: string;
+      status?: BatchImportStatusEnum;
+      readonly display_status: string;
+      /** @nullable */
+      readonly start_date: string | null;
+      /** @nullable */
+      readonly end_date: string | null;
+      /** @nullable */
+      readonly created_by: BatchImportResponseCreatedBy;
+      readonly created_at: string;
+      /** @nullable */
+      status_message: string | null;
+      state?: unknown;
+      /** Whether this job is a trial run (stores browsable results instead of ingesting). */
+      readonly is_trial: boolean;
+      /** @nullable */
+      readonly trial_record_limit: number | null;
+      /** @nullable */
+      readonly promoted_from_trial_id: string | null;
     }
 
     /**
@@ -39994,6 +40129,8 @@ export namespace Schemas {
          */
       members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
+      /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+      members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count: number;
       /** @nullable */
@@ -40630,6 +40767,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Annotation[];
+    }
+
+    export interface PaginatedAnnouncementList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Announcement[];
     }
 
     export interface PaginatedAppContractList {
@@ -49718,6 +49864,8 @@ export namespace Schemas {
          */
       members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
+      /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+      members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count?: number;
       /** @nullable */
@@ -51524,44 +51672,26 @@ export namespace Schemas {
       summary?: string;
     }
 
-    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
-
-
-    export const ScoutOriginEnum = {
-      Canonical: 'canonical',
-      Custom: 'custom',
-    } as const;
-
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
-     *
-     * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
-     * when it discovers a scout skill; this serializer lets agents tune the row.
+     * Editable schedule, enablement, and emit posture for one scout config.
      */
-    export interface PatchedSignalScoutConfig {
-      readonly id?: string;
-      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-      readonly skill_name?: string;
-      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-      readonly description?: string;
-      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-      readonly scout_origin?: ScoutOriginEnum;
+    export interface PatchedSignalScoutConfigUpdate {
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       emit?: boolean;
       /**
-         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+         * Minutes between runs (30–43200). Use 1440 for a daily schedule.
          * @minimum 30
          * @maximum 43200
          */
       run_interval_minutes?: number;
       /**
-         * When the coordinator last dispatched this scout. Null if it has never run.
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule.
+         * @maxLength 100
          * @nullable
          */
-      readonly last_run_at?: string | null;
-      readonly created_at?: string;
+      run_cron_schedule?: string | null;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -60387,6 +60517,14 @@ export namespace Schemas {
       limits: ScoutLimits;
     }
 
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
      * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
@@ -61000,15 +61138,20 @@ export namespace Schemas {
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-      enabled?: boolean;
+      readonly enabled: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-      emit?: boolean;
+      readonly emit: boolean;
       /**
          * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
          * @minimum 30
          * @maximum 43200
          */
-      run_interval_minutes?: number;
+      readonly run_interval_minutes: number;
+      /**
+         * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+         * @nullable
+         */
+      readonly run_cron_schedule: string | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -61039,6 +61182,12 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
     }
 
     /**
@@ -68325,6 +68474,22 @@ export namespace Schemas {
       target_language?: string;
     }
 
+    /**
+     * One page of trial-run results, proxied from the trial output store.
+     */
+    export interface TrialRecordsResponse {
+      /** Trial records in source order: each has seq (global index), source (the original source event), outputs (the event(s) it would produce), and error (why it would be dropped, if it would be). */
+      records: unknown[];
+      /** Zero-based index of this page. */
+      page: number;
+      /** Number of result pages written so far. */
+      total_pages: number;
+      /** Number of source records processed so far. */
+      total_records: number;
+      /** Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range. */
+      summary: unknown;
+    }
+
     export interface UpdateAppInput {
       /** New name for the app. */
       name?: string;
@@ -72487,6 +72652,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type AnnouncementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -77524,6 +77700,13 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type ManagedMigrationsTrialRecordsRetrieveParams = {
+    /**
+     * Zero-based results page index (see total_pages in the response).
+     */
+    page?: number;
+    };
 
     export type MarketingAnalyticsDataSourcesRetrieveParams = {
     /**
