@@ -1,3 +1,4 @@
+import re
 from typing import Literal
 
 from posthog.test.base import BaseTest
@@ -9,8 +10,11 @@ from django.test import override_settings
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import TableNode
-from posthog.hogql.database.s3_table import build_function_call
+from posthog.hogql.database.models import DateTimeDatabaseField, FloatDatabaseField, StringDatabaseField, TableNode
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLWarehouseTable,
+    build_function_call,
+)
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
@@ -300,6 +304,64 @@ class TestS3Table(BaseTest):
                     clickhouse,
                     f"SELECT events.uuid AS uuid, events.event AS event FROM {self._events_from_sql()} WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
                 )
+
+    def test_union_all_branches_expand_asterisk_in_the_same_column_order(self):
+        # Each branch expands `*` in its own table's stored field order, but ClickHouse aligns
+        # UNION ALL branches positionally. Warehouse tables materialized before `column_order`
+        # existed fall back to Postgres jsonb key order, so a union spanning both vintages
+        # crosses columns — silently returning the wrong column's data where types happen to match.
+        column_types: dict[str, tuple[type, str]] = {
+            "uuid": (StringDatabaseField, "String"),
+            "city": (StringDatabaseField, "String"),
+            "timestamp": (DateTimeDatabaseField, "DateTime64(6)"),
+            "tlat": (FloatDatabaseField, "Float64"),
+        }
+
+        def warehouse_table(name: str, column_order: list[str]) -> HogQLWarehouseTable:
+            return HogQLWarehouseTable(
+                name=name,
+                url=f"http://bucket/{name}/",
+                format="Parquet",
+                fields={column: column_types[column][0](name=column, nullable=True) for column in column_order},
+                structure=", ".join(f"`{column}` Nullable({column_types[column][1]})" for column in column_order),
+            )
+
+        with override_settings(
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
+        ):
+            self.database = Database.create_for(team=self.team)
+            self.database._add_warehouse_tables(
+                TableNode(
+                    children={
+                        "recent_table": TableNode(
+                            name="recent_table",
+                            table=warehouse_table("recent_table", ["uuid", "timestamp", "tlat", "city"]),
+                        ),
+                        "legacy_table": TableNode(
+                            name="legacy_table",
+                            table=warehouse_table("legacy_table", ["city", "tlat", "uuid", "timestamp"]),
+                        ),
+                    }
+                )
+            )
+            self.context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                database=self.database,
+                modifiers=create_default_modifiers_for_team(self.team),
+            )
+
+            clickhouse = self._select(query="SELECT * FROM recent_table UNION ALL SELECT * FROM legacy_table")
+
+            branches = clickhouse.split("UNION ALL")
+            self.assertEqual(len(branches), 2)
+            branch_columns = [re.findall(r"AS (\w+)", branch.split(" FROM ")[0]) for branch in branches]
+            self.assertEqual(
+                branch_columns[0],
+                branch_columns[1],
+                f"UNION ALL branches must expand `*` in the same order, got {branch_columns[0]} vs {branch_columns[1]}",
+            )
 
     def test_s3_build_function_call_without_context(self):
         res = build_function_call(
