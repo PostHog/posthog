@@ -90,7 +90,7 @@ Braintrust's `EvalAsync` always dispatches through `eval_async`, and the base `S
 Bootstrap registers teardown on an `ExitStack` as each resource comes up, so a failure halfway through still unwinds what already started.
 `atexit` hooks plus the subprocess manager's signal handlers cover Ctrl-C, where neither stack unwinds.
 
-After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 14040 / 15051 / 15052, no `task-sandbox-*` containers, and no Temporal dev server.
+After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 18788 / 14040 / 15051 / 15052, no `task-sandbox-*` containers, and no Temporal dev server.
 
 Three layers tear a case's sandbox down, outermost last:
 

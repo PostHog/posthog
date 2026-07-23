@@ -4,12 +4,14 @@ from typing import Any, NoReturn, cast, get_args
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -21,6 +23,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
+from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
@@ -482,6 +485,20 @@ def _check_action_scanner_access(
             raise PermissionDenied("You don't have access to one or more scanners this action targets.")
 
 
+class RunActionResponseSerializer(serializers.Serializer):
+    """Async-accepted response for POST /vision/actions/{id}/run/."""
+
+    workflow_id = serializers.CharField(
+        help_text="Temporal workflow id for the run; the resulting run appears under the action's run history."
+    )
+    already_running = serializers.BooleanField(
+        help_text=(
+            "True when a run for this action was already in progress (scheduled or manual), so this "
+            "request coalesced onto it rather than starting a second run."
+        )
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -600,6 +617,42 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: VisionAction) -> None:
         archive_delivery(instance, team=self.team)
         super().perform_destroy(instance)
+
+    @extend_schema(request=None, responses={202: RunActionResponseSerializer})
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="run",
+        required_scopes=["vision_action:write", "session_recording:read"],
+    )
+    def run(self, request: Request, **kwargs: Any) -> Response:
+        """Run this summary now, without waiting for its schedule — synthesizes a group summary over the
+        observations since the last summary (or the last 24h). The recurring schedule is untouched: the
+        engine advances next_run_at only at scheduled claim time, never in the run itself."""
+        # get_object() runs safely_get_object, which object-checks the bound scanner's access.
+        action_obj = self.get_object()
+        # The summary reads recording-derived observations and delivers off-platform, so require
+        # session_recording read — same gate as configuring an action.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Running a Replay Vision summary requires session_recording read access.")
+        if action_obj.mode != ActionMode.GROUP_SUMMARY:
+            # Alerts check continuously on the sweep; there's no meaningful "run now" for them.
+            raise ValidationError("Only scheduled summaries can be run on demand.")
+
+        workflow_id, outcome = start_process_vision_action_workflow(
+            action_obj.id, self.team_id, scheduled_at=timezone.now()
+        )
+        if outcome is WorkflowStartOutcome.FAILED:
+            return Response(
+                {"error": "Failed to start the summary run."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(
+            RunActionResponseSerializer(
+                {"workflow_id": workflow_id, "already_running": outcome is WorkflowStartOutcome.ALREADY_RUNNING}
+            ).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 # Human-readable copy for the engine's controlled skip/abort reasons (see temporal.vision_actions —
