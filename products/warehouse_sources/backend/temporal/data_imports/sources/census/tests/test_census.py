@@ -107,6 +107,36 @@ class TestCensusTransport:
         resource = cast(dict[str, Any], get_resource(endpoint="syncs"))
         assert "data_map" not in resource
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
+    def test_probe_disables_sample_capture(self, mock_session) -> None:
+        # The `/syncs` probe response echoes `connection_details`; capturing it would persist the
+        # warehouse account/user/warehouse identifiers to shared sample storage before any mapper runs.
+        mock_session.return_value.get.return_value = Mock(status_code=200)
+
+        validate_credentials(api_key="key", region="us")
+
+        assert mock_session.call_args.kwargs["capture"] is False
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.rest_api_resource")
+    def test_client_session_disables_sample_capture(self, mock_rest_api_resource, mock_session) -> None:
+        # Sync responses echo `connection_details` which `_drop_fields` strips per-row, but HTTP
+        # sample capture records the raw body first — the client must run capture=False so that
+        # metadata never reaches shared sample storage.
+        mock_rest_api_resource.return_value = Mock()
+
+        census_source(
+            api_key="key",
+            region="us",
+            endpoint="syncs",
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=_make_manager(),
+        )
+
+        assert mock_session.call_args.kwargs["capture"] is False
+        assert mock_rest_api_resource.call_args.args[0]["client"]["session"] is mock_session.return_value
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.rest_api_resource")
     def test_census_source_top_level_response(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()

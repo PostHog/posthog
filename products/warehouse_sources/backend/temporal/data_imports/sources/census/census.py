@@ -51,6 +51,10 @@ def _client_config(api_key: str, region: str) -> ClientConfig:
         "base_url": _host(region),
         "headers": {"Accept": "application/json"},
         "auth": {"type": "bearer", "token": api_key},
+        # Census responses echo `connection_details` (warehouse account, user, and warehouse
+        # identifiers) which `_drop_fields` strips per-row — but HTTP sample capture records the
+        # raw body before the mapper runs, so `capture=False` keeps that metadata out of samples.
+        "session": make_tracked_session(capture=False, redact_values=(api_key,)),
     }
 
 
@@ -68,7 +72,7 @@ def validate_credentials(api_key: str, region: str, schema_name: Optional[str] =
     # (schema_name is None) since the user may only want to sync a subset of resources.
     ok_statuses = (200, 403) if schema_name is None else (200,)
     ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        lambda: make_tracked_session(redact_values=(api_key,), capture=False),
         f"{_host(region)}/api/v1/syncs",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         ok_statuses=ok_statuses,
