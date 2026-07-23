@@ -111,6 +111,7 @@ def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:
     )
 
 
+@patch("posthoganalytics.capture_exception")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
@@ -120,6 +121,7 @@ def test_embedding_service_timeout_is_classified_as_retryable(
     get_team: MagicMock,
     fetch_event_properties: MagicMock,
     render_stacktrace: MagicMock,
+    capture_exception: MagicMock,
 ) -> None:
     get_team.return_value.organization.is_ai_data_processing_approved = True
     fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
@@ -131,6 +133,29 @@ def test_embedding_service_timeout_is_classified_as_retryable(
 
     assert error.value.type == EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE
     assert error.value.non_retryable is False
+    # The workflow already fails open on this error, so it must not be captured into error tracking.
+    capture_exception.assert_not_called()
+
+
+@patch("posthoganalytics.capture_exception")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
+def test_unexpected_error_is_still_captured(
+    generate_embedding: MagicMock,
+    get_team: MagicMock,
+    fetch_event_properties: MagicMock,
+    render_stacktrace: MagicMock,
+    capture_exception: MagicMock,
+) -> None:
+    get_team.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.side_effect = RuntimeError("clickhouse exploded")
+
+    with pytest.raises(RuntimeError):
+        generate_issue_created_embedding_activity(_inputs("fingerprint"))
+
+    capture_exception.assert_called_once()
 
 
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
