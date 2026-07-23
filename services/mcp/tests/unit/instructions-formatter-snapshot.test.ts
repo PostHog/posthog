@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
 import type { GroupType } from '@/api/client'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -99,10 +100,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-            toolFeatureFlags: {},
+            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: STATIC_CTX.renderUiEnabled,
             metadata: STATIC_CTX.metadata,
             groupTypes: STATIC_CTX.groupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
 
@@ -123,6 +126,8 @@ describe('InstructionsFormatter prompt snapshots', () => {
                 renderUiEnabled: STATIC_CTX.renderUiEnabled,
                 metadata: STATIC_CTX.metadata,
                 groupTypes: STATIC_CTX.groupTypes,
+                requestContext: { mcpConsumer: undefined },
+                sessionContext: null,
             } as unknown as ResolvedState
             return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
         }
@@ -183,12 +188,15 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Data catalog on: the analytics learn-topic description is longer with
-            // the flag, and topic descriptions are inlined in the command reference.
-            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
+            // Both flags on is the worst case: the analytics learn-topic description is
+            // longer with the data catalog, and topic descriptions are inlined in the
+            // command reference.
+            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true, [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })

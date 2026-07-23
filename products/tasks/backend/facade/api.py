@@ -901,6 +901,35 @@ def create_wizard_cloud_run(
     )
 
 
+def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetime]:
+    """Creation times of a user's recent wizard cloud runs that still count against their quota.
+
+    Backs the outcome-aware cloud_run throttles: failed and cancelled runs are excluded so a
+    user whose run broke (or who cancelled a stuck one) can start another without waiting out
+    the window. The hard ceiling on total attempts lives in the cloud_run view as an atomic
+    cache reservation, not here.
+
+    The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
+    protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
+    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
+    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
+    or flipping it would launder sandbox boots out of the limits.
+
+    Deliberately user-scoped across teams: the throttle is per user, and a user can run the
+    wizard on projects in different teams. Returns only timestamps, no run data.
+    """
+    return list(
+        TaskRun.objects.filter(
+            task__created_by_id=user_id,
+            state__has_key="wizard_config",
+            created_at__gte=since,
+        )
+        .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+        .order_by("created_at")
+        .values_list("created_at", flat=True)
+    )
+
+
 def create_task_without_run(
     *,
     team,

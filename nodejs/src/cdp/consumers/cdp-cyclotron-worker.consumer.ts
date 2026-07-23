@@ -88,6 +88,23 @@ export class CdpCyclotronWorker<
 
                 const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
 
+                // Guard against malformed invocation state (globals present but missing
+                // project/event). Without this the unguarded derefs below throw an unhandled
+                // rejection that crash-loops the worker on a single poison-pill message,
+                // stalling the whole partition. Drop it instead so the batch can make progress.
+                if (!hogFuncState.globals?.project || !hogFuncState.globals?.event) {
+                    logger.error('⚠️', 'Skipping invocation with malformed globals (missing project or event)', {
+                        id: item.functionId,
+                    })
+                    captureException(new Error('Malformed hog function invocation globals: missing project or event'), {
+                        tags: { functionId: item.functionId, teamId: String(item.teamId) },
+                    })
+
+                    failedInvocations.push(item)
+
+                    return
+                }
+
                 await Promise.all([
                     this.groupsManager.addGroupsToGlobals(hogFuncState.globals),
                     !hogFuncState.globals.person

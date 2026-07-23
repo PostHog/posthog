@@ -7,6 +7,7 @@ import { IconCollapse, IconExpand, IconExternal, IconMinus, IconWarning } from '
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -218,7 +219,8 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     const experimentContextLogic = sessionRecordingExperimentContextLogic({
         sessionRecordingId: logicProps.sessionRecordingId,
     })
-    const { seenItems, enrolledItems, hasExperimentContext, expandedExperimentIds } = useValues(experimentContextLogic)
+    const { seenItems, enrolledItems, hasExperimentContext, expandedExperimentIds, experimentContextLoading } =
+        useValues(experimentContextLogic)
     const { setExperimentExpanded } = useActions(experimentContextLogic)
     const { location } = useValues(router)
 
@@ -247,6 +249,22 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
             setExperimentExpanded(currentExpandableId, true)
         }
     }, [currentExpandableId, currentMetricCount, setExperimentExpanded])
+
+    if (experimentContextLoading && !hasExperimentContext) {
+        if (currentExperimentId == null) {
+            return null
+        }
+        return (
+            <div
+                className="rounded border bg-surface-primary px-2 py-1 flex flex-col gap-y-1"
+                data-attr="replay-experiment-context-overview-loading"
+            >
+                <h4 className="font-semibold text-xs mb-0">Experiments</h4>
+                <LemonSkeleton className="h-4 w-2/3" />
+                <LemonSkeleton className="h-4 w-1/2" />
+            </div>
+        )
+    }
 
     if (!hasExperimentContext) {
         return null
