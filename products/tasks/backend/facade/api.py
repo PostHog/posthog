@@ -18,6 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import logging
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -36,6 +37,7 @@ from posthog.models import Team, User
 from posthog.models.integration import Integration
 
 from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
@@ -68,6 +70,8 @@ from products.tasks.backend.visibility import task_control_q, task_run_visibilit
 from . import contracts
 
 logger = logging.getLogger(__name__)
+
+_TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="task-log-read")
 
 # --- Enum re-exports ---
 # Value types (not ORM models), safe to expose. External callers compare against the
@@ -898,6 +902,35 @@ def create_wizard_cloud_run(
     )
 
 
+def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetime]:
+    """Creation times of a user's recent wizard cloud runs that still count against their quota.
+
+    Backs the outcome-aware cloud_run throttles: failed and cancelled runs are excluded so a
+    user whose run broke (or who cancelled a stuck one) can start another without waiting out
+    the window. The hard ceiling on total attempts lives in the cloud_run view as an atomic
+    cache reservation, not here.
+
+    The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
+    protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
+    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
+    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
+    or flipping it would launder sandbox boots out of the limits.
+
+    Deliberately user-scoped across teams: the throttle is per user, and a user can run the
+    wizard on projects in different teams. Returns only timestamps, no run data.
+    """
+    return list(
+        TaskRun.objects.filter(
+            task__created_by_id=user_id,
+            state__has_key="wizard_config",
+            created_at__gte=since,
+        )
+        .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+        .order_by("created_at")
+        .values_list("created_at", flat=True)
+    )
+
+
 def create_task_without_run(
     *,
     team,
@@ -1684,6 +1717,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
+        # Rollout stamps written once at dispatch by _capture_run_feature_flags; a PATCHable
+        # value would let a task controller bypass the org feature flags (for telemetry, that
+        # means injecting the internal OTLP capture token into their sandbox and re-enabling
+        # the run-log mirror with the rollout off).
+        AGENT_OTEL_TELEMETRY_STATE_KEY,
+        "sandbox_event_ingest_enabled",
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
@@ -2581,9 +2620,17 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     if run is None:
         return None
 
+    resume_chain = run.get_resume_chain()
+    chunks: Iterable[str]
+    if len(resume_chain) == 1:
+        chunks = [object_storage.read(resume_chain[0].log_url, missing_ok=True) or ""]
+    else:
+        chunks = _TASK_LOG_READ_EXECUTOR.map(
+            lambda ancestor: object_storage.read(ancestor.log_url, missing_ok=True) or "", resume_chain
+        )
+
     parts: list[str] = []
-    for ancestor in run.get_resume_chain():
-        chunk = object_storage.read(ancestor.log_url, missing_ok=True) or ""
+    for chunk in chunks:
         if chunk:
             if not chunk.endswith("\n"):
                 chunk = chunk + "\n"

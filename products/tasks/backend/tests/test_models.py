@@ -13,6 +13,7 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -300,11 +301,16 @@ class TestTask(TestCase):
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_falls_back_to_user_integration(self, mock_execute_workflow):
-        # Signal reports are BOT-authored. When the team has no Integration row but the task
-        # creator has a UserIntegration that grants access to the repo, we should accept it
-        # instead of raising "Team does not have a GitHub integration".
+        # Signal reports are BOT-authored. A broken team installation must not override the
+        # healthy user integration that repository selection used for the report.
         user = User.objects.create(email="signal-report@test.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+            config={"installation_unavailable_since": 1},
+        )
         user_integration = UserIntegration.objects.create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,

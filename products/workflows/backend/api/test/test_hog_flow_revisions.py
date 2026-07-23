@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
@@ -247,6 +248,10 @@ class TestHogFlowRevisions(APIBaseTest):
         assert flow.draft_updated_at is not None
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://example.com"]
+
+        # Restore must stay distinguishable from a plain edit in the audit trail
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "revision_restored"
 
     @patch(FLAG_PATH, return_value=True)
     def test_rollback_round_trip_restores_live_and_prunes_redirects(self, _flag):

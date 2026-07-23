@@ -25,6 +25,7 @@ class SavedHeatmap(UUIDTModel):
     type = models.CharField(max_length=20, choices=Type, default=Type.SCREENSHOT)
     status = models.CharField(max_length=20, choices=Status, default=Status.PROCESSING)
     block_consent_modals = models.BooleanField(default=False)
+    is_prewarm = models.BooleanField(default=False, db_default=False)
 
     # Content moved to HeatmapSnapshot per width
 
