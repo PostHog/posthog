@@ -533,7 +533,14 @@ class CustomPropertySourceViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        deleted = api.delete_custom_property_source(team_id=self.team_id, source_id=self.kwargs["pk"])
+        try:
+            deleted = api.delete_custom_property_source(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
