@@ -47,6 +47,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     class Meta:
         db_table = "posthog_externaldatajob"
+        indexes = [
+            # Serves the hot "latest run for a pipeline" lookup (get_latest_run_if_exists):
+            # equality on team/pipeline/status, ordered by created_at DESC with LIMIT.
+            models.Index(
+                fields=["team", "pipeline", "status", "-created_at"],
+                name="idx_extdatajob_latest_run",
+            ),
+        ]
 
     def folder_path(self) -> str:
         if self.schema:
