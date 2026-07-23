@@ -188,8 +188,6 @@ export interface PendingInsertion {
     w: number | null
 }
 
-const DISCARD_UNSAVED_LAYOUT_MESSAGE = 'Leave dashboard?\nChanges you made to the layout will be discarded.'
-
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -3747,7 +3745,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         openAddInsightModal: () => {
             if (values.dashboardMode === DashboardMode.Edit && values.hasUnsavedLayoutChanges) {
-                if (!window.confirm(DISCARD_UNSAVED_LAYOUT_MESSAGE)) {
+                if (
+                    !window.confirm(
+                        'Discard unsaved layout changes?\nAdding an insight reloads the dashboard and discards them.'
+                    )
+                ) {
                     return
                 }
                 actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
@@ -4151,7 +4153,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             return true
         },
-        message: DISCARD_UNSAVED_LAYOUT_MESSAGE,
+        message: 'Leave dashboard?\nChanges you made to the layout will be discarded.',
         onConfirm: () => {
             actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
         },
