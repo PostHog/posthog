@@ -270,6 +270,9 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    # ``values`` is a custom read action; without listing it here it carries no required scope and
+    # rejects token auth outright ("does not support personal API key access") before the group gate runs.
+    scope_object_read_actions = ["list", "retrieve", "values"]
     serializer_class = CustomPropertyDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
