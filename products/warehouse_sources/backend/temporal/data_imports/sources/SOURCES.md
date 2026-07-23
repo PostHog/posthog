@@ -130,6 +130,7 @@ the row lists both.
 | codacy                           | HTTP                        | requests                                                        | ✅                          |
 | codecov                          | HTTP                        | requests                                                        | ✅                          |
 | codefresh                        | HTTP                        | requests                                                        | ✅                          |
+| codescene                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | cody                             | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | cohere                           | HTTP                        | requests                                                        | ✅                          |
 | coin_api                         | HTTP                        | requests                                                        | ✅                          |
@@ -825,7 +826,6 @@ doesn't conflict with concurrent PRs.
 - codacy
 - codecov
 - codemagic
-- codescene
 - collibra
 - companycam
 - conekta
