@@ -2972,7 +2972,10 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
-                  name: junit-results-backend-${{ matrix.artifact_key }}
+                  # Re-run attempts suffix the name: a same-name upload supersedes attempt 1's
+                  # artifact, and the timing reporter needs both to pair a re-run recovery
+                  # (attempt-N pass) with the attempt-1 failure it proves flaky.
+                  name: junit-results-backend-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: junit-*.xml
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
@@ -3235,6 +3238,20 @@ jobs:
               with:
                   pattern: '{junit-results-backend,product-junit-results}-*'
                   path: /tmp/junit-gate/
+            # Re-run attempts upload under suffixed names, so superseded attempts must be dropped
+            # here or the rollup below lists attempt-1 failures the re-run already recovered.
+            - name: Keep only each shard's latest attempt
+              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              continue-on-error: true
+              run: |
+                  cd /tmp/junit-gate 2>/dev/null || exit 0
+                  shopt -s nullglob
+                  for d in *-attempt[0-9]*; do
+                      base="${d%-attempt*}"
+                      latest="$(printf '%s\n' "$base"-attempt[0-9]* | sort -V | tail -1)"
+                      rm -rf "$base"
+                      [[ "$d" == "$latest" ]] || rm -rf "$d"
+                  done
             - name: Check dependency results
               run: |
                   # Per-test failure rollup, emitted from THIS step because GitHub only
@@ -3389,6 +3406,20 @@ jobs:
                   path: /tmp/junit-results/
               continue-on-error: true
 
+            # Re-run attempts upload under suffixed names; without this the verdict double-counts
+            # re-executed shards and resurrects failures the re-run already recovered.
+            - name: Keep only each shard's latest attempt
+              continue-on-error: true
+              run: |
+                  cd /tmp/junit-results 2>/dev/null || exit 0
+                  shopt -s nullglob
+                  for d in *-attempt[0-9]*; do
+                      base="${d%-attempt*}"
+                      latest="$(printf '%s\n' "$base"-attempt[0-9]* | sort -V | tail -1)"
+                      rm -rf "$base"
+                      [[ "$d" == "$latest" ]] || rm -rf "$d"
+                  done
+
             # Reuse the selection artifact from the select-tests job rather than
             # re-running the snob script. Falls through if the artifact wasn't
             # produced (select-tests forced full mode or failed) — the next step
@@ -3531,6 +3562,9 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
+        # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
+        # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
+        # attempt-suffixed artifact names so only they are emitted for the new attempt.
         # Master pushes and all in-repo PRs. Skip forks (no secrets access).
         if: >-
             !cancelled() &&
@@ -3543,34 +3577,39 @@ jobs:
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: github.run_attempt == '1'
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
                   fetch-depth: 1
             - name: Check for trusted timing reporter
               id: timing-reporter
-              if: github.run_attempt == '1'
               shell: bash
               run: |
                   # tools/owners is a path dep of the reporter, so a base ref predating it can't resolve its deps.
+                  available=false
                   if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]]; then
-                    echo "available=true" >> "$GITHUB_OUTPUT"
-                  else
-                    echo "available=false" >> "$GITHUB_OUTPUT"
-                    echo "Trusted timing reporter is not available on the checked-out ref; skipping emit."
+                    available=true
                   fi
+                  # A re-run may emit only through an attempt-aware reporter: an older script would
+                  # re-report every attempt-1 shard under the new attempt's resource attributes.
+                  if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then
+                    available=false
+                  fi
+                  if [[ "$available" != "true" ]]; then
+                    echo "Trusted timing reporter is not available on the checked-out ref for attempt $GITHUB_RUN_ATTEMPT; skipping emit."
+                  fi
+                  echo "available=$available" >> "$GITHUB_OUTPUT"
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              if: steps.timing-reporter.outputs.available == 'true'
               with:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
-              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              if: steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./junit-artifacts
                   pattern: junit-results-*
             - name: Emit per-test traces
-              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              if: steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
