@@ -3,6 +3,7 @@ import json
 import uuid
 import functools
 import contextlib
+from collections.abc import AsyncIterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
@@ -4240,7 +4241,9 @@ async def test_mysql_keyset_resume_seeks_past_checkpoint(team, mysql_config, mys
 
             def _collect_ids() -> list[int]:
                 ids: list[int] = []
-                for table in source_response.items():
+                items = source_response.items()
+                assert not isinstance(items, AsyncIterable)  # the keyset MySQL source yields a sync iterable
+                for table in items:
                     ids.extend(v.as_py() for v in table.column("id"))
                 return ids
 

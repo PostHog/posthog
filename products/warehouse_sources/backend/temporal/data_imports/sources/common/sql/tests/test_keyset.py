@@ -14,16 +14,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import SelectQueryBuilder
 
-_SCHEMA = pa.schema(
-    [
-        pa.field("id", pa.int64()),
-        pa.field("uuid", pa.string()),
-        pa.field("created_at", pa.timestamp("us")),
-        pa.field("amount", pa.decimal128(18, 2)),
-        pa.field("active", pa.bool_()),
-        pa.field("day", pa.date32()),
-    ]
-)
+_FIELDS: list[pa.Field] = [
+    pa.field("id", pa.int64()),
+    pa.field("uuid", pa.string()),
+    pa.field("created_at", pa.timestamp("us")),
+    pa.field("amount", pa.decimal128(18, 2)),
+    pa.field("active", pa.bool_()),
+    pa.field("day", pa.date32()),
+]
+_SCHEMA = pa.schema(_FIELDS)
 
 
 @pytest.mark.parametrize(

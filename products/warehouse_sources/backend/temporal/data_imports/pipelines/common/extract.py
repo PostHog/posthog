@@ -580,7 +580,10 @@ async def update_incremental_field_values(
 
 
 async def persist_keyset_resume_state(
-    resumable_source_manager: ResumableSourceManager[KeysetResumeState] | None,
+    # The pipeline is generic over its resume-data type, so it hands us a manager typed for that
+    # generic. Keyset resume is gated on `resume_keyset_column`, which is only set for loads whose
+    # manager stores `KeysetResumeState` — so writing that state below is safe at runtime.
+    resumable_source_manager: ResumableSourceManager[Any] | None,
     resume_keyset_column: str | None,
     pa_table: pa.Table,
     logger: FilteringBoundLogger,
