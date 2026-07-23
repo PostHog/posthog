@@ -16,6 +16,8 @@ from requests.exceptions import (
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
 from .auth import auth_secret_values
@@ -33,12 +35,17 @@ class RESTClientRetryableError(Exception):
         self.retry_after = retry_after
 
 
-class RESTClientNonRetryableError(Exception):
+class RESTClientNonRetryableError(NonReportableError):
     """A response that retrying can never turn into usable data.
 
     Not a subclass of RESTClientRetryableError so the tenacity retry — which only
     reissues RESTClientRetryableError — stops immediately instead of re-fetching a
     deterministic failure.
+
+    Raised only for a 2xx response whose body is not JSON (an auth/login page, an HTML
+    error page, plain text) — always a customer/upstream condition, never a PostHog defect.
+    Subclasses NonReportableError so the activity interceptor stops it from becoming
+    error-tracking noise while the job still fails with the message.
     """
 
 
