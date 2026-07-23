@@ -17,7 +17,7 @@ from parameterized import parameterized
 from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_secret
+from posthog.models.utils import generate_random_token_project, generate_random_token_secret
 from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
@@ -35,6 +35,7 @@ from ee.billing.quota_limiting import (
     org_quota_limited_until,
     replace_limited_team_tokens,
     set_org_usage_summary,
+    sync_team_quota_limited_tokens,
     update_all_orgs_billing_quotas,
     update_org_billing_quotas,
     update_organization_usage_fields,
@@ -1277,6 +1278,84 @@ class TestQuotaLimiting(BaseTest):
                 self.team.secret_api_token.encode("UTF-8"),
                 self.team.secret_api_token_backup.encode("UTF-8"),
             }
+
+    def _limited_tokens(self, resource: QuotaResource = QuotaResource.EVENTS) -> set[str]:
+        return {x.decode("UTF-8") for x in self.redis_client.zrange(f"@posthog/quota-limits/{resource.value}", 0, -1)}
+
+    def test_sync_team_quota_limited_tokens_noop_when_not_limited(self):
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save()
+
+        sync_team_quota_limited_tokens(self.team)
+
+        # The team isn't limited for anything, so nothing should be written to Redis.
+        assert self._limited_tokens() == set()
+
+    def test_sync_team_quota_limited_tokens_adds_current_tokens_when_limited(self):
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save()
+        # Only the public token is currently limited (e.g. the secret token was added after limiting).
+        replace_limited_team_tokens(
+            QuotaResource.EVENTS, {self.team.api_token: 1612137599}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+        sync_team_quota_limited_tokens(self.team)
+
+        assert self._limited_tokens() == {self.team.api_token, self.team.secret_api_token}
+
+    def test_sync_team_quota_limited_tokens_repoints_limit_onto_rotated_token(self):
+        old_token = self.team.api_token
+        replace_limited_team_tokens(
+            QuotaResource.EVENTS, {old_token: 1612137599}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+        # Simulate a public token rotation, then sync.
+        self.team.api_token = generate_random_token_project()
+        self.team.save()
+        sync_team_quota_limited_tokens(self.team, removed_tokens=[old_token])
+
+        # The stale token is dropped and the limit follows the new token, preserving the score.
+        assert self._limited_tokens() == {self.team.api_token}
+        assert self.redis_client.zscore(f"@posthog/quota-limits/events", self.team.api_token) == 1612137599
+
+    def test_rotate_secret_token_drops_expired_backup_from_active_limit(self):
+        primary = generate_random_token_secret()
+        backup = generate_random_token_secret()
+        self.team.secret_api_token = primary
+        self.team.secret_api_token_backup = backup
+        self.team.save()
+        replace_limited_team_tokens(
+            QuotaResource.EVENTS,
+            {self.team.api_token: 1612137599, primary: 1612137599, backup: 1612137599},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        # Rotation expires the old backup and promotes the old primary to backup, so the active limit
+        # should now cover the public token, the new primary, and the rotated-in backup — but not the
+        # expired backup.
+        assert backup not in self._limited_tokens()
+        assert self._limited_tokens() == {
+            self.team.api_token,
+            self.team.secret_api_token,
+            self.team.secret_api_token_backup,
+        }
+
+    def test_delete_secret_token_backup_drops_it_from_active_limit(self):
+        backup = generate_random_token_secret()
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.secret_api_token_backup = backup
+        self.team.save()
+        replace_limited_team_tokens(
+            QuotaResource.EVENTS,
+            {self.team.api_token: 1612137599, self.team.secret_api_token: 1612137599, backup: 1612137599},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        self.team.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+
+        assert self._limited_tokens() == {self.team.api_token, self.team.secret_api_token}
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):

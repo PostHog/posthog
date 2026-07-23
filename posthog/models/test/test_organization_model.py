@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import OrganizationMembership
+from posthog.models.utils import generate_random_token_secret
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
@@ -372,6 +373,46 @@ class TestOrganization(BaseTest):
         mock_remove_limited.assert_called_once()
         team_tokens = mock_remove_limited.call_args[0][1]
         self.assertIn(self.team.api_token, team_tokens)
+
+    @patch("ee.billing.quota_limiting.add_limited_team_tokens")
+    def test_limit_product_until_end_of_billing_cycle_includes_secret_api_tokens(self, mock_add_limited):
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.secret_api_token_backup = generate_random_token_secret()
+        self.team.save()
+
+        self.organization.usage = {
+            "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+            "events": {"usage": 1000, "limit": 2000},
+        }
+        self.organization.save()
+
+        self.organization.limit_product_until_end_of_billing_cycle(QuotaResource.EVENTS)
+
+        team_tokens = mock_add_limited.call_args[0][1]
+        self.assertEqual(
+            set(team_tokens.keys()),
+            {self.team.api_token, self.team.secret_api_token, self.team.secret_api_token_backup},
+        )
+
+    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    def test_unlimit_product_includes_secret_api_tokens(self, mock_remove_limited):
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.secret_api_token_backup = generate_random_token_secret()
+        self.team.save()
+
+        self.organization.usage = {
+            "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+            "events": {"usage": 1000, "limit": 2000, "quota_limited_until": 1234567890},
+        }
+        self.organization.save()
+
+        self.organization.unlimit_product(QuotaResource.EVENTS)
+
+        team_tokens = mock_remove_limited.call_args[0][1]
+        self.assertEqual(
+            set(team_tokens),
+            {self.team.api_token, self.team.secret_api_token, self.team.secret_api_token_backup},
+        )
 
     @parameterized.expand(
         [

@@ -163,6 +163,51 @@ def get_team_ingestion_tokens(
     return [token for token in (api_token, secret_api_token, secret_api_token_backup) if token]
 
 
+def sync_team_quota_limited_tokens(team: "Team", *, removed_tokens: Optional[Iterable[str]] = None) -> None:
+    """
+    Re-point a team's active quota limits onto its current ingestion tokens.
+
+    Token changes (public api_token reset, secret api_token rotation, backup deletion) can leave a
+    stale token limited in Redis while the team's new token is absent, letting the new token bypass
+    an active limit until the next scheduled refresh. For every resource/cache the team is currently
+    present in, this drops the removed tokens and re-writes the team's current ingestion tokens with
+    the existing expiry score, so a token change never widens or narrows an active limit.
+    """
+    removed = [token for token in (removed_tokens or []) if token]
+    current_tokens = get_team_ingestion_tokens(team.api_token, team.secret_api_token, team.secret_api_token_backup)
+    # The same team is written with the same score across all of its tokens, but during a rotation
+    # only the stale token may still be present, so we probe every token we know about.
+    known_tokens = list(dict.fromkeys([*current_tokens, *removed]))
+    if not known_tokens:
+        return
+
+    redis_client = get_client()
+    zset_keys = [
+        f"{cache_key.value}{resource.value}" for cache_key in QuotaLimitingCaches for resource in QuotaResource
+    ]
+
+    score_pipe = redis_client.pipeline()
+    for zset_key in zset_keys:
+        for token in known_tokens:
+            score_pipe.zscore(zset_key, token)
+    raw_scores = score_pipe.execute()
+
+    write_pipe = redis_client.pipeline()
+    has_writes = False
+    for index, zset_key in enumerate(zset_keys):
+        token_scores = raw_scores[index * len(known_tokens) : (index + 1) * len(known_tokens)]
+        existing_score = next((score for score in token_scores if score is not None), None)
+        if existing_score is None:
+            continue  # team not limited for this resource/cache; nothing to sync
+        if removed:
+            write_pipe.zrem(zset_key, *removed)
+        if current_tokens:
+            write_pipe.zadd(zset_key, {token: int(existing_score) for token in current_tokens})
+        has_writes = True
+    if has_writes:
+        write_pipe.execute()
+
+
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------

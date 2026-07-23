@@ -949,9 +949,12 @@ class Team(UUIDTClassicModel):
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
+        from ee.billing.quota_limiting import sync_team_quota_limited_tokens
+
         self.save()
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
+        sync_team_quota_limited_tokens(self, removed_tokens=[old_token])
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,
@@ -979,6 +982,8 @@ class Team(UUIDTClassicModel):
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
+        from ee.billing.quota_limiting import sync_team_quota_limited_tokens
+
         # Rotate the tokens
         old_primary_token = self.secret_api_token
         new_token = generate_random_token_secret()
@@ -994,6 +999,10 @@ class Team(UUIDTClassicModel):
         if expired_token:
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
+
+        # The expired backup stops working, so drop it from any active quota limit and re-point the
+        # limit onto the new token (the rotated primary stays valid as the backup, so it's kept).
+        sync_team_quota_limited_tokens(self, removed_tokens=[expired_token] if expired_token else None)
 
         # Build up the changes.
 
@@ -1070,6 +1079,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
         from posthog.models.utils import mask_key_value
 
+        from ee.billing.quota_limiting import sync_team_quota_limited_tokens
+
         old_backup_token = self.secret_api_token_backup
         if not old_backup_token:
             # Nothing to delete.
@@ -1079,6 +1090,7 @@ class Team(UUIDTClassicModel):
         self.secret_api_token_backup = None
         self.save()
         set_team_in_cache(old_backup_token, None)
+        sync_team_quota_limited_tokens(self, removed_tokens=[old_backup_token])
 
         log_activity(
             organization_id=self.organization_id,
