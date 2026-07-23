@@ -267,10 +267,14 @@ export interface customPropertyDefinitionsLogicActions {
     }
     loadRunsSuccess: (
         runsBySourceId: Record<string, CustomPropertySyncRunApi[]>,
-        payload?: any
+        payload?: {
+            sourceId: string
+        }
     ) => {
         runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
-        payload?: any
+        payload?: {
+            sourceId: string
+        }
     }
     loadSavedQueries: () => any
     loadSavedQueriesFailure: (
@@ -351,12 +355,6 @@ export interface customPropertyDefinitionsLogicActions {
     setTriggeringSourceId: (sourceId: string | null) => {
         sourceId: string | null
     }
-    triggerBackfill: ({ sourceId }: { sourceId: string }) => {
-        sourceId: string
-    }
-    triggerSync: ({ sourceId }: { sourceId: string }) => {
-        sourceId: string
-    }
     submitCustomPropertyForm: () => {
         value: boolean
     }
@@ -375,6 +373,12 @@ export interface customPropertyDefinitionsLogicActions {
     }
     touchCustomPropertyFormField: (key: string) => {
         key: string
+    }
+    triggerBackfill: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    triggerSync: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
     }
 }
 
