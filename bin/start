@@ -159,15 +159,15 @@ preflight_port_check() {
     # aborts `docker compose up`. Update when those mappings change; optional
     # profile services are intentionally excluded.
     local ports="8010:proxy 2181:zookeeper 8123:clickhouse-http 9000:clickhouse-native 9092:kafka 5432:postgres 6379:redis 7233:temporal 19000:objectstorage"
-    local foreign_projects="" report="" unheld="" portlist=""
-    local containers lsof_out entry port name line holder container project service
-    local interactive stack teardown answer
+    local foreign_candidates="" foreign_projects="" report="" unheld="" portlist=""
+    local containers lsof_out entry port name line holder container project
+    local clickhouse_projects interactive stack teardown answer
 
     # One docker ps covers every port; the Ports column looks like
     # "127.0.0.1:8010->8000/tcp, :::8123->8123/tcp", or for a published range
     # "0.0.0.0:19000-19001->19000-19001/tcp". Matching ":<port>-" covers both
     # the plain form (":19000->") and a range start (":19000-19001->").
-    containers=$(docker ps --format '{{.Names}}|{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.service"}}|{{.Ports}}' 2>/dev/null || true)
+    containers=$(docker ps --format '{{.Names}}|{{.Label "com.docker.compose.project"}}|{{.Ports}}' 2>/dev/null || true)
 
     for entry in $ports; do
         port="${entry%%:*}"
@@ -185,8 +185,6 @@ preflight_port_check() {
         fi
         container="${holder%%|*}"
         project="${holder#*|}"
-        service="${project#*|}"
-        service="${service%%|*}"
         project="${project%%|*}"
         # Labels are attacker-settable strings headed for the terminal and a
         # docker command line; strip anything outside the compose name charset.
@@ -194,12 +192,27 @@ preflight_port_check() {
         # Our own project's container holding its own port is the happy path.
         if [[ "$project" != "$COMPOSE_PROJECT_NAME" ]]; then
             report+="     • port $port ($name): container '$container' from compose project '${project:-<none>}'"$'\n'
-            # Only offer teardown for stacks that look like a PostHog dev stack
-            # (they run a clickhouse service). An unrelated project that happens
-            # to hold postgres/redis ports gets reported, not torn down.
-            [[ -n "$project" && "$service" == "clickhouse" ]] && foreign_projects+="$project"$'\n'
+            [[ -n "$project" ]] && foreign_candidates+="$project"$'\n'
         fi
     done
+
+    # Only offer teardown for candidates that look like a PostHog dev stack:
+    # they have a clickhouse container in any state (a partial stack may hold
+    # ports while its clickhouse is stopped). An unrelated project that happens
+    # to hold postgres/redis ports gets reported, not torn down.
+    if [[ -n "$foreign_candidates" ]]; then
+        clickhouse_projects=$(docker ps -a --filter 'label=com.docker.compose.service=clickhouse' \
+            --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null || true)
+        for stack in $(sort -u <<< "$foreign_candidates"); do
+            while IFS= read -r project; do
+                project="${project//[^a-zA-Z0-9_.-]/}"
+                if [[ "$project" == "$stack" ]]; then
+                    foreign_projects+="$stack"$'\n'
+                    break
+                fi
+            done <<< "$clickhouse_projects"
+        done
+    fi
 
     # Ports with no docker holder: one lsof pass for plain-process listeners.
     # Report only; killing arbitrary pids from a start script is out of bounds
