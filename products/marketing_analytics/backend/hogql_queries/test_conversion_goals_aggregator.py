@@ -98,7 +98,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         goal_id: str,
         goal_name: str,
         event_name: str | None = None,
-        math: BaseMathType = BaseMathType.TOTAL,
+        math: BaseMathType | PropertyMathType = BaseMathType.TOTAL,
         math_property: str | None = None,
         counts_as_revenue: bool | None = None,
         counts_as_customer: bool | None = None,
@@ -392,6 +392,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert self.config.get_conversion_goal_column_name(0) not in cac
         assert self.config.get_conversion_goal_column_name(2) not in cac
         # Cost is the numerator for CAC (spend per customer), the inverse of ROAS
+        assert isinstance(cac_expr, ast.Call)
         division = cac_expr.args[0]
         assert isinstance(division, ast.ArithmeticOperation)
         assert division.op == ast.ArithmeticOperationOp.Div
