@@ -33,6 +33,7 @@ use crate::event::{
     SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
+use crate::images::ImagePolicy;
 use crate::json::{
     as_f64, as_object, as_small_uint, as_str, parse_untrusted, parse_untrusted_with_buffers,
     reject_if_too_deep,
@@ -170,11 +171,17 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event. The differential tests pin both engines by toggling this.
     pub byte_walk: bool,
+    /// How images are scrubbed: inline on the walk thread, or deferred onto the shared worker
+    /// pool with a token-patch pass over the serialized output. The differential tests pin both.
+    pub image_policy: ImagePolicy,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
-        Self { byte_walk: true }
+        Self {
+            byte_walk: true,
+            image_policy: ImagePolicy::Inline,
+        }
     }
 }
 
@@ -401,7 +408,7 @@ fn anonymize_snapshot_data_inner(
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let ctx = Ctx::with_timings(allow, timings);
+    let ctx = Ctx::with_options(allow, timings, opts.image_policy);
     match stream_message(&ctx, distinct_id, inner, opts)? {
         Some(msg) => Ok(msg),
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
@@ -704,7 +711,7 @@ fn stream_message(
     if let Some(e) = deferred {
         return Err(e);
     }
-    finish(distinct_id, env, sink, Route::Stream).map(Some)
+    finish(ctx, distinct_id, env, sink, Route::Stream).map(Some)
 }
 
 /// Locate a props value span and advance the cursor past it.
@@ -757,6 +764,7 @@ impl Sink {
 }
 
 fn finish(
+    ctx: &Ctx<'_>,
     distinct_id: &str,
     env: ScannedEnvelope,
     sink: Sink,
@@ -796,6 +804,8 @@ fn finish(
         lines.extend_from_slice(&sink.lines[sink.line_starts[i]..body_end]);
         lines.extend_from_slice(b"]\n");
     }
+    // Deferred image jobs resolve here: the block lines are the last surface tokens can be on.
+    let lines = ctx.patch_pending_images(lines);
     Ok(AnonymizedMessage {
         lines,
         route,
@@ -1379,6 +1389,7 @@ fn anonymize_via_tree_mut(
     }
 
     finish(
+        ctx,
         distinct_id,
         ScannedEnvelope {
             session_id,
