@@ -42,7 +42,7 @@ def _team_id_header(team_id: int) -> dict[str, str]:
     return {"x-posthog-property-team_id": str(team_id)}
 
 
-def get_llm_client(product: Product = "django", team_id: int | None = None) -> OpenAI:
+def get_llm_client(product: Product = "django", team_id: int | None = None, api_key: str | None = None) -> OpenAI:
     """
     Get an OpenAI-compatible client for the internal LLM gateway.
 
@@ -90,14 +90,17 @@ def get_llm_client(product: Product = "django", team_id: int | None = None) -> O
         team_id: Optional PostHog team to attribute the captured `$ai_generation` event to.
             When provided, sent on every request as the `x-posthog-property-team_id` header;
             when omitted, the event is attributed to the gateway key owner's team.
+        api_key: Optional short-lived credential to use instead of `LLM_GATEWAY_API_KEY`.
+            Server-only products use this to avoid exposing the shared personal API key.
     """
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+    resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
+    if not settings.LLM_GATEWAY_URL or not resolved_api_key:
+        raise ValueError("LLM_GATEWAY_URL and an API key must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
     return OpenAI(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
+        api_key=resolved_api_key,
         default_headers=_team_id_header(team_id) if team_id is not None else None,
         http_client=httpx.Client(trust_env=False),
     )

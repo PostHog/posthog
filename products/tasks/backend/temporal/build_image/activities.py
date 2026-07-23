@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
 
 from posthog.temporal.common.utils import asyncify
+from posthog.temporal.oauth import create_oauth_access_token_for_user
 
 from products.tasks.backend.logic.services.image_spec import (
     SandboxImageSpec,
@@ -102,7 +103,9 @@ def _get_image(input: ImageBuildActivityInput) -> SandboxCustomImage:
     return SandboxCustomImage.objects.for_team(input.team_id).get(id=input.image_id)
 
 
-def _judge_spec_safety(spec_yaml: str, team_id: int, repository: str = "") -> ScanImageSpecOutput:
+def _judge_spec_safety(
+    spec_yaml: str, team_id: int, repository: str = "", gateway_token: str | None = None
+) -> ScanImageSpecOutput:
     from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps the OpenAI SDK off startup paths
 
     repo_context = (
@@ -111,7 +114,7 @@ def _judge_spec_safety(spec_yaml: str, team_id: int, repository: str = "") -> Sc
         if repository
         else ""
     )
-    client = get_llm_client(product=SCAN_JUDGE_PRODUCT, team_id=team_id)
+    client = get_llm_client(product=SCAN_JUDGE_PRODUCT, team_id=team_id, api_key=gateway_token)
     response = client.chat.completions.create(
         model=SCAN_JUDGE_MODEL,
         messages=[
@@ -146,7 +149,17 @@ def scan_image_spec(input: ImageBuildActivityInput) -> ScanImageSpecOutput:
         image.save(update_fields=["status", "updated_at"])
 
         spec = parse_image_spec_json(image.spec)
-        result = _judge_spec_safety(spec.to_yaml(), input.team_id, repository=image.repository)
+        if image.created_by is None or not image.created_by.is_active:
+            raise RuntimeError("Custom image creator is unavailable; cannot authorize the security scan")
+        gateway_token = create_oauth_access_token_for_user(
+            image.created_by,
+            input.team_id,
+            scopes=["llm_gateway:read", "internal_run:read"],
+            include_internal_scopes=False,
+        )
+        result = _judge_spec_safety(
+            spec.to_yaml(), input.team_id, repository=image.repository, gateway_token=gateway_token
+        )
 
         image.scan_result = {"passed": result.passed, "findings": result.findings}
         if result.passed:
