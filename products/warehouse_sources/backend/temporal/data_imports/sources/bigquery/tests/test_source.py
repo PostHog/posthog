@@ -1187,13 +1187,8 @@ def test_bigquery_validate_credentials_trims_whitespace_before_calling_bigquery(
     ) as mock_client:
         validate_bigquery_credentials(
             dataset_id=" my_dataset ",
-            key_file={
-                "project_id": " 524098457564",
-                "private_key": "private-key",
-                "private_key_id": "private-key-id",
-                "client_email": "client-email",
-                "token_uri": "token-uri",
-            },
+            project_id=" 524098457564",
+            credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
             dataset_project_id=None,
             location=None,
         )
@@ -1213,13 +1208,12 @@ def _valid_key_file() -> dict[str, str]:
 
 
 def test_bigquery_validate_credentials_missing_fields_reports_actionable_message():
-    key_file = _valid_key_file()
-    del key_file["private_key"]
+    config = _make_config()
+    assert config.key_file is not None
+    config.key_file.private_key = ""
 
     with mock.patch.object(bq_module, "bigquery_client") as mock_client:
-        ok, message = validate_bigquery_credentials(
-            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
-        )
+        ok, message = BigQuerySource().validate_credentials(config, team_id=1)
 
     assert ok is False
     assert message == BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
@@ -1261,7 +1255,11 @@ def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
         mock.patch.object(bq_module, "capture_exception") as mock_capture,
     ):
         ok, message = validate_bigquery_credentials(
-            dataset_id="my_dataset", key_file=_valid_key_file(), dataset_project_id=None, location=None
+            dataset_id="my_dataset",
+            project_id="my-project",
+            credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
+            dataset_project_id=None,
+            location=None,
         )
 
     assert ok is False
@@ -1959,11 +1957,7 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
         mock.patch.object(bq_module.bigquery_storage, "BigQueryReadClient"),
     ):
         with bq_module.bigquery_storage_read_client(
-            project_id="project-id",
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
+            credentials=mock.MagicMock(spec=google_auth_credentials.Credentials)
         ):
             pass
 

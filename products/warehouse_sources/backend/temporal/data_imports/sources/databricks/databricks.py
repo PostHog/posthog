@@ -128,7 +128,7 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: DatabricksSourceConfig) -> Iterator[Any]:
+    def connect(self, config: DatabricksSourceConfig, *, team_id: int | None = None) -> Iterator[Any]:
         """Open a Databricks SQL warehouse connection for the duration of the context.
 
         Branches on `config.auth_type.selection`: a personal access token is

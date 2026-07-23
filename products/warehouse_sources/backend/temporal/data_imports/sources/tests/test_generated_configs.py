@@ -74,6 +74,7 @@ def test_bigquery_config():
         }
     )
 
+    assert config.key_file is not None
     assert config.key_file.project_id == "project_id"
     assert config.key_file.private_key_id == "private_key_id"
     assert config.key_file.private_key == "private_key"

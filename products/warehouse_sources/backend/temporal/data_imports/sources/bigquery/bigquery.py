@@ -337,6 +337,8 @@ def _normalize_identifier(value: str) -> str:
 
 
 def _resolve_project_id(config: BigQuerySourceConfig) -> str:
+    if config.key_file is None:
+        raise ValueError("Missing BigQuery key_file configuration")
     return _normalize_identifier(config.key_file.project_id)
 
 
@@ -457,7 +459,7 @@ def _resolve_auth_from_key_file(config: BigQuerySourceConfig) -> BigQueryAuthInf
     client_email = config.key_file.client_email
     token_uri = config.key_file.token_uri
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
-        raise ValueError("Missing required fields in BigQuery key_file configuration")
+        raise ValueError(BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -573,7 +575,7 @@ def bigquery_storage_read_client(credentials: google_auth_credentials.Credential
         transport.close()
 
 
-def _detect_dataset_region(config: BigQuerySourceConfig) -> str | None:
+def _detect_dataset_region(config: BigQuerySourceConfig, auth: BigQueryAuthInfo) -> str | None:
     """Resolve the dataset's BigQuery location for schema-discovery queries.
 
     Credentials validate with a region-agnostic table listing, but a query job created
@@ -582,14 +584,7 @@ def _detect_dataset_region(config: BigQuerySourceConfig) -> str | None:
     location US". `get_dataset` is region-agnostic, so read the dataset's real location and
     pin discovery to it. Returns None on any failure, leaving the original behaviour intact.
     """
-    with bigquery_client(
-        _resolve_project_id(config),
-        None,
-        config.key_file.private_key,
-        config.key_file.private_key_id,
-        config.key_file.client_email,
-        config.key_file.token_uri,
-    ) as bq:
+    with bigquery_client(auth.project_id, None, auth.credentials) as bq:
         try:
             dataset_ref = bq.dataset(_resolve_dataset_id(config), project=_resolve_query_project(config))
             return bq.get_dataset(dataset_ref).location
@@ -1194,9 +1189,9 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # Without a custom region the client is built with `location=None`, so discovery
         # query jobs default to the US multi-region and miss datasets in other regions.
         # Auto-detect the dataset's location so discovery runs where the data lives.
-        region = _resolve_region(config) or _detect_dataset_region(config)
         if auth is None:
             auth = resolve_bigquery_auth(config, team_id)
+        region = _resolve_region(config) or _detect_dataset_region(config, auth)
 
         with bigquery_client(auth.project_id, region, auth.credentials) as bq:
             yield bq

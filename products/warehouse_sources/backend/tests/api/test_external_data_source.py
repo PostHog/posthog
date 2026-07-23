@@ -7714,6 +7714,7 @@ class TestExternalDataSource(APIBaseTest):
         # validate against the actual class we use in the Temporal activity
         bq_config = BigQuerySourceConfig.from_dict(job_inputs)
 
+        assert bq_config.key_file is not None
         assert bq_config.key_file.project_id == "dummy_project_id"
         assert bq_config.dataset_id == "dummy_dataset_id"
         assert bq_config.key_file.private_key == "dummy_private_key"
