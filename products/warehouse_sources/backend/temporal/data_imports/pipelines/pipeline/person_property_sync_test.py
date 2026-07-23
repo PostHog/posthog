@@ -228,3 +228,83 @@ class TestBackfillOrchestration:
 
         assert result.sources == 0
         read_delta.assert_not_called()
+
+
+class _FakeS3:
+    """Minimal in-memory stand-in for the async s3fs client the snapshot helpers use — enough to store
+    real parquet bytes and list/read/delete them. A monotonic counter stamps LastModified so ordering
+    is deterministic without a real clock."""
+
+    def __init__(self):
+        self.store: dict[str, bytes] = {}
+        self.times: dict[str, int] = {}
+        self._clock = 0
+
+    async def _ls(self, path, detail=True):
+        prefix = pps._s3_key(path).rstrip("/") + "/"
+        entries = [
+            {"Key": key, "type": "file", "LastModified": self.times[key]}
+            for key in self.store
+            if key.startswith(prefix)
+        ]
+        if not entries:
+            raise FileNotFoundError(path)
+        return entries
+
+    async def _cat_file(self, path):
+        return self.store[pps._s3_key(path)]
+
+    async def _pipe_file(self, path, data):
+        self._clock += 1
+        key = pps._s3_key(path)
+        self.store[key] = data
+        self.times[key] = self._clock
+
+    async def _rm(self, paths, recursive=False):
+        for path in [paths] if isinstance(paths, str) else paths:
+            key = pps._s3_key(path)
+            self.store.pop(key, None)
+            self.times.pop(key, None)
+
+
+def _fake_s3_patch(fake):
+    import contextlib
+
+    @contextlib.asynccontextmanager
+    async def _cm():
+        yield fake
+
+    return patch(f"{_MODULE}.aget_s3_client", lambda: _cm())
+
+
+class TestSnapshotCompaction:
+    """_write_snapshot_hashes compacts the snapshot folder as it writes, so its history can't grow one
+    file per run (which the reader would then download in full on every later run)."""
+
+    @pytest.mark.asyncio
+    async def test_write_compacts_prior_files_and_preserves_union(self):
+        fake = _FakeS3()
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_hashes(1, "s", "src", "job-1", {"a": "h1", "b": "h1"})
+            await pps._write_snapshot_hashes(1, "s", "src", "job-2", {"b": "h2", "c": "h2"})
+
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, "s", "src"))
+            hashes = await pps._read_snapshot_hashes(1, "s", "src")
+
+        # Two producing runs collapse to a single file whose union is newest-wins (b came from job-2).
+        assert len(keys) == 1
+        assert hashes == {"a": "h1", "b": "h2", "c": "h2"}
+
+    @pytest.mark.asyncio
+    async def test_repeated_run_token_overwrites_its_own_file(self):
+        fake = _FakeS3()
+        with _fake_s3_patch(fake):
+            # Backfills share one filename; the second write must overwrite it, not delete it as "stale".
+            await pps._write_snapshot_hashes(1, "s", "src", pps.BACKFILL_RUN_TOKEN, {"a": "h1"})
+            await pps._write_snapshot_hashes(1, "s", "src", pps.BACKFILL_RUN_TOKEN, {"a": "h2", "b": "h2"})
+
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, "s", "src"))
+            hashes = await pps._read_snapshot_hashes(1, "s", "src")
+
+        assert len(keys) == 1
+        assert hashes == {"a": "h2", "b": "h2"}

@@ -136,8 +136,8 @@ def _staged_prefix(team_id: int, schema_id: str, job_id: str) -> str:
 def _snapshot_prefix(team_id: int, schema_id: str, source_id: str) -> str:
     # A folder, not a single file: each run drops a uniquely-named parquet of the hashes it produced,
     # and the reader unions every file in the folder. Two writers (a scheduled sync and a backfill)
-    # for the same source can't clobber each other, since they write different filenames. (Growth is
-    # bounded by a prune/compaction follow-up.)
+    # for the same source can't clobber each other, since they write different filenames. Growth is
+    # bounded by _write_snapshot_hashes, which compacts the folder back down as it writes.
     return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_snapshot/{team_id}/{source_id}/{schema_id}"
 
 
@@ -178,41 +178,81 @@ def _snapshot_file_order(entry: dict) -> tuple:
     return (last_modified is None, last_modified, entry["Key"])
 
 
+def _s3_uri(key: str) -> str:
+    return key if key.startswith("s3://") else f"s3://{key}"
+
+
+def _s3_key(key: str) -> str:
+    # Normalize an ``_ls`` key or a path we built for equality checks: drop any scheme and leading slash.
+    return key.removeprefix("s3://").lstrip("/")
+
+
+async def _list_snapshot_files(s3_client, prefix: str) -> list[str]:
+    """S3 keys of the source's snapshot files, oldest first (see ``_snapshot_file_order``). Empty when
+    the folder doesn't exist yet."""
+    try:
+        listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
+    except FileNotFoundError:
+        return []
+    values = listing.values() if isinstance(listing, dict) else listing
+    files = sorted((f for f in values if f.get("type") != "directory"), key=_snapshot_file_order)
+    return [f["Key"] for f in files]
+
+
+async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, str]:
+    """Union the given snapshot files into {distinct_id: sent_hash}, later files winning (callers pass
+    them oldest-first). Decodes off the event loop so a large parquet can't starve the heartbeater."""
+    hashes: dict[str, str] = {}
+    for key in file_keys:
+        data = await s3_client._cat_file(_s3_uri(key))
+        for record in await asyncio.to_thread(_decode_parquet_rows, data):
+            hashes[record["distinct_id"]] = record["sent_hash"]
+    return hashes
+
+
 async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) -> dict[str, str]:
     """Union every parquet file in the source's snapshot folder into {distinct_id: sent_hash}, reading
     oldest file first so a newer run's hash wins for a repeated distinct_id (a stale hash would only
     cost an idempotent re-send, but newest-wins avoids even that). Ordering never affects correctness."""
     prefix = _snapshot_prefix(team_id, schema_id, source_id)
-    hashes: dict[str, str] = {}
     async with aget_s3_client() as s3_client:
-        try:
-            listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
-        except FileNotFoundError:
-            return {}
-        values = listing.values() if isinstance(listing, dict) else listing
-        files = sorted((f for f in values if f.get("type") != "directory"), key=_snapshot_file_order)
-        for entry in files:
-            file_path = entry["Key"]
-            data = await s3_client._cat_file(f"s3://{file_path}" if not file_path.startswith("s3://") else file_path)
-            for record in await asyncio.to_thread(_decode_parquet_rows, data):
-                hashes[record["distinct_id"]] = record["sent_hash"]
-    return hashes
+        return await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
 
 
 async def _write_snapshot_hashes(
     team_id: int, schema_id: str, source_id: str, run_token: str, hashes: dict[str, str]
 ) -> None:
-    """Write this run's produced hashes to its own file in the source's snapshot folder. ``run_token``
-    is the import job id (incremental) or a stable per-mode token (backfill), so a retry overwrites
-    its own file rather than appending a duplicate."""
+    """Persist this run's produced ``hashes`` and compact the source's snapshot folder in one pass.
+    Writes the union of every existing snapshot file and ``hashes`` into ``{run_token}.parquet`` (this
+    run's values winning), then deletes the other files it merged. Compacting on the write path bounds
+    the folder to roughly one file per run instead of one more file every run — otherwise the reader
+    would download and decode the whole unbounded history on every later run, and a warehouse editor
+    could grow it (by repeatedly changing rows and syncing) until a metadata activity exhausts S3
+    requests, memory, or its timeout. Concurrency-safe: a file a concurrent writer adds after this
+    listing isn't in the merge set, so it's neither merged-away nor deleted, and its rows still surface
+    through the reader's union; the two files collapse on the next run. Write-then-delete keeps a crash
+    between the two harmless — the reader unions both the new file and the not-yet-deleted old ones."""
     import pyarrow as pa  # noqa: PLC0415
 
-    path = f"{_snapshot_prefix(team_id, schema_id, source_id)}/{run_token}.parquet"
-    table = pa.table({"distinct_id": list(hashes.keys()), "sent_hash": list(hashes.values())})
-    buffer = pa.BufferOutputStream()
-    pq.write_table(table, buffer, compression="zstd")
+    prefix = _snapshot_prefix(team_id, schema_id, source_id)
+    write_path = f"{prefix}/{run_token}.parquet"
     async with aget_s3_client() as s3_client:
-        await s3_client._pipe_file(f"s3://{path}", buffer.getvalue().to_pybytes())
+        existing_keys = await _list_snapshot_files(s3_client, prefix)
+        merged = await _merge_snapshot_files(s3_client, existing_keys)
+        merged.update(hashes)
+
+        table = pa.table({"distinct_id": list(merged.keys()), "sent_hash": list(merged.values())})
+        buffer = pa.BufferOutputStream()
+        pq.write_table(table, buffer, compression="zstd")
+        await s3_client._pipe_file(_s3_uri(write_path), buffer.getvalue().to_pybytes())
+
+        # Delete the files we merged, except the one we just wrote (the backfill token reuses its name).
+        stale = [key for key in existing_keys if _s3_key(key) != _s3_key(write_path)]
+        if stale:
+            try:
+                await s3_client._rm([_s3_uri(key) for key in stale])
+            except FileNotFoundError:
+                pass
 
 
 async def _clear_staged(team_id: int, schema_id: str, job_id: str) -> None:

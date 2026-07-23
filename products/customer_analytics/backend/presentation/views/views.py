@@ -288,6 +288,7 @@ class CustomPropertyDefinitionViewSet(
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                user_access_control=self.user_access_control,
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -430,12 +431,16 @@ class CustomPropertySourceViewSet(
     def list(self, request: Request, *args, **kwargs) -> Response:
         return self._paginate_via_facade(
             request,
-            lambda offset, limit: api.list_custom_property_sources(self.team_id, offset=offset, limit=limit),
+            lambda offset, limit: api.list_custom_property_sources(
+                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+            ),
             CustomPropertySourceSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
+        source = api.get_custom_property_source(
+            self.team_id, self.kwargs["pk"], user_access_control=self.user_access_control
+        )
         if source is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
@@ -532,14 +537,22 @@ class CustomPropertySourceViewSet(
     @extend_schema(responses={200: CustomPropertySyncRunSerializer(many=True)})
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person sources only: the source's sync/backfill run history, newest first."""
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_custom_property_sync_runs(
-                self.team_id, self.kwargs["pk"], offset=offset, limit=limit
-            ),
-            CustomPropertySyncRunSerializer,
-        )
+        """Person sources only: the source's sync/backfill run history, newest first. Gated on the
+        caller's warehouse-source viewer access, since the runs expose its row counts and sync errors."""
+        try:
+            return self._paginate_via_facade(
+                request,
+                lambda offset, limit: api.list_custom_property_sync_runs(
+                    self.team_id,
+                    self.kwargs["pk"],
+                    offset=offset,
+                    limit=limit,
+                    user_access_control=self.user_access_control,
+                ),
+                CustomPropertySyncRunSerializer,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
 
 
 class CustomerJourneyViewSet(

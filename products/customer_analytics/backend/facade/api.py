@@ -892,6 +892,7 @@ def delete_customer_profile_config(
 def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
     references: list[contracts.CustomPropertyReference] | None = None,
+    user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertyDefinitionView:
     return contracts.CustomPropertyDefinitionView(
         id=definition.id,
@@ -904,7 +905,7 @@ def _to_custom_property_definition_view(
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
         references=references or [],
-        source=_definition_source_view(definition),
+        source=_definition_source_view(definition, user_access_control),
         options=_to_custom_property_options(definition.options),
     )
 
@@ -945,14 +946,17 @@ def _custom_property_references_by_definition_id(
     }
 
 
-def _definition_source_view(definition: CustomPropertyDefinition) -> contracts.CustomPropertySourceView | None:
+def _definition_source_view(
+    definition: CustomPropertyDefinition, user_access_control: "UserAccessControl | None" = None
+) -> contracts.CustomPropertySourceView | None:
     """The source bound to this definition (reverse one-to-one ``source``), or None. List reads
-    ``select_related("source")`` so this stays a cache hit; detail reads pay one extra query."""
+    ``select_related("source")`` so this stays a cache hit; detail reads pay one extra query. Warehouse
+    schedule/run enrichment is gated on the caller's warehouse-source viewer access."""
     try:
         source = definition.source
     except CustomPropertySource.DoesNotExist:
         return None
-    return _to_custom_property_source_view(source)
+    return _to_custom_property_source_view(source, user_access_control)
 
 
 def list_custom_property_definitions(
@@ -970,7 +974,9 @@ def list_custom_property_definitions(
         if _can_read_workflow_references(user_access_control)
         else {}
     )
-    return [_to_custom_property_definition_view(d, references.get(str(d.id), [])) for d in page], total_count
+    return [
+        _to_custom_property_definition_view(d, references.get(str(d.id), []), user_access_control) for d in page
+    ], total_count
 
 
 def get_custom_property_definition(
@@ -984,7 +990,7 @@ def get_custom_property_definition(
         references = _custom_property_references_by_definition_id(team_id, definition_id=str(definition.id)).get(
             str(definition.id), []
         )
-    return _to_custom_property_definition_view(definition, references)
+    return _to_custom_property_definition_view(definition, references, user_access_control)
 
 
 def list_custom_property_value_suggestions(team_id: int, definition_id: str, search: str | None) -> list[str]:
@@ -1042,6 +1048,7 @@ def update_custom_property_definition(
     organization_id,
     user: "User",
     was_impersonated: bool,
+    user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertyDefinitionView | None:
     """Apply ``fields`` (only the keys the caller sent) to a team-scoped definition. Returns the
     updated view, or None when no definition matches the id for this team (→ 404)."""
@@ -1082,7 +1089,7 @@ def update_custom_property_definition(
         was_impersonated=was_impersonated,
         previous=previous,
     )
-    return _to_custom_property_definition_view(definition)
+    return _to_custom_property_definition_view(definition, user_access_control=user_access_control)
 
 
 def delete_custom_property_definition(
@@ -1136,36 +1143,52 @@ def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertyS
     )
 
 
-def _person_source_schedule(source: CustomPropertySource) -> tuple[float | None, datetime | None]:
-    """(sync_frequency_interval_seconds, next_sync_at) for a person source's underlying schema, both
-    None when unavailable. ``apps.get_model`` keeps this off a warehouse_sources internal import."""
+def _resolve_person_source_schema(source: CustomPropertySource, user_access_control: "UserAccessControl | None") -> Any:
+    """The ``ExternalDataSchema`` (with ``.source`` loaded) backing a person source, or None when the
+    source has no warehouse binding or the caller lacks object-level ``external_data_source`` viewer
+    access. ``user_access_control`` None (service auth) skips the object check, matching
+    ``_enforce_object_access``. ``apps.get_model`` keeps this off a warehouse_sources internal import."""
     if source.external_data_schema_id is None:
-        return None, None
+        return None
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
     schema = (
         schema_model.objects.filter(id=source.external_data_schema_id, team_id=source.team_id)
-        .values("sync_frequency_interval", "last_synced_at")
+        .select_related("source")
         .first()
     )
     if schema is None:
-        return None, None
-    interval = schema["sync_frequency_interval"]
+        return None
+    if user_access_control is not None and not user_access_control.check_access_level_for_object(
+        schema.source, required_level="viewer"
+    ):
+        return None
+    return schema
+
+
+def _schema_schedule(schema: Any) -> tuple[float | None, datetime | None]:
+    """(sync_frequency_interval_seconds, next_sync_at) for a resolved schema, both None when the schema
+    has no sync frequency configured."""
+    interval = schema.sync_frequency_interval
     if interval is None:
         return None, None
-    last_synced_at = schema["last_synced_at"]
-    next_sync_at = last_synced_at + interval if last_synced_at is not None else None
+    next_sync_at = schema.last_synced_at + interval if schema.last_synced_at is not None else None
     return interval.total_seconds(), next_sync_at
 
 
-def _to_custom_property_source_view(source: CustomPropertySource) -> contracts.CustomPropertySourceView:
+def _to_custom_property_source_view(
+    source: CustomPropertySource, user_access_control: "UserAccessControl | None" = None
+) -> contracts.CustomPropertySourceView:
     # Schedule + latest-run enrichment applies only to person sources; account sources leave it None.
     # A person source is exactly the one bound to a warehouse schema (the facade enforces one binding),
-    # so this discriminates without a definition fetch.
+    # so this discriminates without a definition fetch. The enrichment exposes the underlying billable
+    # warehouse source's schedule and run metadata, so it's gated on the caller's warehouse-source viewer
+    # access — a caller without it sees the source but not its warehouse-derived metadata.
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: contracts.CustomPropertySyncRunView | None = None
-    if source.external_data_schema_id is not None:
-        sync_frequency_interval_seconds, next_sync_at = _person_source_schedule(source)
+    schema = _resolve_person_source_schema(source, user_access_control)
+    if schema is not None:
+        sync_frequency_interval_seconds, next_sync_at = _schema_schedule(schema)
         latest = source.sync_runs.order_by("-created_at").first()
         latest_run = _to_sync_run_view(latest) if latest is not None else None
 
@@ -1313,22 +1336,41 @@ def _triggerable_person_schema_id(team_id: int, source_id: str) -> str | None:
     return str(source.external_data_schema_id)
 
 
-def _assert_warehouse_source_editor(
-    team_id: int, external_data_schema_id: str | UUID | None, user_access_control: "UserAccessControl | None"
+def _assert_warehouse_source_access(
+    team_id: int,
+    external_data_schema_id: str | UUID | None,
+    user_access_control: "UserAccessControl | None",
+    level: str,
 ) -> None:
-    """A person-property source drives a real (billable) warehouse source, so acting on it — a manual
-    sync/backfill, or creating/enabling the mapping (which auto-triggers one) — requires the caller's
-    object-level ``external_data_source`` editor access, not account-scope editor alone. Mirrors the
-    canonical warehouse schema reload/resync endpoints, which gate through ``get_object``. ``None``
-    (service auth, which the permission layer skips object checks for) is a no-op, matching
-    ``_enforce_object_access``. Raises ``ResourceForbiddenError`` (→ 403) when the caller is denied."""
+    """A person-property source drives a real (billable) warehouse source, so acting on it or reading
+    its warehouse metadata requires the caller's object-level ``external_data_source`` access at
+    ``level``, not account-scope access alone. Mirrors the canonical warehouse endpoints, which gate
+    through ``get_object``. ``None`` (service auth, which the permission layer skips object checks for)
+    is a no-op, matching ``_enforce_object_access``. Raises ``ResourceForbiddenError`` (→ 403) when the
+    caller is denied. ``apps.get_model`` keeps this off a warehouse_sources internal import."""
     if user_access_control is None or external_data_schema_id is None:
         return
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
     schema = schema_model.objects.filter(id=external_data_schema_id, team_id=team_id).select_related("source").first()
     if schema is None:
         return
-    _enforce_object_access(schema.source, user_access_control, "editor")
+    _enforce_object_access(schema.source, user_access_control, level)
+
+
+def _assert_warehouse_source_editor(
+    team_id: int, external_data_schema_id: str | UUID | None, user_access_control: "UserAccessControl | None"
+) -> None:
+    """Editor gate for acting on a person source — a manual sync/backfill, or creating/enabling the
+    mapping (which auto-triggers one)."""
+    _assert_warehouse_source_access(team_id, external_data_schema_id, user_access_control, "editor")
+
+
+def _assert_warehouse_source_viewer(
+    team_id: int, external_data_schema_id: str | UUID | None, user_access_control: "UserAccessControl | None"
+) -> None:
+    """Viewer gate for reading a person source's warehouse run metadata (row counts, schedule, sync
+    errors), which exposes its billable warehouse source."""
+    _assert_warehouse_source_access(team_id, external_data_schema_id, user_access_control, "viewer")
 
 
 def trigger_person_property_sync(
@@ -1372,18 +1414,21 @@ def trigger_person_property_backfill(
 
 
 def list_custom_property_sources(
-    team_id: int, offset: int, limit: int
+    team_id: int, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
 ) -> tuple[list[contracts.CustomPropertySourceView], int]:
-    """Custom-property sources for the team, newest first. Returns ``(page, total_count)``."""
+    """Custom-property sources for the team, newest first. Returns ``(page, total_count)``. Warehouse
+    schedule/run enrichment per source is gated on the caller's warehouse-source viewer access."""
     queryset = CustomPropertySource.objects.for_team(team_id).order_by("-created_at")
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
-    return [_to_custom_property_source_view(s) for s in page], total_count
+    return [_to_custom_property_source_view(s, user_access_control) for s in page], total_count
 
 
-def get_custom_property_source(team_id: int, source_id: str) -> contracts.CustomPropertySourceView | None:
+def get_custom_property_source(
+    team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
+) -> contracts.CustomPropertySourceView | None:
     source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
-    return _to_custom_property_source_view(source) if source is not None else None
+    return _to_custom_property_source_view(source, user_access_control) if source is not None else None
 
 
 def create_custom_property_source(
@@ -1451,7 +1496,7 @@ def create_custom_property_source(
         raise CustomPropertySourceValidationError("This custom property already has a source.")
     _enqueue_sync_if_enabled(source)
     _start_person_backfill_if_enabled(source)
-    return _to_custom_property_source_view(source)
+    return _to_custom_property_source_view(source, user_access_control)
 
 
 def update_custom_property_source(
@@ -1464,13 +1509,17 @@ def update_custom_property_source(
     if source is None:
         return None
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
-    # Re-enabling a person source auto-triggers a backfill on its warehouse table; gate that on the
-    # caller's warehouse-source editor access, matching create.
-    if reenabling and source.external_data_schema_id is not None:
-        _assert_warehouse_source_editor(team_id, source.external_data_schema_id, user_access_control)
     columns_changed = any(
         attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
     )
+    # A person source's backfill drives its billable warehouse source, so any change that will trigger
+    # one — re-enabling, or changing the mapped columns while it stays enabled — requires the caller's
+    # warehouse-source editor access, not account-scope editor alone (matching create). Both routes reach
+    # _start_person_backfill_if_enabled below via ``reenabling or columns_changed``; ``is_enabled`` here is
+    # the post-update state that decides whether that helper actually starts a backfill.
+    will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
+    if source.external_data_schema_id is not None and will_be_enabled and (reenabling or columns_changed):
+        _assert_warehouse_source_editor(team_id, source.external_data_schema_id, user_access_control)
     for attr, value in fields.items():
         setattr(source, attr, value)
     if reenabling:
@@ -1481,7 +1530,7 @@ def update_custom_property_source(
     if reenabling or columns_changed:
         _enqueue_sync_if_enabled(source)
         _start_person_backfill_if_enabled(source)
-    return _to_custom_property_source_view(source)
+    return _to_custom_property_source_view(source, user_access_control)
 
 
 def delete_custom_property_source(*, team_id: int, source_id: str) -> bool:
@@ -1491,10 +1540,15 @@ def delete_custom_property_source(*, team_id: int, source_id: str) -> bool:
 
 
 def list_custom_property_sync_runs(
-    team_id: int, source_id: str, offset: int, limit: int
+    team_id: int, source_id: str, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
 ) -> tuple[list[contracts.CustomPropertySyncRunView], int]:
     """Person-property sync/backfill runs for a source, newest first. Returns ``(page, total_count)``.
-    Scoped by team and source, so a run of another team's/source's is never returned."""
+    Scoped by team and source, so a run of another team's/source's is never returned. The runs expose
+    the underlying warehouse source's row counts and raw sync errors, so reading them requires the
+    caller's warehouse-source viewer access (→ 403 via ``ResourceForbiddenError``)."""
+    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    if source is not None and source.external_data_schema_id is not None:
+        _assert_warehouse_source_viewer(team_id, source.external_data_schema_id, user_access_control)
     queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
     total_count = queryset.count()
     page = queryset[offset : offset + limit]

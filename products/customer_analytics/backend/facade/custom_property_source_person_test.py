@@ -168,6 +168,52 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
             )
 
+    def test_update_columns_requires_warehouse_source_editor(self):
+        # Changing the mapped columns on an enabled person source auto-triggers a warehouse backfill, so
+        # it needs external_data_source editor access, not account-scope editor alone — the gate must
+        # cover column changes, not just re-enabling.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.update_custom_property_source(
+                team_id=self.team.id,
+                source_id=source.id,
+                fields={"key_column": "user_id"},
+                user_access_control=self._uac(allowed=False),
+            )
+
+    def test_disabling_source_does_not_require_warehouse_source_editor(self):
+        # Disabling never triggers a backfill, so it must not demand warehouse editor access.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"is_enabled": False},
+            user_access_control=self._uac(allowed=False),
+        )
+        assert view is not None and view.is_enabled is False
+
+    def test_source_view_gates_warehouse_metadata_on_viewer_access(self):
+        from datetime import timedelta  # noqa: PLC0415
+
+        self.schema.sync_frequency_interval = timedelta(hours=6)
+        self.schema.save(update_fields=["sync_frequency_interval"])
+        source = self._create(user_access_control=self._uac(allowed=True))
+
+        denied = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=False))
+        assert denied is not None
+        assert denied.sync_frequency_interval_seconds is None and denied.next_sync_at is None
+
+        allowed = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
+        assert allowed is not None
+        assert allowed.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
+
+    def test_list_sync_runs_requires_warehouse_source_viewer(self):
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.list_custom_property_sync_runs(
+                self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=False)
+            )
+
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_triggers_reject_disabled_source(self, _flag):
         # A disabled source can't be re-triggered: sync returns False (→ 400) and backfill None (→ 400).
