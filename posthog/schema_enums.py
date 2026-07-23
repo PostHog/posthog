@@ -1619,6 +1619,7 @@ class ExternalDataSourceType(StrEnum):
     PRESTA_SHOP = "PrestaShop"
     PRETIX = "Pretix"
     PRIMETRIC = "Primetric"
+    PRINTAVO = "Printavo"
     PRINTIFY = "Printify"
     PRODUCTIVE = "Productive"
     PYLON = "Pylon"
