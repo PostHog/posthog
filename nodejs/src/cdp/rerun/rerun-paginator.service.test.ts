@@ -10,7 +10,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
@@ -126,10 +126,10 @@ describe('RerunPaginatorService integration', () => {
         seededCount += rows.length
         const expected = seededCount
 
-        // Seed visibility rides the shared Kafka -> ClickHouse pipe, whose consumer may still be
-        // chewing a backlog from whichever suite the shard ran just before this one (run order
-        // shifts whenever sibling files change size). The deadline is sized for that worst case;
-        // waitForExpect polls, so a healthy pipe still completes in seconds.
+        // The suite-level warmup proved the pipe flowing and caught up, so delivery is
+        // guaranteed and this wait is bounded by consumer throughput of our own rows.
+        // The deadline is generous headroom for contended CI runners; waitForExpect
+        // polls, so a healthy pipe still completes in seconds.
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
                 `SELECT count() AS c FROM hog_invocation_results
@@ -186,11 +186,92 @@ describe('RerunPaginatorService integration', () => {
         }, 90_000)
     }
 
+    /**
+     * Prove the Kafka → ClickHouse MV pipe is flowing and caught up before any test
+     * seeds real rows.
+     *
+     * A sibling suite calling resetKafka() deletes and recreates this topic, which
+     * resets message offsets to zero while the ClickHouse Kafka engine's consumer
+     * group keeps the offset it committed against the old topic incarnation. The
+     * consumer then resumes at that stale offset and silently skips the first
+     * messages produced to the recreated topic — a permanent loss no seed-side wait
+     * can recover from (the cause of this suite's long-running "2 of 3 rows" flake).
+     *
+     * Producing sentinels one at a time until one becomes visible drains that skew:
+     * each retry lands at a higher offset, so eventually a sentinel lands at or past
+     * the stale committed offset (or triggers an out-of-range reset), the consumer
+     * catches up to the topic end, and every message produced afterwards is
+     * guaranteed to be consumed.
+     */
+    const warmUpKafkaToClickhousePipe = async (): Promise<void> => {
+        const warmupProducer: KafkaProducerWrapper = await ActualKafkaProducerWrapper.create(undefined)
+        const warmupFunctionId = `warmup-${new UUIDT().toString()}`
+        const deadline = Date.now() + 120_000
+        try {
+            for (let attempt = 1; ; attempt++) {
+                await warmupProducer.queueMessages({
+                    topic: KAFKA_HOG_INVOCATION_RESULTS,
+                    messages: [
+                        {
+                            key: warmupFunctionId,
+                            value: JSON.stringify({
+                                team_id: 0,
+                                function_kind: 'hog_function',
+                                function_id: warmupFunctionId,
+                                invocation_id: `${warmupFunctionId}-${attempt}`,
+                                parent_run_id: '',
+                                status: 'succeeded',
+                                attempts: 0,
+                                is_retry: 0,
+                                scheduled_at: DateTime.utc().toFormat("yyyy-MM-dd HH:mm:ss.SSS'000'"),
+                                started_at: null,
+                                finished_at: null,
+                                duration_ms: null,
+                                error_kind: '',
+                                error_message: '',
+                                event_uuid: '',
+                                distinct_id: '',
+                                person_id: '',
+                                invocation_globals: '',
+                                version: String(BigInt(Date.now()) * 1000n),
+                                is_deleted: 0,
+                            }),
+                        },
+                    ],
+                })
+                await warmupProducer.flush()
+                try {
+                    // 10s per attempt: the Kafka engine flushes batches every ~7.5s (stream_flush_interval_ms), so a shorter wait expires even on a healthy pipe.
+                    await waitForExpect(async () => {
+                        const got = await clickhouse.query<{ c: number }>(
+                            `SELECT count() AS c FROM hog_invocation_results
+                             WHERE function_id = '${warmupFunctionId}'`
+                        )
+                        expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(1)
+                    }, 10_000)
+                    return
+                } catch (error) {
+                    if (Date.now() > deadline) {
+                        throw new Error(
+                            `Kafka -> ClickHouse pipe warmup failed: none of ${attempt} sentinel rows became visible in hog_invocation_results within 120s`,
+                            { cause: error }
+                        )
+                    }
+                }
+            }
+        } finally {
+            await warmupProducer.disconnect().catch(() => undefined)
+        }
+    }
+
     beforeAll(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
-        await resetKafka()
-        await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS])
+        // Never resetKafka() here: deleting this topic while the ClickHouse consumer
+        // group retains committed offsets is exactly the incarnation skew the warmup
+        // exists to recover from — see warmUpKafkaToClickhousePipe.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
+        await warmUpKafkaToClickhousePipe()
     })
 
     beforeEach(async () => {
