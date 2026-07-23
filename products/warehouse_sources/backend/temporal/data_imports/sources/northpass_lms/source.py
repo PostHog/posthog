@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NorthpassLMSSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
+    NorthpassLMSSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
     NorthpassResumeConfig,
     northpass_source,
@@ -96,6 +98,7 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Northpass documents no server-side timestamp filter, so every endpoint is full refresh only.
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -117,7 +120,11 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
         return schemas
 
     def validate_credentials(
-        self, config: NorthpassLMSSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NorthpassLMSSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_northpass_credentials(config.api_key)
         if ok:

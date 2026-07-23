@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UsersnapSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usersnap import (
+    UsersnapSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -97,6 +99,7 @@ The Usersnap REST API is a gated feature: it must be enabled on your plan by Use
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "feedbacks":
@@ -128,7 +131,11 @@ The Usersnap REST API is a gated feature: it must be enabled on your plan by Use
         return schemas
 
     def validate_credentials(
-        self, config: UsersnapSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UsersnapSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_usersnap_credentials(config.jwt_secret, config.jwt_id):
             return True, None

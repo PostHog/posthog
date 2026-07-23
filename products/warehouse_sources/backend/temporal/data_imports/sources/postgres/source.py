@@ -37,7 +37,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     cdc_pg_connection,
@@ -724,6 +726,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -937,7 +940,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         return schemas
 
     def validate_credentials(
-        self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -956,7 +963,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:
@@ -988,8 +995,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         team_id: int,
         access_method: str,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name)
+        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
 
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False

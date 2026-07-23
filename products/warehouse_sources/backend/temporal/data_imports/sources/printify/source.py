@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PrintifySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.printify import (
+    PrintifySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.printify import (
     PrintifyResumeConfig,
     printify_source,
@@ -90,6 +92,7 @@ You can generate a token under **My Profile → Connections** in [Printify](http
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Printify's list endpoints expose no server-side
         # `updated_at`/`since` filter, so there is no incremental cursor to advance.
@@ -108,7 +111,11 @@ You can generate a token under **My Profile → Connections** in [Printify](http
         return schemas
 
     def validate_credentials(
-        self, config: PrintifySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PrintifySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # One probe against the shop list validates the token; the shop list is also a hard
         # prerequisite for every shop-scoped stream, so this is the scope that matters most.

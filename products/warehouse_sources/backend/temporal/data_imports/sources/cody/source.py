@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -116,6 +116,7 @@ Sourcegraph Analytics is available to Sourcegraph Enterprise customers. Create a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -136,7 +137,7 @@ Sourcegraph Analytics is available to Sourcegraph Enterprise customers. Create a
         return schemas
 
     def validate_credentials(
-        self, config: CodySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: CodySourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             # validate_cody_credentials returns True or raises — it never returns False — so an

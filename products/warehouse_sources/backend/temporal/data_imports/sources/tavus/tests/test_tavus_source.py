@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TavusSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tavus import TavusSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.source import TavusSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.tavus import TavusResumeConfig

@@ -54,9 +54,9 @@ with Django's `EncryptedFieldMixin`). The Django side lives in `posthog/integrat
 ## Running locally
 
 Enabled via the hogli capability `nodejs_integration_gateway` (attached to the `product_analytics`,
-`workflows`, and `pipelines` intents). It listens on port `6746`; dev defaults set
+`workflows`, and `pipelines` intents). It listens on port `6747`; dev defaults set
 `ENCRYPTION_SALT_KEYS` and `INTEGRATION_GATEWAY_JWT_SECRET=integration-gateway-dev-secret` so the
-flow works out of the box. Standalone: `PLUGIN_SERVER_MODE=integration-gateway HTTP_SERVER_PORT=6746 ./bin/posthog-node`.
+flow works out of the box. Standalone: `PLUGIN_SERVER_MODE=integration-gateway HTTP_SERVER_PORT=6747 ./bin/posthog-node`.
 
 ## Roadmap
 

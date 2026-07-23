@@ -190,6 +190,8 @@ from products.conversations.backend.temporal import (
 from products.engineering_analytics.backend.facade.temporal import JOB_LOGS_ACTIVITIES, JOB_LOGS_WORKFLOWS
 from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
+    LIFECYCLE_ACTIVITIES as ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
+    LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
 from products.experiments.backend.temporal import (
@@ -218,6 +220,7 @@ from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
+from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.review_hog.backend.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
@@ -455,6 +458,11 @@ _task_queue_specs = [
         settings.ERROR_TRACKING_TASK_QUEUE,
         ERROR_TRACKING_WORKFLOWS,
         ERROR_TRACKING_ACTIVITIES,
+    ),
+    (
+        settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
+        ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
+        ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
     ),
     (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
@@ -699,7 +707,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-            configure_logger(loop=loop)
+            otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
+            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
             logger = LOGGER.bind(
                 host=temporal_host,

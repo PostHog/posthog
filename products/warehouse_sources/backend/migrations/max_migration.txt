@@ -1,1 +1,1 @@
-0087_repin_pipedrive_api_version_v2
+0092_repin_lightspeed_retail_api_version
