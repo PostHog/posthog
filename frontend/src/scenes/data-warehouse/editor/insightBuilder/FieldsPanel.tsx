@@ -80,8 +80,9 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
                             // Revealed on row hover/focus so the row itself stays a clean drag handle
                             className="shrink-0 cursor-pointer rounded p-0.5 text-tertiary opacity-0 hover:bg-surface-primary hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100"
                             aria-label={`Add ${isCountOfRows ? 'count of rows' : field.name} to the chart`}
-                            // Keep clicks on the menu button from engaging the row's drag listeners
-                            onPointerDownCapture={(e) => e.stopPropagation()}
+                            // Bubble phase (not capture): let the trigger open first, then stop the
+                            // event before the row's drag listeners see it
+                            onPointerDown={(e) => e.stopPropagation()}
                             data-attr="sql-builder-field-menu"
                         />
                     }

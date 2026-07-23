@@ -53,8 +53,9 @@ function PillMenu({ label, children }: { label: string; children: React.ReactNod
                     <button
                         type="button"
                         className="inline-flex cursor-pointer items-center gap-0.5 rounded px-1 text-xs text-secondary hover:bg-surface-secondary"
-                        // Keep clicks on the menu chip from engaging the pill's drag listeners
-                        onPointerDownCapture={(e) => e.stopPropagation()}
+                        // Bubble phase (not capture): let the trigger open first, then stop the
+                        // event before the pill's drag listeners on the parent see it
+                        onPointerDown={(e) => e.stopPropagation()}
                     />
                 }
             >
