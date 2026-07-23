@@ -26,7 +26,14 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, ProductKey
+from posthog.schema import (
+    ActorsQuery,
+    HogQLQueryModifiers,
+    InlineCohortCalculation,
+    InsightActorsQuery,
+    LifecycleQuery,
+    ProductKey,
+)
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
@@ -40,6 +47,8 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -62,7 +71,7 @@ from posthog.models.person.util import (
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.queries.actor_base_query import get_serialized_people
+from posthog.queries.actor_base_query import get_groups, get_serialized_people
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
@@ -1270,31 +1279,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        from posthog.schema import (  # noqa: PLC0415
-            HogQLQueryModifiers,
-            InlineCohortCalculation,
-            InsightActorsQuery,
-            LifecycleQuery,
-        )
-
-        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
-        from posthog.queries.actor_base_query import get_groups  # noqa: PLC0415
-
         filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
         filter = prepare_actor_query_filter(filter)
 
         lifecycle_query = cast(LifecycleQuery, filter_to_query({**filter.to_dict(), "insight": "LIFECYCLE"}))
         source = InsightActorsQuery(source=lifecycle_query, day=target_date, status=lifecycle_type)
 
-        # Run the ActorsQuery (the HogQL actor path used by the modern /query route) with a raw
-        # id-only select, then hydrate the actors ourselves to keep the legacy
-        # SerializedPerson/SerializedGroup envelope this endpoint has always returned.
+        # Select actor ids only and hydrate them ourselves to keep the legacy response shape.
         actors_query = ActorsQuery(source=source, select=["actor_id"], limit=filter.limit, offset=filter.offset)
-        # Inline cohort definitions instead of reading precomputed membership — the legacy actor queries
-        # expanded cohorts inline, so a cohort breakdown/filter works without a prior cohort calculation.
-        # The modifiers must live on the inner insight query: ActorsQueryRunner inherits its modifiers from
-        # the source query runner, which derives them from `source.source.modifiers`.
+        # Expand cohorts inline so cohort filters work without a precomputed cohort. The modifier
+        # goes on the inner query because ActorsQueryRunner inherits modifiers from its source.
         source.source.modifiers = (source.source.modifiers or HogQLQueryModifiers()).model_copy(
             update={"inlineCohortCalculation": InlineCohortCalculation.ALWAYS}
         )
