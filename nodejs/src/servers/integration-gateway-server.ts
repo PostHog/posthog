@@ -55,13 +55,13 @@ export class IntegrationGatewayServer implements NodeServer {
     }
 
     private startServices(): Promise<void> {
-        // Reuse the shared EncryptedFields helper (same key derivation as Django + CDP), with the
-        // legacy PBKDF2 secret/salt keys enabled so pre-salt-keys rows stay readable.
-        const encryptedFields = new EncryptedFields(
-            this.config.ENCRYPTION_SALT_KEYS,
-            [this.config.SECRET_KEY, this.config.SECRET_KEY_FALLBACKS].filter(Boolean).join(','),
-            this.config.SALT_KEY
-        )
+        // The gateway intentionally holds ONLY the current ENCRYPTION_SALT_KEYS — not the legacy
+        // PBKDF2 SECRET_KEY/SALT_KEY material — to keep its crown-jewel key footprint minimal.
+        // TODO: before enabling the gateway for a team in prod, confirm no posthog_integration rows
+        // are still legacy-encrypted — `audit_encrypted_field_keys --field
+        // posthog.Integration.sensitive_config` must report legacy=0 (re-encrypt any stragglers
+        // first). Legacy-encrypted rows will NOT decrypt here.
+        const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
 
         this.postgres = new PostgresRouter(this.config, 'integration-gateway')
         const repository = new IntegrationRepository(this.postgres)
