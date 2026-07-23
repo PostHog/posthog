@@ -36,6 +36,7 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
@@ -769,36 +770,73 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Workflow must be active' })
             }
 
-            const globals: HogFunctionInvocationGlobals | undefined = req.body.globals
-            if (!globals || !globals.event) {
-                return res.status(400).json({ error: 'Missing event' })
+            // Match the pipeline's safety gates: don't run a flow the watcher circuit breaker has
+            // disabled, and don't execute billable actions for a quota-limited team. This path
+            // enqueues directly (bypassing HogFlowInvocationPipeline), so re-apply them here.
+            const watcherState = await this.hogWatcher.getEffectiveState(hogFlow.id)
+            if (watcherState.state === HogWatcherState.disabled) {
+                return res.status(400).json({ error: 'Workflow is disabled due to repeated failures' })
+            }
+            const quotaResult = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
+            if (quotaResult.isLimited) {
+                return res.status(429).json({ error: 'Team is over quota for the actions in this workflow' })
             }
 
+            const isPlainObject = (value: unknown): value is Record<string, any> =>
+                typeof value === 'object' && value !== null && !Array.isArray(value)
+
+            const rawGlobals = req.body.globals
+            const rawEvent = rawGlobals?.event
+            if (!rawEvent || typeof rawEvent.event !== 'string') {
+                return res.status(400).json({ error: 'Missing event' })
+            }
+            if (rawEvent.properties !== undefined && !isPlainObject(rawEvent.properties)) {
+                return res.status(400).json({ error: 'event.properties must be an object' })
+            }
+
+            // Rebuild the event server-side rather than trusting the caller's shape verbatim: this
+            // payload is durably enqueued, and a malformed event (e.g. null properties) would
+            // poison the shared hogflow queue and crash-loop the worker for the whole partition.
+            const event: HogFunctionInvocationGlobals['event'] = {
+                uuid: typeof rawEvent.uuid === 'string' ? rawEvent.uuid : new UUIDT().toString(),
+                event: rawEvent.event,
+                distinct_id: typeof rawEvent.distinct_id === 'string' ? rawEvent.distinct_id : `workflow-${hogFlow.id}`,
+                timestamp: typeof rawEvent.timestamp === 'string' ? rawEvent.timestamp : DateTime.now().toISO(),
+                url: typeof rawEvent.url === 'string' ? rawEvent.url : '',
+                properties: rawEvent.properties ?? {},
+                elements_chain: typeof rawEvent.elements_chain === 'string' ? rawEvent.elements_chain : '',
+            }
+
+            const person = isPlainObject(rawGlobals?.person) ? rawGlobals.person : undefined
             // Resolve groups server-side from the event's $groups when the caller didn't supply them,
             // so group-property conditionals branch correctly (mirrors postHogflowInvocation).
-            if (!globals.groups || Object.keys(globals.groups).length === 0) {
-                globals.groups = await this.groupsManager.getGroupsForEvent(
+            let groups = isPlainObject(rawGlobals?.groups) ? rawGlobals.groups : undefined
+            if (!groups || Object.keys(groups).length === 0) {
+                groups = await this.groupsManager.getGroupsForEvent(
                     team.id,
-                    globals.event.properties,
+                    event.properties,
                     `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
                 )
             }
 
+            const resolvedVariables = variables ?? rawGlobals?.variables ?? {}
             const triggerGlobals: HogFunctionInvocationGlobals = {
-                ...globals,
+                event,
+                person,
+                groups,
                 project: {
                     id: team.id,
                     name: team.name,
                     url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
                 },
-                variables: variables ?? globals.variables ?? {},
+                variables: resolvedVariables,
             }
 
             const filterGlobals = convertToHogFunctionFilterGlobal({
-                event: globals.event,
-                person: globals.person,
-                groups: globals.groups,
-                variables: triggerGlobals.variables || {},
+                event,
+                person,
+                groups,
+                variables: resolvedVariables,
             })
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
