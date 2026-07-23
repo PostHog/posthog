@@ -15,7 +15,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { appendExceptionToMessage, supportLogic } from 'lib/components/Support/supportLogic'
+import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -432,6 +432,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         },
         sendMessage: async ({ content, onSuccess }) => {
             if (!values.isEnabled || !content.trim() || values.messageSending || !posthog.conversations) {
+                return
+            }
+            if (warnIfMessageTooLong(content)) {
                 return
             }
             actions.setMessageSending(true)

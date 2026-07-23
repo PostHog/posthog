@@ -96,6 +96,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'project:read',
     'project:write',
     'property_definition:read',
+    'property_definition:write',
     'query:read',
     'replay_scanner:read',
     'replay_scanner:write',
