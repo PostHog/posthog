@@ -7509,6 +7509,20 @@
             "readOnlyHint": true
         }
     },
+    "property-definition-update": {
+        "description": "Update property definition metadata. Can update description, tags, property type (DateTime, String, Numeric, Boolean, Duration), and mark status as verified or hidden. Use the exact property name like '$browser' or 'plan_type'. Pass 'type' to target event, person, group, or session properties (defaults to event); for group properties also pass 'groupTypeIndex'. Note: passing 'tags' replaces the property's entire tag list rather than merging, so include any existing tags you want to keep.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Update a property definition's metadata.",
+        "title": "Update property definition",
+        "required_scopes": ["property_definition:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",
@@ -10320,6 +10334,66 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "vision-actions-list": {
+        "description": "List the vision actions (the \"and then…\" automations that run over a scanner's observations) for the current project. A vision action in `mode: group_summary` produces the group summary shown on the \"Summaries and alerts\" tab — one report synthesized from up to `max_observations` observations of its bound scanner; `mode: alert` delivers only when its alert condition holds. Each row carries the bound `scanner`, `mode`, `trigger_type`, cadence, and `is_scanner_digest` (the built-in daily digest). Pass `?scanner=<id>` to filter to one scanner. To read a specific action's produced reports, list its runs with `vision-actions-runs-list`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List vision actions",
+        "title": "List vision actions",
+        "required_scopes": ["vision_action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-actions-retrieve": {
+        "description": "Get a single vision action by ID. Returns its configuration: the bound `scanner`, `mode` (group_summary/alert), `selection` (the observation-targeting predicate — verdict/tags/score bounds/window), `synthesis_config`, `alert_config`, cadence, and delivery targets. Use `vision-actions-runs-list` + `vision-actions-runs-retrieve` to read the reports it has actually produced.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get a vision action",
+        "title": "Get a vision action",
+        "required_scopes": ["vision_action:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-actions-runs-list": {
+        "description": "List the run history for one vision action (nested under the action). Each run is one execution that produced a group summary or evaluated an alert. Rows are lightweight — `status` (running/completed/failed/skipped), `scheduled_at`, `observation_count` (how many observations fed the summary), `error_reason`, and `is_recovery` — without the report body. Fetch a completed run with `vision-actions-runs-retrieve` to get the synthesized report and the observations it cited.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List a vision action's runs",
+        "title": "List a vision action's runs",
+        "required_scopes": ["vision_action:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-actions-runs-retrieve": {
+        "description": "Get one vision action run in full: `synthesized_markdown` (the group-summary report, which cites its source observations inline with `[obs N]` markers) and `observations` — the recordings the run included, in summary order, each carrying the 1-based `index` that the report's `[obs N]` markers reference plus that observation's title and outcome. This is the tool for auditing a group summary: for each `[obs N]` in the markdown, `observations[N-1]` is the observation it cites, so you can check whether the cited observation actually supports the claim. Empty `synthesized_markdown`/`observations` means the run skipped, failed, or predates observation tracking.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get a vision action run's full group summary",
+        "title": "Get a vision action run's full group summary",
+        "required_scopes": ["vision_action:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
     },
     "vision-observations-label-create": {
         "description": "Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the quality-over-time chart and the AI prompt recommendations (see `vision-scanners-prompt-suggestions-generate`). Find observation IDs via `vision-scanners-observations-list` (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.",
