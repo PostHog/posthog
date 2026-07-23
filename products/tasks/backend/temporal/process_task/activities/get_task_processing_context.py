@@ -11,6 +11,7 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
@@ -23,6 +24,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -82,6 +84,9 @@ class TaskProcessingContext:
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
+    # Captured at workflow start so telemetry env injection (and the run-log mirror,
+    # which reads the same state stamp) is deterministic for the full run.
+    agent_otel_telemetry_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
     # Burstable by default; the per-run state can opt out to pin a fixed-size box
@@ -358,6 +363,33 @@ def _is_sandbox_event_ingest_enabled(
         "sandbox_event_ingest_flag_checked",
         run_id=run_id,
         sandbox_event_ingest_enabled=enabled,
+    )
+    return enabled
+
+
+def _is_agent_otel_telemetry_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    # DEBUG first: local dev disables the analytics SDK, so the dispatch capture always
+    # stamps False there - honoring the stamp would disable telemetry locally even with
+    # the SANDBOX_AGENT_OTEL_* settings (the local opt-in, which gate emission themselves)
+    # set. Matches agent_otel_telemetry_enabled_for_state, which the mirror reads.
+    if settings.DEBUG:
+        return True
+
+    state_override = (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY)
+    if isinstance(state_override, bool):
+        return state_override
+
+    enabled = is_agent_otel_telemetry_enabled(distinct_id=distinct_id, organization_id=organization_id)
+    log_with_activity_context(
+        "agent_otel_telemetry_flag_checked",
+        run_id=run_id,
+        agent_otel_telemetry_enabled=enabled,
     )
     return enabled
 
@@ -760,6 +792,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
     )
+    agent_otel_telemetry_enabled = _is_agent_otel_telemetry_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
     use_modal_vm_sandbox = _is_modal_vm_sandbox_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -886,6 +924,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
         use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,

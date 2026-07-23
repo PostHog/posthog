@@ -1,7 +1,13 @@
 // AUTO-GENERATED from products/replay/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+
 import {
     SessionRecordingPlaylistsCreateBody,
     SessionRecordingPlaylistsListQueryParams,
@@ -14,10 +20,6 @@ import {
     SingleSessionSummariesListQueryParams,
     SingleSessionSummariesRetrieveParams,
 } from '@/generated/replay/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SessionRecordingBulkDeleteSchema = SessionRecordingsBulkDeleteCreateBody
 
