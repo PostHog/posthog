@@ -26,6 +26,9 @@ MAX_MESSAGE_CHARS = 2000
 SENTIMENT_EVAL_MAX_USER_MESSAGES = 1
 SENTIMENT_EVAL_MAX_MESSAGE_CHARS = 1000
 SENTIMENT_EVAL_MESSAGE_HEAD_CHARS = 300
+# Bound the classified-text snippet echoed into `$ai_evaluation_reasoning` so labels are auditable
+# without bloating the stored reasoning string.
+SENTIMENT_EVAL_REASONING_SNIPPET_CHARS = 200
 
 # Batch classification
 CLASSIFY_BATCH_SIZE = 32  # texts per ONNX forward pass

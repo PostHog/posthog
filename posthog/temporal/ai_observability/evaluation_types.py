@@ -18,6 +18,10 @@ class EvaluationActivityResult(TypedDict, total=False):
       `reasoning`, `allows_na`, and optionally `applicable`.
     - `sentiment_*` fields are set for sentiment evaluations and deliberately omit
       `verdict` so report and pass/fail metrics do not treat sentiment as N/A.
+    - `sentiment_defaulted` is True when a sentiment eval fell back to the neutral default
+      (no user messages / no classifications produced) rather than classifying real text.
+      It flows to `$ai_sentiment_defaulted` so defaulted runs can be excluded from the real
+      neutral rate instead of silently inflating it.
     """
 
     result_type: Required[Literal["boolean", "sentiment"]]
@@ -42,3 +46,4 @@ class EvaluationActivityResult(TypedDict, total=False):
     sentiment_scores: NotRequired[dict[str, float]]
     sentiment_messages: NotRequired[dict[str, dict[str, Any]]]
     sentiment_message_count: NotRequired[int]
+    sentiment_defaulted: NotRequired[bool]

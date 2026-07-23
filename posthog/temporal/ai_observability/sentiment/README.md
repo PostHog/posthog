@@ -8,6 +8,12 @@ The classifier analyzes user messages from `$ai_generation` events using an ONNX
 
 Sentiment AI evaluations run through the evaluation workflow, classify the target generation's user messages, and emit stored `$ai_evaluation` events with `$ai_sentiment_*` properties.
 
+`$ai_evaluation_reasoning` echoes a bounded snippet of the classified text, so a label can be audited without pulling the source trace.
+
+When no user message is found (or classification produces nothing), the result falls back to a neutral label and sets `$ai_sentiment_defaulted = true`.
+Exclude those events (`$ai_sentiment_defaulted = true`) when measuring the real neutral rate — otherwise defaulted runs silently inflate the neutral baseline.
+The `llma_eval_sentiment_defaulted` metric tracks the same fallback with a `reason` label.
+
 The AI observability UI reads stored sentiment evaluation events. It does not trigger on-read sentiment classification.
 
 ## Package structure
