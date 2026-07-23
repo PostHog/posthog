@@ -12,7 +12,7 @@ use posthog_replay_anonymizer::snapshot::{anonymize_kafka_payload_opts, Anonymiz
 use posthog_replay_anonymizer::{AllowLists, ImagePolicy};
 use serde_json::json;
 
-fn png_data_uri(side: u32, seed: u8) -> String {
+fn image_data_uri(side: u32, seed: u8, format: image::ImageFormat) -> String {
     let mut img = image::RgbaImage::new(side, side);
     for (x, y, px) in img.enumerate_pixels_mut() {
         *px = image::Rgba([
@@ -22,20 +22,30 @@ fn png_data_uri(side: u32, seed: u8) -> String {
             255,
         ]);
     }
+    let img = if format == image::ImageFormat::Jpeg {
+        // JPEG has no alpha channel.
+        image::DynamicImage::ImageRgb8(image::DynamicImage::ImageRgba8(img).to_rgb8())
+    } else {
+        image::DynamicImage::ImageRgba8(img)
+    };
     let mut buf = Vec::new();
-    image::DynamicImage::ImageRgba8(img)
-        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+    img.write_to(&mut std::io::Cursor::new(&mut buf), format)
         .unwrap();
+    let mime = if format == image::ImageFormat::Jpeg {
+        "jpeg"
+    } else {
+        "png"
+    };
     format!(
-        "data:image/png;base64,{}",
+        "data:image/{mime};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(buf)
     )
 }
 
-fn payload(images: usize, side: u32, duplicates: usize) -> Vec<u8> {
+fn payload(images: usize, side: u32, duplicates: usize, format: image::ImageFormat) -> Vec<u8> {
     let mut children = Vec::new();
     for i in 0..images {
-        let uri = png_data_uri(side, (i + 1) as u8);
+        let uri = image_data_uri(side, (i + 1) as u8, format);
         for d in 0..=duplicates {
             children.push(json!({
                 "type": 2,
@@ -98,13 +108,16 @@ fn bench_inline_vs_parallel_images() {
         "image workers: REPLAY_ANONYMIZER_IMAGE_THREADS={}",
         std::env::var("REPLAY_ANONYMIZER_IMAGE_THREADS").unwrap_or_else(|_| "(default)".into())
     );
-    for (images, side, duplicates) in [
-        (4usize, 256u32, 0usize),
-        (16, 256, 0),
-        (16, 512, 0),
-        (16, 256, 3),
+    for (images, side, duplicates, format) in [
+        (4usize, 256u32, 0usize, image::ImageFormat::Png),
+        (16, 256, 0, image::ImageFormat::Png),
+        (16, 512, 0, image::ImageFormat::Png),
+        (16, 256, 3, image::ImageFormat::Png),
+        (4, 512, 0, image::ImageFormat::Jpeg),
+        (16, 1024, 0, image::ImageFormat::Jpeg),
+        (4, 2048, 0, image::ImageFormat::Jpeg),
     ] {
-        let payload = payload(images, side, duplicates);
+        let payload = payload(images, side, duplicates, format);
         // Warm both paths (decoder init, worker pool spawn) before sampling.
         run(&allow, &payload, ImagePolicy::Inline, 1);
         run(&allow, &payload, ImagePolicy::Parallel, 1);
@@ -112,7 +125,7 @@ fn bench_inline_vs_parallel_images() {
         let parallel = run(&allow, &payload, ImagePolicy::Parallel, 7);
         let median = |s: &Vec<u128>| s[s.len() / 2];
         println!(
-            "{images:2} distinct {side}x{side} images x{} occurrences ({:6} KB payload): inline {:7}us  parallel {:7}us  ({:.2}x)",
+            "{images:2} distinct {side}x{side} {format:?} x{} occurrences ({:6} KB payload): inline {:7}us  parallel {:7}us  ({:.2}x)",
             duplicates + 1,
             payload.len() / 1024,
             median(&inline),
