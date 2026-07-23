@@ -96,10 +96,9 @@ export class CdpCyclotronWorker<
                     logger.error('⚠️', 'Skipping invocation with malformed globals (missing project or event)', {
                         id: item.functionId,
                     })
-                    captureException(
-                        new Error('Malformed hog function invocation globals: missing project or event'),
-                        { tags: { functionId: item.functionId, teamId: String(item.teamId) } }
-                    )
+                    captureException(new Error('Malformed hog function invocation globals: missing project or event'), {
+                        tags: { functionId: item.functionId, teamId: String(item.teamId) },
+                    })
 
                     failedInvocations.push(item)
 

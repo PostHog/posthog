@@ -8,14 +8,11 @@ describe('cyclotron schema', () => {
             expect(HogFunctionInvocationGlobalsSchema.safeParse(globals).success).toBe(true)
         })
 
-        it.each([['project'], ['event']] as const)(
-            'rejects globals missing %s (the poison-pill shape)',
-            (field) => {
-                const globals = createHogExecutionGlobals({}) as any
-                delete globals[field]
-                expect(HogFunctionInvocationGlobalsSchema.safeParse(globals).success).toBe(false)
-            }
-        )
+        it.each([['project'], ['event']] as const)('rejects globals missing %s (the poison-pill shape)', (field) => {
+            const globals = createHogExecutionGlobals({}) as any
+            delete globals[field]
+            expect(HogFunctionInvocationGlobalsSchema.safeParse(globals).success).toBe(false)
+        })
 
         it.each([
             { mutation: (g: any) => (g.project.id = 'not-a-number'), desc: 'project.id is not a number' },
