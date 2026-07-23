@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 /**
  * PROTOTYPE — throwaway, do not merge. See PROTOTYPE.md in this folder.
  *
@@ -13,9 +15,6 @@
  * already use), so results really re-run and nothing is persisted.
  */
 import { useEffect, useState } from 'react'
-
-import { useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconCalendar, IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -297,10 +296,7 @@ function PrototypeSwitcher({ variant, overrides }: { variant: VariantKey; overri
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent): void => {
             const target = event.target as HTMLElement | null
-            if (
-                target &&
-                (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-            ) {
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
                 return
             }
             if (event.key === 'ArrowLeft') {
@@ -318,6 +314,7 @@ function PrototypeSwitcher({ variant, overrides }: { variant: VariantKey; overri
     return (
         <div className="fixed bottom-4 left-1/2 z-[1200] flex -translate-x-1/2 items-center gap-3 rounded-full bg-black/85 px-4 py-2 text-white shadow-xl">
             <button
+                type="button"
                 className="cursor-pointer text-lg leading-none"
                 onClick={() => cycleVariant(-1)}
                 aria-label="Previous variant"
@@ -333,6 +330,7 @@ function PrototypeSwitcher({ variant, overrides }: { variant: VariantKey; overri
                 </code>
             </div>
             <button
+                type="button"
                 className="cursor-pointer text-lg leading-none"
                 onClick={() => cycleVariant(1)}
                 aria-label="Next variant"
@@ -340,6 +338,7 @@ function PrototypeSwitcher({ variant, overrides }: { variant: VariantKey; overri
                 ›
             </button>
             <button
+                type="button"
                 className="ml-1 cursor-pointer text-xs opacity-60 hover:opacity-100"
                 onClick={exitPrototype}
                 aria-label="Exit prototype"
