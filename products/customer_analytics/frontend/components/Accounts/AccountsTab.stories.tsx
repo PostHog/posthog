@@ -139,9 +139,14 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
 // The snapshot fires well after `play` (page-ready waits, forced reflows, a dispatched resize),
 // and the meta-level waitForSelector is satisfied by a collapsed table. Gating the snapshot on the
 // expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
+// The 60s waitForSelector can eat the whole default 60s Jest budget on its own, leaving no room
+// for the surrounding page-ready waits, reflows, and the two theme snapshots — so under CI load
+// the test hits the Jest timeout even when the expansion eventually renders. Give it a 120s Jest
+// budget so the selector wait has headroom instead of racing the test timeout.
 const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
     waitForSelectorTimeout: 60000,
+    jestTimeout: 120000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
