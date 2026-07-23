@@ -46,7 +46,7 @@ import {
     describeCron,
     featureFlagLogic,
     PAIRED_PRESETS,
-    validateFeatureFlagKey,
+    validateFeatureFlagVariantKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -467,7 +467,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
     )
 
     const variantErrors = displayVariants.map(({ key: variantKey }) => ({
-        key: validateFeatureFlagKey(variantKey),
+        key: validateFeatureFlagVariantKey(variantKey),
     }))
 
     const supportsRecurring = RECURRING_SUPPORTED_OPERATIONS.has(scheduledChangeOperation)

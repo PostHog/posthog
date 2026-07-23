@@ -159,7 +159,12 @@ describe('RerunPaginatorService queue routing', () => {
             attempts: 0,
             last_scheduled_at: '2026-01-01 00:00:00',
             first_scheduled_at: '2026-01-01 00:00:00',
-            invocation_globals: JSON.stringify({ event: { uuid: 'e1' } }),
+            // Well-formed globals so the rerunnable-type cases pass rehydration's
+            // schema validation — the type gate is what these tests exercise.
+            invocation_globals: JSON.stringify({
+                project: { id: 1, name: '', url: '' },
+                event: { uuid: 'e1', distinct_id: 'd1', properties: {} },
+            }),
         }
         return (webhookPaginator as any).rehydrateInvocation(1, 'hog_function', 'fn-1', row)
     }

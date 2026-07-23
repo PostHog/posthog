@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { normalizeSessionId } from '~/common/utils/utils'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { recordAnonymizeTimingSpans } from '~/ingestion/pipelines/sessionreplay/anonymize-timing-spans'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 
@@ -62,6 +63,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         )
 
         const t0 = performance.now()
+        const callStartEpochMs = performance.timeOrigin + t0
         let result
         try {
             result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding)
@@ -72,6 +74,10 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             return drop('anonymize_failed')
         }
         SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', performance.now() - t0, result.route ?? '')
+        recordAnonymizeTimingSpans(callStartEpochMs, result.timings, {
+            route: result.route,
+            failureReason: result.failed ? (result.reason ?? 'anonymize_failed') : null,
+        })
 
         if (result.failed) {
             if (result.reason && DLQ_REASONS.has(result.reason)) {
