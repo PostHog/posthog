@@ -39,10 +39,11 @@ class ScannerProvider(models.TextChoices):
 
 
 class ScannerModel(models.TextChoices):
-    """One model per Google tier, cheapest first. Members must mirror `billing.GEMINI_MODELS`; when
+    """Selectable models, cheapest first. Members must mirror `billing.GEMINI_MODELS`; when
     Google supersedes a model, swap the member and remap existing scanners in a migration (see 0052)."""
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
+    GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash (preview)"
     GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
 
 
