@@ -120,7 +120,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
             raise serializers.ValidationError("Message content is required")
         return value.strip()
 
-    def validate_traits(self, value: dict[str, Any]) -> dict[str, str | None]:
+    def validate_traits(self, value: Any) -> dict[str, str | None]:
         """Traits are attached automatically by the widget, so oversized or malformed
         entries are sanitized rather than rejected — they must never block submission."""
         if not isinstance(value, dict):
@@ -145,7 +145,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
 
         return validated
 
-    def validate_session_context(self, value: dict[str, Any]) -> dict[str, Any]:
+    def validate_session_context(self, value: Any) -> dict[str, Any]:
         """Session context is attached automatically by the widget (current URL, replay URL,
         ...), so it is sanitized rather than rejected: the customer can't shorten the page URL
         they're on, and context must never block submission. Truncated values get a
