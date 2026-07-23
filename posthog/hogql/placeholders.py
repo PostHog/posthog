@@ -32,6 +32,18 @@ def find_placeholders(node: ast.Expr) -> FindPlaceholders:
     return finder
 
 
+def _value_to_ast(value: object) -> ast.Expr:
+    """Turn a plain Python value returned by a placeholder into a typeable AST node.
+
+    Dicts and lists become ``ast.Dict``/``ast.Array`` (the same nodes literals like ``{'a': 1}``
+    parse to) rather than an ``ast.Constant`` — the resolver can't type a raw ``dict`` constant."""
+    if isinstance(value, dict):
+        return ast.Dict(items=[(_value_to_ast(key), _value_to_ast(val)) for key, val in value.items()])
+    if isinstance(value, list | tuple):
+        return ast.Array(exprs=[_value_to_ast(item) for item in value])
+    return ast.Constant(value=value)
+
+
 class ReplacePlaceholders(CloningVisitor):
     def __init__(self, placeholders: Optional[dict[str, ast.Expr]]):
         super().__init__()
@@ -56,6 +68,12 @@ class ReplacePlaceholders(CloningVisitor):
             or isinstance(response.result, ast.HogQLXTag)
         ):
             expr = response.result
+            expr.start = node.start
+            expr.end = node.end
+            return expr
+        elif isinstance(response.result, dict) and is_simple_value(response.result):
+            # A dict can't be an ast.Constant — build the ast.Dict a literal `{...}` would parse to.
+            expr = _value_to_ast(response.result)
             expr.start = node.start
             expr.end = node.end
             return expr
