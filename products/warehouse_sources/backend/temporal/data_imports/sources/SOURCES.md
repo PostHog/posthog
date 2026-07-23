@@ -380,7 +380,7 @@ the row lists both.
 | new_york_times                   | HTTP                        | requests                                                        | ✅                          |
 | news_api                         | HTTP                        | requests                                                        | ✅                          |
 | newsdata                         | HTTP                        | requests                                                        | ✅                          |
-| npm_registry                     | HTTP                        | requests                                                        | ✅                           |
+| npm_registry                     | HTTP                        | requests                                                        | ✅                          |
 | okta                             | HTTP                        | requests                                                        | ✅                          |
 | nocrm                            | HTTP                        | requests                                                        | ✅                          |
 | northflank                       | HTTP                        | requests                                                        | ✅                          |
