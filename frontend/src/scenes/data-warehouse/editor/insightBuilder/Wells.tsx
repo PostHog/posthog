@@ -16,10 +16,10 @@ import {
     AGGREGATION_LABELS,
     DATE_GRAIN_LABELS,
     DATE_GRAIN_OPTIONS,
-    FILTER_OPERATORS,
     FILTER_OPERATOR_LABELS,
     NON_NUMERIC_AGGREGATIONS,
     NUMERIC_AGGREGATIONS,
+    filterOperatorsForField,
     operatorNeedsValue,
 } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
 import {
@@ -218,8 +218,13 @@ function FilterPill({
     const { baseFields } = useValues(insightBuilderLogic({ tabId }))
     const { removeField, updateFilter } = useActions(insightBuilderLogic({ tabId }))
 
-    const isMissing = baseFields.length > 0 && !baseFields.some((candidate) => candidate.name === filter.column)
+    const field = baseFields.find((candidate) => candidate.name === filter.column)
+    const isMissing = baseFields.length > 0 && !field
     const needsValue = operatorNeedsValue(filter.operator)
+    const operators = filterOperatorsForField(field)
+    // Numeric columns get a number input; the value still compiles as a literal ClickHouse coerces
+    const isNumericValue = !!field?.isNumerical
+    const valuePlaceholder = field?.isDate ? 'YYYY-MM-DD' : 'value'
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: pillId('filters', index),
@@ -244,7 +249,7 @@ function FilterPill({
             <span className="flex w-full min-w-0 items-center gap-1">
                 <span className="shrink truncate">{filter.column}</span>
                 <PillMenu label={FILTER_OPERATOR_LABELS[filter.operator]}>
-                    {FILTER_OPERATORS.map((operator) => (
+                    {operators.map((operator) => (
                         <DropdownMenuItem
                             key={operator}
                             onClick={() =>
@@ -262,13 +267,24 @@ function FilterPill({
                     // Stop pointer events from reaching the drag listeners so text selection inside
                     // the input doesn't start a pill drag
                     <span className="min-w-0 flex-1" onPointerDownCapture={(e) => e.stopPropagation()}>
-                        <LemonInput
-                            size="xsmall"
-                            placeholder="value"
-                            value={filter.value ?? ''}
-                            onChange={(value) => updateFilter(index, { value })}
-                            data-attr="sql-builder-filter-value"
-                        />
+                        {isNumericValue ? (
+                            <LemonInput
+                                size="xsmall"
+                                type="number"
+                                placeholder="value"
+                                value={filter.value != null && filter.value !== '' ? Number(filter.value) : undefined}
+                                onChange={(value) => updateFilter(index, { value: value != null ? String(value) : '' })}
+                                data-attr="sql-builder-filter-value"
+                            />
+                        ) : (
+                            <LemonInput
+                                size="xsmall"
+                                placeholder={valuePlaceholder}
+                                value={filter.value ?? ''}
+                                onChange={(value) => updateFilter(index, { value })}
+                                data-attr="sql-builder-filter-value"
+                            />
+                        )}
                     </span>
                 ) : null}
             </span>
@@ -302,6 +318,10 @@ function Well({
         disabled,
     })
 
+    // A drop into a full well (no remaining capacity) replaces the existing field rather than adding
+    const isFull = !disabled && !canAddMore && count > 0
+    const centered = disabled || count === 0
+
     return (
         <div className={cn(disabled && 'opacity-50')}>
             <div className="mb-1 text-xs font-semibold uppercase text-tertiary">{title}</div>
@@ -309,23 +329,28 @@ function Well({
                 ref={setNodeRef}
                 className={cn(
                     'flex min-h-12 flex-col gap-1 rounded border border-dashed p-1 transition-colors',
-                    isOver && !disabled && 'border-accent bg-accent-highlight-secondary',
-                    count === 0 && 'items-center justify-center'
+                    centered && 'items-center justify-center text-center',
+                    isOver && !disabled && !isFull && 'border-accent bg-accent-highlight-secondary',
+                    isOver && isFull && 'border-warning bg-warning-highlight'
                 )}
                 data-attr={`sql-builder-well-${well}`}
             >
                 {disabled ? (
                     <span className="px-2 text-xs text-tertiary">{disabledReason}</span>
                 ) : count === 0 ? (
-                    <span className="px-2 text-xs text-tertiary">{emptyHint}</span>
+                    <span className="px-2 text-xs text-tertiary">{isOver ? 'Drop to add' : emptyHint}</span>
                 ) : (
                     <>
                         {children}
-                        {canAddMore ? (
+                        {isFull ? (
+                            isOver ? (
+                                <span className="px-2 py-0.5 text-xs text-warning">Drop to replace</span>
+                            ) : null
+                        ) : (
                             <span className="rounded border border-dashed border-transparent px-2 py-0.5 text-xs text-tertiary">
-                                Drop another field
+                                {isOver ? 'Drop to add' : 'Drop another field'}
                             </span>
-                        ) : null}
+                        )}
                     </>
                 )}
             </div>

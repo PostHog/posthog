@@ -328,8 +328,9 @@ export function compileBuilderQuery(config: InsightBuilderConfig): CompiledBuild
     if (dimensionExprs.length > 0) {
         lines.push(`GROUP BY ${dimensionExprs.join(', ')}`)
     }
-    // Charts consume rows in response order, so dimension ordering is part of the contract
-    const orderAlias = rowParts[0]?.alias ?? columnParts[0]?.alias
+    // Charts consume rows in response order; sort by the x-axis (Columns) so cartesian charts
+    // render left-to-right, falling back to the Rows breakdown when there's no x-axis
+    const orderAlias = columnParts[0]?.alias ?? rowParts[0]?.alias
     if (orderAlias) {
         lines.push(`ORDER BY ${orderAlias} ASC`)
     }

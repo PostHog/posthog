@@ -71,7 +71,8 @@ describe('insightBuilderLogic', () => {
         builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
 
         await expectLogic(builderLogic, () => {
-            builderLogic.actions.addField('rows', 'event')
+            // Columns is the grouping dimension (x-axis); Rows is the breakdown
+            builderLogic.actions.addField('columns', 'event')
             builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
         })
             .toDispatchActions(sqlLogic, ['setSourceQuery'])
@@ -83,8 +84,8 @@ describe('insightBuilderLogic', () => {
         expect(node.builder).toEqual({
             enabled: true,
             baseQuery: BASE_QUERY,
-            rows: [{ column: 'event', dateGrain: undefined }],
-            columns: [],
+            rows: [],
+            columns: [{ column: 'event', dateGrain: undefined }],
             values: [{ column: 'amount', aggregation: 'sum' }],
         })
         expect(node.source.query).toContain('sum(amount) AS sum_amount')
@@ -130,15 +131,16 @@ describe('insightBuilderLogic', () => {
     it('compiles a numeric bin width into the source query', async () => {
         sqlLogic.actions.setQueryInput(BASE_QUERY)
         builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
-        builderLogic.actions.addField('rows', 'amount')
+        // A numeric dimension on the x-axis (Columns) can be bucketed into fixed-width bins
+        builderLogic.actions.addField('columns', 'amount')
         builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
 
         await expectLogic(builderLogic, () => {
-            builderLogic.actions.setNumericBinWidth('rows', 0, 10)
+            builderLogic.actions.setNumericBinWidth('columns', 0, 10)
         }).toDispatchActions(sqlLogic, ['setSourceQuery'])
 
         const node = sqlLogic.values.sourceQuery
-        expect(node.builder?.rows).toEqual([{ column: 'amount', numericBinWidth: 10, dateGrain: undefined }])
+        expect(node.builder?.columns).toEqual([{ column: 'amount', numericBinWidth: 10, dateGrain: undefined }])
         expect(node.source.query).toContain('floor(amount / 10) * 10')
     })
 

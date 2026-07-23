@@ -75,6 +75,34 @@ export function operatorNeedsValue(operator: InsightBuilderFilterOperator): bool
     return operator !== 'is_set' && operator !== 'is_not_set'
 }
 
+const ORDERED_OPERATORS: InsightBuilderFilterOperator[] = [
+    'eq',
+    'neq',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'is_set',
+    'is_not_set',
+]
+const TEXT_OPERATORS: InsightBuilderFilterOperator[] = ['eq', 'neq', 'contains', 'not_contains', 'is_set', 'is_not_set']
+const BOOLEAN_OPERATORS: InsightBuilderFilterOperator[] = ['eq', 'neq', 'is_set', 'is_not_set']
+
+/** Operators that make sense for a column's type — numbers/dates get comparisons, text gets contains. */
+export function filterOperatorsForField(field?: {
+    isNumerical?: boolean
+    isDate?: boolean
+    typeName?: string
+}): InsightBuilderFilterOperator[] {
+    if (field?.typeName === 'BOOLEAN') {
+        return BOOLEAN_OPERATORS
+    }
+    if (field?.isDate || field?.isNumerical) {
+        return ORDERED_OPERATORS
+    }
+    return TEXT_OPERATORS
+}
+
 export function measureLabel(measure: InsightBuilderMeasure): string {
     if (measure.label) {
         return measure.label

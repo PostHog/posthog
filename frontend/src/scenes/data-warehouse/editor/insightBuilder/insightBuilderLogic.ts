@@ -12,6 +12,7 @@ import {
     BuilderWells,
     bestDisplayForWells,
     effectiveWells,
+    getChartCapability,
     validateWellsForDisplay,
 } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import {
@@ -576,9 +577,20 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 values.builderDisplay === ChartDisplayType.ActionsTable &&
                 values.wells.rows.length + values.wells.columns.length + values.wells.values.length === 1
             ) {
-                const firstRow = values.baseFields.find((field) => field.name === values.wells.rows[0]?.column)
-                const firstRowIsDate = !!firstRow?.isDate || !!values.wells.rows[0]?.dateGrain
-                actions.setBuilderDisplay(bestDisplayForWells(values.wells, { firstRowIsDate }))
+                const firstColumn = values.baseFields.find((field) => field.name === values.wells.columns[0]?.column)
+                const firstColumnIsDate = !!firstColumn?.isDate || !!values.wells.columns[0]?.dateGrain
+                actions.setBuilderDisplay(bestDisplayForWells(values.wells, { firstColumnIsDate }))
+            }
+            // Replace-on-full: if the well now exceeds the chart's max for this well, drop the
+            // oldest so the just-added field wins (e.g. a second value on a Big number replaces it)
+            if (well !== 'filters') {
+                const max = getChartCapability(values.builderDisplay)?.[well].max
+                const items = well === 'rows' ? values.rows : well === 'columns' ? values.columnDims : values.measures
+                if (typeof max === 'number' && items.length > max) {
+                    for (let i = 0; i < items.length - max; i++) {
+                        actions.removeField(well, 0)
+                    }
+                }
             }
             posthog.capture('sql-editor-builder-field-added', { well })
             actions.applyWells()

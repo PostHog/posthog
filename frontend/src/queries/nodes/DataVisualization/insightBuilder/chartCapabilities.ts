@@ -21,11 +21,14 @@ export interface WellRequirement {
 export interface ChartCapability {
     display: ChartDisplayType
     label: string
+    // Convention across all charts: Columns is the primary axis (x-axis for cartesian charts,
+    // the slices for pie, the grouping dimension for a table); Rows is the secondary breakdown
+    // (the series split — multiple lines, stacked segments). Heatmap uses Columns=x, Rows=y.
     rows: WellRequirement
     columns: WellRequirement
     values: WellRequirement
-    /** When the Columns well is filled, cap Values at this many (series splitting replaces the series list) */
-    maxValuesWithColumns?: number
+    /** When a breakdown (Rows) is present, cap Values at this many — a breakdown already splits the series */
+    maxValuesWithBreakdown?: number
     /** Requires at least one field across all wells */
     requiresAnyField?: boolean
     /** Shown in the chart picker and preview empty states */
@@ -33,22 +36,24 @@ export interface ChartCapability {
     tip?: string
 }
 
-const CHART_SERIES_WELLS: Pick<ChartCapability, 'rows' | 'columns' | 'values' | 'maxValuesWithColumns'> = {
-    rows: { min: 1, max: 1 },
-    columns: { min: 0, max: 1 },
+// Line and area share a shape: one x-axis Column, an optional Rows breakdown, one-or-more Values
+const LINE_AREA_WELLS: Pick<ChartCapability, 'rows' | 'columns' | 'values' | 'maxValuesWithBreakdown'> = {
+    columns: { min: 1, max: 1 },
+    rows: { min: 0, max: 1 },
     values: { min: 1, max: null },
-    maxValuesWithColumns: 1,
+    maxValuesWithBreakdown: 1,
 }
 
 export const CHART_CAPABILITIES: ChartCapability[] = [
     {
         display: ChartDisplayType.ActionsTable,
         label: 'Table',
-        rows: { min: 0, max: null },
+        // Only Columns (dimensions) + Values (metrics) for now — Rows would imply a pivot, which isn't supported yet
+        rows: { min: 0, max: 0 },
         columns: { min: 0, max: null },
         values: { min: 0, max: null },
         requiresAnyField: true,
-        requirementHint: 'Works with any fields — shows the grouped results as a table',
+        requirementHint: 'Add dimensions to Columns and metrics to Values',
     },
     {
         display: ChartDisplayType.BoldNumber,
@@ -56,53 +61,53 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
         rows: { min: 0, max: 0 },
         columns: { min: 0, max: 0 },
         values: { min: 1, max: 1 },
-        requirementHint: 'Needs exactly 1 Value, with no Rows or Columns',
+        requirementHint: 'Needs exactly 1 Value',
     },
     {
         display: ChartDisplayType.ActionsLineGraph,
         label: 'Line chart',
-        ...CHART_SERIES_WELLS,
-        requirementHint: 'Needs 1 Row and at least 1 Value',
-        tip: 'A date column in Rows works best',
+        ...LINE_AREA_WELLS,
+        requirementHint: 'Needs 1 Column (x-axis) and at least 1 Value',
+        tip: 'Add a Row to break the line into multiple series; a date column on the x-axis works best',
     },
     {
         display: ChartDisplayType.ActionsBar,
         label: 'Bar chart',
-        rows: { min: 1, max: 1 },
-        columns: { min: 0, max: 0 },
+        columns: { min: 1, max: 1 },
+        rows: { min: 0, max: 0 },
         values: { min: 1, max: null },
-        requirementHint: 'Needs 1 Row and at least 1 Value',
+        requirementHint: 'Needs 1 Column (x-axis) and at least 1 Value',
     },
     {
         display: ChartDisplayType.ActionsStackedBar,
         label: 'Stacked bar chart',
-        rows: { min: 1, max: 1 },
         columns: { min: 1, max: 1 },
+        rows: { min: 1, max: 1 },
         values: { min: 1, max: 1 },
-        requirementHint: 'Needs 1 Row (stacked series), 1 Column (x-axis), and exactly 1 Value',
+        requirementHint: 'Needs 1 Column (x-axis), 1 Row (stacked breakdown), and 1 Value',
     },
     {
         display: ChartDisplayType.ActionsAreaGraph,
         label: 'Area chart',
-        ...CHART_SERIES_WELLS,
-        requirementHint: 'Needs 1 Row and at least 1 Value',
-        tip: 'A date column in Rows works best',
+        ...LINE_AREA_WELLS,
+        requirementHint: 'Needs 1 Column (x-axis) and at least 1 Value',
+        tip: 'Add a Row to break the area into multiple series; a date column on the x-axis works best',
     },
     {
         display: ChartDisplayType.ActionsPie,
         label: 'Pie chart',
-        rows: { min: 1, max: 1 },
-        columns: { min: 0, max: 0 },
+        columns: { min: 1, max: 1 },
+        rows: { min: 0, max: 0 },
         values: { min: 1, max: 1 },
-        requirementHint: 'Needs 1 Row and exactly 1 Value',
+        requirementHint: 'Needs 1 Column (the slices) and exactly 1 Value',
     },
     {
         display: ChartDisplayType.TwoDimensionalHeatmap,
         label: 'Heatmap',
-        rows: { min: 1, max: 1 },
         columns: { min: 1, max: 1 },
+        rows: { min: 1, max: 1 },
         values: { min: 1, max: 1 },
-        requirementHint: 'Needs 1 Row, 1 Column, and exactly 1 Value',
+        requirementHint: 'Needs 1 Column (x-axis), 1 Row (y-axis), and exactly 1 Value',
     },
 ]
 
@@ -151,7 +156,8 @@ export function validateWellsForDisplay(wells: BuilderWells, display: ChartDispl
 /**
  * The wells actually used to compile/render for a given chart, dropping fields the chart can't
  * express: wells it doesn't use (max 0) become empty, over-max wells are truncated, and Values is
- * capped once Columns is filled. The full wells stay in state so switching charts restores them.
+ * capped once a breakdown (Rows) is present. The full wells stay in state so switching charts
+ * restores them.
  */
 export function effectiveWells(wells: BuilderWells, display: ChartDisplayType): BuilderWells {
     const capability = getChartCapability(display)
@@ -161,12 +167,12 @@ export function effectiveWells(wells: BuilderWells, display: ChartDisplayType): 
     const truncate = <T>(items: T[], requirement: WellRequirement): T[] =>
         requirement.max === null ? items : items.slice(0, Math.max(requirement.max, 0))
 
-    const columns = truncate(wells.columns, capability.columns)
+    const rows = truncate(wells.rows, capability.rows)
     let values = truncate(wells.values, capability.values)
-    if (capability.maxValuesWithColumns !== undefined && columns.length > 0) {
-        values = values.slice(0, capability.maxValuesWithColumns)
+    if (capability.maxValuesWithBreakdown !== undefined && rows.length > 0) {
+        values = values.slice(0, capability.maxValuesWithBreakdown)
     }
-    return { rows: truncate(wells.rows, capability.rows), columns, values }
+    return { rows, columns: truncate(wells.columns, capability.columns), values }
 }
 
 /**
@@ -185,21 +191,21 @@ export function isWellEnabled(well: BuilderWell, display: ChartDisplayType): boo
 }
 
 /** Pick a sensible chart type for the current wells (used when the user hasn't chosen one explicitly). */
-export function bestDisplayForWells(wells: BuilderWells, options?: { firstRowIsDate?: boolean }): ChartDisplayType {
+export function bestDisplayForWells(wells: BuilderWells, options?: { firstColumnIsDate?: boolean }): ChartDisplayType {
     const { rows, columns, values } = wells
 
     if (values.length >= 1 && rows.length === 0 && columns.length === 0) {
         return values.length === 1 ? ChartDisplayType.BoldNumber : ChartDisplayType.ActionsTable
     }
-    if (rows.length === 1 && values.length >= 1) {
-        // A single-value column split reads as a stacked bar; anything wider falls back to the table
-        if (columns.length === 1 && values.length === 1) {
+    if (columns.length === 1 && values.length >= 1) {
+        // A single Column x-axis with a single Row breakdown reads as a stacked bar
+        if (rows.length === 1 && values.length === 1) {
             return ChartDisplayType.ActionsStackedBar
         }
-        if (columns.length === 0) {
-            return options?.firstRowIsDate ? ChartDisplayType.ActionsLineGraph : ChartDisplayType.ActionsBar
+        if (rows.length === 0) {
+            return options?.firstColumnIsDate ? ChartDisplayType.ActionsLineGraph : ChartDisplayType.ActionsBar
         }
     }
-    // Shapes a single chart can't express (many row dims, wide column splits) show as a grouped table
+    // Shapes no single chart can express (Rows without a Column x-axis, wide splits) show as a table
     return ChartDisplayType.ActionsTable
 }

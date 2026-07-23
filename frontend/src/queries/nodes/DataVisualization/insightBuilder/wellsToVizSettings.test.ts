@@ -20,23 +20,18 @@ const compiled: CompiledBuilderQuery = {
 }
 
 describe('mapWellsToChartSettings', () => {
-    it('puts Columns on the x-axis and stacks Rows for stacked bar charts', () => {
-        const settings = mapWellsToChartSettings(undefined, compiled, ChartDisplayType.ActionsStackedBar, config)
+    it.each([
+        ChartDisplayType.ActionsLineGraph,
+        ChartDisplayType.ActionsBar,
+        ChartDisplayType.ActionsAreaGraph,
+        ChartDisplayType.ActionsStackedBar,
+    ])('puts Columns on the x-axis and Rows as the series breakdown for %s', (display) => {
+        const settings = mapWellsToChartSettings(undefined, compiled, display, config)
 
         expect(settings.xAxis?.column).toEqual('region')
         expect(settings.seriesBreakdownColumn).toEqual('plan')
         expect(settings.yAxis?.map((axis) => axis.column)).toEqual(['sum_amount'])
     })
-
-    it.each([ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar, ChartDisplayType.ActionsAreaGraph])(
-        'keeps Rows on the x-axis and Columns as the legend split for %s',
-        (display) => {
-            const settings = mapWellsToChartSettings(undefined, compiled, display, config)
-
-            expect(settings.xAxis?.column).toEqual('plan')
-            expect(settings.seriesBreakdownColumn).toEqual('region')
-        }
-    )
 
     it('maps heatmap wells onto the heatmap settings', () => {
         const settings = mapWellsToChartSettings(undefined, compiled, ChartDisplayType.TwoDimensionalHeatmap, config)

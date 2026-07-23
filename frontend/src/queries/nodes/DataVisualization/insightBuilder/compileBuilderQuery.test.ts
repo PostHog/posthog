@@ -40,7 +40,7 @@ describe('compileBuilderQuery', () => {
                 'SELECT * FROM events',
                 ')',
                 'GROUP BY toStartOfMonth(created_at), plan',
-                'ORDER BY created_at_month ASC',
+                'ORDER BY plan ASC',
             ].join('\n')
         )
         expect(result.rowAliases).toEqual(['created_at_month'])
@@ -56,7 +56,7 @@ describe('compileBuilderQuery', () => {
         expect(result.valueAliases).toEqual(['avg_amount'])
     })
 
-    it('orders by the first column dimension when there are no rows', () => {
+    it('orders by the first column dimension (the x-axis)', () => {
         const result = compileBuilderQuery(
             config({
                 columns: [{ column: 'plan' }],

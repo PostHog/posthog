@@ -22,8 +22,13 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     [SideBarTab.Series]: {
         label: 'Series',
         content: <SeriesTab />,
-        // The insight builder's wells own axis/series selection, so the Series tab is redundant there
-        shouldShow: (_displayType: ChartDisplayType, isBuilderQuery: boolean): boolean => !isBuilderQuery,
+        // The builder's wells own axis/series selection, so the Series tab is redundant for cartesian
+        // charts. Keep it for the heatmap (gradient + labels) and the table (per-column formatting),
+        // where it's formatting-only with nothing for the wells to conflict with.
+        shouldShow: (displayType: ChartDisplayType, isBuilderQuery: boolean): boolean =>
+            !isBuilderQuery ||
+            displayType === ChartDisplayType.TwoDimensionalHeatmap ||
+            displayType === ChartDisplayType.ActionsTable,
     },
     [SideBarTab.ConditionalFormatting]: {
         label: 'Conditional formatting',
