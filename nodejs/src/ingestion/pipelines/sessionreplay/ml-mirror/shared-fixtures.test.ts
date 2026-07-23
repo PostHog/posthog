@@ -183,5 +183,31 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             const decoded = unzstdLatin1(line[1].data.texts) as { value: string }[]
             expect(decoded[0].value).toBe('keep ******')
         })
+
+        it('reports ordered phase timings with cv op totals on success', async () => {
+            rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
+            const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]))
+            expect(result.failed).toBe(false)
+            const t = result.timings!
+            expect(t.taskStartNs).not.toBeNull()
+            expect(t.decompressStartNs).toBeGreaterThanOrEqual(t.taskStartNs!)
+            expect(t.decompressEndNs).toBeGreaterThanOrEqual(t.decompressStartNs!)
+            expect(t.scrubStartNs).toBeGreaterThanOrEqual(t.decompressEndNs!)
+            expect(t.scrubEndNs).toBeGreaterThanOrEqual(t.scrubStartNs!)
+            // The cv full snapshot forces at least one timed de/recompression op.
+            expect(t.cvCount).toBeGreaterThanOrEqual(1)
+            expect(t.lastOp).toBe('done')
+        })
+
+        it('still reports timings when the payload fails, naming the phase that died', async () => {
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            // Gzip magic bytes followed by garbage: decompression starts, then fails.
+            const result = await rustAddon!.anonymizeKafkaPayload(Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad]))
+            expect(result.failed).toBe(true)
+            const t = result.timings!
+            expect(t.decompressStartNs).not.toBeNull()
+            expect(t.scrubStartNs).toBeNull()
+            expect(t.lastOp).toBe('decompress')
+        })
     })
 })
