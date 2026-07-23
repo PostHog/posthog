@@ -2126,6 +2126,11 @@ def list_recordings_from_query(
     should_query_clickhouse = (all_session_ids and remaining_session_ids) or not all_session_ids
 
     if should_query_clickhouse:
+        # A malformed user filter (e.g. an invalid HogQL property expression) surfaces here as an
+        # ExposedHogQLError/ExposedCHQueryError and is already handled upstream as a clean 400. We
+        # stash it and re-raise once outside new_context() so the SDK doesn't auto-capture a handled
+        # user typo into error tracking - that would register a non-bug as a brand-new issue.
+        user_input_error: ExposedHogQLError | ExposedCHQueryError | None = None
         with (
             timer("load_recordings_from_hogql"),
             posthoganalytics.new_context(),
@@ -2149,19 +2154,26 @@ def list_recordings_from_query(
                         query_for_list.hide_viewed_recordings, user, team
                     )
 
-            query_result = SessionRecordingListFromQuery(
-                query=query_for_list,
-                team=team,
-                hogql_query_modifiers=None,
-                allow_event_property_expansion=allow_event_property_expansion,
-                session_ids_to_exclude=session_ids_to_exclude,
-                bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
-            ).run()
-            ch_session_recordings = query_result.results
+            try:
+                query_result = SessionRecordingListFromQuery(
+                    query=query_for_list,
+                    team=team,
+                    hogql_query_modifiers=None,
+                    allow_event_property_expansion=allow_event_property_expansion,
+                    session_ids_to_exclude=session_ids_to_exclude,
+                    bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
+                ).run()
+            except (ExposedHogQLError, ExposedCHQueryError) as e:
+                user_input_error = e
+            else:
+                ch_session_recordings = query_result.results
 
-            more_recordings_available = query_result.has_more_recording
-            hogql_timings = query_result.timings
-            next_cursor = query_result.next_cursor
+                more_recordings_available = query_result.has_more_recording
+                hogql_timings = query_result.timings
+                next_cursor = query_result.next_cursor
+
+        if user_input_error is not None:
+            raise user_input_error
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)

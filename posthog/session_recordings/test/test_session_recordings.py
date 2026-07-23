@@ -1,4 +1,5 @@
 import os
+import functools
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from urllib.parse import urlencode
@@ -19,6 +20,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.utils.timezone import now
 
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from dateutil.relativedelta import relativedelta
@@ -27,9 +29,9 @@ from rest_framework import status
 
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
@@ -1378,6 +1380,28 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == expected_status
         # the real reason must reach the client, not a generic "internal server error"
         assert expected_detail_substring in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("hogql", ExposedHogQLError("trailing tokens after expression: 'icontains'")),
+            ("clickhouse", ExposedCHQueryError("Field not found")),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_handled_filter_error_not_captured_to_error_tracking(self, _name, exception, mock_run):
+        # A bad user filter is already returned as a 400. It must not be auto-captured into error
+        # tracking by the new_context() wrapper around the query - otherwise a user typo registers
+        # as a brand-new app error. Force the context to capture so the test is independent of the
+        # ambient autocapture setting.
+        mock_run.side_effect = exception
+        capturing_context = functools.partial(posthoganalytics.new_context, capture_exceptions=True)
+        with (
+            patch("posthoganalytics.new_context", capturing_context),
+            patch("posthoganalytics.capture_exception") as mock_capture,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_capture.assert_not_called()
 
     def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
         """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
