@@ -28,7 +28,7 @@ Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](refer
 
 **Patch, don't replace.** Edit a draft with `workflows-patch-graph`: a small, ordered list of id-addressed operations (`update_action`, `add_action`, `remove_action`, `add_edge`, `remove_edge`, `replace_action_edges`). `update_action` deep-merges its patch, so changing one email subject is a few lines, not the whole graph. The ops apply atomically server-side (read, apply in order, validate, save only if valid), and the response echoes the **full updated graph**, so you never re-fetch before the next edit. This keeps each round-trip tiny instead of re-transmitting every action and edge.
 
-`workflows-update` is the fallback, for two cases: top-level metadata a graph patch can't express (for example renaming the workflow), or as an escape hatch when you genuinely can't get `workflows-patch-graph` to land a change (send the whole corrected workflow rather than keep fighting the op list). For everything else, patch.
+`workflows-update` covers only what a graph patch can't express: top-level fields like name, description, exit_condition, conversion, trigger_masking, and variables. It rejects `actions`/`edges` outright - a partial list would silently drop every step it omits - so every graph change goes through `workflows-patch-graph`.
 
 After **any** patch, re-test the path you changed (step 3). A patch that validates structurally can still route the wrong way.
 
