@@ -33,7 +33,8 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.integration import Integration
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -528,7 +529,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
+        github_integration = (
+            Integration.objects.filter(team=team, kind="github")
+            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+            .first()
+        )
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1985,6 +1991,89 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self):
         return f"{self.name} ({self.artifact_type})"
+
+
+class SandboxSession(TeamScopedRootMixin, UUIDModel):
+    """Usage ledger for one cloud sandbox: when it ran, its resource shape, and which
+    slice of its lifetime is attributable to a user.
+
+    One row per sandbox, keyed on the provider sandbox id and upserted by the
+    provisioning activity so activity retries stay idempotent. Rows record raw usage
+    only — pricing/credit conversion happens downstream at aggregation time
+    (see logic/services/sandbox_usage.py). Pre-warmed sandboxes stay unattributed
+    (``user_attributed_at`` NULL, on PostHog's dime) until a user claims the run with
+    their first message; the boundary timestamps are deliberately redundant so any
+    future billable-window policy (wall-clock, active-plus-grace, ...) can be computed
+    from the ledger without a backfill.
+    """
+
+    class EndedReason(models.TextChoices):
+        CLEANUP = "cleanup", "Cleanup"
+        REAPED = "reaped", "Reaped"
+
+    # db_constraint=False on the team FK: adding an FK constraint to that hot table
+    # locks it and stalls deploys; Django still enforces the relation and on_delete at
+    # the app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="sandbox_sessions")
+
+    sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")
+    origin_product = models.CharField(
+        max_length=20,
+        choices=Task.OriginProduct,
+        null=True,
+        blank=True,
+        help_text="Task origin at provision time, denormalized for per-origin aggregation",
+    )
+    prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
+    vm_runtime = models.BooleanField(
+        default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
+    )
+
+    # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
+    # sandbox may consume — raw usage metrics derive from these; the burstable request
+    # floors are recorded for future pricing-policy work only (Modal bills max(request, actual)).
+    cpu_cores = models.FloatField(help_text="CPU core limit")
+    memory_gb = models.FloatField(help_text="Memory limit in GiB")
+    ttl_seconds = models.IntegerField(help_text="Hard TTL after which the provider kills the sandbox")
+    burstable = models.BooleanField(default=False)
+    cpu_request_cores = models.FloatField(null=True, blank=True, help_text="Reserved CPU floor when burstable")
+    memory_request_mb = models.IntegerField(null=True, blank=True, help_text="Reserved memory floor when burstable")
+
+    created_at = models.DateTimeField(default=django_timezone.now, help_text="Sandbox provisioned")
+    # Anchored at the Sandbox.create() boundary, not ledger-row insert time: the
+    # provider's TTL clock starts there, before repo setup runs and the row is opened.
+    ttl_expires_at = models.DateTimeField(help_text="Absolute provider kill deadline (creation boundary + TTL)")
+    user_attributed_at = models.DateTimeField(
+        null=True, blank=True, help_text="Start of the user-attributable window; NULL while (pre)warm and unclaimed"
+    )
+    last_user_activity_at = models.DateTimeField(
+        null=True, blank=True, help_text="Most recent user message routed to this sandbox's run"
+    )
+    ended_at = models.DateTimeField(
+        null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
+    )
+    ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_sandbox_session"
+        indexes = [
+            # The usage report scans sessions overlapping the period instance-wide:
+            # closed recently (ended_at > begin) or open and not yet past their TTL
+            # (ended_at IS NULL AND ttl_expires_at > begin) — the partial index keeps
+            # rows that never got a close stamp from being re-fetched forever.
+            models.Index(fields=["ended_at"], name="sandbox_session_ended_at_idx"),
+            models.Index(
+                fields=["ttl_expires_at"],
+                condition=models.Q(ended_at__isnull=True),
+                name="sandbox_session_open_ttl_idx",
+            ),
+            # For per-team/per-origin re-aggregation once pricing decides which origins bill.
+            models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
+        ]
+
+    def __str__(self):
+        return f"Sandbox session {self.sandbox_id} for run {self.task_run_id}"
 
 
 class SandboxSnapshot(UUIDModel):

@@ -37,6 +37,21 @@ from products.engineering_analytics.backend.presentation.views._base import (
 
 
 class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
+    READ_ACTIONS = [
+        "workflow_health",
+        "workflow_run",
+        "workflow_runs",
+        "workflow_run_activity",
+        "workflow_runner_costs",
+        "workflow_jobs",
+        "repo_overview",
+        "current_branch_health",
+        "repo_run_activity",
+        "master_failures",
+        "run_failure_logs",
+        "job_aggregates",
+    ]
+
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
         parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _SOURCE_ID, _REPO],

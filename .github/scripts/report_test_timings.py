@@ -47,7 +47,7 @@ import hashlib
 import logging
 import secrets
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import cache
@@ -632,6 +632,16 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_o
 
 # ---------- CLI ----------
 
+# Each token receives an identical copy of the spans (trace IDs are deterministic) —
+# transitional dual emission while CI telemetry moves projects.
+TOKEN_ENV_VARS = ("POSTHOG_DEVEX_PROJECT_API_TOKEN", "POSTHOG_CI_TRACES_EXTRA_TOKEN")
+
+
+def emission_tokens(env: Mapping[str, str]) -> list[str]:
+    """Distinct project API tokens to emit to, in ``TOKEN_ENV_VARS`` order."""
+    tokens = (env.get(var, "") for var in TOKEN_ENV_VARS)
+    return list(dict.fromkeys(token for token in tokens if token))
+
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
@@ -702,16 +712,18 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
-    token = os.environ.get("POSTHOG_DEVEX_PROJECT_API_TOKEN", "")
-    if not token:
-        logger.warning("POSTHOG_DEVEX_PROJECT_API_TOKEN not set; skipping emit")
+    tokens = emission_tokens(os.environ)
+    if not tokens:
+        logger.warning("none of %s set; skipping emit", ", ".join(TOKEN_ENV_VARS))
         return 0
 
-    try:
-        emit_traces(shards, args.otlp_endpoint, token)
-        logger.info("emitted %d testcase spans to %s", post_filter, args.otlp_endpoint)
-    except Exception:
-        logger.exception("failed to emit traces")
+    for token in tokens:
+        # Per-token isolation: one project's ingest failing must not block the other's.
+        try:
+            emit_traces(shards, args.otlp_endpoint, token)
+            logger.info("emitted %d testcase spans to %s", post_filter, args.otlp_endpoint)
+        except Exception:
+            logger.exception("failed to emit traces")
 
     return 0
 

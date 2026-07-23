@@ -7,7 +7,7 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
-from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
 
 T_REPLAY_PRS = "products/replay/backend/tests/test_snap/TestSnap::test_prs"
 T_REPLAY_RERUN = "products/replay/backend/tests/test_playlist/TestPlaylist::test_rerun"

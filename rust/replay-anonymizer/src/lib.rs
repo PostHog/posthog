@@ -50,6 +50,7 @@ pub mod scan;
 pub mod snapshot;
 #[doc(hidden)]
 pub mod text;
+pub mod timings;
 #[cfg(feature = "typed-parse")]
 pub mod typed;
 mod unwind;
@@ -65,9 +66,10 @@ pub use event::{
     anonymize_message,
 };
 pub use snapshot::{
-    anonymize_kafka_payload, anonymize_kafka_payload_opts, AnonymizeOpts, AnonymizedMessage,
-    FailKind, Failure, Route,
+    anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_kafka_payload_timed,
+    AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
 };
+pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
 #[cfg(feature = "typed-parse")]
 pub use typed::{parse_scrubbed_event, parse_scrubbed_event_with_ctx};
 

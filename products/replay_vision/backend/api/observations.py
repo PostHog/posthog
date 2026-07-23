@@ -1,5 +1,6 @@
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
 
@@ -604,7 +605,13 @@ class CreateTaskFromObservationResponseSerializer(serializers.Serializer):
     )
 
 
-def _observation_task_content(observation: ReplayObservation, scanner: ReplayScanner) -> tuple[str, str]:
+@dataclass(frozen=True)
+class _TaskContent:
+    title: str
+    description: str
+
+
+def _observation_task_content(observation: ReplayObservation, scanner: ReplayScanner) -> _TaskContent:
     """Title and description for a Task created from an observation's finding."""
     snapshot = observation.scanner_snapshot or {}
     scanner_name = snapshot.get("name") or scanner.name or "Replay Vision scanner"
@@ -625,7 +632,7 @@ def _observation_task_content(observation: ReplayObservation, scanner: ReplaySca
         f"Scanner: {scanner.id}\n\n"
         f"{fenced_finding}\n"
     )
-    return title, description
+    return _TaskContent(title=title, description=description)
 
 
 @extend_schema_view(
@@ -802,7 +809,7 @@ class ReplayObservationViewSet(
         user = cast(User, request.user)
         if not has_tasks_access(user):
             raise PermissionDenied("Creating a task requires access to PostHog Code.")
-        title, description = _observation_task_content(observation, scanner)
+        content = _observation_task_content(observation, scanner)
         # Lock the observation row so a client retry or concurrent double submit returns the task the
         # first call minted instead of creating a duplicate to triage.
         with transaction.atomic():
@@ -813,8 +820,8 @@ class ReplayObservationViewSet(
                 team=self.team,
                 user_id=user.id,
                 origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
-                title=title,
-                description=description,
+                title=content.title,
+                description=content.description,
             )
             locked.created_task_id = task_id
             locked.save(update_fields=["created_task_id"])

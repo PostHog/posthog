@@ -19,6 +19,9 @@ on:
         # it when a PR leaves draft. To force the full matrices on a draft, add the
         # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
         # start without needing a new push. Cheap checks still run on drafts.
+        # The `no-ci` label does the opposite: it silences this workflow on a draft
+        # entirely (prototypes/spikes), until the label is removed or the PR is
+        # marked ready for review.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
         # PRs run legacy-schema only (master runs always cover both).
@@ -78,6 +81,13 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
@@ -490,6 +500,8 @@ jobs:
             changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
             selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
+            run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            turbo_result: ${{ steps.fallback.outputs.turbo_result }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
         steps:
@@ -522,6 +534,10 @@ jobs:
                       skip=true
                   fi
                   echo "skip=$skip" >> "$GITHUB_OUTPUT"
+                  # Surface the inputs behind an untrusted skip so the telemetry can
+                  # tell legacy-graph impact apart from a turbo-discover failure.
+                  echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
 
             - name: Run shadow selector
               id: select
@@ -3366,7 +3382,8 @@ jobs:
     test-selection-verdict:
         needs: [django, turbo-tests, changes, select-tests]
         name: Test selection verdict
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        # changes is skipped on no-ci drafts — no tests ran, nothing to verdict.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result != 'skipped' }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
@@ -3526,6 +3543,8 @@ jobs:
                         "changed_file_count": ${{ needs.select-tests.outputs.changed_file_count || 'null' }},
                         "selected_test_count": ${{ needs.select-tests.outputs.selected_test_count || 'null' }},
                         "full_run_reasons_count": ${{ needs.select-tests.outputs.full_run_reasons_count || 'null' }},
+                        "run_legacy": ${{ toJSON(needs.select-tests.outputs.run_legacy || '') }},
+                        "turbo_result": ${{ toJSON(needs.select-tests.outputs.turbo_result || '') }},
                         "selected_test_seconds": ${{ needs.select-tests.outputs.selected_test_seconds || 'null' }},
                         "skipped_test_seconds": ${{ needs.select-tests.outputs.skipped_test_seconds || 'null' }},
                         "run_poe": ${{ needs.select-tests.outputs.run_poe || 'false' }},
@@ -3594,6 +3613,8 @@ jobs:
               continue-on-error: true
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  # dual emission while per-test traces migrate to the project behind POSTHOG_API_TOKEN
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
                   POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
               run: |
                   uv run --script .github/scripts/report_test_timings.py \

@@ -49,6 +49,7 @@ from posthog.schema import (
     MCPToolCategoryCountsQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
     MCPToolNeighborsQuery,
     MCPToolQualityDailyStatsQuery,
@@ -356,6 +357,7 @@ RunnableQueryNode = Union[
     MCPHarnessBreakdownQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolStatsQuery,
     MCPToolDailyStatsQuery,
     MCPToolQualityRowsQuery,
@@ -1032,6 +1034,17 @@ def get_query_runner(
 
         return MCPToolFailuresQueryRunner(
             query=cast(MCPToolFailuresQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolFailureOccurrencesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolFailureOccurrencesQueryRunner
+
+        return MCPToolFailureOccurrencesQueryRunner(
+            query=cast(MCPToolFailureOccurrencesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
