@@ -276,6 +276,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['timezone', 'utc', 'locale', 'week start'],
             },
             {
+                // Project-wide, not product analytics specific: these filters apply to insights,
+                // web analytics, revenue analytics, session replay, and CDP destinations alike.
+                id: 'internal-user-filtering',
+                title: 'Filter out internal and test users',
+                description:
+                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
+                docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
+                component: <ProjectAccountFiltersSetting />,
+                keywords: ['test account', 'internal', 'exclude', 'filter'],
+            },
+            {
                 id: 'business-model',
                 title: 'Business model',
                 description:
@@ -429,6 +440,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsAccountConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
+            },
+            {
+                id: 'customer-analytics-person-properties',
+                title: 'Person properties from the warehouse',
+                description:
+                    'Sync warehouse table columns onto matching people as person properties, and manage their schedule, backfills, and run history.',
+                component: <WarehousePersonPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'person', 'properties', 'sync', 'backfill'],
             },
         ],
     },
@@ -862,15 +882,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         group: 'Products',
         settings: [
             {
-                id: 'internal-user-filtering',
-                title: 'Filter out internal and test users',
-                description:
-                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
-                docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
-                component: <ProjectAccountFiltersSetting />,
-                keywords: ['test account', 'internal', 'exclude', 'filter'],
-            },
-            {
                 id: 'data-theme',
                 title: 'Chart color themes',
                 description: 'Customize the color palette used in charts and visualizations.',
@@ -903,15 +914,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/data/persons',
                 component: <PersonDisplayNameProperties />,
                 keywords: ['name', 'email', 'identity', 'display'],
-            },
-            {
-                id: 'warehouse-person-properties',
-                title: 'Person properties from the warehouse',
-                description:
-                    'Sync columns from a data warehouse table onto matching people as person properties, usable in feature flags, cohorts and insights.',
-                component: <WarehousePersonPropertiesSetting />,
-                flag: 'WAREHOUSE_PERSON_PROPERTIES',
-                keywords: ['warehouse', 'person', 'properties', 'sync', 'custom property'],
             },
             {
                 id: 'person-last-seen-at',
@@ -1194,7 +1196,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                         </LemonTag>
                     </>
                 ),
-                description: 'Import historical support data from external tools into Conversations.',
+                description: 'Import historical support data from external tools into Support.',
                 component: <ZendeskImportSection />,
                 flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
                 allowForTeam: (t) => !!t?.conversations_enabled,

@@ -351,8 +351,22 @@
             "readOnlyHint": true
         }
     },
+    "organizations-get": {
+        "description": "Fetches the organizations that the user has access to, with their id, name, and membership level. Use this to discover organizations — including ones other than the active organization — and to resolve an organization name to the id you pass to `switch-organization`.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Fetches the organizations that the user has access to.",
+        "title": "Get organizations",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "switch-organization": {
-        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-list` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
+        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-get` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog organization for subsequent tool calls.",
@@ -422,7 +436,7 @@
         }
     },
     "switch-project": {
-        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-get` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog project for subsequent tool calls.",
@@ -540,6 +554,21 @@
         "summary": "Debug tool for testing MCP Apps SDK.",
         "title": "Debug MCP UI Apps",
         "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "loops-review": {
+        "description": "Show the user an interactive review card for a loop that is about to be created, then let them create it. Call this once you have gathered the loop's details, passing the SAME arguments you would pass to loops-create (name, instructions, runtime_adapter, triggers, behaviors, notifications, context_target, etc.). This renders a card summarizing the loop with a 'Create loop' button. Do NOT call loops-create yourself — the card's button creates the loop after the user confirms.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "feature_flag": "loops",
+        "summary": "Review a loop with the user before creating it.",
+        "title": "Review loop before creating",
+        "required_scopes": ["loop:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

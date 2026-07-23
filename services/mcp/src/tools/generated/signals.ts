@@ -221,6 +221,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                scout: params.scout,
                 search: params.search,
                 source_product: params.source_product,
                 status: params.status,
@@ -512,6 +513,12 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
         }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
+        }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
@@ -586,6 +593,12 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
+        }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -743,6 +756,22 @@ const scoutMembersList = (): ToolBase<typeof ScoutMembersListSchema, WithPostHog
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
+const ScoutMetadataGetSchema = z.object({})
+
+const scoutMetadataGet = (): ToolBase<typeof ScoutMetadataGetSchema, Schemas.ScoutMetadata> => ({
+    name: 'scout-metadata-get',
+    schema: ScoutMetadataGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ScoutMetadataGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutMetadata>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/metadata/current/`,
+        })
+        return result
     },
 })
 
@@ -941,6 +970,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 content_max_chars: params.content_max_chars,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
                 text: params.text,
@@ -969,6 +999,12 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         }
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
+        }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
@@ -1053,6 +1089,12 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
+        }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1423,6 +1465,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 content_max_chars: params.content_max_chars,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
                 text: params.text,
@@ -1457,6 +1500,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-emit-report': scoutEmitReport,
     'scout-emit-signal': scoutEmitSignal,
     'scout-members-list': scoutMembersList,
+    'scout-metadata-get': scoutMetadataGet,
     'scout-project-profile-get': scoutProjectProfileGet,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,

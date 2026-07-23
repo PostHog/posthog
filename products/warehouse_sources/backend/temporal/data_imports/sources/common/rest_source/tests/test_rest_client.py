@@ -6,7 +6,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
-from requests.exceptions import ChunkedEncodingError
+from requests.exceptions import ChunkedEncodingError, ProxyError
+
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.exceptions import (
@@ -378,11 +380,14 @@ class TestRESTClient:
         mock_session.send.return_value = _make_non_json_response(content)
 
         client = RESTClient(base_url="https://api.example.com")
-        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from"):
+        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from") as ctx:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 1
         mock_sleep.assert_not_called()
+        # A non-JSON 2xx body is always a customer/upstream condition, so it must carry the
+        # non-reportable marker the activity interceptor uses to keep it out of error tracking.
+        assert isinstance(ctx.value, NonReportableError)
 
     @patch("tenacity.nap.time.sleep")
     @patch(
@@ -465,6 +470,47 @@ class TestRESTClient:
         mock_session.send.side_effect = ChunkedEncodingError(
             "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"
         )
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientRetryableError):
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 5
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_retries_connection_error_then_succeeds(self, MockSession, mock_sleep) -> None:
+        # A proxy refusing/resetting the connection before a request is ever sent surfaces as
+        # requests.exceptions.ProxyError (a ConnectionError subclass); it's transient, so reissue
+        # the request rather than letting it skip this retry loop and fail the import.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock(url="https://api.example.com/items")
+
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.side_effect = [
+            ProxyError("Cannot connect to proxy."),
+            ok,
+        ]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_raises_retryable_after_persistent_connection_error(self, MockSession, mock_sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock(url="https://api.example.com/items")
+
+        mock_session.send.side_effect = ProxyError("Cannot connect to proxy.")
 
         client = RESTClient(base_url="https://api.example.com")
         with pytest.raises(RESTClientRetryableError):

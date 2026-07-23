@@ -35,6 +35,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_slack_interaction_state,
+    loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     record_message_actor,
     sandbox_identity_scope,
@@ -361,6 +362,7 @@ def _refresh_sandbox_mcp(
         team_id=task_run.team_id,
         user_id=actor_user.id,
         interaction_origin=(state or {}).get("interaction_origin"),
+        allowed_installation_ids=loop_mcp_installation_allowlist(state),
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs

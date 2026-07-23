@@ -489,8 +489,15 @@
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string",
-                    "description": "The insight ID or short_id to run."
+                    "description": "The insight to run: its numeric `id` or 8-character `short_id`.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
                 },
                 "output_format": {
                     "default": "optimized",
@@ -531,6 +538,10 @@
             },
             "required": ["insightId"]
         },
+        "OrganizationGetAllSchema": {
+            "type": "object",
+            "properties": {}
+        },
         "OrganizationSetActiveSchema": {
             "anyOf": [
                 {
@@ -538,7 +549,7 @@
                     "properties": {
                         "orgId": {
                             "type": "string",
-                            "description": "The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id."
+                            "description": "The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id."
                         }
                     },
                     "required": ["orgId"]

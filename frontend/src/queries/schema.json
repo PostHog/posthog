@@ -1044,6 +1044,9 @@
                     "$ref": "#/definitions/MCPToolFailuresQuery"
                 },
                 {
+                    "$ref": "#/definitions/MCPToolFailureOccurrencesQuery"
+                },
+                {
                     "$ref": "#/definitions/MCPToolStatsQuery"
                 },
                 {
@@ -4957,6 +4960,64 @@
             "required": ["kind", "breakdownBy"],
             "type": "object"
         },
+        "AssistantWebVitalsPathBreakdownQuery": {
+            "additionalProperties": false,
+            "description": "Per-page Core Web Vitals breakdown for one metric at one percentile. Returns the pages bucketed into `good` / `needs_improvements` / `poor` bands, with each page's value — mirrors the in-product **Web vitals** tab.\n\nUse this when the user asks \"which pages are slow?\", \"where is our LCP/INP/ CLS/FCP bad?\", or wants a page-level performance audit. Run it once per metric. For a site-wide trend of a vitals metric over time, use `query-trends` on the `$web_vitals` event instead.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile."
+                },
+                "doPathCleaning": {
+                    "default": false,
+                    "description": "Apply the team's path-cleaning rules to the returned paths.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the team's test-account filter.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "WebVitalsPathBreakdownQuery",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/WebVitalsMetric",
+                    "description": "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms)."
+                },
+                "percentile": {
+                    "$ref": "#/definitions/WebVitalsPercentile",
+                    "description": "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75."
+                },
+                "properties": {
+                    "default": [],
+                    "description": "Property filters applied to the query. Accepts event and person filters only (the query runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "thresholds": {
+                    "description": "Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "metric", "percentile", "thresholds"],
+            "type": "object"
+        },
         "AttributeBreakdownRow": {
             "additionalProperties": false,
             "description": "One row of a span attribute breakdown: the spans matching the filters, grouped by one attribute's value. Spans without the attribute group under `value = ''`.",
@@ -8829,6 +8890,106 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/MCPToolDescriptionItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMCPToolFailureOccurrencesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPToolFailureOccurrenceItem"
                     },
                     "type": "array"
                 },
@@ -24614,7 +24775,389 @@
                 "Axiom",
                 "Plivo",
                 "DataForSEO",
-                "Sleekplan"
+                "Sleekplan",
+                "AbTasty",
+                "Ably",
+                "AbnormalSecurity",
+                "Acast",
+                "Acculynx",
+                "Actionstep",
+                "Aftership",
+                "AhaIdeas",
+                "AkamaiReporting",
+                "Alation",
+                "Alegra",
+                "Allegro",
+                "AnodotCost",
+                "Anomalo",
+                "Apaleo",
+                "Apitally",
+                "AppStoreConnect",
+                "Appdirect",
+                "Appfolio",
+                "Arxiv",
+                "Asaas",
+                "Astronomer",
+                "Athenahealth",
+                "Atlan",
+                "AutodeskConstructionCloud",
+                "Avalara",
+                "AwsAthena",
+                "AwsBatch",
+                "AwsBudgets",
+                "AwsCloudformation",
+                "AwsComputeOptimizer",
+                "AwsConfig",
+                "AwsConnect",
+                "AwsCostAndUsageReport",
+                "AwsCostAnomalyDetection",
+                "AwsCostExplorer",
+                "AwsGlueDataCatalog",
+                "AwsGuardduty",
+                "AwsHealth",
+                "AwsIamAccessAnalyzer",
+                "AwsInspector",
+                "AwsMacie",
+                "AwsOrganizations",
+                "AwsRdsPerformanceInsights",
+                "AwsSagemaker",
+                "AwsSavingsPlans",
+                "AwsSecurityHub",
+                "AwsSes",
+                "AwsStepFunctions",
+                "AwsSupport",
+                "AwsSystemsManager",
+                "AwsTrustedAdvisor",
+                "AwsWaf",
+                "AwsXray",
+                "AzureActivityLog",
+                "AzureAdvisor",
+                "AzureApiManagement",
+                "AzureApplicationInsights",
+                "AzureCostManagement",
+                "AzureDataExplorer",
+                "AzureDataFactory",
+                "AzureLogAnalytics",
+                "AzureMonitorAlerts",
+                "AzureMonitorMetrics",
+                "AzureOpenaiUsage",
+                "AzurePolicyInsights",
+                "AzureReservations",
+                "AzureResourceGraph",
+                "AzureResourceHealth",
+                "AzureServiceHealth",
+                "AzureSynapse",
+                "BackMarket",
+                "Beehiiv",
+                "Bigeye",
+                "BillCom",
+                "Billomat",
+                "BingWebmasterTools",
+                "Bitwarden",
+                "BlackbaudRaisersEdgeNxt",
+                "BlackboardLearn",
+                "Bling",
+                "Bloomerang",
+                "Bluesky",
+                "BolRetailer",
+                "Boulevard",
+                "Buffer",
+                "Bugherd",
+                "Buildium",
+                "Buttondown",
+                "BuyMeACoffee",
+                "Calendarific",
+                "Calibre",
+                "CanvasLms",
+                "Captivate",
+                "Cashfree",
+                "CastAi",
+                "Catchpoint",
+                "CdcOpenData",
+                "Census",
+                "Checkly",
+                "CircleSo",
+                "Classy",
+                "Cleartax",
+                "Clever",
+                "Clevertap",
+                "Cliniko",
+                "Clio",
+                "Clip",
+                "Cloudability",
+                "Cloudsmith",
+                "Cloudzero",
+                "Clover",
+                "Codemagic",
+                "Codescene",
+                "Collibra",
+                "Companycam",
+                "Conekta",
+                "ContaAzul",
+                "Contentsquare",
+                "Cortex",
+                "Courier",
+                "Crossref",
+                "CrowdstrikeFalcon",
+                "CubeCloud",
+                "D2lBrightspace",
+                "Dayforce",
+                "Debugbear",
+                "Descope",
+                "Develocity",
+                "Dialpad",
+                "Discord",
+                "Discourse",
+                "Donorbox",
+                "Doorloop",
+                "Dovetail",
+                "Drchrono",
+                "Dynamics365BusinessCentral",
+                "EcbDataPortal",
+                "Emarsys",
+                "Embrace",
+                "Entsoe",
+                "Eppo",
+                "Etsy",
+                "Eurostat",
+                "Faire",
+                "FarosAi",
+                "Fieldpulse",
+                "Fieldwire",
+                "Filevine",
+                "Finout",
+                "Five9",
+                "FlexeraCloudCost",
+                "Flutterwave",
+                "Fortnox",
+                "Fourthwall",
+                "Fred",
+                "Frontegg",
+                "FusionAuth",
+                "G2",
+                "Gcore",
+                "GcpApigee",
+                "GcpArtifactRegistry",
+                "GcpBigtable",
+                "GcpChronicle",
+                "GcpCloudAssetInventory",
+                "GcpCloudBilling",
+                "GcpCloudBuild",
+                "GcpCloudDeploy",
+                "GcpCloudDns",
+                "GcpCloudFunctions",
+                "GcpCloudLogging",
+                "GcpCloudMonitoring",
+                "GcpCloudRun",
+                "GcpCloudSpanner",
+                "GcpCloudSql",
+                "GcpCloudTrace",
+                "GcpCloudWorkflows",
+                "GcpComputeEngine",
+                "GcpContainerAnalysis",
+                "GcpDataflow",
+                "GcpDataplex",
+                "GcpDataproc",
+                "GcpErrorReporting",
+                "GcpGke",
+                "GcpPubsub",
+                "GcpRecaptchaEnterprise",
+                "GcpRecommender",
+                "GcpSecurityCommandCenter",
+                "Gdelt",
+                "GenesysCloud",
+                "Getdx",
+                "Ghost",
+                "Givebutter",
+                "Gleif",
+                "GooglePlayConsole",
+                "Guesty",
+                "Gumroad",
+                "HarnessCcm",
+                "HarnessSei",
+                "Harvest",
+                "Healthie",
+                "Hitpay",
+                "Hivebrite",
+                "Holded",
+                "Hostaway",
+                "HousecallPro",
+                "Humanitec",
+                "ImfData",
+                "Imperva",
+                "InfluxdbCloud",
+                "Iyzico",
+                "Jobtread",
+                "Kameleoon",
+                "KauflandMarketplace",
+                "Kestra",
+                "Kick",
+                "Kinde",
+                "Kion",
+                "Knowbe4",
+                "Komodor",
+                "Labelbox",
+                "Lawmatics",
+                "Learnworlds",
+                "LexwareOffice",
+                "Lightdash",
+                "Lodgify",
+                "Logicmonitor",
+                "Logrocket",
+                "LoopReturns",
+                "Mastodon",
+                "Meetup",
+                "Memberful",
+                "MercadoPago",
+                "Meteostat",
+                "Mews",
+                "Mezmo",
+                "Microsoft365UsageReports",
+                "MicrosoftAdvertising",
+                "MicrosoftClarity",
+                "MicrosoftDefenderCloudApps",
+                "MicrosoftDefenderEndpoint",
+                "MicrosoftDefenderForCloud",
+                "MicrosoftIntune",
+                "MicrosoftPurview",
+                "MicrosoftPurviewAudit",
+                "MicrosoftSentinel",
+                "MicrosoftTeamsCallRecords",
+                "Midtrans",
+                "MightyNetworks",
+                "Mindbody",
+                "Mirakl",
+                "Moesif",
+                "Moneybird",
+                "Moodle",
+                "Motherduck",
+                "Mycase",
+                "NagerDate",
+                "NeonCrm",
+                "Nexhealth",
+                "NoaaCdo",
+                "Nobl9",
+                "Nolt",
+                "Nops",
+                "NpmRegistry",
+                "Oecd",
+                "Okendo",
+                "Omni",
+                "Onelogin",
+                "OpenDental",
+                "OpenMeteo",
+                "Openalex",
+                "Opencorporates",
+                "Openfec",
+                "OpnPayments",
+                "Opslevel",
+                "OttoMarket",
+                "Ownerrez",
+                "Pagbank",
+                "Patreon",
+                "Pax8",
+                "Paychex",
+                "Paymob",
+                "Paymongo",
+                "Phonepe",
+                "Pike13",
+                "Pingone",
+                "PinterestOrganic",
+                "PlanningCenter",
+                "PluralsightFlow",
+                "Podbean",
+                "Postscript",
+                "PowerBiAdmin",
+                "Practicepanther",
+                "Preset",
+                "Procore",
+                "Productiv",
+                "ProofpointTap",
+                "Propertyware",
+                "Pubnub",
+                "Quay",
+                "Raken",
+                "RedpandaCloud",
+                "RentManager",
+                "Reverb",
+                "RocketMatter",
+                "Rubygems",
+                "Scalr",
+                "SecEdgar",
+                "SelectStar",
+                "SemanticScholar",
+                "Semrush",
+                "ServiceFusion",
+                "Servicem8",
+                "Servicetitan",
+                "Servicetrade",
+                "Sevdesk",
+                "Similarweb",
+                "Simpro",
+                "Sinch",
+                "Singlestore",
+                "Site24x7",
+                "Sleuth",
+                "Smartlook",
+                "Smartrecruiters",
+                "Smokeball",
+                "SodaCloud",
+                "Speedcurve",
+                "SpotIo",
+                "Sprig",
+                "Sprinklr",
+                "SproutSocial",
+                "StackOverflowForTeams",
+                "Stockx",
+                "TackleIo",
+                "Talkdesk",
+                "TeamupFitness",
+                "Tebra",
+                "Telnyx",
+                "Ternary",
+                "Thoughtspot",
+                "Thousandeyes",
+                "Threads",
+                "TiktokShop",
+                "TinyErp",
+                "Tinybird",
+                "Tipalti",
+                "Toast",
+                "Torii",
+                "Transistor",
+                "TrunkIo",
+                "Trustradius",
+                "Twitch",
+                "TwoC2p",
+                "UkCompaniesHouse",
+                "UkOns",
+                "UnComtrade",
+                "UsBea",
+                "UsBls",
+                "UsEia",
+                "UsTreasuryFiscalData",
+                "Vanta",
+                "Vendr",
+                "Virtuous",
+                "Vonage",
+                "WalmartMarketplace",
+                "Waydev",
+                "Wayfair",
+                "WhatsappBusinessManagement",
+                "WhoGho",
+                "Whop",
+                "Wiz",
+                "Wompi",
+                "Workiz",
+                "WorldBank",
+                "Xendit",
+                "Yoco",
+                "ZalandoZdirect",
+                "Zluri",
+                "Zylo",
+                "Tally",
+                "Nuntly",
+                "Vturb"
             ],
             "type": "string"
         },
@@ -24970,10 +25513,6 @@
                 "path": {
                     "description": "Object's name and folder",
                     "type": "string"
-                },
-                "pinnedByDefault": {
-                    "description": "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row",
-                    "type": "boolean"
                 },
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
@@ -30142,6 +30681,14 @@
             "additionalProperties": false,
             "description": "One row of the per-tool \"Failures\" table: a failure bucket (error type/status) for a tool.",
             "properties": {
+                "error_status": {
+                    "description": "Raw $mcp_error_status as a string; empty when the bucket has no HTTP status.",
+                    "type": "string"
+                },
+                "error_type": {
+                    "description": "Raw $mcp_error_type bucket (\"unknown\" when the event carries none) — pass to MCPToolFailureOccurrencesQuery.",
+                    "type": "string"
+                },
                 "harnesses": {
                     "description": "Resolved harness labels seen for this failure, deduped and sorted.",
                     "items": {
@@ -30160,7 +30707,155 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["message", "occurrences", "last_seen", "harnesses"],
+            "required": ["message", "error_type", "error_status", "occurrences", "last_seen", "harnesses"],
+            "type": "object"
+        },
+        "MCPToolFailureOccurrenceItem": {
+            "additionalProperties": false,
+            "description": "One individual errored call of a single MCP tool within a failure bucket.",
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "description": "Sanitized error message captured on the event; empty when the event predates message capture.",
+                    "type": "string"
+                },
+                "error_status": {
+                    "description": "Raw $mcp_error_status as a string; empty when absent.",
+                    "type": "string"
+                },
+                "harness": {
+                    "description": "Resolved harness label for the call.",
+                    "type": "string"
+                },
+                "intent": {
+                    "description": "JSON-encoded intent payload as reported by the client; empty when absent.",
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set.",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "timestamp",
+                "distinct_id",
+                "session_id",
+                "harness",
+                "intent",
+                "error_message",
+                "error_status"
+            ],
+            "type": "object"
+        },
+        "MCPToolFailureOccurrencesQuery": {
+            "additionalProperties": false,
+            "description": "Individual errored calls of a single MCP tool within one failure bucket, newest first.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "errorStatus": {
+                    "description": "When set, only events with this HTTP status match; when unset, only events without a status match.",
+                    "type": "string"
+                },
+                "errorType": {
+                    "description": "Raw $mcp_error_type bucket; \"unknown\" selects errored events without an error type.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "MCPToolFailureOccurrencesQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPToolFailureOccurrencesQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "toolName": {
+                    "description": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["errorType", "kind", "toolName"],
+            "type": "object"
+        },
+        "MCPToolFailureOccurrencesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPToolFailureOccurrenceItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "MCPToolFailuresQuery": {
@@ -34359,6 +35054,7 @@
                 "MCPHarnessBreakdownQuery",
                 "MCPToolTopUsersQuery",
                 "MCPToolFailuresQuery",
+                "MCPToolFailureOccurrencesQuery",
                 "MCPToolStatsQuery",
                 "MCPToolDailyStatsQuery",
                 "MCPToolQualityRowsQuery",
@@ -43342,6 +44038,71 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
+                            "items": {
+                                "$ref": "#/definitions/MCPToolFailureOccurrenceItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
                             "description": "Zero or one row; empty when the tool had no calls in the window.",
                             "items": {
                                 "$ref": "#/definitions/MCPToolStatsItem"
@@ -44223,6 +44984,9 @@
                 },
                 {
                     "$ref": "#/definitions/MCPToolFailuresQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPToolFailureOccurrencesQuery"
                 },
                 {
                     "$ref": "#/definitions/MCPToolStatsQuery"
@@ -49790,6 +50554,10 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": ["boolean", "null"]
+                },
+                "ignoreDashboardFilters": {
+                    "description": "When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply.",
                     "type": ["boolean", "null"]
                 },
                 "interval": {

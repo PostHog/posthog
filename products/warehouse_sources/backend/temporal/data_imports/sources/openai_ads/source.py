@@ -93,6 +93,7 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = OPENAI_ADS_ENDPOINTS[endpoint]
@@ -113,7 +114,11 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
         return schemas
 
     def validate_credentials(
-        self, config: OpenAIAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenAIAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_openai_ads_credentials(config.api_key):
             return True, None

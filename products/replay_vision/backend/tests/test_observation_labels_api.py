@@ -1,5 +1,4 @@
 from datetime import timedelta
-from typing import Any
 
 from unittest.mock import patch
 
@@ -55,18 +54,13 @@ class TestObservationLabels(_VisionAPITestCase):
         label = self.client.get(self._retrieve_url(self.observation)).json()["label"]
         self.assertEqual(label, {"is_correct": False, "feedback": "should be yes"})
 
-    def test_quality_flag_off_hides_label_endpoints_but_not_reads(self) -> None:
-        # `replay-vision-quality` gates ratings even when product-level `replay-vision` is on.
-        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key != "replay-vision-quality"
-
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+    def test_product_flag_off_hides_observation_endpoints(self) -> None:
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
             post_resp = self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
-            delete_resp = self.client.delete(self._label_url(self.observation))
             read_resp = self.client.get(self._retrieve_url(self.observation))
         self.assertEqual(post_resp.status_code, 404, post_resp.content)
-        self.assertEqual(delete_resp.status_code, 404, delete_resp.content)
-        self.assertEqual(read_resp.status_code, 200, read_resp.content)
+        self.assertEqual(read_resp.status_code, 404, read_resp.content)
+        self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
 
     def test_label_write_denied_without_scanner_editor_access_on_session_route(self) -> None:
         # The session route's get_object only checks the observation row; label writes must object-check the scanner.
@@ -213,10 +207,10 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(label, {"is_correct": False, "feedback": "shared feedback"})
 
     def _deny_editor(self):
-        # Viewer access still passes (reading observations); only editor is withheld.
+        # Viewer-level object checks still pass (reading observations); only editor is withheld.
         return patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
-            side_effect=lambda resource, required_level=None, **_: required_level != "editor",
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         )
 
     def test_editing_label_requires_editor_access(self) -> None:

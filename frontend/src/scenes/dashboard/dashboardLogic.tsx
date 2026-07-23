@@ -716,6 +716,9 @@ export interface dashboardLogicActions {
     setExternalFilters: (filters: DashboardFilter) => {
         filters: DashboardFilter
     }
+    setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
+        filterTestAccounts: boolean | null
+    }
     setInitialLoadResponseBytes: (responseBytes: number) => {
         responseBytes: number
     }
@@ -1208,6 +1211,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setInterval: (interval: IntervalType | null) => ({ interval }),
+        setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
@@ -1675,6 +1679,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setProperties: () => false,
                 setBreakdownFilter: () => false,
                 setInterval: () => false,
+                setFilterTestAccounts: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
                 applyFilters: () => true,
@@ -2155,6 +2160,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 breakdown_filter: undefined,
                 explicitDate: undefined,
                 interval: undefined,
+                filterTestAccounts: undefined,
             } as DashboardFilter,
             {
                 setDates: (state, { date_from, date_to, explicitDate }) => ({
@@ -2175,6 +2181,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     interval,
                 }),
+                setFilterTestAccounts: (state, { filterTestAccounts }) => ({
+                    ...state,
+                    filterTestAccounts,
+                }),
                 resetIntermittentFilters: () => ({
                     date_from: undefined,
                     date_to: undefined,
@@ -2182,6 +2192,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     breakdown_filter: undefined,
                     explicitDate: undefined,
                     interval: undefined,
+                    filterTestAccounts: undefined,
                 }),
             },
         ],
@@ -4005,6 +4016,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setFilterTestAccounts: ({ filterTestAccounts }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'test_accounts', {
+                filter_test_accounts: filterTestAccounts,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
+            }
+        },
         setExternalFilters: () => {
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
@@ -4079,12 +4102,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 onSubmit: async () => {
                     const tileFilterOverrides = logic.values.overrides
+                    const wasIgnored = !!tile.filters_overrides?.ignoreDashboardFilters
+                    const isIgnored = !!tileFilterOverrides.ignoreDashboardFilters
 
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
                     })
 
                     tile.filters_overrides = tileFilterOverrides
+                    if (wasIgnored !== isIgnored) {
+                        eventUsageLogic.actions.reportDashboardTileIgnoreDashboardFiltersToggled(
+                            props.id,
+                            tile.insight?.id ?? null,
+                            isIgnored
+                        )
+                    }
                     actions.refreshDashboardItem({ tile })
                     lemonToast.success('Tile filters saved')
                 },
@@ -4208,6 +4240,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newUrlFilters: DashboardFilter = {
                 ...urlFilters,
                 interval,
+            }
+
+            return [
+                currentLocation.pathname,
+                { ...currentLocation.searchParams, ...encodeURLFilters(newUrlFilters) },
+                currentLocation.hashParams,
+            ]
+        },
+        setFilterTestAccounts: ({ filterTestAccounts }) => {
+            if (!values.canAutoPreview) {
+                return
+            }
+
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                filterTestAccounts,
             }
 
             return [

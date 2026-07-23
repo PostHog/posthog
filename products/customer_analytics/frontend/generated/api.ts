@@ -19,12 +19,17 @@ import type {
     AccountsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
+    AnnouncementApi,
+    AnnouncementChannelApi,
+    AnnouncementsListParams,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
     CustomPropertyDefinitionsValuesRetrieveParams,
     CustomPropertySourceApi,
     CustomPropertySourceUpdateApi,
     CustomPropertySourcesListParams,
+    CustomPropertySourcesRunsListParams,
+    CustomPropertySyncTriggerResponseApi,
     CustomPropertyValueApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
@@ -40,8 +45,10 @@ import type {
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
     PaginatedAccountRelationshipDefinitionListApi,
+    PaginatedAnnouncementListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
+    PaginatedCustomPropertySyncRunListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
@@ -532,6 +539,82 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/announcements/?${stringifiedParams}`
+        : `/api/projects/${projectId}/announcements/`
+}
+
+export const announcementsList = async (
+    projectId: string,
+    params?: AnnouncementsListParams,
+    options?: RequestInit
+): Promise<PaginatedAnnouncementListApi> => {
+    return apiMutator<PaginatedAnnouncementListApi>(getAnnouncementsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAnnouncementsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/announcements/`
+}
+
+export const announcementsCreate = async (
+    projectId: string,
+    announcementApi: NonReadonly<AnnouncementApi>,
+    options?: RequestInit
+): Promise<AnnouncementApi> => {
+    return apiMutator<AnnouncementApi>(getAnnouncementsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(announcementApi),
+    })
+}
+
+export const getAnnouncementsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/announcements/${shortId}/`
+}
+
+export const announcementsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<AnnouncementApi> => {
+    return apiMutator<AnnouncementApi>(getAnnouncementsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAnnouncementsChannelsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/announcements/channels/`
+}
+
+/**
+ * Slack channels the SupportHog bot can post to, labeled by customer account name.
+ */
+export const announcementsChannelsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AnnouncementChannelApi[]> => {
+    return apiMutator<AnnouncementChannelApi[]>(getAnnouncementsChannelsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getCustomPropertyDefinitionsListUrl = (
     projectId: string,
     params?: CustomPropertyDefinitionsListParams
@@ -788,6 +871,83 @@ export const customPropertySourcesDestroy = async (
     return apiMutator<void>(getCustomPropertySourcesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/backfill/`
+}
+
+/**
+ * Person sources only: start a backfill that reads the whole warehouse table and populates
+ * person properties for historical rows. Coalesces if one is already running for the table.
+ */
+export const customPropertySourcesBackfill = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomPropertySyncTriggerResponseApi> => {
+    return apiMutator<CustomPropertySyncTriggerResponseApi>(getCustomPropertySourcesBackfillUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getCustomPropertySourcesRunsListUrl = (
+    projectId: string,
+    id: string,
+    params?: CustomPropertySourcesRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/custom_property_sources/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/custom_property_sources/${id}/runs/`
+}
+
+/**
+ * Person sources only: the source's sync/backfill run history, newest first. Gated on the
+ * caller's warehouse-source viewer access, since the runs expose its row counts and sync errors.
+ */
+export const customPropertySourcesRunsList = async (
+    projectId: string,
+    id: string,
+    params?: CustomPropertySourcesRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedCustomPropertySyncRunListApi> => {
+    return apiMutator<PaginatedCustomPropertySyncRunListApi>(
+        getCustomPropertySourcesRunsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getCustomPropertySourcesSyncUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/sync/`
+}
+
+/**
+ * Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
+ * real (billable) warehouse sync; the incremental person-property update runs off it.
+ */
+export const customPropertySourcesSync = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomPropertySyncTriggerResponseApi> => {
+    return apiMutator<CustomPropertySyncTriggerResponseApi>(getCustomPropertySourcesSyncUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

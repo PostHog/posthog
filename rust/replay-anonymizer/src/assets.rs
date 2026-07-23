@@ -6,8 +6,9 @@ use std::borrow::Cow;
 
 use simd_json::borrowed::{Object, Value};
 
-use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::blur::is_image_data_uri;
 use crate::context::Ctx;
+use crate::images::ImageFallback;
 use crate::json::{as_str, string_value};
 use crate::url::scrub_url;
 
@@ -43,9 +44,7 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str)
     if !is_image_data_uri(&value) {
         return false;
     }
-    let blurred = ctx
-        .blur_data_uri(&value)
-        .unwrap_or_else(blank_image_data_uri);
+    let blurred = ctx.scrub_image(&value, ImageFallback::Blank);
     attrs.insert(Cow::Owned(name.to_string()), string_value(blurred));
     true
 }
@@ -61,9 +60,7 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>) -> bool {
         };
         acted = true;
         if is_image_data_uri(&existing) {
-            let blurred = ctx
-                .blur_data_uri(&existing)
-                .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
+            let blurred = ctx.scrub_image(&existing, ImageFallback::Placeholder);
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
             // Stashed under a namespaced attr that won't collide with an app `data-original-*`.

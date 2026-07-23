@@ -120,13 +120,18 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty) — see the note in
         # settings.py on the unverified from_date/to_date filters.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PhylloSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PhylloSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Credentials are environment-wide, so a single probe validates access to every schema.
         return validate_credentials(config.client_id, config.client_secret, config.environment)

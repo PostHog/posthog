@@ -98,6 +98,7 @@ Imagga is an on-demand image-recognition API, so the only account data available
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Both endpoints are full refresh only: Imagga's /usage response exposes no server-side
         # timestamp filter, so there is no cursor to sync incrementally.
@@ -120,7 +121,11 @@ Imagga is an on-demand image-recognition API, so the only account data available
         return schemas
 
     def validate_credentials(
-        self, config: ImaggaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ImaggaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_imagga_credentials(config.api_key, config.api_secret):
             return True, None

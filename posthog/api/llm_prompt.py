@@ -46,6 +46,7 @@ from posthog.api.services.llm_prompt import (
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
+    get_prompt_labels,
     publish_prompt_version,
     remove_prompt_label,
     resolve_versions_page,
@@ -66,7 +67,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, get_prompt_outline
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
@@ -384,6 +385,7 @@ class LLMPromptViewSet(
                 "prompt": self._serialize_prompt(prompt),
                 "versions": self._serialize_version_summaries(versions),
                 "has_more": has_more,
+                "labels": LLMPromptLabelSerializer(get_prompt_labels(self.team, prompt_name), many=True).data,
             }
         )
 
@@ -555,19 +557,32 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    def _get_prompt_labels_map(self, prompt_names: list[str]) -> dict[str, list[dict[str, Any]]]:
+        labels_map: dict[str, list[dict[str, Any]]] = {}
+        labels = (
+            LLMPromptLabel.objects.filter(team=self.team, prompt_name__in=prompt_names)
+            .select_related("prompt")
+            .order_by("prompt_name", "name")
+        )
+        for label in labels:
+            labels_map.setdefault(label.prompt_name, []).append({"name": label.name, "version": label.prompt.version})
+        return labels_map
+
     @extend_schema(parameters=[LLMPromptListQuerySerializer])
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        prompts = page if page is not None else list(queryset)
 
-        serializer = self.get_serializer(queryset, many=True)
-        data = serializer.data
-        return Response({"count": len(data), "results": data})
+        context = self.get_serializer_context()
+        context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
+        serializer = LLMPromptListSerializer(prompts, many=True, context=context)
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response({"count": len(serializer.data), "results": serializer.data})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")

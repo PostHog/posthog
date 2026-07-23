@@ -121,6 +121,7 @@ class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LOGZIO_ENDPOINTS[endpoint]
@@ -140,7 +141,11 @@ class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: LogzIOSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LogzIOSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_logz_io_credentials(config.api_token, config.region, schema_name)
 

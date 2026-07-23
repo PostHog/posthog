@@ -22,6 +22,9 @@ const pathsWithoutProjectId = [
 
 // Instance-level pages that live under a product's own path prefix rather than
 // under `/instance/*`, so they need an exact (rather than first-segment) exemption.
+// The startsWith(exactPath + '/') check below also exempts nested staff tools from
+// other products, e.g. the cohorts staff tools at /feature_flags/staff/cohorts —
+// renaming this path affects them too.
 const exactPathsWithoutProjectId = ['/feature_flags/staff']
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
