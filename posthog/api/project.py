@@ -1399,7 +1399,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         # Team-level config actions that any member should be able to edit via the UI.
         # Only downgrade for session auth to preserve read-only API key semantics.
-        if self.action in ("default_release_conditions", "default_evaluation_contexts"):
+        if self.action in ("default_evaluation_contexts",):
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 return ["project:read"]
@@ -1654,11 +1654,12 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["GET", "PUT"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="default_release_conditions",
     )
     def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default release conditions for new feature flags in this project."""
+        """Manage default release conditions for new feature flags in this project. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         return team_default_release_conditions_view(self.get_object().passthrough_team, request)
 
     @action(

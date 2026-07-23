@@ -1881,9 +1881,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     lookup_field = "id"
     ordering = "-created_by"
 
-    # Actions whose scope is downgraded to project:read for session auth on all methods.
-    # TeamMemberLightManagementPermission still applies, so DELETE requires admin.
-    MEMBER_READABLE_CONFIG_ACTIONS = ("default_release_conditions", "default_evaluation_contexts")
+    # Actions whose scope is downgraded to project:read for session auth on all methods,
+    # so members can write via the UI. Handlers here must enforce any admin-only sub-operations
+    # themselves (see default_evaluation_contexts, which gates unhiding on admin level).
+    MEMBER_READABLE_CONFIG_ACTIONS = ("default_evaluation_contexts",)
 
     # Actions whose GET is downgraded to project:read for session auth; mutating methods stay on project:write/admin.
     GET_DOWNGRADE_ACTIONS = ("evaluation_context_suggestions",)
@@ -2099,11 +2100,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PUT"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="default_release_conditions",
     )
     def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default release conditions for new feature flags in this team."""
+        """Manage default release conditions for new feature flags in this team. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         team = self.get_object()
         config = get_or_create_team_extension(team, TeamFeatureFlagDefaultsConfig)
 
