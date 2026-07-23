@@ -11,7 +11,8 @@ name: Weekly flaky test report
 #   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project with the GitHub data
 #     warehouse source connected.
 #   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY — a personal API key scoped to
-#     engineering_analytics:read for that project.
+#     engineering_analytics:read + query:read for that project (the script also
+#     reads the product's ci_failures view for rescue counts and job links).
 #   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot.
 
 on:
@@ -64,6 +65,8 @@ jobs:
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
                   # Optional: pin a specific GitHub source if the project has more than one.
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
+                  # Optional: override the source-prefixed runs table name.
+                  ENG_ANALYTICS_RUNS_TABLE: ${{ vars.ENG_ANALYTICS_RUNS_TABLE }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
               run: node .github/scripts/weekly-flaky-report.mjs

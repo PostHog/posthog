@@ -1,10 +1,13 @@
 // Weekly flaky-test report, posted to #flakey-tests on Monday.
 //
-// PULL model, sibling of eng-analytics-weekly-digest.mjs: one read of the
-// engineering_analytics flaky_tests endpoint, relayed to Slack. The product owns
-// the flake signal; this owns cadence, owner attribution, and the relay.
+// PULL model, sibling of eng-analytics-weekly-digest.mjs: reads the
+// engineering_analytics flaky_tests endpoint for candidates, then one HogQL read
+// of the product's ci_failures view joined to the synced runs table for the
+// rerun-rescue counts and failing-job evidence links the endpoint does not carry
+// yet. The product owns the flake signal; this owns cadence, owner attribution,
+// and the relay.
 //
-//   GHA cron ──> GET /api/projects/:id/engineering_analytics/flaky_tests/ ──> Slack
+//   GHA cron ──> flaky_tests endpoint + one HogQL query ──> Slack
 //
 // Endpoint gaps inherited here (backend follow-ups): suites that don't ship junit
 // into the span pipeline are invisible, and rerun_passed_count only flows from
@@ -16,6 +19,8 @@ const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
 const API_KEY = process.env.POSTHOG_API_KEY || ''
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
+// The synced runs table name carries the warehouse source prefix, which differs per project.
+const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || 'C09ADEV3AJD' // #flakey-tests
 const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase())
@@ -26,24 +31,17 @@ const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
 const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
 const TOP_N = 10
+const CANDIDATE_POOL = 40
+const CLUSTER_MIN_TESTS = 5
 
-async function api(action, params = {}) {
-    const url = new URL(`${HOST}/api/projects/${PROJECT_ID}/engineering_analytics/${action}/`)
-    for (const [k, v] of Object.entries(params)) {
-        if (v !== undefined && v !== null && v !== '') {
-            url.searchParams.set(k, v)
-        }
-    }
-    if (SOURCE_ID) {
-        url.searchParams.set('source_id', SOURCE_ID)
-    }
-    const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${API_KEY}` },
-        signal: AbortSignal.timeout(150_000),
-    })
+const RETRY_ATTEMPTS = 3
+const RETRY_DELAY_MS = 30_000
+
+async function request(url, options, label) {
+    const res = await fetch(url, { ...options, signal: AbortSignal.timeout(150_000) })
     const body = await res.text()
     const fail = (detail, retryable) => {
-        throw Object.assign(new Error(`${action} -> ${res.status}: ${detail}`), { retryable })
+        throw Object.assign(new Error(`${label} -> ${res.status}: ${detail}`), { retryable })
     }
     let parsed
     try {
@@ -57,13 +55,10 @@ async function api(action, params = {}) {
     return parsed
 }
 
-const RETRY_ATTEMPTS = 3
-const RETRY_DELAY_MS = 30_000
-
-async function apiWithRetry(action, params) {
+async function withRetry(label, fn) {
     for (let attempt = 1; ; attempt++) {
         try {
-            return await api(action, params)
+            return await fn()
         } catch (err) {
             if (err.retryable === false || attempt >= RETRY_ATTEMPTS) {
                 throw err
@@ -72,6 +67,41 @@ async function apiWithRetry(action, params) {
             await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
         }
     }
+}
+
+function endpointUrl(action, params = {}) {
+    const url = new URL(`${HOST}/api/projects/${PROJECT_ID}/engineering_analytics/${action}/`)
+    for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null && v !== '') {
+            url.searchParams.set(k, v)
+        }
+    }
+    if (SOURCE_ID) {
+        url.searchParams.set('source_id', SOURCE_ID)
+    }
+    return url
+}
+
+const AUTH_HEADERS = { Authorization: `Bearer ${API_KEY}` }
+
+function fetchFlakyTests() {
+    return withRetry('flaky_tests', () =>
+        request(endpointUrl('flaky_tests', { date_from: '-7d', limit: 100 }), { headers: AUTH_HEADERS }, 'flaky_tests')
+    )
+}
+
+function hogql(query) {
+    return withRetry('query', () =>
+        request(
+            `${HOST}/api/projects/${PROJECT_ID}/query/`,
+            {
+                method: 'POST',
+                headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: { kind: 'HogQLQuery', query } }),
+            },
+            'query'
+        )
+    )
 }
 
 // One bad merge is breakage, not flakiness; keep it off the table.
@@ -99,15 +129,14 @@ function repoPathResolver() {
         if (trackedSet.has(selectorPath)) {
             return [selectorPath]
         }
-        const matches = (bySuffix.get(selectorPath.split('/').pop()) || []).filter((p) => p.endsWith(`/${selectorPath}`))
-        return matches
+        return (bySuffix.get(selectorPath.split('/').pop()) || []).filter((p) => p.endsWith(`/${selectorPath}`))
     }
 }
 
 // Ambiguous suffix matches only count when every candidate agrees on the owner.
 function resolveOwners(items) {
     const toRepoPaths = repoPathResolver()
-    const candidates = new Map() // selectorPath -> repo paths
+    const candidates = new Map()
     for (const item of items) {
         const selectorPath = item.selector.split('::')[0]
         if (!candidates.has(selectorPath)) {
@@ -138,6 +167,98 @@ function resolveOwners(items) {
     }
 }
 
+// The logs view records test ids as pytest printed them, so a product suite appears
+// product-relative there while the endpoint selector may be repo-relative.
+function selectorVariants(selector) {
+    const variants = [selector]
+    const productRelative = selector.replace(/^products\/[^/]+\//, '')
+    if (productRelative !== selector) {
+        variants.push(productRelative)
+    }
+    return variants
+}
+
+// Rescue counts (failed at attempt N, run green at a later attempt) and the two most
+// recent failing (run, job) pairs, from the product's ci_failures view.
+async function enrich(items) {
+    const bySelector = new Map()
+    for (const item of items) {
+        for (const variant of selectorVariants(item.selector)) {
+            bySelector.set(variant, item)
+        }
+    }
+    const inList = [...bySelector.keys()].map((s) => `'${s.replaceAll("'", "\\'")}'`).join(', ')
+    const empty = { runsRescued: null, evidence: [] }
+    if (!inList) {
+        return () => empty
+    }
+    let rows = []
+    try {
+        const result = await hogql(
+            `SELECT f.test_id AS test_id,
+                uniqIf(f.run_id, r.run_attempt > f.run_attempt AND r.conclusion = 'success') AS runs_rescued,
+                arraySlice(arrayReverseSort(x -> x.1, groupUniqArray(20)((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
+            FROM engineering_analytics_ci_failures f
+            LEFT JOIN ${RUNS_TABLE} r ON r.id = f.run_id
+            WHERE f.timestamp >= now() - INTERVAL 7 DAY AND f.test_id IN (${inList})
+            GROUP BY f.test_id`
+        )
+        rows = result.results || []
+    } catch (err) {
+        // The table still works without these columns; degrade rather than skip the post.
+        console.warn(`enrichment query failed — omitting rescue counts and job links: ${err.message}`)
+        return () => empty
+    }
+    const enriched = new Map()
+    for (const [testId, runsRescued, recent] of rows) {
+        const item = bySelector.get(testId)
+        if (!item) {
+            continue
+        }
+        const seen = new Set()
+        const evidence = []
+        for (const [, runId, jobId] of [...recent].sort((a, b) => b[0] - a[0])) {
+            if (seen.has(runId)) {
+                continue
+            }
+            seen.add(runId)
+            evidence.push({ runId, jobId })
+            if (evidence.length === 2) {
+                break
+            }
+        }
+        enriched.set(item.selector, { runsRescued, evidence })
+    }
+    return (item) => enriched.get(item.selector) || empty
+}
+
+// 5+ co-failing tests in one file are one shared-fixture incident, not N flakes.
+function collapseClusters(items) {
+    const byFile = new Map()
+    for (const item of items) {
+        const file = item.selector.split('::')[0]
+        if (!byFile.has(file)) {
+            byFile.set(file, [])
+        }
+        byFile.get(file).push(item)
+    }
+    const collapsed = []
+    for (const [file, group] of byFile) {
+        if (group.length >= CLUSTER_MIN_TESTS) {
+            collapsed.push({
+                selector: file,
+                cluster_size: group.length,
+                failed_count: group.reduce((sum, item) => sum + item.failed_count, 0),
+                failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),
+                xfailed_count: 0,
+            })
+        } else {
+            collapsed.push(...group)
+        }
+    }
+    return collapsed
+}
+
 function cell(text) {
     return { type: 'raw_text', text }
 }
@@ -151,19 +272,27 @@ function shortName(selector) {
     return name.length > 36 ? `${name.slice(0, 35)}…` : name
 }
 
-function tableRows(items, ownerFor) {
+function tableRows(items, ownerFor, extrasFor) {
     return items.map((item) => {
         const { owner, repoPath } = ownerFor(item)
-        const name = shortName(item.selector)
+        const { runsRescued, evidence } = extrasFor(item)
+        const name = item.cluster_size ? `${item.selector.split('/').pop()} (${item.cluster_size} tests)` : shortName(item.selector)
         const testCell = repoPath
             ? mrkdwnCell(`<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}|${name}>`)
             : cell(name)
         const quarantined = item.xfailed_count > 0 ? ' (quarantined)' : ''
+        const logs = evidence
+            .map(({ runId, jobId }, i) => {
+                const url = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`
+                return `<${url}|${i + 1}>`
+            })
+            .join(' ')
         return [
             testCell,
             cell(owner.replace(/^team-/, '') + quarantined),
-            cell(String(item.failed_pr_count)),
+            cell(runsRescued == null ? '-' : String(runsRescued)),
             cell(String(item.failed_count)),
+            logs ? mrkdwnCell(logs) : cell('-'),
         ]
     })
 }
@@ -171,11 +300,20 @@ function tableRows(items, ownerFor) {
 function buildBlocks(now, rows) {
     const dateLabel = now.toISOString().slice(0, 10)
     const blocks = [
-        { type: 'section', text: { type: 'mrkdwn', text: `*Top ${rows.length} flaky tests — ${dateLabel}* _(backend CI, last 7 days)_` } },
+        {
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*Top ${rows.length} flaky tests — ${dateLabel}* _(backend CI, last 7 days)_` },
+        },
         {
             type: 'table',
-            column_settings: [{ align: 'left' }, { align: 'left' }, { align: 'right' }, { align: 'right' }],
-            rows: [[cell('test'), cell('owner'), cell('failed PRs'), cell('fails')], ...rows],
+            column_settings: [
+                { align: 'left' },
+                { align: 'left' },
+                { align: 'right' },
+                { align: 'right' },
+                { align: 'left' },
+            ],
+            rows: [[cell('test'), cell('owner'), cell('rescued'), cell('fails'), cell('logs')], ...rows],
         },
         {
             type: 'context',
@@ -218,14 +356,18 @@ async function main() {
         return
     }
     const now = new Date()
-    const result = await apiWithRetry('flaky_tests', { date_from: '-7d', limit: 100 })
-    const flaky = (result.items || []).filter((item) => !isMasterBurst(item)).slice(0, TOP_N)
+    const result = await fetchFlakyTests()
+    const pool = collapseClusters((result.items || []).filter((item) => !isMasterBurst(item)).slice(0, CANDIDATE_POOL))
+    const extrasFor = await enrich(pool.filter((item) => !item.cluster_size))
+    // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
+    const flaky = pool
+        .sort((a, b) => (extrasFor(b).runsRescued ?? 0) - (extrasFor(a).runsRescued ?? 0) || b.failed_count - a.failed_count)
+        .slice(0, TOP_N)
     if (flaky.length === 0) {
-        // A clean week is a real (great) result; say so instead of going silent.
         console.info('No qualifying flaky tests this week.')
     }
     const ownerFor = resolveOwners(flaky)
-    const blocks = buildBlocks(now, tableRows(flaky, ownerFor))
+    const blocks = buildBlocks(now, tableRows(flaky, ownerFor, extrasFor))
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
         return
