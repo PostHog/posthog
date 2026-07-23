@@ -35,10 +35,23 @@ jest.mock('~/common/utils/token-bucket', () => {
 
 jest.mock('~/common/utils/logger')
 
+// Two diagonal arms rather than a full cross: one with every optimization off
+// (today's default production shape) and one with them all on (the target
+// shape), keeping CI cost flat while both modes stay fully covered.
 describe.each([
-    { PERSONS_PREFETCH_ENABLED: true, PERSON_MERGE_FOLD_ENABLED: false },
-    { PERSONS_PREFETCH_ENABLED: true, PERSON_MERGE_FOLD_ENABLED: true },
-])('Event Pipeline E2E tests (fold=$PERSON_MERGE_FOLD_ENABLED)', (pipelineConfig) => {
+    {
+        PERSONS_PREFETCH_ENABLED: true,
+        PERSON_MERGE_FOLD_ENABLED: false,
+        GROUPS_PREFETCH_ENABLED: false,
+        GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
+    },
+    {
+        PERSONS_PREFETCH_ENABLED: true,
+        PERSON_MERGE_FOLD_ENABLED: true,
+        GROUPS_PREFETCH_ENABLED: true,
+        GROUP_BATCH_WRITING_USE_BATCH_CREATES: true,
+    },
+])('Event Pipeline E2E tests (fold+groupBatchCreates=$PERSON_MERGE_FOLD_ENABLED)', (pipelineConfig) => {
     const testWithTeamIngester = createTestWithTeamIngester(pipelineConfig, (infra, kafkaProducer) => {
         const outputs = createTestIngestionOutputs(kafkaProducer)
         const ingester = new IngestionConsumer(infra.config, {
@@ -63,11 +76,17 @@ describe.each([
             }),
         })
         jest.spyOn(infra.groupRepository, 'fetchGroup')
+        jest.spyOn(infra.groupRepository, 'fetchGroupsByKeys')
         jest.spyOn(infra.groupRepository, 'insertGroup')
+        jest.spyOn(infra.groupRepository, 'insertGroupsBatch')
         jest.spyOn(infra.groupRepository, 'updateGroup')
         jest.spyOn(infra.groupRepository, 'updateGroupOptimistically')
         return ingester
     })
+    // Group creations land differently per arm: inline single-row inserts
+    // (version 1 + one batched update) versus a single deferred batched insert
+    // carrying the accumulated properties (version 1, no update needed).
+    const groupBatchCreates = pipelineConfig.GROUP_BATCH_WRITING_USE_BATCH_CREATES
     let clickhouse: Clickhouse
     beforeAll(async () => {
         console.log('Creating Clickhouse client')
@@ -166,9 +185,15 @@ describe.each([
                 expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
             })
 
-            // Should have fetched the group 4 times:
-            // 1 for each event and 2 in test check
-            expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(4)
+            // 1 single-row fetch per event and 2 in the test checks — except
+            // with groups prefetch on, where the second batch's fetch happens
+            // through the chunk-level batched query instead.
+            if (groupBatchCreates) {
+                expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(3)
+                expect(infra.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
+            } else {
+                expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(4)
+            }
         }
     )
 
@@ -200,9 +225,17 @@ describe.each([
             })
 
             expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
-            expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
             expect(infra.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-            expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            if (groupBatchCreates) {
+                // The whole storm folds into one batched insert carrying all
+                // accumulated properties — no follow-up update needed.
+                expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+            } else {
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            }
         }
     )
 
@@ -247,9 +280,15 @@ describe.each([
             })
 
             expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
-            expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
             expect(infra.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-            expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            if (groupBatchCreates) {
+                expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+            } else {
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            }
 
             await waitForExpect(async () => {
                 const group = await infra.groupRepository.fetchGroup(team.id, 0, groupKey)
@@ -257,10 +296,13 @@ describe.each([
                     expect.objectContaining({
                         team_id: team.id,
                         group_type_index: 0,
+                        // In-batch event order still decides conflicting keys
+                        // (k2 comes from the last event) in both modes.
                         group_properties: { k1: 'v1', k2: 'v3', k3: 'v2', k4: 'v3' },
                         group_key: groupKey,
-                        // Just one write after the creation of the group
-                        version: 2,
+                        // One write after the creation — or a single batched
+                        // create carrying everything.
+                        version: groupBatchCreates ? 1 : 2,
                     })
                 )
             })
@@ -317,6 +359,14 @@ describe.each([
 
             await waitForKafkaMessages(kafkaProducer)
 
+            // Creations from different lanes aggregate into one statement.
+            if (groupBatchCreates) {
+                expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+            } else {
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(n)
+            }
+
             await waitForExpect(async () => {
                 const events = await fetchEvents(clickhouse, team.id)
                 expect(events.length).toEqual(n * 2)
@@ -330,7 +380,7 @@ describe.each([
                             team_id: team.id,
                             group_type_index: 0,
                             group_properties: { foo: 'bar', update: 'new' },
-                            version: 2,
+                            version: groupBatchCreates ? 1 : 2,
                         })
                     )
                 })
@@ -339,54 +389,60 @@ describe.each([
     )
 
     testWithTeamIngester(
-        'can handle multiple $groupidentify for different distinct ids',
+        'batches creation of many new groups from a single distinct id',
         {},
         async ({ ingester, infra, team, kafkaProducer, token }) => {
+            // The production shape of a create storm: one distinct_id (one
+            // sequential lane) referencing many groups that don't exist yet.
             const n = 50
-            const distinctIds = []
-            for (let i = 0; i < n; i++) {
-                distinctIds.push(new UUIDT().toString())
-            }
-
+            const distinctId = new UUIDT().toString()
             const events = []
-            for (const distinctId of distinctIds) {
+            for (let i = 0; i < n; i++) {
                 events.push(
                     new EventBuilder(team, distinctId)
                         .withEvent('$groupidentify')
-                        .withGroupProperties('organization', distinctId, { foo: 'bar' })
-                        .build()
-                )
-                events.push(
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$groupidentify')
-                        .withGroupProperties('organization', distinctId, { update: 'new' })
+                        .withGroupProperties('organization', `group-${i}`, { idx: i })
                         .build()
                 )
             }
 
-            // handle 100 events in one batch
             await ingester.handleKafkaBatch(createKafkaMessages(events, token))
 
             await waitForKafkaMessages(kafkaProducer)
 
+            // Call-count assertions come before the Postgres checks below,
+            // which go through the same spied repository.
+            if (groupBatchCreates) {
+                expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+            } else {
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(n)
+            }
+            expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+
+            for (let i = 0; i < n; i++) {
+                const group = await infra.groupRepository.fetchGroup(team.id, 0, `group-${i}`)
+                expect(group).toEqual(
+                    expect.objectContaining({
+                        team_id: team.id,
+                        group_properties: { idx: i },
+                        version: 1,
+                    })
+                )
+            }
+
             await waitForExpect(async () => {
                 const events = await fetchEvents(clickhouse, team.id)
-                expect(events.length).toEqual(n * 2)
+                expect(events.length).toEqual(n)
             })
 
-            for (const distinctId of distinctIds) {
-                await waitForExpect(async () => {
-                    const group = await infra.groupRepository.fetchGroup(team.id, 0, distinctId)
-                    expect(group).toEqual(
-                        expect.objectContaining({
-                            team_id: team.id,
-                            group_type_index: 0,
-                            group_properties: { foo: 'bar', update: 'new' },
-                            version: 2,
-                        })
-                    )
-                })
-            }
+            // Every creation's ClickHouse message made it to the groups table.
+            await waitForExpect(async () => {
+                const chGroups = (await clickhouse.fetchClickhouseGroups()).filter(
+                    (chGroup) => Number(chGroup.team_id) === team.id
+                )
+                expect(chGroups).toHaveLength(n)
+            })
         }
     )
 

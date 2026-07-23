@@ -910,6 +910,50 @@ describe('PostgresGroupRepository Integration', () => {
         })
     })
 
+    describe('insertGroupsBatch', () => {
+        it('inserts new rows at version 1, returns them, and leaves existing rows untouched', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ version: 3 })
+
+            const result = await repository.insertGroupsBatch([
+                { teamId, groupTypeIndex, groupKey: 'new-a', groupProperties: { name: 'A' }, createdAt },
+                {
+                    teamId,
+                    groupTypeIndex: 1 as GroupTypeIndex,
+                    groupKey: 'new-b',
+                    groupProperties: { plan: 'scale' },
+                    createdAt: createdAt.plus({ days: 1 }),
+                },
+                { teamId, groupTypeIndex, groupKey, groupProperties: { clobbered: true }, createdAt },
+            ])
+
+            // Only the rows this statement created come back.
+            expect(result).toHaveLength(2)
+            const byKey = new Map(result.map((g) => [g.group_key, g]))
+            expect(byKey.get('new-a')).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_properties: { name: 'A' },
+                created_at: createdAt,
+                version: 1,
+            })
+            expect(byKey.get('new-b')).toMatchObject({
+                group_type_index: 1,
+                group_properties: { plan: 'scale' },
+                created_at: createdAt.plus({ days: 1 }),
+                version: 1,
+            })
+            expect(byKey.has(groupKey)).toBe(false)
+
+            // The rows are actually persisted, and the conflicting row kept
+            // its original properties and version (DO NOTHING semantics).
+            const persisted = await repository.fetchGroup(teamId, groupTypeIndex, 'new-a')
+            expect(persisted).toMatchObject({ group_properties: { name: 'A' }, version: 1 })
+            const untouched = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(untouched).toMatchObject({ group_properties: groupProperties, version: 3 })
+        })
+    })
+
     describe('inTransaction', () => {
         it('should execute operations within a transaction', async () => {
             await insertTestTeam(teamId)

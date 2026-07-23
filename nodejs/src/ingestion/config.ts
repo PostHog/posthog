@@ -171,6 +171,10 @@ export type IngestionConsumerConfig = {
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
+    // Defer creation of new groups to flush time and insert them in a single
+    // batched statement, instead of an inline single-row insert per new group
+    // during event processing. When off, behavior is unchanged.
+    GROUP_BATCH_WRITING_USE_BATCH_CREATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
@@ -290,6 +294,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
+        GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,

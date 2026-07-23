@@ -57,6 +57,15 @@ export interface GroupPropertiesToSetUpdate {
     createdAt: DateTime
 }
 
+/** A batched group creation: one new row at version 1 per entry. */
+export interface GroupCreate {
+    teamId: TeamId
+    groupTypeIndex: GroupTypeIndex
+    groupKey: string
+    groupProperties: Properties
+    createdAt: DateTime
+}
+
 /**
  * Full group repository with read and write operations. Used by the
  * ingestion pipeline which creates, updates, and manages groups.
@@ -90,6 +99,14 @@ export interface GroupRepository {
      * handle those individually (typically by creating the group).
      */
     updateGroupsBatch(updates: GroupPropertiesToSetUpdate[]): Promise<Group[]>
+
+    /**
+     * Inserts all groups in a single statement and returns the inserted rows.
+     * Rows that already exist are left untouched and absent from the result —
+     * callers handle those individually (typically by converting the creation
+     * into an update against the winning row).
+     */
+    insertGroupsBatch(creates: GroupCreate[]): Promise<Group[]>
 
     insertGroup(
         teamId: TeamId,

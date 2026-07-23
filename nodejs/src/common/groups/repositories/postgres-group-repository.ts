@@ -16,7 +16,7 @@ import {
 } from '~/types'
 
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
-import { GroupKey, GroupPropertiesToSetUpdate, GroupRepository } from './group-repository.interface'
+import { GroupCreate, GroupKey, GroupPropertiesToSetUpdate, GroupRepository } from './group-repository.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 
@@ -168,6 +168,57 @@ export class PostgresGroupRepository
             `,
             [teamIds, groupTypeIndexes, groupKeys, propertiesToSet, createdAts],
             'updateGroupsBatch'
+        )
+
+        return rows.map((row) => this.toGroup(row))
+    }
+
+    async insertGroupsBatch(creates: GroupCreate[]): Promise<Group[]> {
+        if (creates.length === 0) {
+            return []
+        }
+
+        // Sort by row identity for the same cross-pod lock-ordering hygiene as
+        // updateGroupsBatch. UNNEST keeps the statement shape constant for
+        // prepared-statement reuse.
+        const sortedCreates = [...creates].sort(
+            (a, b) => a.teamId - b.teamId || a.groupTypeIndex - b.groupTypeIndex || a.groupKey.localeCompare(b.groupKey)
+        )
+
+        const teamIds: number[] = []
+        const groupTypeIndexes: number[] = []
+        const groupKeys: string[] = []
+        const groupProperties: string[] = []
+        const createdAts: string[] = []
+
+        for (const create of sortedCreates) {
+            teamIds.push(create.teamId)
+            groupTypeIndexes.push(create.groupTypeIndex)
+            groupKeys.push(create.groupKey)
+            groupProperties.push(sanitizeJsonbValue(create.groupProperties))
+            createdAts.push(create.createdAt.toISO()!)
+        }
+
+        // ON CONFLICT DO NOTHING mirrors the single-row insertGroup, but rows
+        // that lost a cross-pod race are simply absent from the result instead
+        // of raising RaceConditionError — callers convert those into updates.
+        const { rows } = await this.postgres.query<RawGroup>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            SELECT batch_team_id, batch_group_key, batch_group_type_index, new_properties::jsonb, new_created_at::timestamp with time zone, '{}'::jsonb, '{}'::jsonb, 1
+            FROM UNNEST(
+                $1::int[],
+                $2::int[],
+                $3::text[],
+                $4::text[],
+                $5::text[]
+            ) AS batch(batch_team_id, batch_group_type_index, batch_group_key, new_properties, new_created_at)
+            ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
+            RETURNING *
+            `,
+            [teamIds, groupTypeIndexes, groupKeys, groupProperties, createdAts],
+            'insertGroupsBatch'
         )
 
         return rows.map((row) => this.toGroup(row))
