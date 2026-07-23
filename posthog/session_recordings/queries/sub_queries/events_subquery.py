@@ -178,6 +178,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             PropertyOperator.IS_NOT,
             PropertyOperator.NOT_REGEX,
             PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
             PropertyOperator.NOT_IN,  # Cohort negation (e.g., user not in cohort X)
         ]
         for prop in person_properties:
@@ -333,6 +335,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             if hasattr(prop, "operator") and prop.operator in [
                 PropertyOperator.ICONTAINS,
                 PropertyOperator.NOT_ICONTAINS,
+                PropertyOperator.STARTS_WITH,
+                PropertyOperator.NOT_STARTS_WITH,
+                PropertyOperator.ENDS_WITH,
+                PropertyOperator.NOT_ENDS_WITH,
                 PropertyOperator.REGEX,
                 PropertyOperator.NOT_REGEX,
                 PropertyOperator.IS_SET,

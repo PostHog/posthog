@@ -61,6 +61,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
@@ -382,6 +383,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "not_in",
         "flag_evaluates_to",
     }
+    | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
 
 FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
@@ -1508,12 +1510,16 @@ class FeatureFlagSerializer(
                             code="invalid_date",
                         )
 
-                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                # make sure regex, icontains, starts/ends_with, gte, lte, lt, and gt properties have string values
                 if prop.operator in [
                     "regex",
                     "icontains",
                     "not_regex",
                     "not_icontains",
+                    "starts_with",
+                    "not_starts_with",
+                    "ends_with",
+                    "not_ends_with",
                     "gte",
                     "lte",
                     "gt",

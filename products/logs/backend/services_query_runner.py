@@ -96,7 +96,7 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         return _INDETERMINATE
     if not sn:
         # For negation operators, empty string doesn't match non-empty values
-        if operator in ("is_not", "not_in", "not_icontains", "not_regex"):
+        if operator in ("is_not", "not_in", "not_icontains", "not_starts_with", "not_ends_with", "not_regex"):
             return _TRUE
         # For positive match operators, empty string can't match
         return _FALSE
@@ -109,6 +109,14 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         return _TRUE if str(value).lower() in sn.lower() else _FALSE
     if operator == "not_icontains":
         return _FALSE if str(value).lower() in sn.lower() else _TRUE
+    if operator == "starts_with":
+        return _TRUE if sn.lower().startswith(str(value).lower()) else _FALSE
+    if operator == "not_starts_with":
+        return _FALSE if sn.lower().startswith(str(value).lower()) else _TRUE
+    if operator == "ends_with":
+        return _TRUE if sn.lower().endswith(str(value).lower()) else _FALSE
+    if operator == "not_ends_with":
+        return _FALSE if sn.lower().endswith(str(value).lower()) else _TRUE
     if operator in ("regex", "not_regex"):
         # RE2 (linear-time, no catastrophic backtracking) — same engine the Node
         # ingestion worker uses via `tracked-re2`. A project member can pick the

@@ -9816,6 +9816,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             ("regex", "^org-(prod|staging)-\\d+$", "regex", 2, 3),
             ("not_regex", "^org-(prod|staging)-\\d+$", "not_regex", 1, 3),
             ("not_icontains", "ORG", "not_icontains", 1, 3),
+            ("starts_with", "org-", "starts_with", 2, 3),
+            ("not_starts_with", "org-", "not_starts_with", 1, 3),
+            ("ends_with", "001", "ends_with", 1, 3),
+            ("not_ends_with", "001", "not_ends_with", 2, 3),
         ]
     )
     def test_user_blast_radius_with_group_key_operators(
@@ -10217,6 +10221,48 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                                 "beta",
                             ],  # List not supported for icontains
                             "operator": "icontains",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not support list values", response.json()["detail"].lower())
+
+    def test_user_blast_radius_with_group_key_starts_with_list_values_raises_error(self):
+        """Test that starts_with/ends_with operators with list values raise a validation error.
+
+        The four operators share a single list-value guard in _build_group_query, so one
+        representative operator is enough to cover it.
+        """
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-alpha",
+            properties={},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["alpha", "beta"],  # List not supported for starts_with
+                            "operator": "starts_with",
                             "group_type_index": 0,
                         }
                     ],

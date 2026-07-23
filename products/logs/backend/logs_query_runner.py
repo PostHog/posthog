@@ -135,6 +135,8 @@ def _generate_resource_attribute_filters(
             filter.operator = {
                 PropertyOperator.IS_NOT: PropertyOperator.EXACT,
                 PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+                PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+                PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
                 PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
                 PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
                 PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,

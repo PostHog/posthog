@@ -1,4 +1,5 @@
 import {
+    allOperatorsMapping,
     booleanOperatorMap,
     chooseOperatorMap,
     dateTimeOperatorMap,
@@ -7,6 +8,7 @@ import {
     isOperatorMulti,
     numericOperatorMap,
     selectorOperatorMap,
+    stringArrayOperatorMap,
     stringOperatorMap,
 } from 'lib/utils/operators'
 
@@ -46,6 +48,27 @@ describe('operators utils', () => {
             expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
+        })
+
+        it('returns false for the starts_with/ends_with operator family', () => {
+            expect(isOperatorMulti(PropertyOperator.StartsWith)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.NotStartsWith)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.EndsWith)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.NotEndsWith)).toBe(false)
+        })
+    })
+
+    describe('starts_with / ends_with operator family', () => {
+        it.each([
+            [PropertyOperator.StartsWith, 'starts with'],
+            [PropertyOperator.NotStartsWith, "doesn't start with"],
+            [PropertyOperator.EndsWith, 'ends with'],
+            [PropertyOperator.NotEndsWith, "doesn't end with"],
+        ])('exposes a "%s" label in the string operator maps and allOperatorsMapping', (operator, expectedText) => {
+            expect(genericOperatorMap[operator]).toEqual(expect.stringContaining(expectedText))
+            expect(stringOperatorMap[operator]).toEqual(expect.stringContaining(expectedText))
+            expect(stringArrayOperatorMap[operator]).toEqual(expect.stringContaining(expectedText))
+            expect(allOperatorsMapping[operator]).toEqual(expect.stringContaining(expectedText))
         })
     })
 })

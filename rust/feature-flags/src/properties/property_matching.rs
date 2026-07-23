@@ -244,6 +244,44 @@ pub fn match_property(
                 Ok(operator == OperatorType::NotIcontains)
             }
         }
+        OperatorType::StartsWith | OperatorType::NotStartsWith => {
+            if let Some(match_value) = match_value {
+                // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
+                let is_prefix = to_string_representation(match_value)
+                    .to_ascii_lowercase()
+                    .starts_with(&to_string_representation(value).to_ascii_lowercase());
+
+                if operator == OperatorType::StartsWith {
+                    Ok(is_prefix)
+                } else {
+                    Ok(!is_prefix)
+                }
+            } else {
+                // When value doesn't exist:
+                // - for StartsWith: it's not a match (false)
+                // - for NotStartsWith: it is a match (true)
+                Ok(operator == OperatorType::NotStartsWith)
+            }
+        }
+        OperatorType::EndsWith | OperatorType::NotEndsWith => {
+            if let Some(match_value) = match_value {
+                // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
+                let is_suffix = to_string_representation(match_value)
+                    .to_ascii_lowercase()
+                    .ends_with(&to_string_representation(value).to_ascii_lowercase());
+
+                if operator == OperatorType::EndsWith {
+                    Ok(is_suffix)
+                } else {
+                    Ok(!is_suffix)
+                }
+            } else {
+                // When value doesn't exist:
+                // - for EndsWith: it's not a match (false)
+                // - for NotEndsWith: it is a match (true)
+                Ok(operator == OperatorType::NotEndsWith)
+            }
+        }
         OperatorType::IcontainsMulti | OperatorType::NotIcontainsMulti => {
             if let Some(match_value) = match_value {
                 let match_string = to_string_representation(match_value).to_ascii_lowercase();
@@ -1134,6 +1172,214 @@ mod test_match_properties {
             true
         )
         .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_starts_with() {
+        let property_starts_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Val")),
+            operator: Some(OperatorType::StartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // case-insensitive match at the start
+        assert!(match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("VALUE"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // non-match: substring present but not at the start
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("prevalue"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // numeric property value is stringified before matching
+        let property_starts_with_numeric = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("3")),
+            operator: Some(OperatorType::StartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(match_property(
+            &property_starts_with_numeric,
+            &HashMap::from([("key".to_string(), json!(323))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_starts_with_numeric,
+            &HashMap::from([("key".to_string(), json!(123))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // negation
+        let property_not_starts_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Val")),
+            operator: Some(OperatorType::NotStartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(!match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // missing property: negative operator matches (true), positive operator does not (false)
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+        assert!(match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+    }
+
+    #[test]
+    fn test_match_properties_ends_with() {
+        let property_ends_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Lue")),
+            operator: Some(OperatorType::EndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // case-insensitive match at the end
+        assert!(match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("VALUE"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // non-match: substring present but not at the end
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("valueish"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // numeric property value is stringified before matching
+        let property_ends_with_numeric = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("3")),
+            operator: Some(OperatorType::EndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(match_property(
+            &property_ends_with_numeric,
+            &HashMap::from([("key".to_string(), json!(323))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_ends_with_numeric,
+            &HashMap::from([("key".to_string(), json!(321))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // negation
+        let property_not_ends_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Lue")),
+            operator: Some(OperatorType::NotEndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(!match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // missing property: negative operator matches (true), positive operator does not (false)
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+        assert!(match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
     }
 
     #[test]

@@ -524,6 +524,24 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.STARTS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"{single_value}%"),
+        )
+    elif operator in (PropertyOperator.ENDS_WITH, PropertyOperator.NOT_ENDS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.ENDS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"%{single_value}"),
+        )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator
         if isinstance(value, list):
@@ -947,6 +965,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1028,6 +1048,8 @@ def property_to_expr(
             PropertyOperator.NOT_BETWEEN,
             PropertyOperator.ICONTAINS,
             PropertyOperator.NOT_ICONTAINS,
+            # starts_with/ends_with intentionally excluded: no ClickHouse anchored multi-search
+            # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
             if len(value) == 0:
                 return ast.Constant(value=1)
@@ -1112,6 +1134,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1179,6 +1203,8 @@ def property_to_expr(
                     operator == PropertyOperator.IS_NOT
                     or operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1526,6 +1552,8 @@ def operator_is_negative(operator: PropertyOperator) -> bool:
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
         PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

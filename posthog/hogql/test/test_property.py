@@ -202,6 +202,22 @@ class TestProperty(BaseTest):
             self._parse_expr("toString(properties.a) not ilike '%3%'"),
         )
         self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "starts_with"}),
+            self._parse_expr("toString(properties.a) ilike '3%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_starts_with"}),
+            self._parse_expr("toString(properties.a) not ilike '3%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "ends_with"}),
+            self._parse_expr("toString(properties.a) ilike '%3'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_ends_with"}),
+            self._parse_expr("toString(properties.a) not ilike '%3'"),
+        )
+        self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
             self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)"),
         )
@@ -437,6 +453,35 @@ class TestProperty(BaseTest):
             ),
         )
         self.assertIs(1, a.exprs[1].args[1].value)
+
+    def test_property_to_expr_event_list_starts_with_ends_with(self):
+        # positive operators combine multiple values with OR
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "starts_with"}),
+            self._parse_expr("toString(properties.a) ilike 'b%' or toString(properties.a) ilike 'c%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "ends_with"}),
+            self._parse_expr("toString(properties.a) ilike '%b' or toString(properties.a) ilike '%c'"),
+        )
+        # negative operators combine multiple values with AND
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_starts_with"}),
+            self._parse_expr("toString(properties.a) not ilike 'b%' and toString(properties.a) not ilike 'c%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_ends_with"}),
+            self._parse_expr("toString(properties.a) not ilike '%b' and toString(properties.a) not ilike '%c'"),
+        )
+        # a single-element list unwraps to a plain ILIKE, not a one-branch OR/AND
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["single"], "operator": "starts_with"}),
+            self._parse_expr("toString(properties.a) ilike 'single%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["single"], "operator": "not_ends_with"}),
+            self._parse_expr("toString(properties.a) not ilike '%single'"),
+        )
 
     def test_property_to_expr_feature(self):
         self.assertEqual(
