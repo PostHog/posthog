@@ -15,9 +15,9 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import is_native_steering_signals_enabled
+from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
@@ -113,15 +113,21 @@ def _get_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
-def _capture_sandbox_event_ingest_flag(run_id: str) -> None:
+def _capture_run_feature_flags(run_id: str) -> None:
+    """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
+
+    Idempotent per key, so retries and resumes keep the decision the run started with.
+    """
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except Exception:
-        logger.exception("sandbox_event_ingest_capture_run_missing", extra={"run_id": run_id})
+        logger.exception("run_feature_flag_capture_run_missing", extra={"run_id": run_id})
         return
 
     state = task_run.state or {}
-    if isinstance(state.get("sandbox_event_ingest_enabled"), bool):
+    need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
+    need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
+    if not need_event_ingest and not need_otel_telemetry:
         return
 
     task = task_run.task
@@ -130,33 +136,43 @@ def _capture_sandbox_event_ingest_flag(run_id: str) -> None:
         task.created_by.distinct_id if task.created_by and task.created_by.distinct_id else "process_task_workflow"
     )
 
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+    event_ingest_enabled = False
+    if need_event_ingest:
+        try:
+            event_ingest_enabled = bool(
+                posthoganalytics.feature_enabled(
+                    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+                    distinct_id=distinct_id,
+                    groups={"organization": organization_id},
+                    group_properties={"organization": {"id": organization_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
             )
-        )
-    except Exception as e:
-        logger.warning(
-            "sandbox_event_ingest_capture_flag_failed",
-            extra={"run_id": run_id, "task_id": str(task.id), "error": str(e)},
-        )
-        enabled = False
+        except Exception as e:
+            logger.warning(
+                "sandbox_event_ingest_capture_flag_failed",
+                extra={"run_id": run_id, "task_id": str(task.id), "error": str(e)},
+            )
+    otel_telemetry_enabled = need_otel_telemetry and is_agent_otel_telemetry_enabled(
+        distinct_id=distinct_id, organization_id=organization_id
+    )
 
-    def _set_sandbox_event_ingest_flag(latest_state: dict[str, Any]) -> None:
-        if not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
-            latest_state["sandbox_event_ingest_enabled"] = enabled
+    def _stamp_flags(latest_state: dict[str, Any]) -> None:
+        if need_event_ingest and not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
+            latest_state["sandbox_event_ingest_enabled"] = event_ingest_enabled
+        if need_otel_telemetry and not isinstance(latest_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool):
+            latest_state[AGENT_OTEL_TELEMETRY_STATE_KEY] = otel_telemetry_enabled
 
-    captured_state = TaskRun.mutate_state_atomic(task_run.id, _set_sandbox_event_ingest_flag)
-    captured_enabled = captured_state.get("sandbox_event_ingest_enabled", enabled)
+    captured_state = TaskRun.mutate_state_atomic(task_run.id, _stamp_flags)
     logger.info(
-        "sandbox_event_ingest_captured",
-        extra={"run_id": run_id, "task_id": str(task.id), "sandbox_event_ingest_enabled": captured_enabled},
+        "run_feature_flags_captured",
+        extra={
+            "run_id": run_id,
+            "task_id": str(task.id),
+            "sandbox_event_ingest_enabled": captured_state.get("sandbox_event_ingest_enabled"),
+            "agent_otel_telemetry_enabled": captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
+        },
     )
 
 
@@ -196,7 +212,7 @@ async def execute_task_processing_workflow_async(
         task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         await Team.objects.select_related("organization").aget(id=team_id)
-        await sync_to_async(_capture_sandbox_event_ingest_flag)(run_id)
+        await sync_to_async(_capture_run_feature_flags)(run_id)
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
         if workflow_id_prefix:
@@ -279,7 +295,7 @@ def execute_task_processing_workflow(
         )
 
         Team.objects.get(id=team_id)
-        _capture_sandbox_event_ingest_flag(run_id)
+        _capture_run_feature_flags(run_id)
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
         if workflow_id_prefix:
@@ -431,7 +447,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     )
 
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
-    _capture_sandbox_event_ingest_flag(run_id)
+    _capture_run_feature_flags(run_id)
     try:
         client = sync_connect()
         asyncio.run(
@@ -461,7 +477,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
 
 
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
-    _capture_sandbox_event_ingest_flag(run_id)
+    _capture_run_feature_flags(run_id)
     client = sync_connect()
     asyncio.run(
         client.start_workflow(

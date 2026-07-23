@@ -187,7 +187,7 @@ SANDBOX_AGENT_OTEL_LOGS_TOKEN=<project API key of the telemetry project>
 SANDBOX_AGENT_OTEL_TRACES_URL=http://localhost:8000/i/v1/traces  # optional, enables APM spans
 ```
 
-They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
+In cloud, emission is additionally gated per run by the `tasks-agent-run-otel-telemetry` feature flag (org-targeted, stamped into run state at dispatch; it also gates the scout run-log mirror). `DEBUG` bypasses the flag, so locally these settings are the only switch. They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
 The agent-server exports run/turn/tool lifecycle metadata (never message content or tool arguments), tagged with `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes and `service.name=posthog-code-agent`.
 Telemetry stays off when either of the first two vars is unset.
 For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.

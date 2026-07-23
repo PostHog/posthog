@@ -1118,6 +1118,7 @@ def build_sandbox_environment_variables(
     access_token: str,
     team_id: int,
     sandbox_environment: Optional[Any] = None,
+    otel_telemetry_enabled: bool = False,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
 
@@ -1148,7 +1149,8 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    env_vars.update(get_sandbox_otel_env_vars())
+    if otel_telemetry_enabled:
+        env_vars.update(get_sandbox_otel_env_vars())
 
     return env_vars
 

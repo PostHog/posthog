@@ -1699,9 +1699,15 @@ class TaskRun(models.Model):
 
         Fire-and-forget: mirroring failures must never break the run's log write.
         """
+        from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
         from products.tasks.backend.logic.services.run_log_mirror import mirror_entries, mirroring_enabled
 
         if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
+            return
+
+        # Per-run rollout decision (tasks-agent-run-otel-telemetry), stamped into run
+        # state at dispatch; fail closed while the stamp is absent.
+        if not agent_otel_telemetry_enabled_for_state(self.state if isinstance(self.state, dict) else None):
             return
 
         try:

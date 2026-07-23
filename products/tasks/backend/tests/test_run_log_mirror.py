@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
 from products.tasks.backend.logic.services.run_log_mirror import (
     MAX_BODY_CHARS,
     MAX_ENTRIES_PER_CALL,
@@ -243,6 +244,23 @@ class TestMirrorOtlpDelivery(SimpleTestCase):
         mock_requests.post.assert_not_called()
 
 
+class TestAgentOtelTelemetryStateGate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stamped_true", {"agent_otel_telemetry_enabled": True}, True),
+            ("stamped_false", {"agent_otel_telemetry_enabled": False}, False),
+            ("missing", {}, False),
+            ("none_state", None, False),
+        ]
+    )
+    def test_fails_closed_outside_debug(self, _name, state, expected):
+        assert agent_otel_telemetry_enabled_for_state(state) is expected
+
+    @override_settings(DEBUG=True)
+    def test_debug_bypasses_the_flag(self):
+        assert agent_otel_telemetry_enabled_for_state(None) is True
+
+
 @override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout"])
 class TestAppendLogMirroring(TestCase):
     @classmethod
@@ -250,14 +268,15 @@ class TestAppendLogMirroring(TestCase):
         cls.organization = Organization.objects.create(name="Test Org")
         cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
 
-    def _create_run(self, origin_product: str) -> TaskRun:
+    def _create_run(self, origin_product: str, telemetry_enabled: bool | None = True) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
             title="Test Task",
             description="Test",
             origin_product=origin_product,
         )
-        return TaskRun.objects.create(team=self.team, task=task)
+        state = {"agent_otel_telemetry_enabled": telemetry_enabled} if telemetry_enabled is not None else {}
+        return TaskRun.objects.create(team=self.team, task=task, state=state)
 
     @parameterized.expand(
         [
@@ -283,6 +302,17 @@ class TestAppendLogMirroring(TestCase):
             self.assertEqual(mock_logger.info.call_args.kwargs["origin_product"], origin_product)
         else:
             mock_logger.info.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
+    @patch("products.tasks.backend.models.object_storage")
+    def test_no_mirroring_without_telemetry_flag_stamp(self, mock_storage, mock_logger):
+        mock_storage.read.return_value = None
+        run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT, telemetry_enabled=None)
+
+        run.append_log([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
+
+        mock_storage.write.assert_called_once()
+        mock_logger.info.assert_not_called()
 
     @override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=[])
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")

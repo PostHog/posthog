@@ -345,7 +345,8 @@ def _build_environment_variables(
         # the cache key) and cost attribution. Rely on Temporal retries instead.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
-    environment_variables.update(get_sandbox_otel_env_vars())
+    if ctx.agent_otel_telemetry_enabled:
+        environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
