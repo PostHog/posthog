@@ -13,6 +13,7 @@ from posthog.schema import (
     ConversionGoalFilter2,
     DateRange,
     MarketingAnalyticsBaseColumns,
+    PropertyMathType,
 )
 
 from posthog.hogql import ast
@@ -30,6 +31,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
+from .constants import ROAS_COLUMN
 from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
@@ -96,8 +98,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         goal_id: str,
         goal_name: str,
         event_name: str | None = None,
-        math: BaseMathType = BaseMathType.TOTAL,
+        math: BaseMathType | PropertyMathType = BaseMathType.TOTAL,
         math_property: str | None = None,
+        counts_as_revenue: bool | None = None,
     ) -> ConversionGoalFilter1:
         return ConversionGoalFilter1(
             kind="EventsNode",
@@ -106,6 +109,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             conversion_goal_name=goal_name,
             math=math,
             math_property=math_property,
+            counts_as_revenue=counts_as_revenue,
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
@@ -310,6 +314,45 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             division_expr = args[0]
             assert isinstance(division_expr, ast.ArithmeticOperation)
             assert division_expr.op == ast.ArithmeticOperationOp.Div
+
+    def test_roas_column_absent_when_no_goal_is_revenue(self):
+        goal = self._create_test_conversion_goal("plain", "Plain Goal")
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns()
+
+        assert ROAS_COLUMN not in columns
+
+    def test_roas_column_absent_without_campaign_costs(self):
+        goal = self._create_test_conversion_goal(
+            "rev", "Revenue Goal", math=PropertyMathType.SUM, math_property="revenue", counts_as_revenue=True
+        )
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns(include_cost_per=False)
+
+        assert ROAS_COLUMN not in columns
+
+    def test_roas_numerator_sums_only_the_revenue_goals(self):
+        goals = [
+            self._create_test_conversion_goal("g0", "Signups"),
+            self._create_test_conversion_goal(
+                "g1", "Purchases", math=PropertyMathType.SUM, math_property="revenue", counts_as_revenue=True
+            ),
+            self._create_test_conversion_goal(
+                "g2", "Subscriptions", math=PropertyMathType.SUM, math_property="mrr", counts_as_revenue=True
+            ),
+        ]
+        processors = [self._create_test_processor(goal, i) for i, goal in enumerate(goals)]
+        aggregator = ConversionGoalsAggregator(processors=processors, config=self.config)
+
+        roas = aggregator.get_conversion_goal_columns()[ROAS_COLUMN].expr.to_hogql()
+
+        # Revenue goals sit at indices 1 and 2, the plain signup goal at 0 must not be in the numerator
+        assert self.config.get_conversion_goal_column_name(1) in roas
+        assert self.config.get_conversion_goal_column_name(2) in roas
+        assert self.config.get_conversion_goal_column_name(0) not in roas
+        assert self.config.total_cost_field in roas
 
     def test_coalesce_fallback_columns(self):
         goal = self._create_test_conversion_goal("fallback_test", "Fallback Test")

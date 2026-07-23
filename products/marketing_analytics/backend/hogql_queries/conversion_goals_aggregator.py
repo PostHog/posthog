@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.settings import TEST
 
-from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+from products.marketing_analytics.backend.hogql_queries.constants import ROAS_COLUMN, UNIFIED_CONVERSION_GOALS_CTE_ALIAS
 
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
@@ -366,7 +366,48 @@ class ConversionGoalsAggregator:
                 )
                 columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
 
+        # ROAS = revenue from goals marked counts_as_revenue, over the channel's spend. Only when
+        # campaign_costs is joined (include_cost_per), since spend is the denominator. Skipped when
+        # no goal is flagged as revenue, so the column stays hidden until revenue goals exist.
+        if include_cost_per:
+            revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue]
+            if revenue_processors:
+                columns[ROAS_COLUMN] = self._build_roas_column(revenue_processors)
+
         return columns
+
+    def _build_roas_column(self, revenue_processors: list[ConversionGoalProcessor]) -> ast.Alias:
+        total_revenue = self._sum_conversion_values(revenue_processors)
+        total_cost = ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field))
+        return ast.Alias(
+            alias=ROAS_COLUMN,
+            expr=ast.Call(
+                name="round",
+                args=[
+                    ast.ArithmeticOperation(
+                        left=total_revenue,
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(name="nullif", args=[total_cost, ast.Constant(value=0)]),
+                    ),
+                    ast.Constant(value=2),
+                ],
+            ),
+        )
+
+    def _sum_conversion_values(self, processors: list[ConversionGoalProcessor]) -> ast.Expr:
+        """Sum the unified-CTE value columns of the given goals into one expression."""
+        fields = [
+            ast.Field(
+                chain=self.config.get_unified_conversion_field_chain(
+                    self.config.get_conversion_goal_column_name(p.index)
+                )
+            )
+            for p in processors
+        ]
+        total: ast.Expr = fields[0]
+        for field in fields[1:]:
+            total = ast.ArithmeticOperation(left=total, op=ast.ArithmeticOperationOp.Add, right=field)
+        return total
 
     def get_coalesce_fallback_columns(self, campaign_costs_joined: bool = True) -> dict[str, ast.Expr]:
         """Get COALESCE columns that fall back to unified conversion goals for campaign/id/source.
