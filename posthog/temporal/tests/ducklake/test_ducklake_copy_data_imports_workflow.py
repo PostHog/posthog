@@ -795,6 +795,10 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
         MagicMock(),
     )
     monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.create_staging_read_secret",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
         MagicMock(return_value=None),
     )
@@ -867,6 +871,10 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     )
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.setup_duckgres_session",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.create_staging_read_secret",
         MagicMock(),
     )
     monkeypatch.setattr(
