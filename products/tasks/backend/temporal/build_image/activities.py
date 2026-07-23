@@ -11,6 +11,8 @@ from temporalio import activity
 if TYPE_CHECKING:
     import modal
 
+    from posthog.llm.gateway_client import Product
+
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.logic.services.image_spec import (
@@ -26,6 +28,7 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 logger = logging.getLogger(__name__)
 
 SCAN_JUDGE_MODEL = "@cf/zai-org/glm-5.2"
+SCAN_JUDGE_PRODUCT: "Product" = "posthog_code"
 
 SCAN_JUDGE_SYSTEM_PROMPT = """You are a security judge reviewing a declarative sandbox image spec before it is built and published.
 
@@ -108,7 +111,7 @@ def _judge_spec_safety(spec_yaml: str, team_id: int, repository: str = "") -> Sc
         if repository
         else ""
     )
-    client = get_llm_client(product="django", team_id=team_id)
+    client = get_llm_client(product=SCAN_JUDGE_PRODUCT, team_id=team_id)
     response = client.chat.completions.create(
         model=SCAN_JUDGE_MODEL,
         messages=[
