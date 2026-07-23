@@ -581,6 +581,9 @@ export const evaluationsTestHogCreateBodySampleCountMax = 10
 
 export const evaluationsTestHogCreateBodyAllowsNaDefault = false
 export const evaluationsTestHogCreateBodyTargetDefault = `generation`
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault = 1800
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax = 7200
 
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     source: zod
@@ -608,6 +611,17 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.\n\n\* `generation` - Generation\n\* `trace` - Trace"
         ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin)
+                .max(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax)
+                .default(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault)
+                .describe('Aggregation window for trace samples, in seconds.'),
+        })
+        .optional()
+        .describe('Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.'),
 })
 
 /**

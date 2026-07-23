@@ -700,6 +700,15 @@ export interface PatchedEvaluationApi {
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
 
+export interface TestHogTargetConfigApi {
+    /**
+     * Aggregation window for trace samples, in seconds.
+     * @minimum 10
+     * @maximum 7200
+     */
+    window_seconds?: number
+}
+
 export interface TestHogRequestApi {
     /**
      * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
@@ -721,19 +730,31 @@ export interface TestHogRequestApi {
      * * `generation` - Generation
      * * `trace` - Trace */
     target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
 }
 
 export interface TestHogResultItemApi {
-    /** UUID of the $ai_generation event. */
-    event_uuid: string
+    /** Stable identifier for the sampled generation or trace. */
+    sample_id: string
+    /** Type of sampled unit: generation or trace.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    sample_type: EvaluationTargetEnumApi
+    /**
+     * UUID of the sampled $ai_generation event, or null for a trace sample.
+     * @nullable
+     */
+    event_uuid: string | null
     /**
      * Trace ID if available.
      * @nullable
      */
-    trace_id?: string | null
-    /** First 200 chars of the generation input. */
+    trace_id: string | null
+    /** First 200 characters of input from the sampled unit. */
     input_preview: string
-    /** First 200 chars of the generation output. */
+    /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
      * True = pass, False = fail, null = N/A or error.

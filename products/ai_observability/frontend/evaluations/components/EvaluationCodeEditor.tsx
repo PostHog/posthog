@@ -9,9 +9,10 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
+import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import type { EvaluationTarget, HogTestResult } from '../types'
+import type { EvaluationTarget } from '../types'
 
 const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm text-primary bg-fill-highlight-100 px-1.5 py-0.5 rounded'
 const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs text-primary bg-fill-highlight-100 px-1 py-0.5 rounded'
@@ -217,7 +218,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                     Clear
                 </LemonButton>
             </div>
-            <LemonTable<HogTestResult>
+            <LemonTable<TestHogResultItemApi>
                 columns={[
                     {
                         title: 'Result',
@@ -270,15 +271,13 @@ function HogTestResultsPanel(): JSX.Element | null {
                             if (!row.trace_id) {
                                 return null
                             }
-                            // Trace-target rows key on the trace id itself (event_uuid === trace_id),
-                            // so there's no single generation to deep-link — open the trace instead.
-                            const isTrace = row.event_uuid === row.trace_id
+                            const isTrace = row.sample_type === 'trace'
                             return (
                                 <Tooltip title={isTrace ? 'View trace' : 'View generation'}>
                                     <Link
                                         to={urls.aiObservabilityTrace(
                                             row.trace_id,
-                                            isTrace ? undefined : { event: row.event_uuid }
+                                            isTrace || !row.event_uuid ? undefined : { event: row.event_uuid }
                                         )}
                                         target="_blank"
                                     >
@@ -299,7 +298,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                 }}
                 dataSource={hogTestResults ?? []}
                 loading={hogTestResultsLoading}
-                rowKey="event_uuid"
+                rowKey="sample_id"
                 size="small"
             />
         </div>
@@ -351,7 +350,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 size="xsmall"
                                 loading={hogTestResultsLoading}
                                 disabled={!source.trim()}
-                                onClick={testHogOnSample}
+                                onClick={() => testHogOnSample()}
                                 data-attr="llma-evaluation-test-hog"
                             >
                                 Test on sample

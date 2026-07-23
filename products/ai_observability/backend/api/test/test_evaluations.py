@@ -999,6 +999,8 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(len(results), 2)
         for r in results:
             self.assertIn("event_uuid", r)
+            self.assertEqual(r["sample_id"], r["event_uuid"])
+            self.assertEqual(r["sample_type"], "generation")
             self.assertIn("result", r)
             self.assertIn("reasoning", r)
             self.assertIn("error", r)
@@ -1088,16 +1090,22 @@ class TestTestHogEndpoint(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "return target.type == 'trace'", "target": "trace"},
+            {
+                "source": "return target.type == 'trace'",
+                "target": "trace",
+                "target_config": {"window_seconds": 120},
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_run_over_traces.assert_called_once()
+        self.assertEqual(mock_run_over_traces.call_args.kwargs["window_seconds"], 120)
         # The generation query path must not run for a trace target.
         mock_query.assert_not_called()
         results = response.json()["results"]
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["event_uuid"], "trace-1")
+        self.assertEqual(results[0]["sample_id"], "trace-1")
+        self.assertEqual(results[0]["sample_type"], "trace")
+        self.assertIsNone(results[0]["event_uuid"])
         self.assertEqual(results[0]["trace_id"], "trace-1")
         self.assertTrue(results[0]["result"])
 

@@ -219,16 +219,34 @@ class TraceHogTestResult:
     output_preview: str
 
 
-def _sample_recent_trace_ids(
+@dataclass(frozen=True)
+class TraceHogTestSample:
+    trace_id: str
+    trigger_timestamp: datetime
+
+
+def _coerce_trace_test_timestamp(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        timestamp = value
+    elif isinstance(value, str):
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise TypeError(f"Unexpected trace sample timestamp type: {type(value).__name__}")
+
+    return timestamp if timestamp.tzinfo is not None else timestamp.replace(tzinfo=UTC)
+
+
+def _sample_recent_traces(
     team: Team,
     condition_filter: ast.Expr | None,
     sample_count: int,
     date_from: datetime,
     date_to: datetime,
-) -> list[str]:
+) -> list[TraceHogTestSample]:
     """Pick the most recent distinct trace ids whose *triggering* generation matches the
     evaluation's conditions — mirroring the online scheduler, which starts a trace-eval run
-    from the first matching `$ai_generation`."""
+    from the first matching `$ai_generation`. Historical previews use that event timestamp as
+    the closest available proxy for the workflow start time."""
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.In,
@@ -257,6 +275,7 @@ def _sample_recent_trace_ids(
     query = ast.SelectQuery(
         select=[
             ast.Field(chain=["trace_id"]),
+            ast.Alias(alias="trigger_timestamp", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="latest", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
@@ -272,7 +291,10 @@ def _sample_recent_trace_ids(
         query_type="EvaluationTestHogTraceSample",
         fall_back_to_events=True,
     )
-    return [str(row[0]) for row in (response.results or [])]
+    return [
+        TraceHogTestSample(trace_id=str(row[0]), trigger_timestamp=_coerce_trace_test_timestamp(row[1]))
+        for row in (response.results or [])
+    ]
 
 
 def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
@@ -297,6 +319,7 @@ def run_hog_eval_over_recent_traces(
     condition_filter: ast.Expr | None,
     sample_count: int,
     allows_na: bool,
+    window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     lookback_days: int = 7,
 ) -> list[TraceHogTestResult]:
     """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
@@ -305,17 +328,28 @@ def run_hog_eval_over_recent_traces(
     previewed the same way it runs online — whole trace, trace globals — instead of against a
     single generation.
     """
-    date_to = datetime.now(UTC)
-    date_from = date_to - timedelta(days=lookback_days)
-    trace_ids = _sample_recent_trace_ids(team, condition_filter, sample_count, date_from, date_to)
+    now = datetime.now(UTC)
+    window = timedelta(seconds=window_seconds)
+    # Only sample triggers whose full aggregation window has elapsed.
+    sample_date_to = now - window
+    sample_date_from = sample_date_to - timedelta(days=lookback_days)
+    trace_samples = _sample_recent_traces(
+        team,
+        condition_filter,
+        sample_count,
+        sample_date_from,
+        sample_date_to,
+    )
 
     results: list[TraceHogTestResult] = []
-    for trace_id in trace_ids:
-        outcome = _fetch_trace(team, trace_id, date_from, date_to)
+    for sample in trace_samples:
+        trace_date_from = sample.trigger_timestamp - TRACE_EVENTS_LOOKBACK
+        trace_date_to = sample.trigger_timestamp + window
+        outcome = _fetch_trace(team, sample.trace_id, trace_date_from, trace_date_to)
         if outcome.skip_reason or outcome.trace is None:
             results.append(
                 TraceHogTestResult(
-                    trace_id=trace_id,
+                    trace_id=sample.trace_id,
                     verdict=None,
                     reasoning="",
                     error=_SKIP_REASONING.get(outcome.skip_reason or "trace_not_found", "Evaluation skipped."),
@@ -325,12 +359,12 @@ def run_hog_eval_over_recent_traces(
             )
             continue
 
-        globals_dict = build_trace_hog_globals(outcome.trace, trace_id, bytecode=bytecode)
+        globals_dict = build_trace_hog_globals(outcome.trace, sample.trace_id, bytecode=bytecode)
         result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
         input_preview, output_preview = _trace_io_preview(outcome.trace)
         results.append(
             TraceHogTestResult(
-                trace_id=trace_id,
+                trace_id=sample.trace_id,
                 verdict=result["verdict"],
                 reasoning=result["reasoning"],
                 error=result["error"],

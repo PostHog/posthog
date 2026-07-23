@@ -435,7 +435,8 @@ tools:
         description: >
             Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the
             evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and
-            runs against trace-level globals. Returns per-sample results (pass/fail/N/A), reasoning, and input/output
+            runs against trace-level globals. For trace previews, pass target_config.window_seconds to match the saved
+            evaluation's aggregation window. Returns per-sample results (pass/fail/N/A), reasoning, and input/output
             previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.
     llma-evaluation-update:
         operation: evaluations_partial_update

@@ -1,15 +1,17 @@
 import json
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
 
-from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestTool
+from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestArgs, RunHogEvalTestTool
 
 EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
 
@@ -41,6 +43,11 @@ def _make_event(
 
 def _run_tool(tool, **kwargs):
     return async_to_sync(tool._arun_impl)(**kwargs)
+
+
+def test_run_hog_eval_args_reject_unknown_target():
+    with pytest.raises(ValidationError):
+        RunHogEvalTestArgs(source="return true", target="traces")
 
 
 class TestRunHogEvalTestTool(BaseTest):
@@ -226,10 +233,16 @@ class TestRunHogEvalTestTool(BaseTest):
         ]
 
         tool = self._make_tool()
-        result, artifact = _run_tool(tool, source="return target.type == 'trace';", sample_count=2, target="trace")
+        result, artifact = _run_tool(
+            tool,
+            source="return target.type == 'trace';",
+            sample_count=2,
+            target="trace",
+            window_seconds=120,
+        )
 
         assert artifact is None
-        mock_run_over_traces.assert_called_once()
+        assert mock_run_over_traces.call_args.kwargs["window_seconds"] == 120
         assert "Trace trace-1" in result
         assert "Result: PASS" in result
 

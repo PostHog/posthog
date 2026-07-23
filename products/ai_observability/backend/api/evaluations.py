@@ -615,6 +615,16 @@ class EvaluationListSerializer(EvaluationSerializer):
         read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
 
 
+class TestHogTargetConfigSerializer(serializers.Serializer):
+    window_seconds = serializers.IntegerField(
+        required=False,
+        default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+        min_value=TRACE_EVAL_MIN_WINDOW_SECONDS,
+        max_value=TRACE_EVAL_MAX_WINDOW_SECONDS,
+        help_text="Aggregation window for trace samples, in seconds.",
+    )
+
+
 class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(
         required=True,
@@ -647,13 +657,29 @@ class TestHogRequestSerializer(serializers.Serializer):
             "evaluation runs online."
         ),
     )
+    target_config = TestHogTargetConfigSerializer(
+        required=False,
+        default=dict,
+        help_text=(
+            "Target-specific preview settings. For a trace target, set window_seconds between "
+            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+        ),
+    )
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
-    event_uuid = serializers.CharField(help_text="UUID of the $ai_generation event.")
-    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
-    input_preview = serializers.CharField(help_text="First 200 chars of the generation input.")
-    output_preview = serializers.CharField(help_text="First 200 chars of the generation output.")
+    sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation or trace.")
+    sample_type = serializers.ChoiceField(
+        choices=EvaluationTarget.choices,
+        help_text="Type of sampled unit: generation or trace.",
+    )
+    event_uuid = serializers.CharField(
+        allow_null=True,
+        help_text="UUID of the sampled $ai_generation event, or null for a trace sample.",
+    )
+    trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")
+    output_preview = serializers.CharField(help_text="First 200 characters of output from the sampled unit.")
     result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
@@ -675,6 +701,7 @@ def _test_hog_over_traces(
     sample_count: int,
     allows_na: bool,
     conditions: list[dict[str, Any]],
+    window_seconds: int,
 ) -> Response:
     """Trace-target variant of the `test_hog` action: sample recent whole traces and run the code
     against trace-level globals, so the editor preview matches how a trace eval runs online."""
@@ -686,13 +713,16 @@ def _test_hog_over_traces(
             condition_filter=condition_filter,
             sample_count=sample_count,
             allows_na=allows_na,
+            window_seconds=window_seconds,
         )
     except AIEventsUnavailableError:
         trace_results = []
 
     results = [
         {
-            "event_uuid": r.trace_id,
+            "sample_id": r.trace_id,
+            "sample_type": EvaluationTarget.TRACE.value,
+            "event_uuid": None,
             "trace_id": r.trace_id,
             "input_preview": r.input_preview,
             "output_preview": r.output_preview,
@@ -928,6 +958,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         allows_na = serializer.validated_data["allows_na"]
         conditions = serializer.validated_data.get("conditions", [])
         target = serializer.validated_data["target"]
+        target_config = serializer.validated_data["target_config"]
 
         try:
             bytecode = compile_ai_observability_hog(source, "destination")
@@ -961,6 +992,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 sample_count=sample_count,
                 allows_na=allows_na,
                 conditions=conditions,
+                window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
             )
 
         where_exprs: list[ast.Expr] = [
@@ -1058,6 +1090,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
             results.append(
                 {
+                    "sample_id": event_uuid,
+                    "sample_type": EvaluationTarget.GENERATION.value,
                     "event_uuid": event_uuid,
                     "trace_id": properties.get("$ai_trace_id"),
                     "input_preview": input_preview,

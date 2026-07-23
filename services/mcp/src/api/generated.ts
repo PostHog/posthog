@@ -67941,6 +67941,15 @@ export namespace Schemas {
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
+    export interface TestHogTargetConfig {
+      /**
+         * Aggregation window for trace samples, in seconds.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    }
+
     export interface TestHogRequest {
       /**
          * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
@@ -67962,19 +67971,31 @@ export namespace Schemas {
        * * `generation` - Generation
        * * `trace` - Trace */
       target?: EvaluationTargetEnum;
+      /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+      target_config?: TestHogTargetConfig;
     }
 
     export interface TestHogResultItem {
-      /** UUID of the $ai_generation event. */
-      event_uuid: string;
+      /** Stable identifier for the sampled generation or trace. */
+      sample_id: string;
+      /** Type of sampled unit: generation or trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      sample_type: EvaluationTargetEnum;
+      /**
+         * UUID of the sampled $ai_generation event, or null for a trace sample.
+         * @nullable
+         */
+      event_uuid: string | null;
       /**
          * Trace ID if available.
          * @nullable
          */
-      trace_id?: string | null;
-      /** First 200 chars of the generation input. */
+      trace_id: string | null;
+      /** First 200 characters of input from the sampled unit. */
       input_preview: string;
-      /** First 200 chars of the generation output. */
+      /** First 200 characters of output from the sampled unit. */
       output_preview: string;
       /**
          * True = pass, False = fail, null = N/A or error.
