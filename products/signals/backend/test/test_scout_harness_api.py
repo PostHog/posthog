@@ -16,6 +16,7 @@ from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import OAuthApplication
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -1123,6 +1124,81 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
+
+    def test_partial_update_slack_destination_is_project_scoped_and_round_trips(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_integration = Integration.objects.create(team=other_team, kind=Integration.IntegrationKind.SLACK)
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={
+                "output_destinations": {"slack": {"integration_id": other_integration.id, "channel": "COTHER|#other"}}
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.output_destinations == {}
+
+        child_team = Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        integration = Integration.objects.create(team=child_team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"}}
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"] == destination
+        config.refresh_from_db()
+        assert config.output_destinations == destination
+
+    @parameterized.expand(
+        [
+            ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, "integration:read"),
+            (
+                "missing_task_scope",
+                ["signal_scout:write", "integration:read"],
+                status.HTTP_403_FORBIDDEN,
+                "task:read",
+            ),
+            (
+                "integration_and_task_scopes",
+                ["signal_scout:write", "integration:read", "task:read"],
+                status.HTTP_200_OK,
+                None,
+            ),
+        ]
+    )
+    def test_partial_update_slack_destination_requires_integration_and_task_scopes(
+        self, _name: str, scopes: list[str], expected_status: int, expected_missing_scope: str | None
+    ) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"}}
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.output_destinations == (destination if expected_status == status.HTTP_200_OK else {})
+        if expected_missing_scope is not None:
+            assert expected_missing_scope in response.json()["detail"]
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
