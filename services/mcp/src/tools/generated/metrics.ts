@@ -1,16 +1,14 @@
 // AUTO-GENERATED from products/metrics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { pickResponseFields } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     MetricsCharacterizeCreateBody,
     MetricsQueryCreateBody,
     MetricsValuesRetrieveQueryParams,
 } from '@/generated/metrics/api'
+import { pickResponseFields } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CharacterizeMetricAnomalySchema = MetricsCharacterizeCreateBody
 
