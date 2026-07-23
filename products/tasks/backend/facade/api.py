@@ -5327,7 +5327,7 @@ def post_canvas_created_thread_update(
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
 
 
-_GITHUB_PR_URL_PATTERN = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", re.IGNORECASE)
+_GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)
 
 # Characters that could break out of a markdown [label](url) token or smuggle
 # extra markdown into the rendered thread message.
@@ -5350,7 +5350,10 @@ def _is_safe_pr_url(pr_url: str) -> bool:
 
 
 def _pr_display_label(pr_url: str) -> str:
-    match = _GITHUB_PR_URL_PATTERN.search(pr_url)
+    parsed = urlparse(pr_url)
+    if parsed.hostname is None or parsed.hostname.lower() != "github.com":
+        return pr_url
+    match = _GITHUB_PR_PATH_PATTERN.fullmatch(parsed.path)
     if match:
         owner, repo, number = match.groups()
         return f"{owner}/{repo}#{number}"

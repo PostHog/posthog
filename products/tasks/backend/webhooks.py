@@ -216,9 +216,12 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
     and later webhook lookups never resolve the PR.
     """
-    if not _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed"):
+    recorded = _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed")
+    if not recorded and not TaskRun.objects.filter(id=task_run.id, output__pr_url=pr_url).exists():
         return
     post_pr_created_thread_update(task_run, pr_url)
+    if not recorded:
+        return
     # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.

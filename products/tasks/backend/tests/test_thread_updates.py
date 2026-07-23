@@ -62,15 +62,21 @@ class TestAgentThreadUpdates(TestCase):
             "[posthog/posthog#123](https://github.com/posthog/posthog/pull/123) has been opened",
         )
 
+    @parameterized.expand(
+        [
+            ("non_github", "https://example.com/pr/9"),
+            ("github_in_path", "https://evil.example/github.com/posthog/posthog/pull/123"),
+        ]
+    )
     @patch(_FLAG_TARGET, return_value=True)
-    def test_pr_created_falls_back_to_url_label_for_non_github_urls(self, _flag) -> None:
-        post_pr_created_thread_update(self.task_run, "https://example.com/pr/9")
+    def test_pr_created_falls_back_to_url_label_for_non_github_urls(self, _name, pr_url, _flag) -> None:
+        post_pr_created_thread_update(self.task_run, pr_url)
 
         messages = self._messages(self.task)
         self.assertEqual(len(messages), 1)
         self.assertEqual(
             messages[0].content,
-            "[https://example.com/pr/9](https://example.com/pr/9) has been opened",
+            f"[{pr_url}]({pr_url}) has been opened",
         )
 
     @patch(_FLAG_TARGET, return_value=True)
