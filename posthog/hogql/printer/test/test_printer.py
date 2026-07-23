@@ -2006,6 +2006,15 @@ class TestPrinter(BaseTest):
             "transform(0, [1, 3], [2, 4], 5)",
         )
 
+    def test_multi_arg_if_becomes_multi_if(self):
+        # `if` is strictly ternary; a query passing chained conditions used to fail materialization
+        # with an opaque "expects 3 arguments" error. It now lowers to `multiIf` (odd arg count only).
+        self.assertEqual(self._expr("if(1, 2, 3)"), "if(1, 2, 3)")
+        self.assertEqual(self._expr("if(1, 2, 3, 4, 5)"), "multiIf(1, 2, 3, 4, 5)")
+        self.assertEqual(self._expr("if(1, 2, 3, 4, 5, 6, 7)"), "multiIf(1, 2, 3, 4, 5, 6, 7)")
+        # An even argument count can't map cleanly to multiIf, so it still surfaces the error.
+        self._assert_expr_error("if(1, 2, 3, 4)", "expects 3 arguments, found 4")
+
     def test_select(self):
         self.assertEqual(self._select("select 1"), f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}")
         self.assertEqual(self._select("select 1 + 2"), f"SELECT plus(1, 2) LIMIT {MAX_SELECT_RETURNED_ROWS}")
@@ -7490,6 +7499,12 @@ class TestPostgresPrinter(BaseTest):
             (
                 "multiIf",
                 "multiIf(1, 'a', 0, 'b', 'c')",
+                "CASE WHEN 1 THEN %(hogql_val_0)s WHEN 0 THEN %(hogql_val_1)s ELSE %(hogql_val_2)s END",
+            ),
+            # A multi-branch `if` is lowered to `multiIf` rather than silently dropping the extra branches
+            (
+                "if_multi_branch",
+                "if(1, 'a', 0, 'b', 'c')",
                 "CASE WHEN 1 THEN %(hogql_val_0)s WHEN 0 THEN %(hogql_val_1)s ELSE %(hogql_val_2)s END",
             ),
             # Null/empty

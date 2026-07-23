@@ -113,6 +113,10 @@ class PostgresPrinter(BasePrinter):
         return node.name.upper()
 
     def visit_call(self, node: ast.Call):
+        rewritten = self._rewrite_multi_arg_if(node)
+        if rewritten is not None:
+            return self.visit(rewritten)
+
         if node.name.lower() in {"percentile_cont", "percentile_disc"}:
             return super().visit_call(node)
 
