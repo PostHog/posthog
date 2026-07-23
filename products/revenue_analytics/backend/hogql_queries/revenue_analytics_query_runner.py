@@ -395,8 +395,17 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
             # Can only be either day | month only, simpler implementation
             interval=IntervalType(self.query.interval) if hasattr(self.query, "interval") else None,
             now=datetime.now(timezone_info),
-            earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
+            earliest_timestamp_fallback=self._earliest_timestamp_fallback(),
         )
+
+    def _earliest_timestamp_fallback(self) -> datetime:
+        """Lower bound used for "all time" ranges when no explicit date_from is given.
+
+        Defaults to the static EARLIEST_TIMESTAMP (2015). Runners whose query scans get
+        expensive on a decade-wide window can override this to resolve the team's real
+        earliest revenue timestamp instead, keeping the scanned window tight.
+        """
+        return EARLIEST_TIMESTAMP
 
     def timestamp_where_clause(
         self,
