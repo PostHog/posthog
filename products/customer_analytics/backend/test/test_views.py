@@ -2245,6 +2245,26 @@ class TestCustomPropertyGroupScope(APIBaseTest):
         )
         assert detail2.status_code == status.HTTP_200_OK, detail2.content
 
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_value_suggestions_require_group_read_scope(self, _flag):
+        # The values action loads a definition by id, so it must apply the same group-read gate as
+        # list/detail — an account-only token must not read a group-target definition's suggestions.
+        def_id, _ = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        denied = self.client.get(
+            f"{self.definitions_endpoint}values/?key={def_id}",
+            headers={"authorization": f"Bearer {account_token}"},
+        )
+        assert denied.status_code == status.HTTP_404_NOT_FOUND, denied.content
+
+        group_token = self._token(["account:read", "group:read"])
+        allowed = self.client.get(
+            f"{self.definitions_endpoint}values/?key={def_id}",
+            headers={"authorization": f"Bearer {group_token}"},
+        )
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+
 
 class TestAccountNotesViewSet(APIBaseTest):
     def setUp(self):

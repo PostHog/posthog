@@ -323,6 +323,18 @@ class CustomPropertyDefinitionViewSet(
         key = request.GET.get("key")
         if not key:
             return Response({"results": [], "refreshing": False})
+        # Suggestions expose a group-target definition's option labels (and its existence), so gate them
+        # on group read authorization just like list/retrieve — an account-scoped caller without group
+        # read must not read group property configuration. Unknown keys keep the empty-envelope behavior.
+        definition = api.get_custom_property_definition(
+            self.team_id, key, user_access_control=_warehouse_scoped_uac(self)
+        )
+        if (
+            definition is not None
+            and definition.target_type == _GROUP_TARGET_TYPE
+            and not _has_group_scope(request, write=False)
+        ):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         suggestions = api.list_custom_property_value_suggestions(self.team_id, key, request.GET.get("value"))
         return Response({"results": [{"name": value} for value in suggestions], "refreshing": False})
 
