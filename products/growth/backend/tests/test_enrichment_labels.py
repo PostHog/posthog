@@ -253,6 +253,38 @@ class TestEnrichmentLabelDryRun(BaseTest):
 
         assert EnrichmentLabelResult.objects.count() == 0
 
+    def test_admin_bulk_delete_cannot_remove_a_config_with_stored_results(self):
+        config = EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="test-v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            temperature=1.0,
+            input_fields=["name"],
+        )
+        fetch = OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization, provider="harmonic", payload={"name": "Acme"}
+        )
+        EnrichmentLabelResult.objects.create(
+            organization=self.organization,
+            fetch=fetch,
+            label_name=config.name,
+            prompt_version=config.version,
+            prompt_hash=config.content_hash,
+            model=config.model,
+            output={"ai_pilled": True, "confidence": 0.9, "reasoning": "x"},
+        )
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+        self.client.post(
+            "/admin/growth/enrichmentpromptconfig/",
+            {"action": "delete_selected", "_selected_action": [str(config.pk)], "post": "yes"},
+        )
+
+        assert EnrichmentPromptConfig.objects.filter(pk=config.pk).exists()
+
     def test_admin_dry_run_action_renders_verdicts_and_persists_nothing(self):
         config = EnrichmentPromptConfig.objects.create(
             name="test_label",

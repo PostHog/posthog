@@ -486,6 +486,12 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
             return False
         return super().has_delete_permission(request, obj)
 
+    def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
+        # Bulk delete uses queryset.delete(), which skips the model's provenance guard —
+        # route through instance deletes so it always runs.
+        for config in queryset:
+            config.delete()
+
     def save_model(self, request: HttpRequest, obj: EnrichmentPromptConfig, form: Any, change: bool) -> None:
         if not change and request.user.is_authenticated:
             obj.created_by = request.user
