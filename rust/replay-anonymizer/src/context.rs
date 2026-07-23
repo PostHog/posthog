@@ -12,6 +12,7 @@ use anyhow::{bail, Result};
 
 use crate::allow_lists::AllowLists;
 use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
+use crate::timings::PhaseTimings;
 
 /// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
 /// `compression::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
@@ -25,14 +26,27 @@ pub struct Ctx<'a> {
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
+    timings: Option<&'a PhaseTimings>,
 }
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
+        Self::with_timings(allow, None)
+    }
+
+    pub fn with_timings(allow: &'a AllowLists, timings: Option<&'a PhaseTimings>) -> Self {
         Self {
             allow,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
             blur_cache: RefCell::new(HashMap::new()),
+            timings,
+        }
+    }
+
+    fn timed<T>(&self, op: &'static str, f: impl FnOnce() -> T) -> T {
+        match self.timings {
+            Some(t) => t.time_op(op, f),
+            None => f(),
         }
     }
 
@@ -47,7 +61,7 @@ impl<'a> Ctx<'a> {
     /// codecs directly. Magic-byte dispatch (gzip or zstd, unknown fails closed) lives in
     /// [`crate::compression::decompress_by_magic`]; this layers the cumulative budget on top.
     pub fn decompress_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
-        let out = crate::compression::decompress_by_magic(raw)?;
+        let out = self.timed("cv", || crate::compression::decompress_by_magic(raw))?;
         match self.cv_budget.get().checked_sub(out.len()) {
             Some(rest) => self.cv_budget.set(rest),
             None => bail!("message exceeds the cumulative cv decompression budget"),
@@ -63,7 +77,7 @@ impl<'a> Ctx<'a> {
         if let Some(hit) = self.blur_cache.borrow().get(original) {
             return hit.clone();
         }
-        let result = blur_image_data_uri(original);
+        let result = self.timed("blur", || blur_image_data_uri(original));
         self.blur_cache
             .borrow_mut()
             .insert(original.to_string(), result.clone());
@@ -76,7 +90,7 @@ impl<'a> Ctx<'a> {
         if let Some(hit) = self.blur_cache.borrow().get(&key) {
             return hit.clone();
         }
-        let result = pixelate_raw_rgba(rgba_base64, width, height);
+        let result = self.timed("blur", || pixelate_raw_rgba(rgba_base64, width, height));
         self.blur_cache.borrow_mut().insert(key, result.clone());
         result
     }

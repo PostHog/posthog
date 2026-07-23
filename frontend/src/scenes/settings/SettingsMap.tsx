@@ -441,6 +441,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
             },
+            {
+                id: 'customer-analytics-person-properties',
+                title: 'Person properties from the warehouse',
+                description:
+                    'Sync warehouse table columns onto matching people as person properties, and manage their schedule, backfills, and run history.',
+                component: <WarehousePersonPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'person', 'properties', 'sync', 'backfill'],
+            },
         ],
     },
     {
@@ -905,15 +914,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/data/persons',
                 component: <PersonDisplayNameProperties />,
                 keywords: ['name', 'email', 'identity', 'display'],
-            },
-            {
-                id: 'warehouse-person-properties',
-                title: 'Person properties from the warehouse',
-                description:
-                    'Sync columns from a data warehouse table onto matching people as person properties, usable in feature flags, cohorts and insights.',
-                component: <WarehousePersonPropertiesSetting />,
-                flag: 'WAREHOUSE_PERSON_PROPERTIES',
-                keywords: ['warehouse', 'person', 'properties', 'sync', 'custom property'],
             },
             {
                 id: 'person-last-seen-at',

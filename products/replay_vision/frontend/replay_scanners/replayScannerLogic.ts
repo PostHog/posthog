@@ -259,7 +259,6 @@ export interface replayScannerLogicValues {
         ineligible: number
         inFlight: number
         succeeded: number
-        successRate: number | null
         total: number
     }
     observationStatsApi: ObservationStatsApi | null
@@ -601,7 +600,6 @@ export interface replayScannerLogicMeta {
             ineligible: number
             inFlight: number
             succeeded: number
-            successRate: number | null
             total: number
         }
         monitorStats: (observationStatsApi: ObservationStatsApi | null) => {
@@ -1201,10 +1199,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 failed: number
                 ineligible: number
                 inFlight: number
-                successRate: number | null
             } => {
                 if (!stats) {
-                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0, successRate: null }
+                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0 }
                 }
                 const c = stats.status_counts
                 return {
@@ -1213,7 +1210,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     failed: c.failed,
                     ineligible: c.ineligible,
                     inFlight: c.in_flight,
-                    successRate: c.success_rate,
                 }
             },
         ],

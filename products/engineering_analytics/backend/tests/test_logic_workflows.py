@@ -12,7 +12,16 @@ from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import GitHubTables
-from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS,
+)
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    _pr_row,
+    _run_row,
+    connect_github_source_without_data,
+)
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _RUN_QUERY,
     _ago,
@@ -21,13 +30,6 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _EndpointsWarehouseMixin,
     _job_row,
     _resp,
-)
-from products.engineering_analytics.backend.tests.test_views import (
-    _PULL_REQUESTS_COLUMNS,
-    _WORKFLOW_RUNS_COLUMNS,
-    _pr_row,
-    _run_row,
-    connect_github_source_without_data,
 )
 
 
@@ -197,7 +199,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # chart series empty. The default call keeps the series for the UI.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 # human, merged in window: open->merge = 8 days; the median's only sample
                 _pr_row(80, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha80"),
@@ -209,7 +211,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
                 _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
@@ -255,12 +257,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # A -30d window puts its prev twin at [-60d, -30d), so _ago(45) lands squarely in it.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(60, "alice", "open", 0, _ago(2), head_sha="sha60")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(6001, "CI", "sha60", "completed", "success", _ago(2), _ago(2), pr_number=60),
                 _run_row(6002, "CI", "sha60p", "completed", "success", _ago(45), _ago(45), pr_number=60),
@@ -273,7 +275,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     def test_workflow_health_duration_percentiles_exclude_cancelled_failed_and_noop_runs(self) -> None:
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
         )
         # Every real success shares one duration, so the percentile population is exactly 100; any
@@ -281,7 +283,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         conclusions = [("success", 100)] * 2 + [("success", 4)] * 3 + [("cancelled", 1)] * 3 + [("failure", 1000)]
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(
                     9000 + index,
@@ -318,14 +320,14 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
         )
         # The scenario matrix: PR-attributed × head branch. Only the attributed feature-branch
         # run belongs in the pull_request scope.
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(run_id, "CI", sha, "completed", "success", _ago(1), _ago(1), pr_number=pr, head_branch=head)
                 for run_id, sha, pr, head in [
@@ -351,12 +353,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # With the jobs source synced, each workflow carries its windowed billable cost + minutes.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9500, "CI", "sha80", "completed", "success", _ago(1), _ago(1))],
         )
         self._create_table(
@@ -372,12 +374,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # The single-workflow breakdown splits a workflow's spend across runner tiers.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(83, "alice", "open", 0, _ago(1), head_sha="sha83")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9600, "CI", "sha83", "completed", "success", _ago(1), _ago(1))],
         )
         self._create_table(
@@ -401,12 +403,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # runs are completed but neither successes nor failures, so they must not inflate the trend.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(30, "alice", "open", 0, _ago(1), head_sha="sha30")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(6001, "CI", "sha-a", "completed", "success", _ago(1), _ago(1)),
                 _run_row(6002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
@@ -426,12 +428,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # only decisive failure is a timeout still has a "last failure".
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(31, "alice", "open", 0, _ago(1), head_sha="sha31")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(6101, "CI", "sha-g", "completed", "success", _ago(2), _ago(2)),
                 _run_row(6102, "CI", "sha-h", "completed", "timed_out", _ago(1), _ago(1)),
@@ -448,12 +450,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # The run detail page fetches one run by id; re-runs share the id, so the latest attempt wins.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(42, "alice", "open", 0, _ago(1), head_sha="sha42")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(
                     7777, "CI", "sha42", "completed", "failure", _ago(2), _ago(2), head_branch="master", pr_number=42
@@ -491,12 +493,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # The workflow detail page lists one workflow's runs, newest first, scoped to its repo.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(50, "alice", "open", 0, _ago(1), head_sha="sha50")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(8001, "CI", "sha-a", "completed", "success", _ago(3), _ago(3)),
                 _run_row(8002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
@@ -524,12 +526,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # workflow falls back to showing everything.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 # A fast failure is signal (broken config fails in seconds) — never filtered as no-op.
                 _run_row(
@@ -602,12 +604,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # two dots. Runs off the default branch and outside the window are excluded.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(95, "alice", "open", 0, _ago(1), head_sha="sha95")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 # Commit A: two workflows, both passed -> one green dot with a wall-clock duration spanning
                 # the earliest start to the latest finish (not either workflow's own duration).
@@ -644,12 +646,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # branch and showed more runs (and more cost) than the tab did.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(8501, "CI", "sha-m1", "completed", "success", *_ago_with_duration(2, 60), head_branch="main"),
                 _run_row(8502, "CI", "sha-m2", "completed", "failure", *_ago_with_duration(1, 60), head_branch="main"),
@@ -699,12 +701,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # Jobs are an optional source: absent → graceful empty; present → costed per runner tier.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(60, "alice", "open", 0, _ago(1), head_sha="sha60")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9100, "CI", "sha60", "completed", "failure", _ago(1), _ago(1))],
         )
         # No jobs table synced yet → empty, not an error (the graceful path).
@@ -732,12 +734,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # a contract validation error (regression guard for nullable run_started_at/updated_at).
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(63, "alice", "open", 0, _ago(1), head_sha="sha63")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9300, "CI", "sha63", "queued", None, "", "", pr_number=63)],
         )
         run = api.get_workflow_run(team=self.team, run_id=9300)
@@ -753,12 +755,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # Default (no run_attempt) returns the latest attempt; an explicit attempt returns just that one.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(62, "alice", "open", 0, _ago(1), head_sha="sha62")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9200, "CI", "sha62", "completed", "success", _ago(1), _ago(1), run_attempt=2)],
         )
         self._create_table(
@@ -781,12 +783,12 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     def test_workflow_health_branch_filter(self) -> None:
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(20, "alice", "open", 0, _ago(1), head_sha="sha20")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(5001, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
                 _run_row(5002, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),

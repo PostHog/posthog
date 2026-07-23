@@ -12,9 +12,11 @@ from django.utils import timezone
 
 import pandas as pd
 
-from products.engineering_analytics.backend.tests.test_views import (
-    _PULL_REQUESTS_COLUMNS,
-    _WORKFLOW_RUNS_COLUMNS,
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS,
+)
+from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
@@ -179,7 +181,7 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
     def _seed(self) -> None:
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 # open, recent (<7d), human, failing CI on sha10
                 _pr_row(10, "alice", "open", 0, _ago(1), head_sha="sha10", labels=("bug",)),
@@ -199,7 +201,7 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
                 _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),

@@ -40,11 +40,13 @@ from posthog.tasks.email import (
     send_new_ticket_notification,
     send_password_reset,
     send_posthog_ai_access_request,
+    send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_wizard_pr_ready_email,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -1809,6 +1811,49 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         membership.save()
 
         send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=owner.id)
+
+        assert len(mocked_email_messages) == 0
+
+    def test_send_project_secret_api_key_exposed(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="regular-member@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        key, _ = create_project_secret_api_key(team=self.team, created_by=self.user, label="Production key")
+
+        send_project_secret_api_key_exposed(self.team.id, key.id, "phs_...abcd", "This key was detected by GitHub.")
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.template_name == "project_secret_api_key_exposed"
+        # Only admins are notified since they are the ones who can manage keys
+        recipient_emails = {dest["raw_email"] for dest in message.to}
+        assert recipient_emails == {self.user.email}
+        assert message.properties["label"] == "Production key"
+        assert message.properties["mask_value"] == "phs_...abcd"
+        assert (
+            message.properties["url"]
+            == f"{settings.SITE_URL}/project/{self.team.pk}/settings/environment-secret-api-keys"
+        )
+        assert message.html_body
+
+    def test_send_project_secret_api_key_exposed_respects_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.user.partial_notification_settings = {"project_api_key_exposed": False}
+        self.user.save()
+        key, _ = create_project_secret_api_key(team=self.team, label="Production key")
+
+        send_project_secret_api_key_exposed(self.team.id, key.id, "phs_...abcd", "")
 
         assert len(mocked_email_messages) == 0
 

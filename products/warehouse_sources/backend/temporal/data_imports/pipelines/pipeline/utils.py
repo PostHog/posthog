@@ -293,26 +293,24 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
                 except pa.ArrowInvalid as e:
-                    # A narrowing cast overflowed. The usual causes are the source column's type
-                    # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
-                    # column was created with the narrower type, or an integer-created column now
-                    # receiving fractional values — e.g. a price field whose first-synced rows were
-                    # all whole numbers, later failing with "ArrowInvalid: Float value 19.990000
-                    # was truncated converting to int64". delta-rs cannot widen an existing column
-                    # in place, so retrying is futile — surface an actionable error telling the
-                    # user to reset and fully re-sync the table. Whole-valued floats/decimals still
-                    # cast into an integer column losslessly, so this only fires on genuine data loss.
-                    if pa.types.is_integer(delta_field.type) and (
-                        pa.types.is_integer(incoming_column.type)
-                        or pa.types.is_floating(incoming_column.type)
-                        or pa.types.is_decimal(incoming_column.type)
-                    ):
-                        raise SchemaColumnTypeChangedException(
-                            f"Source column type changed: '{delta_field.name}' has values that no longer "
-                            f"fit its stored type {delta_field.type} (incoming data is now "
-                            f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
-                        ) from e
-                    raise
+                    # Reaching this cast already means the incoming type differs from the stored
+                    # Delta type (see the guard above) and the timestamp path didn't apply, so a
+                    # failure here is a deterministic, unretryable incompatibility: the source
+                    # column's type changed under a table created with a narrower type. Common
+                    # shapes are an integer column widened upstream (Postgres `integer` → `bigint`),
+                    # an integer-created column now receiving fractional values ("Float value 19.99
+                    # was truncated converting to int64"), non-numeric text arriving for a numeric
+                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), or a
+                    # value that overflows the stored decimal precision. delta-rs cannot change a
+                    # column's type in place, so retrying is futile — surface an actionable error
+                    # telling the user to reset and fully re-sync. Lossless widening (e.g. a
+                    # whole-valued float into an integer column) still casts fine and never reaches
+                    # here.
+                    raise SchemaColumnTypeChangedException(
+                        f"Source column type changed: '{delta_field.name}' has values that no longer "
+                        f"fit its stored type {delta_field.type} (incoming data is now "
+                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                    ) from e
 
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
@@ -672,8 +670,19 @@ def append_partition_key_to_table(
 
                 if key_value is None:
                     partition_array.append(NULL_NUMERICAL_PARTITION)
-                else:
+                elif isinstance(key_value, int):
                     partition_array.append(str(key_value // partition_size))
+                else:
+                    # A persisted "numerical" mode can outlive the integer key column that
+                    # justified it (e.g. the source's key column changed type mid-sync). Coerce
+                    # numeric values back to int so rows keep their original bucket; anything that
+                    # isn't integer-like lands in the null bucket instead of crashing the sync.
+                    try:
+                        coerced_key_value = int(key_value)
+                    except (TypeError, ValueError):
+                        partition_array.append(NULL_NUMERICAL_PARTITION)
+                    else:
+                        partition_array.append(str(coerced_key_value // partition_size))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]
@@ -766,7 +775,7 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
         A `pa.Decimal128Type` or `pa.Decimal256Type` with enough precision and
         scale to hold all `values`.
     """
-    max_precision = 1
+    max_int_digits = 0
     max_scale = 0
 
     for value in values:
@@ -774,23 +783,25 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
         if not isinstance(exponent, int):
             continue
 
-        # This implementation accounts for leading zeroes being excluded from digits
-        # It is based on Arrow, see:
+        # `len(digits) + exponent` is the number of digits left of the decimal point (<= 0 for a
+        # pure fraction such as 0.0012). See Arrow's decimal inference:
         # https://github.com/apache/arrow/blob/main/python/pyarrow/src/arrow/python/decimal.cc#L75
-        if exponent < 0:
-            precision = max(len(digits), -exponent)
-            scale = -exponent
-        else:
-            precision = len(digits) + exponent
-            scale = 0
+        scale = -exponent if exponent < 0 else 0
+        int_digits = max(len(digits) + exponent, 0)
 
-        max_precision = max(precision, max_precision)
+        max_int_digits = max(int_digits, max_int_digits)
         max_scale = max(scale, max_scale)
 
     # Deltalake doesn't like writing decimals with scale of 0 - it auto appends `.0`
     if max_scale == 0:
         max_scale = 1
-        max_precision += 1
+
+    # Precision must cover BOTH the integer and fractional parts. Taking the max precision and the
+    # max scale independently under-provisions integer digits when the widest value and the
+    # highest-scale value are different rows — e.g. [1000000, 0.0001] would infer a type with no
+    # room for the 7-digit integer, overflowing the Delta write. Sizing precision as
+    # integer-digits + scale keeps every value representable.
+    max_precision = max(max_int_digits + max_scale, 1)
 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
@@ -824,6 +835,92 @@ def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array
             return pa.array(quantized, type=fallback_type)
         except Exception as exc:
             raise ValueError("Cannot build decimal array from values") from exc
+
+
+def _decimal_values_from_column(column: pa.ChunkedArray) -> list[decimal.Decimal | None] | None:
+    """Best-effort conversion of a column's values to Decimals, for a column expected to be decimal.
+
+    Handles decimal columns directly and string columns — the pipeline (and dlt) stores a decimal
+    that grew past decimal128 as text (decimal256 → string), so a batch column can arrive as
+    strings even though its stored Delta column is decimal. Returns None when a non-null value
+    can't be parsed as a decimal (a genuine decimal→text change, not a widened decimal), leaving
+    that mismatch for the caller to ignore.
+    """
+    result: list[decimal.Decimal | None] = []
+    for value in _to_list_array(column):
+        if value is None:
+            result.append(None)
+        elif isinstance(value, decimal.Decimal):
+            result.append(value)
+        else:
+            try:
+                result.append(decimal.Decimal(str(value)))
+            except (decimal.InvalidOperation, ValueError, TypeError):
+                return None
+    return result
+
+
+def _fit_decimal_values_to_type(
+    values: list[decimal.Decimal | None], target: pa.Decimal128Type | pa.Decimal256Type
+) -> pa.Array | None:
+    """Round `values` to `target`'s scale and build an array of exactly `target`.
+
+    Rounding only drops fractional precision beyond the target scale, never integer digits.
+    Returns None when a value's integer part exceeds the target's capacity (unrepresentable no
+    matter the rounding) so the caller can treat it as an unrecoverable column-type mismatch.
+    """
+    try:
+        quantized = [None if v is None else _quantize_to_scale(v, target.scale) for v in values]
+    except decimal.InvalidOperation:
+        return None
+    try:
+        return pa.array(quantized, type=target)
+    except pa.ArrowInvalid:
+        return None
+
+
+def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake.Schema) -> pa.Table:
+    """Reconcile a batch's decimal columns to the existing Delta table's decimal column types.
+
+    A Delta merge casts every source column to its stored target column type, and delta-rs cannot
+    widen a decimal column in place. When earlier schema inference stored a scale-heavy column
+    (e.g. decimal128(38, 32), only 6 integer digits), a later, larger value overflows that implicit
+    cast with an opaque ``DeltaError`` that retries forever. Pre-casting each batch column to the
+    exact stored type makes the merge cast a no-op: fitting values are rounded to the column's
+    scale, and a value whose integer part can't fit is surfaced as SchemaColumnTypeChangedException
+    so the sync stops and the table can be reset and re-synced (which recreates the column with
+    adequate integer headroom).
+    """
+    delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    for delta_field in delta_arrow_schema:
+        if not pa.types.is_decimal(delta_field.type) or delta_field.name not in pa_table.schema.names:
+            continue
+
+        column = pa_table.column(delta_field.name)
+        if column.type == delta_field.type:
+            continue
+        if not (
+            pa.types.is_decimal(column.type) or pa.types.is_string(column.type) or pa.types.is_large_string(column.type)
+        ):
+            # A decimal column paired with a non-decimal, non-text batch column is a different
+            # mismatch handled by evolve_pyarrow_schema; leave it alone.
+            continue
+
+        values = _decimal_values_from_column(column)
+        if values is None:
+            continue
+
+        target = cast(pa.Decimal128Type | pa.Decimal256Type, delta_field.type)
+        aligned = _fit_decimal_values_to_type(values, target)
+        if aligned is None:
+            raise SchemaColumnTypeChangedException(
+                f"Source column type changed: '{delta_field.name}' has decimal values that no longer "
+                f"fit its stored type {delta_field.type}. Reset and fully re-sync this table to adopt "
+                f"a wider type."
+            )
+        pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
+
+    return pa_table
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):

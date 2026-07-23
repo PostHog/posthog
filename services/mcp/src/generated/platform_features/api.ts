@@ -35,6 +35,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
         ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
@@ -90,6 +96,10 @@ export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
     user__uuid: zod.string(),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
@@ -103,6 +113,10 @@ export const RolesListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this role.'),
     organization_id: zod
@@ -112,6 +126,10 @@ export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
 export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
