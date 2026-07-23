@@ -4,8 +4,9 @@ from unittest.mock import MagicMock, patch
 import dagster
 from parameterized import parameterized
 
-from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
 
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags.cache_warming import (
     build_replay_runner,
     get_warmable_queries_op,
@@ -118,9 +119,10 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
+        self.assertTrue(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-30d")
 
     @parameterized.expand(
@@ -147,9 +149,10 @@ class TestBuildReplayRunner(BaseTest):
             **extra,
         }
 
-        runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
+        self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
     def test_outside_warming_context_gate_fails_closed(self) -> None:
@@ -161,9 +164,10 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
+        self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
 
@@ -218,6 +222,127 @@ class TestFleetQuerySelection(BaseTest):
 
 
 class TestWarmQueriesOp(BaseTest):
+    @parameterized.expand(
+        [
+            # A raw-path (not lazy-eligible) shape below the pre-widening demand
+            # bar must not replay: with the min-2 selection floor, two runs of an
+            # expensive ineligible shape would otherwise become hourly background
+            # scans outside the tenant's request throttles.
+            ("raw_low_demand_skipped", False, 2, 0),
+            ("raw_high_demand_warms", False, 10, 1),
+            ("lazy_low_demand_warms", True, 2, 1),
+        ]
+    )
+    def test_raw_replays_keep_higher_demand_bar(
+        self, _name: str, lazy_eligible: bool, query_count: int, expected_runs: int
+    ) -> None:
+        runner = MagicMock()
+        runner.get_cache_key.return_value = f"key-{_name}"
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, lazy_eligible),
+            ),
+            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+        ):
+            mock_cm.return_value.get_cache_data.return_value = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": query_count,
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, expected_runs)
+
+    def test_duplicate_cache_keys_warm_once(self) -> None:
+        # Selection groups by raw JSON text, so two encodings of one query can
+        # both be selected; replaying both wastes ClickHouse capacity and
+        # double-counts warmed outcomes.
+        runner = MagicMock()
+        runner.get_cache_key.return_value = "same-key"
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+        ):
+            mock_cm.return_value.get_cache_data.return_value = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "normalized_query_hash": "a",
+                    },
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"properties": [], "kind": "WebOverviewQuery"},
+                        "normalized_query_hash": "b",
+                    },
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, 1)
+
+    def test_reused_threads_do_not_leak_tags_between_shapes(self) -> None:
+        # Pool threads are reused and tag_queries merges rather than replaces:
+        # without the per-shape reset, tags a previous shape's runner added
+        # (client_query_id here) bleed into the next shape's queries.
+        leaked: list = []
+        calls = {"n": 0}
+
+        def fake_runner_or_none(**kwargs) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                tag_queries(client_query_id="polluted")
+            else:
+                leaked.append(get_query_tags().client_query_id)
+            return None
+
+        shape = {"team_id": self.team.pk, "query_json": {"kind": "WebOverviewQuery", "properties": []}}
+        with (
+            patch("products.web_analytics.dags.cache_warming.WARMING_SHAPE_CONCURRENCY", 1),
+            patch(
+                "products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=fake_runner_or_none
+            ),
+        ):
+            warm_queries_op(
+                dagster.build_op_context(),
+                [{**shape, "normalized_query_hash": "a"}, {**shape, "normalized_query_hash": "b"}],
+            )
+
+        self.assertEqual(leaked, [None])
+
+    def test_worker_threads_carry_warming_tags(self) -> None:
+        # Query tags are thread-local. If tagging moves back to the op thread,
+        # pool workers replay untagged and two things silently break: the lazy
+        # gate's rollout bypass (buckets stop building for non-enrolled teams)
+        # and the selection's self-feedback exclusion.
+        seen: list[bool] = []
+
+        def capture_tags(**kwargs) -> None:
+            seen.append(is_background_warming_request())
+            return None
+
+        with patch("products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=capture_tags):
+            warm_queries_op(
+                dagster.build_op_context(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(seen, [True])
+
     @patch("products.web_analytics.dags.cache_warming.capture_exception")
     def test_kind_without_runner_is_not_an_error(self, mock_capture: MagicMock) -> None:
         # Selection is by kind prefix, so kinds get_query_runner can't build
