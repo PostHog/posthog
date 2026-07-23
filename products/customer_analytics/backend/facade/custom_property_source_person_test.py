@@ -167,3 +167,20 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             api.trigger_person_property_backfill(
                 team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
             )
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_triggers_reject_disabled_source(self, _flag):
+        # A disabled source can't be re-triggered: sync returns False (→ 400) and backfill None (→ 400).
+        source = self._create(is_enabled=False)
+        assert (
+            api.trigger_person_property_sync(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            )
+            is False
+        )
+        assert (
+            api.trigger_person_property_backfill(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            )
+            is None
+        )

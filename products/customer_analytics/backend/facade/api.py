@@ -1301,6 +1301,11 @@ def _triggerable_person_schema_id(team_id: int, source_id: str) -> str | None:
     source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).select_related("definition").first()
     if source is None or source.external_data_schema_id is None:
         return None
+    # A disabled source (e.g. auto-disabled after repeated failures) can't be re-triggered until it's
+    # re-enabled — otherwise the "sync now"/backfill actions would keep launching billable imports for
+    # a mapping the system already turned off.
+    if not source.is_enabled:
+        return None
     if source.definition.target_type != TargetType.PERSON.value:
         return None
     if not person_properties_flag_enabled(team_id):
