@@ -348,7 +348,7 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     # of building; shapes the team already holds are unaffected. Reuses the eligibility hash
     # so a shape counts the same however it reaches this build path.
     if kwargs.get("run_inserts") and runner is not None:
-        shape_hash = compute_shape_cap_key(runner.query, team.timezone)
+        shape_hash = compute_shape_cap_key(runner.query, team.timezone, getattr(runner, "_test_account_filters", None))
         if not try_reserve_precompute_shape(team.id, shape_hash):
             kwargs["run_inserts"] = False
             WEB_ANALYTICS_LAZY_PRECOMPUTE_SHAPE_CAPPED.labels(family=family or "unknown").inc()
@@ -699,10 +699,22 @@ _SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = _FILTERS_ELIGIBILITY_HASH_
 )
 
 
-def compute_shape_cap_key(query: Any, team_timezone: str) -> str:
-    """Namespace-identity key for the per-team shape cap: the eligibility hash with
-    the time-window fields dropped, so date-range variants of one shape share a slot."""
-    return _hash_query_fields(query, team_timezone, _SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS)
+def compute_shape_cap_key(query: Any, team_timezone: str, test_account_filters: Optional[list] = None) -> str:
+    """Namespace-identity key for the per-team shape cap: the eligibility hash with the
+    time-window fields dropped (so date-range variants of one shape share a slot), plus
+    the team's resolved test-account filters. Those resolve from team config into the
+    INSERT AST — part of the namespace but absent from the query payload — so folding them
+    in stops an admin from minting fresh namespaces onto one cap slot by editing the
+    test-account filters (veria review)."""
+    dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
+    for key in _SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS:
+        dumped.pop(key, None)
+    tafs = [
+        f.model_dump(mode="json", exclude_none=True) if hasattr(f, "model_dump") else f
+        for f in (test_account_filters or [])
+    ]
+    payload = {"query": dumped, "timezone": team_timezone, "test_account_filters": tafs}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def _hash_query_fields(query: Any, team_timezone: str, ignored_fields: frozenset[str]) -> str:

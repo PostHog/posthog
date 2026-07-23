@@ -320,6 +320,16 @@ class TestComputeShapeCapKey(BaseTest):
         # A compare query's current and previous period share the same namespace.
         assert compute_shape_cap_key(_overview(compare=True), "UTC") == compute_shape_cap_key(_overview(), "UTC")
 
+    def test_test_account_filters_fragment_the_slot(self) -> None:
+        # Test-account filters resolve from team config into the INSERT namespace but not
+        # the query payload, so changing them must mint a distinct slot — otherwise an admin
+        # could alias many namespaces onto one slot by editing the filters (veria review).
+        taf_a = [EventPropertyFilter(key="email", value="@acme.com", operator=PropertyOperator.NOT_ICONTAINS)]
+        taf_b = [EventPropertyFilter(key="email", value="@test.com", operator=PropertyOperator.NOT_ICONTAINS)]
+        assert compute_shape_cap_key(_overview(), "UTC", taf_a) != compute_shape_cap_key(_overview(), "UTC", taf_b)
+        # No filters is the same as an empty list.
+        assert compute_shape_cap_key(_overview(), "UTC", None) == compute_shape_cap_key(_overview(), "UTC", [])
+
     def test_filters_and_breakdown_still_fragment(self) -> None:
         # Genuinely distinct namespaces must still occupy distinct slots.
         base = compute_shape_cap_key(_stats(breakdown_by=WebStatsBreakdown.BROWSER), "UTC")
@@ -646,6 +656,7 @@ class TestServeLiveWarmBehind(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner._test_account_filters = []
         return runner
 
     @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
@@ -724,6 +735,7 @@ class TestPrecomputeShapeCapWiring(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner._test_account_filters = []
         return runner
 
     @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=1)
