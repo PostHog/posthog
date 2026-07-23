@@ -150,6 +150,7 @@ jobs:
                       "lifecycle": 17,
                       "limiters": 25,
                       "personhog-coordination": 24,
+                      "personhog-identity": 40,
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
@@ -559,7 +560,7 @@ jobs:
                   sqlx migrate run --source persons_migrations/
 
             - name: Build the personhog stack and harness
-              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-test-harness
+              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
@@ -570,6 +571,18 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            # The identity-service create path: persons are created through
+            # GetOrCreatePersonsByDistinctIds (stub insert on the primary,
+            # then initial properties through the router to the owning
+            # leader) and then updated through the router. Create acks are
+            # journaled and held to the same visibility invariant as update
+            # acks, through a leader kill and a scale-up.
+            - name: Run the e2e gate creating persons via the identity service
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --create-via-identity --leaders 3 --partitions 8 --persons 100 \
+                    --concurrency 10 --duration 15s --kill-after 5s --scale-up-after 8s
 
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while
