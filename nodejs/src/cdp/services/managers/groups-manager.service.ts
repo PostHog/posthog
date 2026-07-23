@@ -126,6 +126,13 @@ export class GroupsManagerService {
             return
         }
 
+        // Some persisted invocation state is missing `project` despite the type marking it required.
+        // Stub to no groups rather than throwing, so one malformed job can't reject the whole batch.
+        if (!globals.project) {
+            globals.groups = {}
+            return
+        }
+
         globals.groups = await this.getGroupsForEvent(globals.project.id, globals.event.properties, globals.project.url)
     }
 

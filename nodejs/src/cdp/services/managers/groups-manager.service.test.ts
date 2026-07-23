@@ -266,6 +266,20 @@ describe('Groups Manager', () => {
         expect(mockFetchGroupTypesByTeamIds).not.toHaveBeenCalled()
     })
 
+    it('sets empty groups when project is missing rather than throwing', async () => {
+        // Some persisted invocation state lacks `project` despite the type marking it required.
+        // A throw here would reject the whole loadHogFunctions batch, not just this job.
+        const globals = createHogExecutionGlobals({
+            groups: undefined,
+            event: { properties: { $groups: { GroupA: 'id-1' } } } as any,
+        })
+        delete (globals as any).project
+        await groupsManager.addGroupsToGlobals(globals)
+
+        expect(globals.groups).toEqual({})
+        expect(mockFetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+    })
+
     it('sets empty groups when team has no group_analytics feature', async () => {
         mockHasAvailableFeature.mockResolvedValue(false)
         const globals = createHogExecutionGlobals({
