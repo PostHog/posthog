@@ -25,13 +25,13 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | `__main__.py`      | Entry point. Parses args, starts the transcript, configures Django, then hands off to `lifecycle`.                                |
 | `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                                        |
 | `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.                       |
-| `ports.py`         | The six port constants. Deliberately free of Django imports.                                                                      |
+| `ports.py`         | The seven port constants. Deliberately free of Django imports.                                                                    |
 | `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup.              |
 | `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                                   |
 | `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                                           |
 | `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                                         |
 | `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                                          |
-| `services.py`      | Starts the LLM gateway, MCP server, and personhog subprocesses; builds local skills.                                              |
+| `services.py`      | Starts the LLM gateway, MCP server, skill archive server, and personhog subprocesses; builds local skills.                        |
 | `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                                         |
 | `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                                   |
 | `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                                         |
@@ -53,9 +53,9 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
-5. The LLM gateway (`:13308`) and MCP server (`:18787`) start as subprocesses.
+5. The LLM gateway (`:13308`) starts and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
 6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding on a new `@posthog/agent` version or Dockerfile change). Modal only: ngrok tunnels come up, exposing the callback services publicly.
-7. Local skills are built. Docker bind-mounts them; Modal bakes them into the image it builds.
+7. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
 8. The master Hedgebox team is seeded.
 
 The async phase then starts the Temporal dev server on the main loop, applies the provider's settings overrides, terminates stale workflows, starts the Temporal worker on its own thread and loop, and fans the suites out with `asyncio.gather`.
