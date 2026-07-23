@@ -67,6 +67,13 @@ class PostHogConfig(AppConfig):
         )
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
         posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        # Drop user query errors (e.g. a HogQL query against a non-existent table) before they're
+        # captured. QueryRunner.run() already returns these as 4xx without capturing, but the
+        # exception is re-captured once it propagates past that inner context — this filters them
+        # out at the single point every autocaptured event passes through. See #65297.
+        from posthog.exception_autocapture import drop_user_facing_query_errors  # noqa: PLC0415
+
+        posthoganalytics.before_send = drop_user_facing_query_errors  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
