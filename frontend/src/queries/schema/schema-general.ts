@@ -7433,6 +7433,7 @@ export const externalDataSources = [
     'PrestaShop',
     'Pretix',
     'Primetric',
+    'Printavo',
     'Printify',
     'Productive',
     'Pylon',

@@ -890,6 +890,7 @@ from .preset.source import PresetSource
 from .prestashop.source import PrestaShopSource
 from .pretix.source import PretixSource
 from .primetric.source import PrimetricSource
+from .printavo.source import PrintavoSource
 from .printify.source import PrintifySource
 from .procore.source import ProcoreSource
 from .productboard.source import ProductboardSource
