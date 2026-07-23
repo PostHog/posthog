@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -20,10 +21,20 @@ export function AccountEventStreamToggle({
 
     const included = isAccountInStream(accountId)
     const updating = membershipUpdatingIds.includes(accountId)
-    const settingsUrl = urls.settings('environment-customer-analytics', 'customer-analytics-event-stream')
 
     return (
         <div className="flex flex-col gap-2 items-start">
+            <div className="flex items-center gap-1">
+                <h4 className="secondary uppercase text-secondary mb-0">Event stream</h4>
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    icon={<IconGear />}
+                    tooltip="Configure the event stream"
+                    data-attr="configure-event-stream"
+                    to={urls.customerAnalyticsConfiguration('customer-analytics-event-stream')}
+                />
+            </div>
             <p className="mb-0 text-secondary">Stream this customer's events to your Slack channel in real time.</p>
             <LemonSwitch
                 checked={included}
@@ -44,9 +55,6 @@ export function AccountEventStreamToggle({
                     This account has no external ID, so its events can't be matched and won't stream.
                 </span>
             ) : null}
-            <Link to={settingsUrl} className="text-xs">
-                Configure the event stream
-            </Link>
         </div>
     )
 }
