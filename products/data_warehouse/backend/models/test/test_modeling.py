@@ -561,6 +561,41 @@ class TestBoundedResolver(BaseTest):
         assert exc_info.value.view_name == "a"
         assert exc_info.value.initial_view == "a"
 
+    def _make_union_bodied_view_with_ctes(self) -> None:
+        """Create `unioned`, whose body is a UNION behind a WITH, with one CTE per branch."""
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="leaf",
+            query={"query": "select event from events"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="unioned",
+            query={
+                "query": (
+                    "with a as (select event from events), b as (select event from leaf) "
+                    "select event from a union all select event from b"
+                )
+            },
+        )
+
+    @parameterized.expand(
+        [
+            # the branch that reads `b` is walked before the WITH on the leading branch is in scope
+            ("plain_caller", "select 1 from unioned", {"events", "leaf"}),
+            # the caller defines its own `b`, which the view's `b` must not resolve against
+            (
+                "caller_defines_colliding_cte",
+                "with b as (select id from persons) select 1 from unioned u join b bb on 1=1",
+                {"events", "leaf", "persons"},
+            ),
+        ],
+    )
+    def test_ctes_inside_union_bodied_view_are_not_parents(self, _name: str, query: str, expected_parents: set[str]):
+        self._make_union_bodied_view_with_ctes()
+
+        assert get_parents_from_model_query(self.team, "caller", query) == expected_parents
+
     def test_cycle_through_union_bodied_view_raises(self):
         # `view_name` is only stamped on ast.SelectQuery, so a view whose body is a top-level
         # UNION has no name on the AST node the resolver walks into. Cycle detection must
