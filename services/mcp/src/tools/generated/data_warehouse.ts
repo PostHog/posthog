@@ -6,19 +6,57 @@ import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 
 import type { Schemas } from '@/api/generated'
 
-import { InsightVariablesCreateBody, InsightVariablesDestroyParams, InsightVariablesPartialUpdateBody, InsightVariablesPartialUpdateParams, SavedQueryColumnAnnotationsCreateBody, SavedQueryColumnAnnotationsListQueryParams, WarehouseColumnAnnotationsCreateBody, WarehouseColumnAnnotationsListQueryParams, WarehouseColumnAnnotationsPartialUpdateBody, WarehouseColumnAnnotationsPartialUpdateParams, WarehouseSavedQueriesCreateBody, WarehouseSavedQueriesDestroyParams, WarehouseSavedQueriesListQueryParams, WarehouseSavedQueriesMaterializeCreateBody, WarehouseSavedQueriesMaterializeCreateParams, WarehouseSavedQueriesPartialUpdateBody, WarehouseSavedQueriesPartialUpdateParams, WarehouseSavedQueriesRetrieveParams, WarehouseSavedQueriesRevertMaterializationCreateBody, WarehouseSavedQueriesRevertMaterializationCreateParams, WarehouseSavedQueriesRunCreateBody, WarehouseSavedQueriesRunCreateParams, WarehouseSavedQueriesRunHistoryRetrieveParams, WarehouseTablesRefreshSchemaCreateParams } from '@/generated/data_warehouse/api'
+import {
+    InsightVariablesCreateBody,
+    InsightVariablesDestroyParams,
+    InsightVariablesPartialUpdateBody,
+    InsightVariablesPartialUpdateParams,
+    SavedQueryColumnAnnotationsCreateBody,
+    SavedQueryColumnAnnotationsListQueryParams,
+    WarehouseColumnAnnotationsCreateBody,
+    WarehouseColumnAnnotationsListQueryParams,
+    WarehouseColumnAnnotationsPartialUpdateBody,
+    WarehouseColumnAnnotationsPartialUpdateParams,
+    WarehouseSavedQueriesCreateBody,
+    WarehouseSavedQueriesDestroyParams,
+    WarehouseSavedQueriesListQueryParams,
+    WarehouseSavedQueriesMaterializeCreateBody,
+    WarehouseSavedQueriesMaterializeCreateParams,
+    WarehouseSavedQueriesPartialUpdateBody,
+    WarehouseSavedQueriesPartialUpdateParams,
+    WarehouseSavedQueriesRetrieveParams,
+    WarehouseSavedQueriesRevertMaterializationCreateBody,
+    WarehouseSavedQueriesRevertMaterializationCreateParams,
+    WarehouseSavedQueriesRunCreateBody,
+    WarehouseSavedQueriesRunCreateParams,
+    WarehouseSavedQueriesRunHistoryRetrieveParams,
+    WarehouseTablesRefreshSchemaCreateParams,
+} from '@/generated/data_warehouse/api'
 
-const SavedQueryColumnAnnotationsCreateSchema = (SavedQueryColumnAnnotationsCreateBody).extend({ column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe('Column to describe. Use an empty string to describe the view itself.') })
+const SavedQueryColumnAnnotationsCreateSchema = SavedQueryColumnAnnotationsCreateBody.extend({
+    column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe(
+        'Column to describe. Use an empty string to describe the view itself.'
+    ),
+})
 
-const savedQueryColumnAnnotationsCreate = (): ToolBase<typeof SavedQueryColumnAnnotationsCreateSchema, Schemas.DataWarehouseSavedQueryColumnAnnotation> => ({
+const savedQueryColumnAnnotationsCreate = (): ToolBase<
+    typeof SavedQueryColumnAnnotationsCreateSchema,
+    Schemas.DataWarehouseSavedQueryColumnAnnotation
+> => ({
     name: 'saved-query-column-annotations-create',
     schema: SavedQueryColumnAnnotationsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof SavedQueryColumnAnnotationsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.saved_query !== undefined) body["saved_query"] = params.saved_query
-        if (params.column_name !== undefined) body["column_name"] = params.column_name
-        if (params.description !== undefined) body["description"] = params.description
+        if (params.saved_query !== undefined) {
+            body['saved_query'] = params.saved_query
+        }
+        if (params.column_name !== undefined) {
+            body['column_name'] = params.column_name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQueryColumnAnnotation>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/saved_query_column_annotations/`,
@@ -30,7 +68,10 @@ const savedQueryColumnAnnotationsCreate = (): ToolBase<typeof SavedQueryColumnAn
 
 const SavedQueryColumnAnnotationsListSchema = SavedQueryColumnAnnotationsListQueryParams
 
-const savedQueryColumnAnnotationsList = (): ToolBase<typeof SavedQueryColumnAnnotationsListSchema, WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>> => ({
+const savedQueryColumnAnnotationsList = (): ToolBase<
+    typeof SavedQueryColumnAnnotationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>
+> => ({
     name: 'saved-query-column-annotations-list',
     schema: SavedQueryColumnAnnotationsListSchema,
     handler: async (context: Context, params: z.infer<typeof SavedQueryColumnAnnotationsListSchema>) => {
@@ -56,10 +97,18 @@ const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas
     handler: async (context: Context, params: z.infer<typeof SqlVariablesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.type !== undefined) body["type"] = params.type
-        if (params.default_value !== undefined) body["default_value"] = params.default_value
-        if (params.values !== undefined) body["values"] = params.values
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.default_value !== undefined) {
+            body['default_value'] = params.default_value
+        }
+        if (params.values !== undefined) {
+            body['values'] = params.values
+        }
         const result = await context.api.request<Schemas.InsightVariable>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/`,
@@ -84,7 +133,9 @@ const sqlVariablesDelete = (): ToolBase<typeof SqlVariablesDeleteSchema, unknown
     },
 })
 
-const SqlVariablesUpdateSchema = InsightVariablesPartialUpdateParams.omit({ project_id: true }).extend(InsightVariablesPartialUpdateBody.shape)
+const SqlVariablesUpdateSchema = InsightVariablesPartialUpdateParams.omit({ project_id: true }).extend(
+    InsightVariablesPartialUpdateBody.shape
+)
 
 const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas.InsightVariable> => ({
     name: 'sql-variables-update',
@@ -92,10 +143,18 @@ const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas
     handler: async (context: Context, params: z.infer<typeof SqlVariablesUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.type !== undefined) body["type"] = params.type
-        if (params.default_value !== undefined) body["default_value"] = params.default_value
-        if (params.values !== undefined) body["values"] = params.values
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.default_value !== undefined) {
+            body['default_value'] = params.default_value
+        }
+        if (params.values !== undefined) {
+            body['values'] = params.values
+        }
         const result = await context.api.request<Schemas.InsightVariable>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/${encodeURIComponent(String(params.id))}/`,
@@ -105,7 +164,11 @@ const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas
     },
 })
 
-const ViewCreateSchema = (WarehouseSavedQueriesCreateBody).extend({ name: WarehouseSavedQueriesCreateBody.shape['name'].describe('Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.') })
+const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
+    name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
+        'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+    ),
+})
 
 const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-create',
@@ -113,13 +176,27 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
     handler: async (context: Context, params: z.infer<typeof ViewCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.query !== undefined) body["query"] = params.query
-        if (params.description !== undefined) body["description"] = params.description
-        if (params.sync_frequency !== undefined) body["sync_frequency"] = params.sync_frequency
-        if (params.folder_id !== undefined) body["folder_id"] = params.folder_id
-        if (params.dag_id !== undefined) body["dag_id"] = params.dag_id
-        if (params.is_test !== undefined) body["is_test"] = params.is_test
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
@@ -162,7 +239,10 @@ const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWa
 
 const ViewListSchema = WarehouseSavedQueriesListQueryParams
 
-const viewList = (): ToolBase<typeof ViewListSchema, WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>> => ({
+const viewList = (): ToolBase<
+    typeof ViewListSchema,
+    WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>
+> => ({
     name: 'view-list',
     schema: ViewListSchema,
     handler: async (context: Context, params: z.infer<typeof ViewListSchema>) => {
@@ -175,31 +255,62 @@ const viewList = (): ToolBase<typeof ViewListSchema, WithPostHogUrl<Schemas.Pagi
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, {
-            ...result,
-            results: await Promise.all((result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))),
-        }, '/sql')
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
+                ),
+            },
+            '/sql'
+        )
     },
 })
 
-const ViewMaterializeSchema = WarehouseSavedQueriesMaterializeCreateParams.omit({ project_id: true }).extend(WarehouseSavedQueriesMaterializeCreateBody.shape)
+const ViewMaterializeSchema = WarehouseSavedQueriesMaterializeCreateParams.omit({ project_id: true }).extend(
+    WarehouseSavedQueriesMaterializeCreateBody.shape
+)
 
-const viewMaterialize = (): ToolBase<typeof ViewMaterializeSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
+const viewMaterialize = (): ToolBase<
+    typeof ViewMaterializeSchema,
+    WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
+> => ({
     name: 'view-materialize',
     schema: ViewMaterializeSchema,
     handler: async (context: Context, params: z.infer<typeof ViewMaterializeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) body["deleted"] = params.deleted
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.query !== undefined) body["query"] = params.query
-        if (params.description !== undefined) body["description"] = params.description
-        if (params.sync_frequency !== undefined) body["sync_frequency"] = params.sync_frequency
-        if (params.folder_id !== undefined) body["folder_id"] = params.folder_id
-        if (params.edited_history_id !== undefined) body["edited_history_id"] = params.edited_history_id
-        if (params.soft_update !== undefined) body["soft_update"] = params.soft_update
-        if (params.dag_id !== undefined) body["dag_id"] = params.dag_id
-        if (params.is_test !== undefined) body["is_test"] = params.is_test
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/materialize/`,
@@ -209,7 +320,9 @@ const viewMaterialize = (): ToolBase<typeof ViewMaterializeSchema, WithPostHogUr
     },
 })
 
-const ViewRunSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: true }).extend(WarehouseSavedQueriesRunCreateBody.shape)
+const ViewRunSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: true }).extend(
+    WarehouseSavedQueriesRunCreateBody.shape
+)
 
 const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-run',
@@ -217,16 +330,36 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
     handler: async (context: Context, params: z.infer<typeof ViewRunSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) body["deleted"] = params.deleted
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.query !== undefined) body["query"] = params.query
-        if (params.description !== undefined) body["description"] = params.description
-        if (params.sync_frequency !== undefined) body["sync_frequency"] = params.sync_frequency
-        if (params.folder_id !== undefined) body["folder_id"] = params.folder_id
-        if (params.edited_history_id !== undefined) body["edited_history_id"] = params.edited_history_id
-        if (params.soft_update !== undefined) body["soft_update"] = params.soft_update
-        if (params.dag_id !== undefined) body["dag_id"] = params.dag_id
-        if (params.is_test !== undefined) body["is_test"] = params.is_test
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
@@ -251,24 +384,49 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
     },
 })
 
-const ViewUnmaterializeSchema = WarehouseSavedQueriesRevertMaterializationCreateParams.omit({ project_id: true }).extend(WarehouseSavedQueriesRevertMaterializationCreateBody.shape)
+const ViewUnmaterializeSchema = WarehouseSavedQueriesRevertMaterializationCreateParams.omit({
+    project_id: true,
+}).extend(WarehouseSavedQueriesRevertMaterializationCreateBody.shape)
 
-const viewUnmaterialize = (): ToolBase<typeof ViewUnmaterializeSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
+const viewUnmaterialize = (): ToolBase<
+    typeof ViewUnmaterializeSchema,
+    WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
+> => ({
     name: 'view-unmaterialize',
     schema: ViewUnmaterializeSchema,
     handler: async (context: Context, params: z.infer<typeof ViewUnmaterializeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) body["deleted"] = params.deleted
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.query !== undefined) body["query"] = params.query
-        if (params.description !== undefined) body["description"] = params.description
-        if (params.sync_frequency !== undefined) body["sync_frequency"] = params.sync_frequency
-        if (params.folder_id !== undefined) body["folder_id"] = params.folder_id
-        if (params.edited_history_id !== undefined) body["edited_history_id"] = params.edited_history_id
-        if (params.soft_update !== undefined) body["soft_update"] = params.soft_update
-        if (params.dag_id !== undefined) body["dag_id"] = params.dag_id
-        if (params.is_test !== undefined) body["is_test"] = params.is_test
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/revert_materialization/`,
@@ -278,7 +436,16 @@ const viewUnmaterialize = (): ToolBase<typeof ViewUnmaterializeSchema, WithPostH
     },
 })
 
-const ViewUpdateSchema = (WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true }).extend(WarehouseSavedQueriesPartialUpdateBody.shape)).extend({ name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe('Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'), edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe('Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.') })
+const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true })
+    .extend(WarehouseSavedQueriesPartialUpdateBody.shape)
+    .extend({
+        name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
+            'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+        ),
+        edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
+            'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
+        ),
+    })
 
 const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-update',
@@ -286,14 +453,30 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
     handler: async (context: Context, params: z.infer<typeof ViewUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.query !== undefined) body["query"] = params.query
-        if (params.description !== undefined) body["description"] = params.description
-        if (params.sync_frequency !== undefined) body["sync_frequency"] = params.sync_frequency
-        if (params.folder_id !== undefined) body["folder_id"] = params.folder_id
-        if (params.edited_history_id !== undefined) body["edited_history_id"] = params.edited_history_id
-        if (params.dag_id !== undefined) body["dag_id"] = params.dag_id
-        if (params.is_test !== undefined) body["is_test"] = params.is_test
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
+        if (params.folder_id !== undefined) {
+            body['folder_id'] = params.folder_id
+        }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
+        if (params.is_test !== undefined) {
+            body['is_test'] = params.is_test
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
@@ -303,17 +486,30 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const WarehouseColumnAnnotationsCreateSchema = (WarehouseColumnAnnotationsCreateBody).extend({ column_name: WarehouseColumnAnnotationsCreateBody.shape['column_name'].describe('Column to describe. Use an empty string to describe the table itself.') })
+const WarehouseColumnAnnotationsCreateSchema = WarehouseColumnAnnotationsCreateBody.extend({
+    column_name: WarehouseColumnAnnotationsCreateBody.shape['column_name'].describe(
+        'Column to describe. Use an empty string to describe the table itself.'
+    ),
+})
 
-const warehouseColumnAnnotationsCreate = (): ToolBase<typeof WarehouseColumnAnnotationsCreateSchema, Schemas.WarehouseColumnAnnotation> => ({
+const warehouseColumnAnnotationsCreate = (): ToolBase<
+    typeof WarehouseColumnAnnotationsCreateSchema,
+    Schemas.WarehouseColumnAnnotation
+> => ({
     name: 'warehouse-column-annotations-create',
     schema: WarehouseColumnAnnotationsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.table !== undefined) body["table"] = params.table
-        if (params.column_name !== undefined) body["column_name"] = params.column_name
-        if (params.description !== undefined) body["description"] = params.description
+        if (params.table !== undefined) {
+            body['table'] = params.table
+        }
+        if (params.column_name !== undefined) {
+            body['column_name'] = params.column_name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         const result = await context.api.request<Schemas.WarehouseColumnAnnotation>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_column_annotations/`,
@@ -325,7 +521,10 @@ const warehouseColumnAnnotationsCreate = (): ToolBase<typeof WarehouseColumnAnno
 
 const WarehouseColumnAnnotationsListSchema = WarehouseColumnAnnotationsListQueryParams
 
-const warehouseColumnAnnotationsList = (): ToolBase<typeof WarehouseColumnAnnotationsListSchema, WithPostHogUrl<Schemas.PaginatedWarehouseColumnAnnotationList>> => ({
+const warehouseColumnAnnotationsList = (): ToolBase<
+    typeof WarehouseColumnAnnotationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedWarehouseColumnAnnotationList>
+> => ({
     name: 'warehouse-column-annotations-list',
     schema: WarehouseColumnAnnotationsListSchema,
     handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsListSchema>) => {
@@ -343,17 +542,28 @@ const warehouseColumnAnnotationsList = (): ToolBase<typeof WarehouseColumnAnnota
     },
 })
 
-const WarehouseColumnAnnotationsPartialUpdateSchema = WarehouseColumnAnnotationsPartialUpdateParams.omit({ project_id: true }).extend(WarehouseColumnAnnotationsPartialUpdateBody.shape)
+const WarehouseColumnAnnotationsPartialUpdateSchema = WarehouseColumnAnnotationsPartialUpdateParams.omit({
+    project_id: true,
+}).extend(WarehouseColumnAnnotationsPartialUpdateBody.shape)
 
-const warehouseColumnAnnotationsPartialUpdate = (): ToolBase<typeof WarehouseColumnAnnotationsPartialUpdateSchema, Schemas.WarehouseColumnAnnotation> => ({
+const warehouseColumnAnnotationsPartialUpdate = (): ToolBase<
+    typeof WarehouseColumnAnnotationsPartialUpdateSchema,
+    Schemas.WarehouseColumnAnnotation
+> => ({
     name: 'warehouse-column-annotations-partial-update',
     schema: WarehouseColumnAnnotationsPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.table !== undefined) body["table"] = params.table
-        if (params.column_name !== undefined) body["column_name"] = params.column_name
-        if (params.description !== undefined) body["description"] = params.description
+        if (params.table !== undefined) {
+            body['table'] = params.table
+        }
+        if (params.column_name !== undefined) {
+            body['column_name'] = params.column_name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         const result = await context.api.request<Schemas.WarehouseColumnAnnotation>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_column_annotations/${encodeURIComponent(String(params.id))}/`,
