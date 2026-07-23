@@ -10,4 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class DatadogSourceConfig(config.Config):
     api_key: str
     application_key: str
-    site: Literal["datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ap1.datadoghq.com", "ddog-gov.com"] = config.value(default="datadoghq.com")
+    site: Literal[
+        "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ap1.datadoghq.com", "ddog-gov.com"
+    ] = config.value(default="datadoghq.com")

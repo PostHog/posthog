@@ -34,8 +34,12 @@ class BigQueryUseCustomRegionConfig(config.Config):
 @config.config
 class BigQuerySourceConfig(config.Config):
     dataset_id: str
-    google_cloud_service_account_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
-    temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(alias="temporary-dataset", default_factory=lambda: None)
+    google_cloud_service_account_integration_id: int | None = config.value(
+        converter=config.str_to_optional_int, default_factory=lambda: None
+    )
+    temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
+        alias="temporary-dataset", default_factory=lambda: None
+    )
     key_file: BigQueryKeyFileConfig | None = None
     use_custom_region: BigQueryUseCustomRegionConfig | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None

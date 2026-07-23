@@ -10,4 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class DeepsourceSourceConfig(config.Config):
     api_token: str
     account_login: str
-    vcs_provider: Literal["GITHUB", "GITLAB", "BITBUCKET", "GITHUB_ENTERPRISE", "BITBUCKET_DATACENTER", "ADS", "GSR"] = config.value(default="GITHUB")
+    vcs_provider: Literal[
+        "GITHUB", "GITLAB", "BITBUCKET", "GITHUB_ENTERPRISE", "BITBUCKET_DATACENTER", "ADS", "GSR"
+    ] = config.value(default="GITHUB")

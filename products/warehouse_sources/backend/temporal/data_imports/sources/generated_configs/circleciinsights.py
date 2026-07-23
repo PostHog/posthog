@@ -10,5 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class CircleciInsightsSourceConfig(config.Config):
     api_token: str
     project_slugs: str
-    reporting_window: Literal["last-24-hours", "last-7-days", "last-30-days", "last-60-days", "last-90-days"] | None = config.value(default="last-90-days")
+    reporting_window: Literal["last-24-hours", "last-7-days", "last-30-days", "last-60-days", "last-90-days"] | None = (
+        config.value(default="last-90-days")
+    )
     branch_scope: Literal["default_branch", "all_branches"] | None = config.value(default="default_branch")

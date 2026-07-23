@@ -9,4 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class UbidotsSourceConfig(config.Config):
     api_token: str
-    api_base_url: Literal["https://industrial.api.ubidots.com", "https://things.ubidots.com"] | None = config.value(default="https://industrial.api.ubidots.com")
+    api_base_url: Literal["https://industrial.api.ubidots.com", "https://things.ubidots.com"] | None = config.value(
+        default="https://industrial.api.ubidots.com"
+    )

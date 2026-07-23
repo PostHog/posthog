@@ -9,4 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class FilloutSourceConfig(config.Config):
     api_key: str
-    api_base_url: Literal["https://api.fillout.com/v1/api", "https://eu-api.fillout.com/v1/api"] | None = config.value(default="https://api.fillout.com/v1/api")
+    api_base_url: Literal["https://api.fillout.com/v1/api", "https://eu-api.fillout.com/v1/api"] | None = config.value(
+        default="https://api.fillout.com/v1/api"
+    )
