@@ -56,6 +56,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PersonPropertyRowSink,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+    record_source_item_stats,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PipelineResult,
     ResumableData,
@@ -219,6 +222,9 @@ class PipelineV3(Generic[ResumableData]):
             self._logger,
             chunk_size=source_response.chunk_size,
             chunk_size_bytes=source_response.chunk_size_bytes,
+            source_type=self._source.source_type if self._source else None,
+            team_id=self._job.team_id,
+            schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
@@ -322,6 +328,14 @@ class PipelineV3(Generic[ResumableData]):
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
+
+                record_source_item_stats(
+                    item,
+                    source_type=source_type,
+                    logger=self._logger,
+                    team_id=self._job.team_id,
+                    schema_name=self._schema.name,
+                )
 
                 self._batcher.batch(item)
 

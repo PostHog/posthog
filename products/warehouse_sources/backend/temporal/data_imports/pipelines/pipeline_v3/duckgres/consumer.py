@@ -475,6 +475,11 @@ class DuckgresBatchConsumerAdapter:
     def is_retryable_error(self, err: Exception) -> bool:
         return not isinstance(err, PermanentBatchApplyError)
 
+    def is_expected_user_error(self, err: Exception) -> bool:
+        # The duckgres sink applies already-validated Delta batches; it has no expected
+        # customer-actionable failures of its own to keep out of error tracking.
+        return False
+
 
 class DuckgresBatchConsumer(SharedBatchConsumer):
     """The shared engine plus the sink's lease-safety overrides, kept out of the

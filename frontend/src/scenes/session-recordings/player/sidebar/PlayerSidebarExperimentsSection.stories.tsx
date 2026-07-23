@@ -1,7 +1,10 @@
 import { Meta } from '@storybook/react'
 import { BindLogic } from 'kea'
+import { router } from 'kea-router'
+import { delay } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -64,6 +67,31 @@ Default.decorators = [
         get: {
             '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             '/api/projects/:team_id/experiments/session_context/': experimentSessionContextResponse,
+        },
+    }),
+]
+
+// While the context request is in flight the box shows a skeleton placeholder — but only when the
+// viewer arrived from an experiment's recordings tab, so the route is put on /experiments/<id>
+// first. The mocked request never resolves, holding the section in its loading state.
+export function Loading(): JSX.Element {
+    router.actions.push(urls.experiment(123))
+    return <MockedPlayerSidebarExperimentsSection sessionRecordingId="experiment-context-loading" />
+}
+Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+        waitForSelector: '[data-attr=replay-experiment-context-overview-loading]',
+    },
+}
+Loading.decorators = [
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+            '/api/projects/:team_id/experiments/session_context/': async () => {
+                await delay('infinite')
+                return [200, { session_id: 'experiment-context-loading', results: [] }]
+            },
         },
     }),
 ]
