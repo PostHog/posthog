@@ -452,6 +452,25 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
+            ("blank_model_resolves_to_the_claude_default", "", None, "@cf/zai-org/glm-5.2", None),
+            ("blank_model_keeps_a_supported_effort", "", "high", "@cf/zai-org/glm-5.2", "high"),
+            ("blank_model_keeps_max_effort", "", "max", "@cf/zai-org/glm-5.2", "max"),
+            ("blank_model_drops_an_unsupported_stored_effort", "", "medium", "@cf/zai-org/glm-5.2", None),
+            ("pinned_model_keeps_its_validated_effort", "claude-sonnet-5", "medium", "claude-sonnet-5", "medium"),
+        ]
+    )
+    def test_fire_resolves_model_and_effort(self, _name, model, reasoning_effort, expected_model, expected_effort):
+        loop = self.create_loop(model=model, reasoning_effort=reasoning_effort)
+
+        result = fire_loop(loop, None, "fire-1", "ctx")
+
+        self.assertTrue(result.created)
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertEqual(task_run.state["model"], expected_model)
+        self.assertEqual(task_run.state["reasoning_effort"], expected_effort)
+
+    @parameterized.expand(
+        [
             ("default_behaviors_are_report_only", {}, {}, False, "read_only"),
             ("report_only_loop_disables_create_pr", {"create_prs": False}, {}, False, "read_only"),
             ("create_prs_opt_in_enables_pr", {"create_prs": True}, {}, True, "read_only"),

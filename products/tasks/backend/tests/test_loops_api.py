@@ -149,6 +149,23 @@ class LoopCRUDAPITest(LoopsAPITestCase):
 
         self.assertEqual(self.owner_client.get(self._loop_url(loop_id)).status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("blank_model_accepts_an_effort_the_default_model_supports", "", "high", status.HTTP_201_CREATED),
+            ("blank_model_accepts_max_effort", "", "max", status.HTTP_201_CREATED),
+            ("blank_model_rejects_an_effort_the_default_model_lacks", "", "medium", status.HTTP_400_BAD_REQUEST),
+            ("pinned_model_accepts_its_own_supported_effort", "claude-sonnet-5", "medium", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_validates_effort_against_the_effective_model(self, _name, model, effort, expected_status):
+        payload = self._valid_loop_payload(model=model, reasoning_effort=effort)
+
+        response = self.owner_client.post(self._loops_url(), payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "reasoning_effort")
+
 
 class LoopBehaviorsAPITest(LoopsAPITestCase):
     def test_behaviors_persist_through_create_retrieve_and_update(self):

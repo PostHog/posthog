@@ -197,7 +197,7 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
 # model means "let PostHog pick", so defaults can improve without rewriting
 # stored loops.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
-    RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
+    RuntimeAdapter.CLAUDE.value: "@cf/zai-org/glm-5.2",
     RuntimeAdapter.CODEX.value: "gpt-5",
 }
 
