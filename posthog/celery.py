@@ -220,7 +220,10 @@ def on_worker_start(**kwargs) -> None:
     _initialize_worker_metrics()
 
 
-_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
+# Must exceed the SDK's flush_interval (5s): `Client.flush` waits passively while the
+# consumer can hold a partial batch for the full interval, so a smaller bound would time
+# out on healthy recycles and drop the events captured by the child's last task.
+_ANALYTICS_FLUSH_TIMEOUT_SECONDS = 10.0
 
 
 @worker_process_shutdown.connect
@@ -231,32 +234,52 @@ def on_worker_process_shutdown(**kwargs) -> None:
 
         multiprocess.mark_process_dead(os.getpid())
 
-    # Flush the posthoganalytics SDK's final metrics window: `client.metrics`
-    # aggregates in memory and flushes on an interval, so a recycled child
-    # (--max-tasks-per-child) would otherwise drop up to one interval of samples.
-    # Inert on SDK versions without the metrics API and on untouched/disabled clients.
+    # Flush the posthoganalytics SDK's buffers: both the event queue (capture() batches
+    # in memory and flushes on an interval) and the `client.metrics` aggregation window
+    # would otherwise drop up to one interval of data when a child exits or recycles
+    # (--max-tasks-per-child). This is the only delivery chance — billiard calls
+    # os._exit() right after this handler, skipping atexit hooks and killing daemon
+    # threads, so a timed-out flush is dropped. This hook is what makes plain
+    # posthoganalytics.capture() safe to use from Celery tasks.
     import posthoganalytics  # noqa: PLC0415 — keep the SDK off the celery import path
 
     try:
         client = posthoganalytics.default_client
-        metrics = getattr(client, "metrics", None) if client is not None else None
-        if metrics is not None:
-            # Bound the wait: an unreachable metrics endpoint must not hold a
-            # recycling child hostage (same hazard otel_instrumentation.py caps
-            # with a 5s force_flush). The daemon thread is abandoned on timeout.
-            def _flush() -> None:
-                try:
-                    metrics.flush()
-                except Exception:
-                    logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+        if client is None:
+            return
 
-            flush_thread = threading.Thread(target=_flush, name="posthoganalytics-metrics-flush", daemon=True)
-            flush_thread.start()
-            flush_thread.join(timeout=_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS)
-            if flush_thread.is_alive():
-                logger.warning("posthoganalytics_metrics_flush_timed_out")
+        # Bound the wait: an unreachable ingestion endpoint must not hold a recycling
+        # child hostage (same hazard otel_instrumentation.py caps with a bounded
+        # force_flush). The flushes run in parallel against one shared deadline so a
+        # hung event flush can't starve the metrics flush.
+        def _flush_events() -> None:
+            try:
+                client.flush(timeout_seconds=_ANALYTICS_FLUSH_TIMEOUT_SECONDS)
+            except Exception:
+                logger.warning("posthoganalytics_event_flush_failed", exc_info=True)
+
+        def _flush_metrics() -> None:
+            metrics = getattr(client, "metrics", None)
+            if metrics is None:
+                return
+            try:
+                metrics.flush()
+            except Exception:
+                logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+
+        threads = [
+            threading.Thread(target=_flush_events, name="posthoganalytics-event-flush", daemon=True),
+            threading.Thread(target=_flush_metrics, name="posthoganalytics-metrics-flush", daemon=True),
+        ]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + _ANALYTICS_FLUSH_TIMEOUT_SECONDS
+        for thread in threads:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+            if thread.is_alive():
+                logger.warning("posthoganalytics_flush_timed_out", thread=thread.name)
     except Exception:
-        logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+        logger.warning("posthoganalytics_flush_failed", exc_info=True)
 
 
 # Set up clickhouse query instrumentation

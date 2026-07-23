@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
 from numbers import Number
@@ -92,18 +93,32 @@ def get_regional_ph_client(**kwargs: Any):
     return get_client(region, **kwargs)
 
 
+PH_SCOPED_CAPTURE_FLUSH_TIMEOUT_SECONDS = 10.0
+
+
 @contextmanager
 def ph_scoped_capture():
-    """Use this instead of posthoganalytics.capture() in Celery tasks — the global
-    client's background flush may never run before the worker exits, silently losing events.
-    This creates a dedicated client and flushes on context-manager exit.
+    """Capture PostHog telemetry with a dedicated client that flushes on context exit.
+
+    Prefer plain ``posthoganalytics.capture()`` — it is a non-blocking enqueue and is safe
+    in Celery tasks too, since ``on_worker_process_shutdown`` flushes the global client's
+    queue (bounded) when a prefork child recycles or exits. Reach for this scoped variant
+    in short-lived processes without such a lifecycle hook (management commands,
+    dagster/temporal one-shots) or when the events must be flushed before moving on.
+
+    Exit is bounded: the shutdown runs on a daemon thread joined for
+    ``PH_SCOPED_CAPTURE_FLUSH_TIMEOUT_SECONDS`` and is abandoned on timeout (it keeps
+    draining in the background while the process lives) — a degraded ingestion endpoint
+    must not hang request threads or worker slots.
 
     Usage::
 
         with ph_scoped_capture() as capture:
             capture(distinct_id="...", event="my_event", properties={...})
     """
-    ph_client = get_client()
+    # A fresh client's consumer holds its first batch for the default 5s flush_interval,
+    # which would stall every healthy exit by ~5s — flush almost immediately instead.
+    ph_client = get_client(flush_interval=0.3)
 
     def capture_ph_event(*args: Any, **kwargs: Any) -> None:
         if is_cloud() and ph_client:
@@ -114,7 +129,18 @@ def ph_scoped_capture():
     try:
         yield capture_ph_event
     finally:
-        ph_client.shutdown()
+
+        def _shutdown() -> None:
+            try:
+                ph_client.shutdown()
+            except Exception:
+                logger.warning("ph_scoped_capture_shutdown_failed", exc_info=True)
+
+        shutdown_thread = threading.Thread(target=_shutdown, name="ph-scoped-capture-shutdown", daemon=True)
+        shutdown_thread.start()
+        shutdown_thread.join(timeout=PH_SCOPED_CAPTURE_FLUSH_TIMEOUT_SECONDS)
+        if shutdown_thread.is_alive():
+            logger.warning("ph_scoped_capture_shutdown_timed_out")
 
 
 def get_client(

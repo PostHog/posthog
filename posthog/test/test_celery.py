@@ -11,25 +11,27 @@ from posthog.celery import on_worker_process_shutdown
 from posthog.tasks.tasks import clickhouse_errors_count
 
 
-class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
-    def test_flushes_sdk_metrics_tail_window(self) -> None:
+class TestWorkerShutdownFlushesAnalytics(TestCase):
+    def test_flushes_event_queue_and_sdk_metrics_tail_windows(self) -> None:
         client = MagicMock()
         with patch.object(posthoganalytics, "default_client", client):
             on_worker_process_shutdown()
+        client.flush.assert_called_once_with(timeout_seconds=posthog.celery._ANALYTICS_FLUSH_TIMEOUT_SECONDS)
         client.metrics.flush.assert_called_once()
 
-    def test_hung_flush_does_not_stall_worker_recycling(self) -> None:
+    @parameterized.expand([("event_queue", "flush"), ("sdk_metrics", "metrics.flush")])
+    def test_hung_flush_does_not_stall_worker_recycling(self, _name: str, flush_attr: str) -> None:
         release = threading.Event()
         flush_completed = threading.Event()
 
-        def hung_flush() -> None:
+        def hung_flush(*args, **kwargs) -> None:
             release.wait(timeout=10)
             flush_completed.set()
 
-        client = MagicMock(**{"metrics.flush.side_effect": hung_flush})
+        client = MagicMock(**{f"{flush_attr}.side_effect": hung_flush})
         try:
             with (
-                patch.object(posthog.celery, "_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS", 0.05),
+                patch.object(posthog.celery, "_ANALYTICS_FLUSH_TIMEOUT_SECONDS", 0.05),
                 patch.object(posthoganalytics, "default_client", client),
             ):
                 on_worker_process_shutdown()
@@ -41,14 +43,14 @@ class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
     @parameterized.expand(
         [
             ("no_default_client", lambda: None),
-            # The pinned SDK version has no `metrics` API — the hook must stay
-            # inert (a bare `client.metrics.flush()` would raise on every
-            # worker recycle until the dependency is bumped).
+            # A real (disabled, sync-mode) client: both flushes must no-op quickly
+            # rather than raise on every worker recycle.
             (
-                "real_client_on_pinned_sdk_version",
+                "real_client",
                 lambda: posthoganalytics.Client("phc_test", sync_mode=True, disabled=True),
             ),
-            ("flush_raises", lambda: MagicMock(**{"metrics.flush.side_effect": RuntimeError("network down")})),
+            ("metrics_flush_raises", lambda: MagicMock(**{"metrics.flush.side_effect": RuntimeError("network down")})),
+            ("event_flush_raises", lambda: MagicMock(**{"flush.side_effect": RuntimeError("network down")})),
         ]
     )
     def test_handler_never_breaks_worker_shutdown(self, _name: str, client_factory) -> None:

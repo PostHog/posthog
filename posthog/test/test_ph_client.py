@@ -1,14 +1,43 @@
+import threading
+
+from unittest.mock import MagicMock, patch
+
 from django.test import SimpleTestCase, override_settings
 
 import posthoganalytics
 from parameterized import parameterized
 from posthoganalytics import Posthog
 
-from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client, get_client
+import posthog.ph_client
+from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client, get_client, ph_scoped_capture
 from posthog.settings.ingestion import (
     DedicatedAIEndpointRollout as Rollout,
     _parse_dedicated_ai_rollout,
 )
+
+
+class TestPhScopedCapture(SimpleTestCase):
+    def test_hung_shutdown_does_not_block_context_exit(self) -> None:
+        release = threading.Event()
+        shutdown_completed = threading.Event()
+
+        def hung_shutdown() -> None:
+            release.wait(timeout=10)
+            shutdown_completed.set()
+
+        client = MagicMock(**{"shutdown.side_effect": hung_shutdown})
+        try:
+            with (
+                patch.object(posthog.ph_client, "PH_SCOPED_CAPTURE_FLUSH_TIMEOUT_SECONDS", 0.05),
+                patch.object(posthog.ph_client, "get_client", return_value=client),
+            ):
+                with ph_scoped_capture():
+                    pass
+            # Exit must abandon the hung shutdown, not hold the caller's thread
+            # (request threads and worker slots ride on this).
+            assert not shutdown_completed.is_set()
+        finally:
+            release.set()
 
 
 class TestDedicatedAIEndpointRollout(SimpleTestCase):
