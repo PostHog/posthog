@@ -44,6 +44,9 @@ import { CORE_TYPES, EXTRA_TYPES, ExtraTypeEntry } from './SidebarTypeCardProtot
  *   sidebar-sketches / sidebar-list / sidebar-compact : visual alternatives of the sidebar
  *              card; same grouping as sidebar-families, only the looks change (sketch
  *              gallery, quiet indented list, two bare selects)
+ *   sidebar-section : a native "Visualization" section styled like General/Filters; the
+ *              display menu's groups become the top level (time series, total value, world
+ *              map, calendar heatmap, funnel, retention, ...) with display suboptions
  *
  * The real six types switch for real (same setActiveView as the tab strip, carry-over intact).
  * Extra entries (calendar heatmap, SQL, examples) are display-only, there to show how each
@@ -296,6 +299,7 @@ const VARIANTS = [
     { key: 'sidebar-sketches', name: 'Sidebar visual: sketch gallery' },
     { key: 'sidebar-list', name: 'Sidebar visual: quiet list' },
     { key: 'sidebar-compact', name: 'Sidebar visual: compact selects' },
+    { key: 'sidebar-section', name: 'Sidebar: native section, viz-first' },
 ] as const
 
 export function InsightTypeSwitcherPrototype({ insightLogicProps }: VariantProps): JSX.Element {

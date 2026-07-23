@@ -2,12 +2,20 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCorrelationAnalysis, IconGraph } from '@posthog/icons'
+import { IconCorrelationAnalysis, IconGlobe, IconGraph } from '@posthog/icons'
 
-import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS, RETENTION_RECURRING } from 'lib/constants'
+import {
+    FEATURE_FLAGS,
+    FunnelLayout,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+    RETENTION_RECURRING,
+} from 'lib/constants'
+import { Icon123 } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -24,8 +32,16 @@ import {
     QUERY_TYPES_METADATA,
 } from 'scenes/saved-insights/insightTypesMetadata'
 
+import { EditorFilterGroup } from '~/queries/nodes/InsightViz/EditorFilterGroup'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType, FunnelVizType, InsightType, PathType } from '~/types'
+import {
+    ChartDisplayType,
+    EditorFilterProps,
+    FunnelVizType,
+    InsightEditorFilterGroup,
+    InsightType,
+    PathType,
+} from '~/types'
 
 /**
  * THROWAWAY PROTOTYPE: variants E to H of the insight type switcher, see InsightTypeSwitcherPrototype.tsx.
@@ -46,6 +62,10 @@ import { ChartDisplayType, FunnelVizType, InsightType, PathType } from '~/types'
  *                          methods indented under the active one (same grouping as G)
  *   sidebar-compact   (K): visual alternative; family and method as two bare selects on one
  *                          row, no decoration at all (same grouping as G)
+ *   sidebar-section   (L): a native "Visualization" section styled exactly like General and
+ *                          Filters, with the display menu's groups promoted to the top level
+ *                          (time series, total value, world map, calendar heatmap, funnel,
+ *                          retention, ...) and the display options as suboptions
  *
  * Type switches go through setActiveView (config carry-over intact); mode switches go through
  * updateInsightFilter on the live query. Rendered from EditorFilters, inert (null) unless the
@@ -782,6 +802,225 @@ function CompactSelectsCard(): JSX.Element {
     )
 }
 
+// --- Variant L: a native "Visualization" section among General/Filters ---
+// The top level is what you see (the display menu's groups promoted), not the query type:
+// time series and total value and world map and calendar heatmap are all trends underneath.
+
+const TIME_SERIES_DISPLAYS: SubtypeOption[] = [
+    { value: ChartDisplayType.ActionsLineGraph, label: 'Line chart' },
+    { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart' },
+    { value: ChartDisplayType.ActionsUnstackedBar, label: 'Bar chart' },
+    { value: ChartDisplayType.ActionsBar, label: 'Stacked bar' },
+    { value: ChartDisplayType.ActionsLineGraphCumulative, label: 'Line (cumulative)' },
+]
+
+const TOTAL_VALUE_DISPLAYS: SubtypeOption[] = [
+    { value: ChartDisplayType.BoldNumber, label: 'Number' },
+    { value: ChartDisplayType.ActionsPie, label: 'Pie chart' },
+    { value: ChartDisplayType.ActionsBarValue, label: 'Bar chart' },
+    { value: ChartDisplayType.ActionsTable, label: 'Table' },
+]
+
+const LINE_BAR_DISPLAYS: SubtypeOption[] = [
+    { value: ChartDisplayType.ActionsLineGraph, label: 'Line chart' },
+    { value: ChartDisplayType.ActionsBar, label: 'Bar chart' },
+]
+
+interface VisRow {
+    key: string
+    label: string
+    icon: React.ComponentType<any>
+    active: boolean
+    onSelect: () => void
+    disabledReason?: string
+    subs: SubOption[]
+}
+
+function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX.Element {
+    const { activeView } = useValues(insightNavLogic(insightProps))
+    const { setActiveView } = useActions(insightNavLogic(insightProps))
+    const { display, funnelsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const apply = updateInsightFilter as unknown as ApplyInsightFilter
+
+    const trendsDisplay = activeView === InsightType.TRENDS ? (display ?? ChartDisplayType.ActionsLineGraph) : null
+    const isTotalValue = TOTAL_VALUE_DISPLAYS.some((option) => option.value === trendsDisplay)
+
+    // Switching the type rebuilds the query in the same tick, so a display update aimed at a
+    // not-yet-active trends query has to wait for the rebuilt query to land.
+    const setTrendsDisplay = (value: ChartDisplayType): void => {
+        if (activeView === InsightType.TRENDS) {
+            apply({ display: value })
+        } else {
+            setActiveView(InsightType.TRENDS)
+            window.setTimeout(() => apply({ display: value }), 0)
+        }
+    }
+
+    const displaySubsFor = (views: SubtypeOption[], fallback: ChartDisplayType): SubOption[] =>
+        views.map((view) => ({
+            key: view.value,
+            label: view.label,
+            active: (display ?? fallback) === view.value,
+            onSelect: () => apply({ display: view.value }),
+        }))
+
+    const funnelViz = funnelsFilter?.funnelVizType ?? FunnelVizType.Steps
+    const funnelLayout = funnelsFilter?.layout ?? FunnelLayout.vertical
+    const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+
+    const rows: VisRow[] = [
+        {
+            key: 'time-series',
+            label: 'Time series',
+            icon: INSIGHT_TYPES_METADATA[InsightType.TRENDS].icon,
+            active:
+                trendsDisplay !== null &&
+                !isTotalValue &&
+                trendsDisplay !== ChartDisplayType.WorldMap &&
+                trendsDisplay !== ChartDisplayType.CalendarHeatmap,
+            onSelect: () => setTrendsDisplay(ChartDisplayType.ActionsLineGraph),
+            subs: displaySubsFor(TIME_SERIES_DISPLAYS, ChartDisplayType.ActionsLineGraph),
+        },
+        {
+            key: 'total-value',
+            label: 'Total value',
+            icon: Icon123,
+            active: isTotalValue,
+            onSelect: () => setTrendsDisplay(ChartDisplayType.BoldNumber),
+            subs: displaySubsFor(TOTAL_VALUE_DISPLAYS, ChartDisplayType.BoldNumber),
+        },
+        {
+            key: 'world-map',
+            label: 'World map',
+            icon: IconGlobe,
+            active: trendsDisplay === ChartDisplayType.WorldMap,
+            onSelect: () => setTrendsDisplay(ChartDisplayType.WorldMap),
+            subs: [],
+        },
+        {
+            key: 'calendar-heatmap',
+            label: 'Calendar heatmap',
+            icon: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery].icon,
+            active: trendsDisplay === ChartDisplayType.CalendarHeatmap,
+            onSelect: () => setTrendsDisplay(ChartDisplayType.CalendarHeatmap),
+            disabledReason: heatmapEnabled
+                ? undefined
+                : 'Behind the calendar-heatmap-insight feature flag; enable it to try this',
+            subs: [],
+        },
+        {
+            key: 'funnel',
+            label: 'Funnel',
+            icon: INSIGHT_TYPES_METADATA[InsightType.FUNNELS].icon,
+            active: activeView === InsightType.FUNNELS,
+            onSelect: () => setActiveView(InsightType.FUNNELS),
+            subs: [
+                {
+                    key: 'left-to-right',
+                    label: 'Left to right',
+                    active: funnelViz === FunnelVizType.Steps && funnelLayout === FunnelLayout.vertical,
+                    onSelect: () => apply({ funnelVizType: FunnelVizType.Steps, layout: FunnelLayout.vertical }),
+                },
+                {
+                    key: 'top-to-bottom',
+                    label: 'Top to bottom',
+                    active: funnelViz === FunnelVizType.Steps && funnelLayout === FunnelLayout.horizontal,
+                    onSelect: () => apply({ funnelVizType: FunnelVizType.Steps, layout: FunnelLayout.horizontal }),
+                },
+                {
+                    key: 'funnel-trends',
+                    label: 'Trends',
+                    active: funnelViz === FunnelVizType.Trends,
+                    onSelect: () => apply({ funnelVizType: FunnelVizType.Trends }),
+                },
+                {
+                    key: 'time-to-convert',
+                    label: 'Time to convert',
+                    active: funnelViz === FunnelVizType.TimeToConvert,
+                    onSelect: () => apply({ funnelVizType: FunnelVizType.TimeToConvert }),
+                },
+            ],
+        },
+        {
+            key: 'retention',
+            label: 'Retention',
+            icon: INSIGHT_TYPES_METADATA[InsightType.RETENTION].icon,
+            active: activeView === InsightType.RETENTION,
+            onSelect: () => setActiveView(InsightType.RETENTION),
+            subs: displaySubsFor(LINE_BAR_DISPLAYS, ChartDisplayType.ActionsLineGraph),
+        },
+        {
+            key: 'paths',
+            label: 'User paths',
+            icon: INSIGHT_TYPES_METADATA[InsightType.PATHS].icon,
+            active: activeView === InsightType.PATHS,
+            onSelect: () => setActiveView(InsightType.PATHS),
+            subs: [],
+        },
+        {
+            key: 'stickiness',
+            label: 'Stickiness',
+            icon: INSIGHT_TYPES_METADATA[InsightType.STICKINESS].icon,
+            active: activeView === InsightType.STICKINESS,
+            onSelect: () => setActiveView(InsightType.STICKINESS),
+            subs: displaySubsFor(LINE_BAR_DISPLAYS, ChartDisplayType.ActionsLineGraph),
+        },
+        {
+            key: 'lifecycle',
+            label: 'Lifecycle',
+            icon: INSIGHT_TYPES_METADATA[InsightType.LIFECYCLE].icon,
+            active: activeView === InsightType.LIFECYCLE,
+            onSelect: () => setActiveView(InsightType.LIFECYCLE),
+            subs: [],
+        },
+    ]
+
+    return (
+        <div className="flex flex-col gap-0.5">
+            {rows.map((row) => {
+                const RowIcon = row.icon
+                return (
+                    <div key={row.key}>
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            active={row.active}
+                            icon={<RowIcon />}
+                            onClick={row.active ? undefined : row.onSelect}
+                            disabledReason={row.disabledReason}
+                            data-attr={`prototype-insight-vis-${row.key}`}
+                        >
+                            {row.label}
+                        </LemonButton>
+                        {row.active && row.subs.length > 0 && (
+                            <div className="border-primary mt-0.5 mb-1 ml-3.5 border-l pl-2">
+                                <SubChips options={row.subs} dataAttrPrefix={`prototype-insight-vis-${row.key}`} />
+                            </div>
+                        )}
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
+
+function PrototypeVisualizationSection(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const group: InsightEditorFilterGroup = {
+        title: 'Visualization',
+        defaultExpanded: true,
+        editorFilters: [{ key: 'prototype-visualization', component: PrototypeVisualizationOptions }],
+    }
+
+    return (
+        <div className="mb-3">
+            <EditorFilterGroup editorFilterGroup={group} insightProps={insightProps} />
+        </div>
+    )
+}
+
 /** Routes the sidebar card variants; inert unless the URL requests one. */
 export function SidebarTypeCardPrototype(): JSX.Element | null {
     const { searchParams } = useValues(router)
@@ -807,6 +1046,9 @@ export function SidebarTypeCardPrototype(): JSX.Element | null {
     }
     if (variant === 'sidebar-compact') {
         return <CompactSelectsCard />
+    }
+    if (variant === 'sidebar-section') {
+        return <PrototypeVisualizationSection />
     }
     return null
 }
