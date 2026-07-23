@@ -64,10 +64,10 @@ There are two independent decisions: **what** you're building, and **where** it 
 
 ### Where
 
-| Path                                 | Mechanism                                                                                                                                                                                                     | Use when                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Per-team** (the common user path)  | Create/edit a `signals-scout-*` `LLMSkill` row in the project's skills store via `posthog:skill-create` / `-update` / `-file-create`, then register its config immediately via `posthog:scout-config-create`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
-| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                            | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
+| Path                                 | Mechanism                                                                                                                                                                                                                                                                                                                 | Use when                                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-team** (the common user path)  | Prepare a new runnable scout via `posthog:scout-create-prepare`, show its confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute`; edit its prompt or files later via `posthog:skill-update` / `-file-create`, and tune its runtime config via `posthog:scout-config-update`. | Customizing for one project. The harness globs the row in on the next tick; canonical sync leaves your edited ("diverged") row alone. |
+| **Canonical** (PostHog contributors) | Edit disk under `products/signals/skills/signals-scout-*/`, lint/build, open a PR.                                                                                                                                                                                                                                        | Improving a scout for _every_ enrolled project. `lazy_seed` mirrors it onto all enrolled teams on the next tick.                      |
 
 **Adapting-in-place tradeoff:** editing a canonical scout's row for your team marks it **diverged** — you stop receiving upstream improvements to that scout.
 If you only need an _additional_ behavior, prefer authoring a **new, differently-named** scout (`signals-scout-<your-scope>`) and leaving the canonical one intact.
@@ -98,8 +98,9 @@ Name it explicitly near the top of the body so every run anchors on it.
 ## Run posture (config)
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.
-For a **brand-new scout**, register the config immediately after creating the skill with `posthog:scout-config-create {"skill_name": "signals-scout-<scope>", ...}`, setting any of the fields below in the same call — including creating it disabled or in dry-run **before it ever runs**.
-(It's an upsert: if the coordinator already auto-registered the row, your fields are applied to it.)
+For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create-prepare` call, including creating it disabled or in dry-run **before it ever runs**.
+Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
+The endpoint creates the skill and config atomically, always opts the scout into the report channel, and safely re-applies config fields when the same definition is retried.
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
 For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
 
