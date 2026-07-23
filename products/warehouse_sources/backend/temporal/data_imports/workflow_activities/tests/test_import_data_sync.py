@@ -99,7 +99,7 @@ async def test_non_retryable_setup_error_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
 
 
 @pytest.mark.asyncio
@@ -129,7 +129,7 @@ async def test_unparseable_config_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
     source.source_for_pipeline.assert_not_called()
 
 
@@ -182,7 +182,7 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
     logger.aexception.assert_not_awaited()
 
 
