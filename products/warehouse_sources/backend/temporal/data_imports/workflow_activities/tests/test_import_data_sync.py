@@ -208,9 +208,11 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     logger.aexception = mock.AsyncMock()
     logger.adebug = mock.AsyncMock()
 
+    # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
+    # positional args (as this branch once had) fails here instead of only at runtime.
     with (
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
-        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
     ):
         handle_mock.side_effect = NonRetryableException()
         with pytest.raises(NonRetryableException):
