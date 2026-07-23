@@ -125,6 +125,50 @@ class TestMirrorEntries(SimpleTestCase):
         mock_logger.error.assert_not_called()
 
 
+class TestMirrorOtlpDelivery(SimpleTestCase):
+    @override_settings(
+        TASK_RUN_LOGS_MIRROR_OTLP_URL="http://localhost:8000/i/v1/logs",
+        TASK_RUN_LOGS_MIRROR_OTLP_TOKEN="phc_logs",
+    )
+    def test_posts_one_otlp_batch_with_severity_trace_and_attributes(self):
+        entries = [
+            _session_update_entry("agent_message", content={"type": "text", "text": "hello"}),
+            {"notification": {"method": "_posthog/error", "params": {"message": "boom"}}},
+        ]
+        with patch("products.tasks.backend.logic.services.run_log_mirror.internal_requests") as mock_requests:
+            _mirror(entries)
+
+        mock_requests.post.assert_called_once()
+        args, kwargs = mock_requests.post.call_args
+        assert args[0] == "http://localhost:8000/i/v1/logs"
+        assert kwargs["headers"] == {"Authorization": "Bearer phc_logs"}
+        records = kwargs["json"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+        assert [r["severityText"] for r in records] == ["INFO", "ERROR"]
+        assert records[0]["body"]["stringValue"] == "[agent_message] hello"
+        assert records[1]["body"]["stringValue"] == "boom"
+        # The run uuid (dashes stripped) is the trace id, grouping the run.
+        assert records[0]["traceId"] == RUN_ID.replace("-", "")
+        attributes = {a["key"]: a["value"] for a in records[0]["attributes"]}
+        assert attributes["task_run_id"] == {"stringValue": RUN_ID}
+        # OTLP JSON encodes 64-bit ints as strings.
+        assert attributes["team_id"] == {"intValue": "2"}
+
+    @parameterized.expand(
+        [
+            ("both_unset", None, None),
+            ("url_only", "http://localhost:8000/i/v1/logs", None),
+            ("token_only", None, "phc_logs"),
+        ]
+    )
+    def test_no_http_delivery_unless_fully_configured(self, _name, url, token):
+        entry = _session_update_entry("agent_message", content={"type": "text", "text": "hello"})
+        with override_settings(TASK_RUN_LOGS_MIRROR_OTLP_URL=url, TASK_RUN_LOGS_MIRROR_OTLP_TOKEN=token):
+            with patch("products.tasks.backend.logic.services.run_log_mirror.internal_requests") as mock_requests:
+                _mirror([entry])
+
+        mock_requests.post.assert_not_called()
+
+
 @override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout"])
 class TestAppendLogMirroring(TestCase):
     @classmethod

@@ -4,20 +4,31 @@ Task-run logs are appended to object storage as one ACP notification envelope pe
 In every PostHog cluster an OTel collector daemonset already tails container stdout and
 ships JSON log lines into the region's internal PostHog project's Logs product, parsing
 each JSON key into a queryable log attribute, `level` into severity, and `request_id`
-into a trace id (see `argocd/otel-collector` in the charts repo; `otel-collector-config.dev.yaml`
-does the same for local dev). So dogfooding scout-run logs needs no transport of its own:
-emitting one structured stdout line per persisted entry is enough.
+into a trace id (see `argocd/otel-collector` in the charts repo). So in production
+dogfooding scout-run logs needs no transport of its own: emitting one structured stdout
+line per persisted entry is enough.
 
-Each mirrored line carries the run's uuid as `request_id`, so a whole run groups as one
-trace in the Logs UI and can be pulled up with a `task_run_id` attribute filter.
+Local dev is the exception: `otel-collector-config.dev.yaml` only tails docker-compose
+container stdout, and `append_log` runs in the host Django process, so the stdout lines
+never reach Logs there. Setting `TASK_RUN_LOGS_MIRROR_OTLP_URL` + `_TOKEN` additionally
+ships each batch straight to a logs OTLP endpoint — the delivery leg for hosts whose
+stdout no collector tails.
+
+Each mirrored line carries the run's uuid as `request_id` (and as the OTLP trace id on
+the direct leg), so a whole run groups as one trace in the Logs UI and can be pulled up
+with a `task_run_id` attribute filter.
 """
 
 import json
+import time
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
 
 import structlog
+
+from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +42,12 @@ MAX_BODY_CHARS = 8_000
 MAX_ENTRIES_PER_CALL = 200
 
 _LOG_METHOD_NAMES = {"info": "info", "warn": "warning", "error": "error"}
+
+_OTLP_SEVERITIES = {"info": ("INFO", 9), "warn": ("WARN", 13), "error": ("ERROR", 17)}
+
+_OTLP_SERVICE_NAME = "task-run-log-mirror"
+
+_OTLP_TIMEOUT_SECONDS = 3
 
 
 def mirroring_enabled(origin_product: str) -> bool:
@@ -53,6 +70,7 @@ def mirror_entries(
             dropped=len(entries) - MAX_ENTRIES_PER_CALL,
         )
         entries = entries[:MAX_ENTRIES_PER_CALL]
+    records: list[tuple[str, dict[str, Any]]] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -81,6 +99,77 @@ def mirror_entries(
             fields["entry_timestamp"] = entry_timestamp
 
         getattr(logger, _LOG_METHOD_NAMES[severity])("task_run_log", **fields)
+        records.append((severity, fields))
+
+    _post_otlp(records, run_id=run_id)
+
+
+def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> None:
+    """Ship the batch straight to a logs OTLP endpoint when one is configured.
+
+    Best-effort: a delivery failure is logged and never raises into the run.
+    """
+    url = settings.TASK_RUN_LOGS_MIRROR_OTLP_URL
+    token = settings.TASK_RUN_LOGS_MIRROR_OTLP_TOKEN
+    if not url or not token or not records:
+        return
+
+    # The run uuid without dashes is a valid 16-byte hex trace id, matching the
+    # request_id -> trace id mapping the production collector applies.
+    trace_id = run_id.replace("-", "")
+    log_records = []
+    for severity, fields in records:
+        severity_text, severity_number = _OTLP_SEVERITIES[severity]
+        log_records.append(
+            {
+                "timeUnixNano": str(_time_unix_nano(fields.get("entry_timestamp"))),
+                "severityText": severity_text,
+                "severityNumber": severity_number,
+                "body": {"stringValue": fields["body"]},
+                **({"traceId": trace_id} if len(trace_id) == 32 else {}),
+                "attributes": [
+                    {"key": key, "value": _otlp_attribute_value(value)}
+                    for key, value in fields.items()
+                    if key != "body"
+                ],
+            }
+        )
+    payload = {
+        "resourceLogs": [
+            {
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": _OTLP_SERVICE_NAME}}]},
+                "scopeLogs": [{"scope": {"name": __name__}, "logRecords": log_records}],
+            }
+        ]
+    }
+    try:
+        response = internal_requests.post(
+            url,
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=_OTLP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except Exception as e:
+        logger.warning("task_run_log_mirror_otlp_failed", task_run_id=run_id, error=str(e))
+
+
+def _otlp_attribute_value(value: Any) -> dict[str, Any]:
+    # OTLP JSON encodes 64-bit ints as strings.
+    if isinstance(value, bool):
+        return {"boolValue": value}
+    if isinstance(value, int):
+        return {"intValue": str(value)}
+    return {"stringValue": str(value)}
+
+
+def _time_unix_nano(entry_timestamp: Any) -> int:
+    if isinstance(entry_timestamp, str):
+        try:
+            return int(datetime.fromisoformat(entry_timestamp.replace("Z", "+00:00")).timestamp() * 1_000_000_000)
+        except (ValueError, OverflowError):
+            pass
+    return time.time_ns()
 
 
 def _session_update(notification: dict) -> dict:

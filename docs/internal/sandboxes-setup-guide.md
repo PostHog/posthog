@@ -257,9 +257,8 @@ repositories.
 Task-run log entries (the JSONL appended to object storage via `TaskRun.append_log`) are also mirrored into the PostHog Logs product,
 so runs can be browsed and sampled in the Logs UI instead of fetching S3 blobs.
 
-There is no transport of its own: entries are emitted as structured stdout log lines (`event=task_run_log`),
-and the per-cluster OTel collector that already ships all container stdout into the region's internal PostHog project picks them up
-(locally, `otel-collector-config.dev.yaml` does the same into your dev logs project).
+In production there is no transport of its own: entries are emitted as structured stdout log lines (`event=task_run_log`),
+and the per-cluster OTel collector that already ships all container stdout into the region's internal PostHog project picks them up.
 The collector parses each JSON key into a queryable attribute and turns the emitted `request_id` (the run uuid) into a trace id,
 so one run groups as a trace and can be pulled up with an attribute filter on `task_run_id`.
 
@@ -268,6 +267,19 @@ so one run groups as a trace and can be pulled up with an attribute filter on `t
 # Set empty to disable.
 TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
 ```
+
+**Local dev needs one extra step**: `append_log` runs in the host Django process,
+and the dev collector (`otel-collector-config.dev.yaml`) only tails docker-compose container stdout,
+so the mirrored lines never reach your local Logs on their own — they just show up in the Django phrocs pane.
+Point the mirror's direct OTLP leg at your local logs ingest to see them in `/logs`:
+
+```bash
+TASK_RUN_LOGS_MIRROR_OTLP_URL=http://localhost:8000/i/v1/logs
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN=<project API key of the logs project>
+```
+
+Records arrive under `service.name=task-run-log-mirror` with the run uuid as the trace id.
+Both settings stay unset in production, where the collector delivers.
 
 Mirroring failures are logged and never break the run's log write.
 
