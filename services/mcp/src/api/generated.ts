@@ -16704,6 +16704,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `triggered` - triggered
+     * * `started` - started
+     * * `already_running` - already_running
+     */
+    export type CustomPropertySyncTriggerResponseStatusEnum = typeof CustomPropertySyncTriggerResponseStatusEnum[keyof typeof CustomPropertySyncTriggerResponseStatusEnum];
+
+
+    export const CustomPropertySyncTriggerResponseStatusEnum = {
+      Triggered: 'triggered',
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Response of the person-property sync/backfill trigger actions.
+     */
+    export interface CustomPropertySyncTriggerResponse {
+      /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+       *
+       * * `triggered` - triggered
+       * * `started` - started
+       * * `already_running` - already_running */
+      status: CustomPropertySyncTriggerResponseStatusEnum;
+      /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+      already_running?: boolean;
+    }
+
+    /**
      * An account's current value for a custom property (read shape).
      */
     export interface CustomPropertyValue {
@@ -25213,6 +25241,7 @@ export namespace Schemas {
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
@@ -25220,6 +25249,7 @@ export namespace Schemas {
 
     export const ScannerModelEnum = {
       Gemini35FlashLite: 'gemini-3.5-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
       Gemini36Flash: 'gemini-3.6-flash',
     } as const;
 
@@ -25249,6 +25279,7 @@ export namespace Schemas {
       /** Proposed model; determines `credits_per_observation` in the response.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
     }
@@ -42649,6 +42680,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -51302,6 +51334,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -73269,8 +73302,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type CustomPropertySourcesBackfillCreate202 = { [key: string]: unknown };
-
     export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
@@ -73281,8 +73312,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type CustomPropertySourcesSyncCreate202 = { [key: string]: unknown };
 
     export type CustomerJourneysListParams = {
     /**
@@ -78503,30 +78532,6 @@ export namespace Schemas {
       Pending: 'pending',
     } as const;
 
-    export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat;
-    };
-
-    export type PersonsFunnelRetrieveFormat = typeof PersonsFunnelRetrieveFormat[keyof typeof PersonsFunnelRetrieveFormat];
-
-
-    export const PersonsFunnelRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat;
-    };
-
-    export type PersonsFunnelCreateFormat = typeof PersonsFunnelCreateFormat[keyof typeof PersonsFunnelCreateFormat];
-
-
-    export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsLifecycleRetrieveParams = {
     format?: PersonsLifecycleRetrieveFormat;
     };
@@ -78575,18 +78580,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat;
-    };
-
-    export type PersonsTrendsRetrieveFormat = typeof PersonsTrendsRetrieveFormat[keyof typeof PersonsTrendsRetrieveFormat];
-
-
-    export const PersonsTrendsRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -79082,6 +79075,10 @@ export namespace Schemas {
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */

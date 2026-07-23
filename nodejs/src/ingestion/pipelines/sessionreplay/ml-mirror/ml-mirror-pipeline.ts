@@ -22,7 +22,15 @@ import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/sessio
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
-export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
+export interface MlMirrorPipelineOptions {
+    /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
+    anonymizeMaxConcurrency: number
+}
+
+export function createMlMirrorReplayPipeline(
+    config: SessionReplayPipelineConfig,
+    mlOptions: MlMirrorPipelineOptions
+): SessionReplayPipeline {
     const {
         outputs,
         eventIngestionRestrictionManager,
@@ -112,38 +120,43 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                 b
                                     .teamAware((b) =>
                                         b
-                                            .sequentially((b) => {
-                                                // The native Rust addon fuses parse+anonymize in one step.
-                                                const parsed = b.pipe(
-                                                    topHogWrapper(createParseAndAnonymizeMessageStep(), [
-                                                        timer('parse_time_ms_by_session_id', (input) => ({
-                                                            token: input.headers.token ?? 'unknown',
-                                                            session_id: input.headers.session_id ?? 'unknown',
-                                                        })),
-                                                    ])
-                                                )
-                                                return parsed.pipe(
-                                                    topHogWrapper(
-                                                        createRecordSessionEventStep({
-                                                            isDebugLoggingEnabled,
-                                                        }),
-                                                        [
-                                                            sum(
-                                                                'message_size_by_session_id',
-                                                                (input) => ({
+                                            // Downstream consumers don't require event order within a
+                                            // session's block, so scrubbing is free to complete out of order.
+                                            .concurrently(
+                                                (b) => {
+                                                    // The native Rust addon fuses parse+anonymize in one step.
+                                                    const parsed = b.pipe(
+                                                        topHogWrapper(createParseAndAnonymizeMessageStep(), [
+                                                            timer('parse_time_ms_by_session_id', (input) => ({
+                                                                token: input.headers.token ?? 'unknown',
+                                                                session_id: input.headers.session_id ?? 'unknown',
+                                                            })),
+                                                        ])
+                                                    )
+                                                    return parsed.pipe(
+                                                        topHogWrapper(
+                                                            createRecordSessionEventStep({
+                                                                isDebugLoggingEnabled,
+                                                            }),
+                                                            [
+                                                                sum(
+                                                                    'message_size_by_session_id',
+                                                                    (input) => ({
+                                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                                        session_id: input.parsedMessage.session_id,
+                                                                    }),
+                                                                    (input) => input.parsedMessage.metadata.rawSize
+                                                                ),
+                                                                timer('consume_time_ms_by_session_id', (input) => ({
                                                                     token: input.parsedMessage.token ?? 'unknown',
                                                                     session_id: input.parsedMessage.session_id,
-                                                                }),
-                                                                (input) => input.parsedMessage.metadata.rawSize
-                                                            ),
-                                                            timer('consume_time_ms_by_session_id', (input) => ({
-                                                                token: input.parsedMessage.token ?? 'unknown',
-                                                                session_id: input.parsedMessage.session_id,
-                                                            })),
-                                                        ]
+                                                                })),
+                                                            ]
+                                                        )
                                                     )
-                                                )
-                                            })
+                                                },
+                                                { maxConcurrency: mlOptions.anonymizeMaxConcurrency }
+                                            )
                                             .gather()
                                     )
                                     .handleIngestionWarnings(outputs)

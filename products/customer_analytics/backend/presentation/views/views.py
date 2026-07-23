@@ -48,6 +48,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
     CustomPropertySyncRunSerializer,
+    CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
@@ -532,12 +533,23 @@ class CustomPropertySourceViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        deleted = api.delete_custom_property_source(team_id=self.team_id, source_id=self.kwargs["pk"])
+        try:
+            deleted = api.delete_custom_property_source(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(request=None, responses={202: OpenApiTypes.OBJECT})
+    @extend_schema(
+        operation_id="custom_property_sources_sync",
+        request=None,
+        responses={202: CustomPropertySyncTriggerResponseSerializer},
+    )
     @action(methods=["POST"], detail=True)
     def sync(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
@@ -554,7 +566,11 @@ class CustomPropertySourceViewSet(
             raise ValidationError("This action is only available for enabled person-property sources.")
         return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
 
-    @extend_schema(request=None, responses={202: OpenApiTypes.OBJECT})
+    @extend_schema(
+        operation_id="custom_property_sources_backfill",
+        request=None,
+        responses={202: CustomPropertySyncTriggerResponseSerializer},
+    )
     @action(methods=["POST"], detail=True)
     def backfill(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: start a backfill that reads the whole warehouse table and populates
@@ -575,7 +591,10 @@ class CustomPropertySourceViewSet(
             status=status.HTTP_202_ACCEPTED,
         )
 
-    @extend_schema(responses={200: CustomPropertySyncRunSerializer(many=True)})
+    @extend_schema(
+        operation_id="custom_property_sources_runs_list",
+        responses={200: CustomPropertySyncRunSerializer(many=True)},
+    )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: the source's sync/backfill run history, newest first. Gated on the

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from django.core import signing
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -41,6 +41,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
 from products.notebooks.backend.sql_v2 import (
     SQLV2KernelNotRunning,
     SQLV2PageError,
+    build_callback_url,
     dispatch_sql_v2_run,
     ensure_sql_v2_server,
     fetch_sql_v2_page,
@@ -80,6 +81,19 @@ def _restrict_query_access(test: APIBaseTest) -> None:
         access_level="none",
     )
     cache.clear()
+
+
+class TestSQLV2BackendBaseURL(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("explicit_override", "https://tunnel.example.dev/", True, "https://tunnel.example.dev"),
+            ("dev_fallback", None, True, "http://host.docker.internal:8000"),
+            ("prod_fallback", None, False, "https://us.posthog.com"),
+        ]
+    )
+    def test_callback_url_base(self, _name: str, sandbox_api_url: str | None, debug: bool, expected_base: str) -> None:
+        with override_settings(SANDBOX_API_URL=sandbox_api_url, DEBUG=debug, SITE_URL="https://us.posthog.com"):
+            assert build_callback_url("run-1") == f"{expected_base}/internal/notebooks/runs/run-1/result/"
 
 
 class TestSQLV2Callback(APIBaseTest):

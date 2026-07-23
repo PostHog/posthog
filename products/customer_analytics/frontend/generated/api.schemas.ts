@@ -939,6 +939,34 @@ export interface PatchedCustomPropertySourceUpdateApi {
     is_enabled?: boolean
 }
 
+/**
+ * * `triggered` - triggered
+ * * `started` - started
+ * * `already_running` - already_running
+ */
+export type CustomPropertySyncTriggerResponseStatusEnumApi =
+    (typeof CustomPropertySyncTriggerResponseStatusEnumApi)[keyof typeof CustomPropertySyncTriggerResponseStatusEnumApi]
+
+export const CustomPropertySyncTriggerResponseStatusEnumApi = {
+    Triggered: 'triggered',
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Response of the person-property sync/backfill trigger actions.
+ */
+export interface CustomPropertySyncTriggerResponseApi {
+    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+     *
+     * * `triggered` - triggered
+     * * `started` - started
+     * * `already_running` - already_running */
+    status: CustomPropertySyncTriggerResponseStatusEnumApi
+    /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+    already_running?: boolean
+}
+
 export interface PaginatedCustomPropertySyncRunListApi {
     count: number
     /** @nullable */
@@ -1334,8 +1362,6 @@ export type CustomPropertySourcesListParams = {
     offset?: number
 }
 
-export type CustomPropertySourcesBackfillCreate202 = { [key: string]: unknown }
-
 export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
@@ -1346,8 +1372,6 @@ export type CustomPropertySourcesRunsListParams = {
      */
     offset?: number
 }
-
-export type CustomPropertySourcesSyncCreate202 = { [key: string]: unknown }
 
 export type CustomerJourneysListParams = {
     /**

@@ -290,9 +290,9 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
     lazy precompute path; the runner — not this DAG — decides what's
     stale and inserts only what's missing.
 
-    `useWebAnalyticsPrecompute=True` is required — without it the lazy
-    path rejects the query via `PerQueryOptInNotSet` and the warmer
-    silently falls back to legacy compute.
+    `useWebAnalyticsPrecompute=True` is set explicitly. Precompute now
+    defaults on for enrolled teams (only an explicit `False` opts out),
+    so this is redundant — kept to make the warmer's intent explicit.
 
     Failures per query are caught so one broken breakdown doesn't poison
     the rest of the team's matrix or the rest of the run.
