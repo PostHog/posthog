@@ -32,6 +32,7 @@ describe('RootErrorBoundary', () => {
         consoleErrorSpy.mockRestore()
         delete window.JS_POSTHOG_API_KEY
         delete window.JS_POSTHOG_HOST
+        delete window.JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY
         cleanup()
     })
 
@@ -74,6 +75,18 @@ describe('RootErrorBoundary', () => {
 
         expect(screen.getByRole('alert')).toHaveTextContent('PostHog failed to load.')
         expect(JSON.parse(sendBeacon.mock.calls[0][1]).properties.chunk_load_error).toBe(true)
+    })
+
+    it('reports to the hobby experience project when its key is present (self-hosted)', () => {
+        window.JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY = 'hobby-key'
+
+        render(
+            <RootErrorBoundary>
+                <ThrowRenderError />
+            </RootErrorBoundary>
+        )
+
+        expect(JSON.parse(sendBeacon.mock.calls[0][1]).api_key).toBe('hobby-key')
     })
 
     it('does not report when capture is opted out', () => {

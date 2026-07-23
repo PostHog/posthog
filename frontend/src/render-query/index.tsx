@@ -12,6 +12,7 @@ import { RenderQueryApp } from './RenderQueryApp'
 // Disable tracking inside render-query frames. They are expected to run on third-party sites.
 // Without this, embeds would send events to app.posthog.com.
 window.JS_POSTHOG_API_KEY = undefined
+window.JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY = undefined
 
 loadPostHogJS()
 initKea({ replaceInitialPathInWindow: false })

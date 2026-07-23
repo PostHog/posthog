@@ -44,3 +44,28 @@ def test_bind_exception_context_is_fire_and_forget_within_scope():
         bind_exception_context(k="v")
         assert ambient_exception_properties()["k"] == "v"
     assert "k" not in ambient_exception_properties()
+
+
+def test_capture_exception_routes_through_hobby_experience_client_when_configured():
+    hobby_client = mock.Mock()
+    hobby_client.capture_exception.return_value = "captured-uuid"
+    with (
+        mock.patch("posthog.clickhouse.query_tagging.get_query_tags") as mock_tags,
+        mock.patch(f"{_MODULE}._hobby_experience_client", hobby_client),
+        mock.patch(f"{_MODULE}._hobby_experience_distinct_id", "machine-id-1"),
+        mock.patch("posthoganalytics.api_key", "phc_test"),
+        mock.patch("posthoganalytics.capture_exception") as mock_default_capture,
+    ):
+        mock_tags.return_value.model_dump.return_value = {}
+        error = ValueError("boom")
+        with exception_context(source="warehouse"):
+            capture_exception(error, additional_properties={"extra": 1})
+
+    # The default client must not see the exception — that would send it back to
+    # PostHog's internal product analytics project.
+    mock_default_capture.assert_not_called()
+    assert hobby_client.capture_exception.call_args.args[0] is error
+    kwargs = hobby_client.capture_exception.call_args.kwargs
+    assert kwargs["distinct_id"] == "machine-id-1"
+    assert kwargs["properties"]["source"] == "warehouse"
+    assert kwargs["properties"]["extra"] == 1

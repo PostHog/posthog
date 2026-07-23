@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
@@ -90,3 +90,22 @@ class TestGetContextForTemplate(APIBaseTest):
         actual = get_context_for_template("index.html", request)
 
         assert actual["boot_theme"] == expected
+
+
+class TestHobbyExperienceTemplateContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("self_hosted", "phc_hobby_test", None, "phc_hobby_test"),
+            ("cloud", "phc_hobby_test", "US", None),
+            ("routing_disabled", "", None, None),
+        ]
+    )
+    def test_hobby_experience_key_is_exposed_only_for_self_hosted(self, _name, token, cloud_deployment, expected):
+        with (
+            self.settings(SELF_CAPTURE=False, CLOUD_DEPLOYMENT=cloud_deployment),
+            mock.patch("posthog.utils.HOBBY_EXPERIENCE_API_KEY", token),
+        ):
+            actual = get_context_for_template("layout", MagicMock())
+
+        assert actual["js_posthog_api_key"] == "sTMFPsFhdP1Ssg"
+        assert actual.get("js_posthog_hobby_experience_api_key") == expected
