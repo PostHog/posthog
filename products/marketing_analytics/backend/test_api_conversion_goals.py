@@ -2,7 +2,11 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
+
+from ee.models.rbac.access_control import AccessControl
 
 SCHEMA_MAP = {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"}
 
@@ -77,6 +81,32 @@ class TestConversionGoalWrites(APIBaseTest):
         response = getattr(self.client, method)(f"{self.base_url}/nope/{action}", {"goal": {}}, format="json")
 
         assert response.status_code == 404, response.json()
+
+    def test_member_without_project_admin_access_cannot_write_goals(self):
+        existing = self.create_goal("Sign ups").json()["goal"]
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=self.team.id, access_level="member"
+        )
+
+        create = self.create_goal("Purchases", event="purchase")
+        update = self.client.patch(
+            f"{self.base_url}/{existing['conversion_goal_id']}/update",
+            {"goal": {"kind": "EventsNode", "counts_as_customer": True}},
+            format="json",
+        )
+        delete = self.client.delete(f"{self.base_url}/{existing['conversion_goal_id']}/delete")
+
+        assert (create.status_code, update.status_code, delete.status_code) == (403, 403, 403)
+        assert [g["conversion_goal_name"] for g in self.stored_goals()] == ["Sign ups"]
+        # reads stay open to every member
+        assert self.client.get(self.base_url).status_code == 200
 
     @parameterized.expand(
         [

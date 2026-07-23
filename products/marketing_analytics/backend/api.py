@@ -14,7 +14,7 @@ from pydantic import (
 )
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -188,7 +188,7 @@ class ConversionGoal(PydanticRootModel):
 
 @extend_schema_field(ConversionGoal)  # type: ignore[arg-type]
 class ConversionGoalField(serializers.JSONField):
-    def to_internal_value(self, data: object) -> dict:
+    def to_internal_value(self, data: Any) -> dict:
         value = super().to_internal_value(data)
         # JSONField accepts any JSON value; a non-object goal would 500 at the dict() call downstream
         if not isinstance(value, dict):
@@ -599,6 +599,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         responses={
             201: OpenApiResponse(response=ConversionGoalWriteResponseSerializer, description="The goal as created"),
             400: OpenApiResponse(description="The goal does not match any conversion goal shape"),
+            403: OpenApiResponse(description="Requires project admin access"),
         },
         summary="Create conversion goal",
         description="Add one conversion goal to the project. The server assigns conversion_goal_id and appends the goal to the end of the list, leaving existing goals untouched.",
@@ -610,6 +611,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["marketing_analytics:write"],
     )
     def create_conversion_goal(self, request: Request, *args, **kwargs) -> Response:
+        self._require_project_admin()
         goal = dict(request.validated_data["goal"])
         goal["conversion_goal_id"] = str(uuid.uuid4())
 
@@ -629,6 +631,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         responses={
             200: OpenApiResponse(response=ConversionGoalWriteResponseSerializer, description="The goal as updated"),
             400: OpenApiResponse(description="The resulting goal does not match any conversion goal shape"),
+            403: OpenApiResponse(description="Requires project admin access"),
             404: OpenApiResponse(description="No goal with that conversion_goal_id"),
         },
         summary="Update conversion goal",
@@ -641,6 +644,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["marketing_analytics:write"],
     )
     def update_conversion_goal(self, request: Request, *args, **kwargs) -> Response:
+        self._require_project_admin()
         conversion_goal_id = kwargs["conversion_goal_id"]
         patch = dict(request.validated_data["goal"])
 
@@ -660,6 +664,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             200: OpenApiResponse(
                 response=ConversionGoalWriteResponseSerializer, description="The goals left after the delete"
             ),
+            403: OpenApiResponse(description="Requires project admin access"),
             404: OpenApiResponse(description="No goal with that conversion_goal_id"),
         },
         summary="Delete conversion goal",
@@ -672,6 +677,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["marketing_analytics:write"],
     )
     def delete_conversion_goal(self, request: Request, *args, **kwargs) -> Response:
+        self._require_project_admin()
         conversion_goal_id = kwargs["conversion_goal_id"]
 
         with transaction.atomic():
@@ -681,6 +687,12 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             self._store_goals(config, goals)
 
         return Response({"goal": removed, "conversion_goals": goals})
+
+    def _require_project_admin(self) -> None:
+        # Conversion goals live on the team config, whose `_conversion_goals` field is gated to project
+        # admins on the settings PATCH path (field_access_control); these endpoints keep the same bar.
+        if not self.user_access_control.check_access_level_for_object(self.team, "admin"):
+            raise PermissionDenied("You need admin access to this project to modify conversion goals.")
 
     def _locked_config(self) -> TeamMarketingAnalyticsConfig:
         """Take a row lock so concurrent single-goal writes can't clobber each other."""
