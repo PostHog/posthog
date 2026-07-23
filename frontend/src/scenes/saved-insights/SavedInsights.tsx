@@ -49,10 +49,17 @@ import {
 
 export * from './insightTypesMetadata'
 
+import { PrototypeVariantSwitcher, usePrototypeVariant } from 'lib/components/PrototypeVariantSwitcher'
+
 import { isDraftInsightRow } from './draftInsight'
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
 import { QUERY_TYPES_METADATA } from './insightTypesMetadata'
 import { NewInsightButton } from './NewInsightMenu'
+import {
+    SAVED_INSIGHTS_PROTOTYPE_ID,
+    SAVED_INSIGHTS_PROTOTYPE_VARIANTS,
+    SavedInsightsPrototype,
+} from './prototype/SavedInsightsPrototype'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 export const scene: SceneExport = {
@@ -102,6 +109,10 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
+
+    // PROTOTYPE (throwaway, dev builds only): alternative takes on this page's filtering,
+    // switchable via ?variant= — see ./prototype/SavedInsightsPrototype.tsx
+    const prototypeVariant = usePrototypeVariant(SAVED_INSIGHTS_PROTOTYPE_ID, SAVED_INSIGHTS_PROTOTYPE_VARIANTS)
 
     const { tab } = filters
 
@@ -326,9 +337,13 @@ export function SavedInsights(): JSX.Element {
                 }}
                 actions={<NewInsightButton />}
             />
-            <LemonTabs
-                activeKey={tab}
-                onChange={(tab) => {
+            {prototypeVariant ? (
+                <SavedInsightsPrototype variant={prototypeVariant} />
+            ) : (
+                <>
+                    <LemonTabs
+                        activeKey={tab}
+                        onChange={(tab) => {
                     if (tab === SavedInsightsTabs.Alerts) {
                         push(urls.alerts())
                         return
@@ -442,6 +457,12 @@ export function SavedInsights(): JSX.Element {
                     />
                 </>
             )}
+                </>
+            )}
+            <PrototypeVariantSwitcher
+                prototypeId={SAVED_INSIGHTS_PROTOTYPE_ID}
+                variants={SAVED_INSIGHTS_PROTOTYPE_VARIANTS}
+            />
         </SceneContent>
     )
 }
