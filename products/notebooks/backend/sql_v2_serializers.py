@@ -4,7 +4,7 @@ from rest_framework import serializers
 class NotebookSQLV2RefSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the upstream node this name points at.")
     # Named `kind` on purpose (matches the kernel input spec); avoids the `type`/`format`
-    # enum-collision trap, and the endpoint is schema-excluded anyway.
+    # enum-collision trap.
     kind = serializers.ChoiceField(
         choices=["hogql", "local"],
         required=False,
@@ -205,3 +205,57 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
 
 class NotebookSQLV2CallbackRequestSerializer(serializers.Serializer):
     envelope = NotebookSQLV2EnvelopeSerializer(help_text="The result envelope produced by the sandbox run.")
+
+
+class NotebookSQLV2RunResponseSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(
+        help_text="Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal."
+    )
+
+
+class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):
+    # CharField, not ChoiceField: a `status` enum collides with other generated enums under
+    # --fail-on-warn (same precedent as the envelope's status field).
+    status = serializers.CharField(
+        help_text="Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'."
+    )
+    result = NotebookSQLV2EnvelopeSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The result envelope once the run is 'done' or 'interrupted' (an interrupted run keeps the "
+            "stdout/stderr captured before the stop); null while running and for failed runs."
+        ),
+    )
+    error = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Why the run failed when it never produced an envelope (dispatch or watchdog failure); "
+            "execution errors arrive inside the envelope's error field instead."
+        ),
+    )
+    rows = serializers.ListField(
+        child=serializers.ListField(help_text="A single result row as a list of cell values."),
+        required=False,
+        help_text=(
+            "SQL (hogql) runs only: the full capped row set for client-side paging, present while the "
+            "query manager's transient result is alive (~20 minutes). Absent afterwards and for kernel "
+            "(python/duckdb) runs, which keep only the envelope's first_page preview."
+        ),
+    )
+
+
+class NotebookSQLV2InterruptResponseSerializer(serializers.Serializer):
+    # CharField for the same enum-collision reason as above.
+    status = serializers.CharField(
+        help_text=(
+            "The run's status after the interrupt request. Already-terminal runs return their outcome "
+            "unchanged (idempotent noop); a stopped kernel run reports its terminal state through the "
+            "normal result poll."
+        )
+    )
+    detail = serializers.CharField(
+        required=False,
+        help_text="Present when the interrupt could not take effect yet, e.g. the run has not reached the kernel.",
+    )

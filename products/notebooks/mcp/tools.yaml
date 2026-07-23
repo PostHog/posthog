@@ -146,6 +146,60 @@ tools:
         description: >
             Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and
             creation/modification metadata.
+    notebooks-run-cell:
+        operation: notebooks_sql_v2_run_create
+        enabled: true
+        scopes:
+            - notebook:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run notebook cell
+        description: >
+            Dispatch an asynchronous run of a notebook SQL (HogQL) or Python cell; returns a run_id immediately. Poll
+            notebooks-run-cell-result with the run_id until the status is terminal. node_id is the cell's ProseMirror
+            node id from the notebook content. A cell that reads other cells' dataframes must list them in refs, and
+            those cells must have completed a run first — refs resolve to each upstream cell's last completed run, so
+            run cells in dependency order. The first Python cell run can take noticeably longer while the notebook's
+            sandbox kernel starts.
+        feature_flag: revamped-py-notebooks
+    notebooks-run-cell-interrupt:
+        operation: notebooks_sql_v2_runs_interrupt_create
+        enabled: true
+        scopes:
+            - notebook:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Interrupt notebook cell run
+        description: >
+            Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The
+            stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.
+        feature_flag: revamped-py-notebooks
+    notebooks-run-cell-result:
+        operation: notebooks_sql_v2_runs_retrieve
+        enabled: true
+        scopes:
+            - notebook:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get notebook cell run result
+        description: >
+            Read the durable state of a cell run: status ('running', 'done', 'failed', 'interrupted') and, once done or
+            interrupted, the result envelope — columns, a capped first page of rows, stdout/stderr (a Python cell's logs
+            and tracebacks), media, and error. Poll this after notebooks-run-cell, waiting a few seconds between polls,
+            until the status is terminal, then use the envelope to decide the next step (fix the cell on error, or
+            proceed).
+        feature_flag: revamped-py-notebooks
+        response:
+            exclude:
+                - result.media.*.data
     notebooks-update:
         operation: notebooks_update
         enabled: false

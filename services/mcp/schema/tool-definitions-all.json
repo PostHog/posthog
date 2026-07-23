@@ -7240,6 +7240,51 @@
             "readOnlyHint": true
         }
     },
+    "notebooks-run-cell": {
+        "description": "Dispatch an asynchronous run of a notebook SQL (HogQL) or Python cell; returns a run_id immediately. Poll notebooks-run-cell-result with the run_id until the status is terminal. node_id is the cell's ProseMirror node id from the notebook content. A cell that reads other cells' dataframes must list them in refs, and those cells must have completed a run first — refs resolve to each upstream cell's last completed run, so run cells in dependency order. The first Python cell run can take noticeably longer while the notebook's sandbox kernel starts.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Run notebook cell",
+        "title": "Run notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
+    "notebooks-run-cell-interrupt": {
+        "description": "Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Interrupt notebook cell run",
+        "title": "Interrupt notebook cell run",
+        "required_scopes": ["notebook:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
+    "notebooks-run-cell-result": {
+        "description": "Read the durable state of a cell run: status ('running', 'done', 'failed', 'interrupted') and, once done or interrupted, the result envelope — columns, a capped first page of rows, stdout/stderr (a Python cell's logs and tracebacks), media, and error. Poll this after notebooks-run-cell, waiting a few seconds between polls, until the status is terminal, then use the envelope to decide the next step (fix the cell on error, or proceed).",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook cell run result",
+        "title": "Get notebook cell run result",
+        "required_scopes": ["notebook:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
     "org-member-get-github-login": {
         "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
         "category": "Platform Features",
