@@ -21,7 +21,7 @@ import {
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
-import { InternalPerson } from '~/types'
+import { GroupTypeIndex, InternalPerson } from '~/types'
 
 // Mock the limiter so it always returns true
 jest.mock('~/common/utils/token-bucket', () => {
@@ -442,6 +442,163 @@ describe.each([
                     (chGroup) => Number(chGroup.team_id) === team.id
                 )
                 expect(chGroups).toHaveLength(n)
+            })
+        }
+    )
+
+    testWithTeamIngester(
+        'keeps write amplification bounded for a mixed batch of group creates and updates',
+        {},
+        async ({ ingester, infra, team, kafkaProducer, token }) => {
+            // One batch mixing creates and updates across several groups, two
+            // group types sharing a group key, and three lanes. Writes must
+            // scale with the number of groups touched, never with the number
+            // of events, and every group must converge to its merged state.
+            const setupId = new UUIDT().toString()
+            await ingester.handleKafkaBatch(
+                createKafkaMessages(
+                    [
+                        new EventBuilder(team, setupId)
+                            .withEvent('$groupidentify')
+                            .withGroupProperties('organization', 'acme', { plan: 'free' })
+                            .build(),
+                        new EventBuilder(team, setupId)
+                            .withEvent('$groupidentify')
+                            .withGroupProperties('organization', 'globex', { region: 'eu' })
+                            .build(),
+                        new EventBuilder(team, setupId)
+                            .withEvent('$groupidentify')
+                            .withGroupProperties('project', 'acme', { tier: 'a' })
+                            .build(),
+                    ],
+                    token
+                )
+            )
+            await waitForKafkaMessages(kafkaProducer)
+
+            // Measure only the mixed batch, not the setup writes.
+            jest.mocked(infra.groupRepository.fetchGroup).mockClear()
+            jest.mocked(infra.groupRepository.fetchGroupsByKeys).mockClear()
+            jest.mocked(infra.groupRepository.insertGroup).mockClear()
+            jest.mocked(infra.groupRepository.insertGroupsBatch).mockClear()
+            jest.mocked(infra.groupRepository.updateGroup).mockClear()
+            jest.mocked(infra.groupRepository.updateGroupOptimistically).mockClear()
+
+            // Same-group traffic stays within one lane (cross-lane writes to
+            // one group have no ordering guarantee); lanes touch disjoint
+            // groups so the final state is deterministic.
+            const d1 = new UUIDT().toString()
+            const d2 = new UUIDT().toString()
+            const d3 = new UUIDT().toString()
+            const events = [
+                // Lane d1: three updates to one existing group → one write.
+                new EventBuilder(team, d1)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('organization', 'acme', { plan: 'scale' })
+                    .build(),
+                new EventBuilder(team, d1)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('organization', 'acme', { seats: 5 })
+                    .build(),
+                new EventBuilder(team, d1)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('organization', 'acme', { plan: 'enterprise' })
+                    .build(),
+                // Lane d2: a new group written twice, and an update to the
+                // OTHER type's group behind the same group key.
+                new EventBuilder(team, d2)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('organization', 'new-1', { a: '1' })
+                    .build(),
+                new EventBuilder(team, d2)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('organization', 'new-1', { b: '2' })
+                    .build(),
+                new EventBuilder(team, d2)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('project', 'acme', { tier: 'b' })
+                    .build(),
+                // Lane d3: a new group in the second type sharing the first
+                // type's new key, and one more update.
+                new EventBuilder(team, d3)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('project', 'new-1', { c: '3' })
+                    .build(),
+                new EventBuilder(team, d3)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('organization', 'globex', { mrr: 100 })
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+            await waitForKafkaMessages(kafkaProducer)
+
+            // 8 events over 5 groups. Call-count assertions come before the
+            // Postgres checks below, which go through the spied repository.
+            expect(infra.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+            if (groupBatchCreates) {
+                // One batched read, one batched insert for both new groups,
+                // one CAS per updated group.
+                expect(infra.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(0)
+                expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(3)
+            } else {
+                // One fetch per group, one insert per new group, one CAS per
+                // dirty group (the twice-written new group needs a follow-up).
+                expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(5)
+                expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(0)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(2)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(4)
+            }
+
+            const expectedGroups = [
+                {
+                    groupTypeIndex: 0,
+                    groupKey: 'acme',
+                    properties: { plan: 'enterprise', seats: 5 },
+                    version: 2,
+                },
+                { groupTypeIndex: 0, groupKey: 'globex', properties: { region: 'eu', mrr: 100 }, version: 2 },
+                {
+                    groupTypeIndex: 0,
+                    groupKey: 'new-1',
+                    properties: { a: '1', b: '2' },
+                    version: groupBatchCreates ? 1 : 2,
+                },
+                { groupTypeIndex: 1, groupKey: 'acme', properties: { tier: 'b' }, version: 2 },
+                { groupTypeIndex: 1, groupKey: 'new-1', properties: { c: '3' }, version: 1 },
+            ]
+            for (const expected of expectedGroups) {
+                const group = await infra.groupRepository.fetchGroup(
+                    team.id,
+                    expected.groupTypeIndex as GroupTypeIndex,
+                    expected.groupKey
+                )
+                expect(group).toEqual(
+                    expect.objectContaining({
+                        team_id: team.id,
+                        group_type_index: expected.groupTypeIndex,
+                        group_key: expected.groupKey,
+                        group_properties: expected.properties,
+                        version: expected.version,
+                    })
+                )
+            }
+
+            await waitForExpect(async () => {
+                const chEvents = await fetchEvents(clickhouse, team.id)
+                expect(chEvents.length).toEqual(11)
+            })
+
+            // All five groups (the shared key counts once per type) reached
+            // the ClickHouse groups table.
+            await waitForExpect(async () => {
+                const chGroups = (await clickhouse.fetchClickhouseGroups()).filter(
+                    (chGroup) => Number(chGroup.team_id) === team.id
+                )
+                expect(chGroups).toHaveLength(5)
             })
         }
     )
