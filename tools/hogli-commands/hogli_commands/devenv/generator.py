@@ -330,8 +330,14 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
         logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
+        # Keep in sync with the docker-compose proc's shell in bin/mprocs.yaml
+        # (the static fallback used when hogli is unavailable).
+        fail_cmd = (
+            'echo "docker compose up failed. Another stack or process may be holding a required port '
+            '(see the pre-flight output from bin/start). Inspect with: docker ps --all"; exit 1'
+        )
 
-        proc_config["shell"] = f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}"
+        proc_config["shell"] = f"{message}{up_cmd} || {{ {fail_cmd}; }} && echo 'docker-compose ready' && {logs_cmd}"
         proc_config["ready_pattern"] = "docker-compose ready"
         return proc_config
 

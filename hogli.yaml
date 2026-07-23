@@ -359,11 +359,11 @@ start:
         preserve_exit_code: true
     stop:
         cmd: phrocs stop
-        description: Stop the detached dev stack gracefully
+        description: Stop the detached dev stack processes (docker services stay up; use docker:services:down to stop them)
         preserve_exit_code: true
     down:
         cmd: phrocs stop
-        description: Alias for `hogli stop`
+        description: Alias for `hogli stop` (docker services stay up; use docker:services:down to stop them)
         preserve_exit_code: true
     start:backend:
         bin_script: start-backend
