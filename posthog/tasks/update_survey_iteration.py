@@ -3,6 +3,8 @@ from typing import Any
 
 from django.utils import timezone
 
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
@@ -15,6 +17,7 @@ def _update_survey_iteration(survey: Survey) -> None:
     if _has_final_iteration_ended(survey):
         survey.end_date = timezone.now()
         survey.save(update_fields=["end_date"])
+        _log_auto_close_activity(survey)
         return
 
     current_iteration = _get_current_iteration(survey)
@@ -28,6 +31,24 @@ def _update_survey_iteration(survey: Survey) -> None:
         survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
         survey.save(update_fields=["current_iteration", "current_iteration_start_date", "internal_targeting_flag_id"])
+
+
+def _log_auto_close_activity(survey: Survey) -> None:
+    # The API viewset logs manual stops; mirror that here so an automatic close after the
+    # final iteration leaves the same audit trail, attributed to the system (user=None).
+    log_activity(
+        organization_id=survey.team.organization_id,
+        team_id=survey.team_id,
+        user=None,
+        was_impersonated=False,
+        item_id=survey.id,
+        scope="Survey",
+        activity="updated",
+        detail=Detail(
+            name=survey.name,
+            changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
+        ),
+    )
 
 
 def _has_final_iteration_ended(survey: Survey) -> bool:
