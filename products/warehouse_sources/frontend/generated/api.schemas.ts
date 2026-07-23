@@ -3013,12 +3013,14 @@ export interface ExternalDataSourceSerializersApi {
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
     /**
-     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.
      * @nullable
      */
-    readonly api_version: string | null
+    api_version?: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
+    /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Empty for source types without vendor API versioning. */
+    readonly supported_api_versions: readonly string[]
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -4400,12 +4402,14 @@ export interface PatchedExternalDataSourceSerializersApi {
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
     /**
-     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.
      * @nullable
      */
-    readonly api_version?: string | null
+    api_version?: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
+    /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Empty for source types without vendor API versioning. */
+    readonly supported_api_versions?: readonly string[]
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {

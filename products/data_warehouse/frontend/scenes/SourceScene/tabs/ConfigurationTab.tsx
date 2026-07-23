@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDivider, LemonInputSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInputSelect, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -52,6 +52,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         setSourceConfigValue(['description'], source.description ?? '')
         setSourceConfigValue(['auto_sync_new_schemas'], source.auto_sync_new_schemas ?? false)
         setSourceConfigValue(['auto_sync_schema_patterns'], source.auto_sync_schema_patterns ?? [])
+        setSourceConfigValue(['api_version'], source.api_version ?? null)
         setJobInputs({
             ...buildKeaFormDefaultFromSourceDetails({ [source.source_type]: sourceFieldConfig })['payload'],
             ...source.job_inputs,
@@ -64,6 +65,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         source?.prefix,
         source?.description,
         source?.auto_sync_new_schemas,
+        source?.api_version,
         setSourceConfigValue,
         // oxlint-disable-next-line exhaustive-deps
         JSON.stringify(source?.auto_sync_schema_patterns ?? []),
@@ -93,6 +95,28 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     initialAccessMethod={source.access_method ?? 'warehouse'}
                     setSourceConfigValue={setSourceConfigValue}
                 />
+                {(source.supported_api_versions?.length ?? 0) > 1 && (
+                    <>
+                        <LemonDivider className="my-4" />
+                        <LemonField
+                            name="api_version"
+                            label="API version"
+                            help="The vendor API version this source syncs with. Moving to another version changes the data the vendor returns, so a full resync is recommended afterwards. Any sync running now will be cancelled. Tables with their own version override are unaffected."
+                        >
+                            {({ value, onChange }) => (
+                                <LemonSelect
+                                    data-attr="source-api-version"
+                                    value={value ?? null}
+                                    onChange={onChange}
+                                    options={(source.supported_api_versions ?? []).map((version) => ({
+                                        value: version,
+                                        label: version,
+                                    }))}
+                                />
+                            )}
+                        </LemonField>
+                    </>
+                )}
                 {source.access_method !== 'direct' && (
                     <>
                         <LemonDivider className="my-4" />

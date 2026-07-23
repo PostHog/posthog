@@ -1919,6 +1919,12 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe(
+                "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1998,6 +2004,12 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe(
+                "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -2065,6 +2077,12 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
                 'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe(
+                "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -2123,6 +2141,12 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe(
+                "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -2180,6 +2204,12 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
+            ),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe(
+                "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation."
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -2269,6 +2299,12 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
                 'Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
             ),
         job_inputs: zod.unknown().optional(),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe(
+                "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 

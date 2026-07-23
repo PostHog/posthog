@@ -1058,6 +1058,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 direct_query_enabled,
                 auto_sync_new_schemas,
                 auto_sync_schema_patterns,
+                api_version,
             }) => {
                 const sanitizedPayload = clonePayloadPreservingFiles(payload) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
@@ -1113,6 +1114,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                 ? auto_sync_schema_patterns
                                 : values.source?.auto_sync_schema_patterns,
                         description: description !== '' ? description : (values.source?.description ?? null),
+                        api_version: api_version !== undefined ? api_version : values.source?.api_version,
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')

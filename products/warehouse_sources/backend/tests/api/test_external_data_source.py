@@ -237,16 +237,83 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.api_version == "2024-09-30.acacia"
 
-    def test_api_version_pin_is_read_only_via_api(self):
+    def test_api_version_pin_can_be_upgraded_and_rolled_back(self):
+        # An existing source moves to a newer vendor version, and back again if it doesn't work out.
+        source = self._create_external_data_source()
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            upgrade = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+            assert upgrade.status_code == 200, upgrade.json()
+            source.refresh_from_db()
+            assert source.api_version == "2026-02-25.clover"
+
+            rollback = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2024-09-30.acacia"},
+            )
+            assert rollback.status_code == 200, rollback.json()
+            source.refresh_from_db()
+            assert source.api_version == "2024-09-30.acacia"
+
+    def test_api_version_pin_rejects_unsupported_version(self):
         source = self._create_external_data_source()
         original_pin = source.api_version
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
-            data={"api_version": "2099-01-01", "prefix": source.prefix},
+            data={"api_version": "2099-01-01"},
         )
-        assert response.status_code == 200, response.json()
+        assert response.status_code == 400, response.json()
+        assert "api_version" in str(response.json())
         source.refresh_from_db()
         assert source.api_version == original_pin
+
+    def test_unchanged_retired_pin_survives_a_full_payload_patch(self):
+        # The sources list PATCHes the whole GET payload back. A pin the vendor has since retired
+        # is honored verbatim, so echoing it must not 400 an unrelated edit.
+        source = self._create_external_data_source()
+        source.api_version = "2020-01-01"
+        source.save(update_fields=["api_version"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"api_version": "2020-01-01", "prefix": source.prefix},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.api_version == "2020-01-01"
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow")
+    def test_repin_cancels_in_flight_sync_for_schemas_following_the_source(self, mock_cancel):
+        # Resumed activities re-resolve the version from the DB, so finishing the run would mix two
+        # vendor versions in one table. A schema with its own override is unaffected by the repin.
+        source = self._create_external_data_source()
+        following = self._create_external_data_schema(source.id)
+        overridden = ExternalDataSchema.objects.create(
+            name="Invoices", team_id=self.team.pk, source_id=source.id, table=None, api_version="2024-09-30.acacia"
+        )
+        for schema in (following, overridden):
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.RUNNING,
+                rows_synced=0,
+                workflow_id=f"workflow_{schema.name}",
+                workflow_run_id="run_id",
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_called_once_with("workflow_Customers")
 
     def test_api_version_deprecation_surfaces_for_deprecated_pin(self):
         source = self._create_external_data_source()
@@ -2588,6 +2655,7 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_column_selection",
                 "api_version",
                 "api_version_deprecation",
+                "supported_api_versions",
             ],
         )
         self.assertIsNone(payload["engine"])

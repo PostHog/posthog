@@ -804,11 +804,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         ),
     )
     api_version = serializers.CharField(
-        read_only=True,
+        required=False,
         allow_null=True,
+        allow_blank=True,
         help_text=(
             "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe "
-            "date version). Null resolves to the source type's default version at sync time."
+            "date version). Null resolves to the source type's default version at sync time. "
+            "Set it to any of the source type's supported versions to move an existing source to a "
+            "newer version, or back to an older one. New sources always start on the newest "
+            "version and cannot pick a pin at creation."
         ),
     )
     api_version_deprecation = serializers.SerializerMethodField(
@@ -816,6 +820,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "Set when the vendor has deprecated the API version this source is pinned to; "
             "null otherwise. Drives the in-product deprecation warning."
+        ),
+    )
+    supported_api_versions = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Vendor API versions this source type supports. `api_version` can be moved to any of "
+            "them. Empty for source types without vendor API versioning."
         ),
     )
 
@@ -847,6 +858,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_column_selection",
             "api_version",
             "api_version_deprecation",
+            "supported_api_versions",
         ]
         read_only_fields = [
             "id",
@@ -863,9 +875,30 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
-            "api_version",
             "api_version_deprecation",
+            "supported_api_versions",
         ]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        instance = cast(ExternalDataSource | None, self.instance)
+        pinned = attrs.get("api_version")
+        # Membership is enforced only when the pin actually changes: an existing pin is honored
+        # verbatim even after the vendor retires that version from supported_versions, so a
+        # full-payload PATCH (the sources list spreads the GET response straight back) never 400s
+        # on an unrelated edit. A blank value clears the pin back to the source's default.
+        if "api_version" in attrs and instance is not None and pinned and pinned != instance.api_version:
+            try:
+                source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+            except ValueError:
+                raise ValidationError({"api_version": "API versions are not supported for this source type."})
+            if pinned not in source_impl.supported_versions:
+                raise ValidationError(
+                    {
+                        "api_version": f"'{pinned}' is not a supported {instance.source_type} API version. "
+                        f"Supported versions: {', '.join(source_impl.supported_versions)}"
+                    }
+                )
+        return attrs
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -925,6 +958,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
         return api_version_deprecation_payload(instance.source_type, instance.api_version)
+
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_supported_api_versions(self, instance: ExternalDataSource) -> list[str]:
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+        except ValueError:
+            return []
+        return list(source_impl.supported_versions)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1224,7 +1265,33 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
+        api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
+
         updated_source: ExternalDataSource = super().update(instance, validated_data)
+
+        # A repin invalidates any in-flight import: retried/resumed activities re-resolve the
+        # version from the DB, so letting a run finish would mix two vendor API versions in one
+        # table. Only schemas that follow the source pin are affected — a schema carrying its own
+        # override resolves independently. The user decides when to sync again.
+        if api_version_changed:
+            following_source_pin = [
+                schema_id
+                for schema_id, override in ExternalDataSchema.objects.filter(
+                    source_id=updated_source.pk, team_id=instance.team_id
+                ).values_list("id", "api_version")
+                if not override
+            ]
+            running_jobs = ExternalDataJob.objects.filter(
+                pipeline_id=updated_source.pk,
+                team_id=instance.team_id,
+                status="Running",
+                schema_id__in=following_source_pin,
+            ).exclude(workflow_id__isnull=True)
+            for running_job in running_jobs:
+                try:
+                    cancel_external_data_workflow(running_job.workflow_id)
+                except Exception as e:
+                    capture_exception(e, {"source_id": str(updated_source.id), "workflow_id": running_job.workflow_id})
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
             # Adds schema rows for added resources, retires removed ones, and reconciles their
