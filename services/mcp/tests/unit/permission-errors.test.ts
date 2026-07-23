@@ -196,6 +196,10 @@ describe('findPostHogPermissionError', () => {
 })
 
 describe('handleToolError with permission errors', () => {
+    beforeEach(() => {
+        captureException.mockClear()
+    })
+
     it('returns a structured CallToolResult with remediation text', () => {
         const error = new PostHogPermissionError({
             detail: "API key missing required scope 'user:read'",
@@ -214,8 +218,12 @@ describe('handleToolError with permission errors', () => {
         expect(content?.text).toContain('MCP Server')
     })
 
-    it('fingerprints per tool to avoid dogpiling multiple tools into one issue', () => {
-        captureException.mockClear()
+    // Regression: a missing scope is a user-config problem (wrong OAuth preset /
+    // key scopes), not a service bug. Capturing it fingerprinted the tool+scope
+    // and spawned a fresh, non-actionable error tracking issue for every
+    // combination a misconfigured client tripped over. Permission errors must be
+    // treated like the recoverable 4xx branch: return remediation, never capture.
+    it('does not capture an exception for permission errors', () => {
         const error = new PostHogPermissionError({
             detail: "API key missing required scope 'user:read'",
             missingScope: 'user:read',
@@ -226,11 +234,7 @@ describe('handleToolError with permission errors', () => {
         handleToolError(error, 'insights-list')
         handleToolError(error, 'dashboards-list')
 
-        const fingerprints = captureException.mock.calls.map(([, , props]) => props.$exception_fingerprint)
-        expect(fingerprints).toEqual([
-            'posthog-permission-error:insights-list:user:read',
-            'posthog-permission-error:dashboards-list:user:read',
-        ])
+        expect(captureException).not.toHaveBeenCalled()
     })
 
     it('unwraps permission errors hidden behind Error.cause', () => {

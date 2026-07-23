@@ -459,26 +459,16 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         }
     }
 
+    // Recoverable: a 403 permission_denied means the connected token lacks a
+    // scope the tool declares — a user-config issue (wrong OAuth preset / API
+    // key scopes), not a service bug. The API layer already logged it as a
+    // warning. Like the 4xx branch above, we return the typed remediation
+    // message so the agent can prompt for the right scope, but we do NOT
+    // `captureException`: fingerprinting per tool+scope spawns a fresh,
+    // non-actionable error tracking issue for every combination a misconfigured
+    // client trips over.
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
-        const properties: Record<string, any> = {
-            team: 'growth',
-            tool: toolName,
-            is_permission_error: true,
-            missing_scope: permissionError.missingScope,
-            $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
-        }
-
-        if (sessionUuid) {
-            properties.$session_id = sessionUuid
-        }
-
-        try {
-            getPostHogClient().captureException(permissionError, distinctId, properties)
-        } catch {
-            // Never let observability break the request.
-        }
-
         return {
             content: [
                 {
