@@ -38,6 +38,7 @@ const MAX_AI_EVENTS_PER_REQUEST: usize = 100;
 /// while still bounding the cost of attribute scanning.
 const MAX_RAW_OTEL_SPANS_PER_REQUEST: usize = 1000;
 const MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST: usize = 1000;
+const MAX_RAW_OTEL_LOG_NODES_PER_REQUEST: usize = 3000;
 
 fn count_spans(request: &ExportTraceServiceRequest) -> usize {
     request
@@ -313,7 +314,7 @@ pub async fn logs_handler(
         &body,
         &headers,
         OTEL_BODY_SIZE,
-        MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST,
+        MAX_RAW_OTEL_LOG_NODES_PER_REQUEST,
     )
     .map_err(|error| {
         report_internal_error_metrics(error.to_metric_tag(), "otel_logs_parsing");
@@ -323,6 +324,13 @@ pub async fn logs_handler(
     if raw_record_count == 0 {
         counter!("capture_ai_otel_logs_requests_success").increment(1);
         return Ok(Json(json!({})));
+    }
+    if raw_record_count > MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST {
+        let err = CaptureError::RequestParsingError(format!(
+            "Too many log records: {raw_record_count} exceeds limit of {MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST}"
+        ));
+        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
+        return Err(err.into_response());
     }
     let received_at = Utc::now();
     let request_fallback_distinct_id = identity::request_fallback_distinct_id();
