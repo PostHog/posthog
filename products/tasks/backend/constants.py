@@ -22,9 +22,28 @@ def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
     return set()
 
 
-def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
-    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
-    payload = posthoganalytics.get_feature_flag_payload(
+def vm_sandbox_default_base_origin_products(payload: object) -> set[str]:
+    """Origins allowed to run on the bare VM *base* image even without a custom image.
+
+    This is the knob that makes the VM runtime the default for standard cloud runs: an
+    origin listed here provisions on `SandboxTemplate.VM_BASE` instead of the gVisor
+    default base, without requiring the user to pick a custom image. Read only from the
+    explicit dict key — unlike `origin_products`, a bare-list payload keeps its legacy
+    `origin_products` meaning and never opts an origin into the default base."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("default_base_origin_products") if isinstance(payload, dict) else None
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {item for item in value if isinstance(item, str)}
+    return set()
+
+
+def get_vm_sandbox_flag_payload(*, distinct_id: str, organization_id: str) -> object:
+    """Raw payload of the Modal VM-sandbox flag; resolves to None when the flag is off."""
+    return posthoganalytics.get_feature_flag_payload(
         MODAL_VM_SANDBOX_FEATURE_FLAG,
         distinct_id=distinct_id,
         groups={"organization": organization_id},
@@ -32,7 +51,13 @@ def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
-    return vm_sandbox_allowed_origin_products(payload)
+
+
+def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
+    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
+    return vm_sandbox_allowed_origin_products(
+        get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+    )
 
 
 MAX_CUSTOM_IMAGES_PER_TEAM = 20
