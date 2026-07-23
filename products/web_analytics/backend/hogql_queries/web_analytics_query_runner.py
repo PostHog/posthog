@@ -52,7 +52,10 @@ from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_ERRORS,
 )
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    compute_filters_eligibility_hash,
+    is_precompute_enabled_for_team,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -701,7 +704,12 @@ WHERE and(
 
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
-        return f"{original}_{self.team.path_cleaning_filters}"
+        # Precompute enrollment is part of the key so flipping the rollout flag
+        # invalidates cached results: with default-on reads, disabling the flag
+        # (the kill switch) must not keep serving cached precompute-produced
+        # responses until they stale out.
+        precompute = is_precompute_enabled_for_team(self.team)
+        return f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}"
 
     @cached_property
     def events_session_property(self):
