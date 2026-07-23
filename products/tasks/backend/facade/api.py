@@ -70,6 +70,8 @@ from . import contracts
 
 logger = logging.getLogger(__name__)
 
+_TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="task-log-read")
+
 # --- Enum re-exports ---
 # Value types (not ORM models), safe to expose. External callers compare against the
 # string-valued ``.status`` / ``.environment`` / ``.origin_product`` fields on the DTOs.
@@ -2583,8 +2585,11 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
         return None
 
     resume_chain = run.get_resume_chain()
-    with ThreadPoolExecutor(max_workers=min(max(len(resume_chain), 1), 8)) as executor:
-        chunks = executor.map(
+    chunks: Iterable[str]
+    if len(resume_chain) == 1:
+        chunks = [object_storage.read(resume_chain[0].log_url, missing_ok=True) or ""]
+    else:
+        chunks = _TASK_LOG_READ_EXECUTOR.map(
             lambda ancestor: object_storage.read(ancestor.log_url, missing_ok=True) or "", resume_chain
         )
 
