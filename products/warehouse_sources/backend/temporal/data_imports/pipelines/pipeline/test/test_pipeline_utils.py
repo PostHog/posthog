@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     NULL_NUMERICAL_PARTITION,
     SchemaColumnTypeChangedException,
+    _estimate_fallback_md5_partition_count,
     _get_max_decimal_type,
     _to_list_array,
     align_incoming_decimals_to_delta,
@@ -1046,6 +1047,10 @@ def _mock_schema(**overrides: Any) -> MagicMock:
     schema.partition_mode_override = overrides.get("partition_mode_override")
     schema.partitioning_keys_override = overrides.get("partitioning_keys_override")
     schema.partitioning_enabled = overrides.get("partitioning_enabled", True)
+    # Default to None (as on the real model) so the fallback partition resolver doesn't see a
+    # MagicMock-auto-created truthy incremental field.
+    schema.incremental_field = overrides.get("incremental_field")
+    schema.incremental_field_type = overrides.get("incremental_field_type")
     schema.set_partitioning_enabled = MagicMock()
     return schema
 
@@ -1058,6 +1063,9 @@ def _mock_resource(**overrides: Any) -> MagicMock:
     resource.primary_keys = overrides.get("primary_keys")
     resource.partition_format = overrides.get("partition_format")
     resource.partition_mode = overrides.get("partition_mode")
+    # Default to None (as on the real SourceResponse) so the md5 fallback's size estimate gets a real
+    # value, not a MagicMock.
+    resource.rows_to_sync = overrides.get("rows_to_sync")
     return resource
 
 
@@ -1183,6 +1191,119 @@ async def test_setup_partitioning_mode_override_forces_datetime_on_non_standard_
     assert applied_mode == "datetime"
     assert applied_keys == ["action_date"]
     assert applied_format == "month"
+
+
+@pytest.mark.asyncio
+async def test_setup_partitioning_fallback_datetime_on_non_standard_incremental_field():
+    # The auto-detect only recognizes created_at/inserted_at/createdAt, so a table whose timestamp is the
+    # incremental field under a different name (e.g. Redshift `received_at`) used to fall through to no
+    # partitioning and OOM on its first load. The fallback now buckets it by that incremental field.
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table(
+        {
+            "id": ["a", "b", "c"],
+            "received_at": [
+                datetime.datetime(2026, 1, 15),
+                datetime.datetime(2026, 1, 20),
+                datetime.datetime(2026, 2, 3),
+            ],
+        }
+    )
+    schema = _mock_schema(
+        incremental_field="received_at",
+        incremental_field_type="timestamp",
+        partitioning_enabled=False,
+    )
+
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=None,
+        schema=schema,
+        resource=_mock_resource(primary_keys=["id"]),
+        logger=logger,
+    )
+
+    assert PARTITION_KEY in result.column_names
+    _keys, _count, _size, applied_mode, _format = schema.set_partitioning_enabled.call_args.args
+    assert applied_mode == "datetime"
+    assert result.column(PARTITION_KEY).to_pylist() == ["2026-w03", "2026-w04", "2026-w06"]
+
+
+@pytest.mark.asyncio
+async def test_setup_partitioning_fallback_md5_over_string_primary_key():
+    # No created_at-ish column, no incrementing int key, no datetime incremental field — only a string
+    # primary key. This used to be left unpartitioned; the fallback md5-buckets it over the key so the
+    # first load is partitioned instead of loading the whole table into memory on merge.
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table({"id": ["a", "b", "c"], "payload": ["x", "y", "z"]})
+    schema = _mock_schema(partitioning_enabled=False)
+
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=None,
+        schema=schema,
+        resource=_mock_resource(primary_keys=["id"]),
+        logger=logger,
+    )
+
+    assert PARTITION_KEY in result.column_names
+    _keys, _count, _size, applied_mode, _format = schema.set_partitioning_enabled.call_args.args
+    assert applied_mode == "md5"
+
+
+def test_estimate_fallback_md5_partition_count_scales_with_source_size():
+    # The bucket count is sized from the estimated total bytes (avg row bytes x rows_to_sync), so a
+    # bigger source gets more buckets. When the source can't estimate, it falls back to the batch's own
+    # rows and never returns a non-positive count.
+    table = pa.table({"id": list(range(1000)), "payload": ["x" * 200] * 1000})
+
+    small = _estimate_fallback_md5_partition_count(table, rows_to_sync=1_000)
+    large = _estimate_fallback_md5_partition_count(table, rows_to_sync=50_000_000)
+    assert large > small >= 1
+    assert _estimate_fallback_md5_partition_count(table, rows_to_sync=None) >= 1
+    assert _estimate_fallback_md5_partition_count(pa.table({"id": pa.array([], type=pa.int64())}), 5) == 1
+
+
+def test_append_partition_key_datetime_md5_composite():
+    # The composite mode must keep the date bucket (so incremental merges still touch only recent dates)
+    # while splitting each date into md5 sub-buckets over the non-date key. Same date -> same prefix;
+    # sub-bucket stays in range; a given (date, key) is deterministic across rows.
+    logger: FilteringBoundLogger = structlog.get_logger()
+    table = pa.table(
+        {
+            "ad_id": ["a", "b", "c", "d", "a"],
+            "segments_date": [
+                datetime.date(2026, 1, 15),
+                datetime.date(2026, 1, 15),
+                datetime.date(2026, 1, 16),
+                datetime.date(2026, 1, 16),
+                datetime.date(2026, 1, 15),
+            ],
+        }
+    )
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=4,
+        partition_size=None,
+        partition_keys=["segments_date", "ad_id"],
+        partition_mode="datetime_md5",
+        partition_format="day",
+        logger=logger,
+    )
+
+    assert result is not None
+    partitioned, mode, fmt, keys = result
+    assert mode == "datetime_md5"
+    assert fmt == "day"
+    values = partitioned.column(PARTITION_KEY).to_pylist()
+    expected_dates = ["2026-01-15", "2026-01-15", "2026-01-16", "2026-01-16", "2026-01-15"]
+    for value, date in zip(values, expected_dates):
+        prefix, _, sub = value.rpartition("_")
+        assert prefix == date
+        assert 0 <= int(sub) < 4
+    # Deterministic: the two ("2026-01-15", "a") rows land in the same composite partition.
+    assert values[0] == values[4]
 
 
 def _projection_input_table() -> pa.Table:

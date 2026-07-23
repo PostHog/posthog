@@ -46,6 +46,17 @@ REPARTITION_COOLDOWN_SECONDS = 24 * 60 * 60
 # doesn't re-attempt the rewrite on every sync forever.
 MAX_REPARTITION_ATTEMPTS = 3
 
+# Outer circuit breaker. `MAX_REPARTITION_ATTEMPTS` only bounds attempts against a single pending
+# target — detection re-flags a fresh target (attempts=0) the moment it's cleared, so on its own it
+# can't stop a table whose rewrite fails perpetually. This cumulative count survives the re-flag; once
+# it's hit, `reset_repartition_state` parks the table and backs off instead of looping.
+MAX_REPARTITION_TOTAL_FAILURES = 6
+
+# How long an abandoned table is left parked before detection allows one fresh cycle. Long enough that
+# a permanently-failing table costs at most one wasted rewrite-storm per week, short enough that a table
+# fixed out-of-band (data shrank, a finer scheme shipped) recovers on its own within a week.
+REPARTITION_ABANDON_BACKOFF_SECONDS = 7 * 24 * 60 * 60
+
 
 def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
@@ -127,6 +138,27 @@ def _cooldown_seconds_remaining(schema: ExternalDataSchema) -> float:
     return max(0.0, REPARTITION_COOLDOWN_SECONDS - (timezone.now() - last_dt).total_seconds())
 
 
+def is_repartition_backing_off(schema: ExternalDataSchema) -> bool:
+    """Whether the abandonment circuit breaker is currently parking this table.
+
+    True while a `repartition_abandoned` marker's `retry_after` is still in the future — detection must
+    skip the table so it stops re-attempting the always-failing rewrite. False once the backoff has
+    elapsed (the caller then clears the marker and allows one fresh cycle) or when no marker is set. A
+    marker without a parseable `retry_after` fails safe to "still backing off" so a malformed marker
+    can't reopen the loop.
+    """
+    marker = schema.repartition_abandoned
+    if marker is None:
+        return False
+    retry_after = marker.get("retry_after")
+    if not retry_after:
+        return True
+    try:
+        return parser.parse(retry_after) > timezone.now()
+    except (ValueError, TypeError):
+        return True
+
+
 async def maybe_flag_for_repartition(
     schema: ExternalDataSchema,
     source: ExternalDataSource,
@@ -156,6 +188,23 @@ async def maybe_flag_for_repartition(
                 schema_id=str(schema.id),
             )
             return
+
+        # A table the circuit breaker parked stays skipped until its backoff elapses; once it has, clear
+        # the marker (and the failure counter) so this run evaluates it fresh — a table that has since
+        # come back under budget heals here, one that hasn't is re-abandoned after the usual attempts.
+        if schema.repartition_abandoned is not None:
+            if is_repartition_backing_off(schema):
+                await logger.adebug(
+                    f"repartition: skipped detection, table parked by circuit breaker schema_id={schema.id} "
+                    f"retry_after={schema.repartition_abandoned.get('retry_after')}",
+                    schema_id=str(schema.id),
+                )
+                return
+            await asyncio.to_thread(schema.clear_repartition_abandoned)
+            await logger.ainfo(
+                f"repartition: abandonment backoff elapsed, re-evaluating table schema_id={schema.id}",
+                schema_id=str(schema.id),
+            )
 
         partition_bytes = await asyncio.to_thread(measure_partition_bytes, delta_table)
         if not partition_bytes:

@@ -479,8 +479,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         S3 has no locking, so this row is the coordination point between concurrent repartition
         attempts (a heartbeat-timed-out zombie and its Temporal retry). The newest claimant owns the
-        table; older attempts compare their token against this and stand down. Never cleared — it is
-        only ever compared against a live attempt's token, so a stale claim is inert.
+        table; older attempts compare their token against this and stand down. Normally only ever
+        overwritten by the next attempt (a stale claim is inert, being compared only against a live
+        token); `reset_repartition_state` clears it when the circuit breaker parks the table, which also
+        makes any lingering zombie stand down on its next claim check.
         """
         if self.sync_type_config:
             claim = self.sync_type_config.get("repartition_claim", None)
@@ -515,6 +517,75 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
+        self._save_sync_type_config()
+
+    @property
+    def repartition_failure_count(self) -> int:
+        """Cumulative count of recorded repartition failures across targets (0 when unset).
+
+        The per-target `attempts` counter lives inside `repartition_pending` and is wiped every time
+        detection re-flags the table, so it can never bound a table whose rewrite fails perpetually.
+        This root-level counter survives the re-flag and drives the abandonment circuit breaker; it is
+        reset only by a successful repartition or a pipeline reset.
+        """
+        if self.sync_type_config:
+            return int(self.sync_type_config.get("repartition_failure_count", 0) or 0)
+        return 0
+
+    def increment_repartition_failure_count(self) -> int:
+        new_count = self.repartition_failure_count + 1
+        self.sync_type_config["repartition_failure_count"] = new_count
+        self._save_sync_type_config()
+        return new_count
+
+    def clear_repartition_failure_count(self) -> None:
+        self.sync_type_config.pop("repartition_failure_count", None)
+        self._save_sync_type_config()
+
+    @property
+    def repartition_abandoned(self) -> dict[str, Any] | None:
+        """Set when the repartition circuit breaker has given up on a table after too many failures.
+
+        Shape: {"reason", "failure_count", "abandoned_at", "retry_after", "last_error"}. While
+        `retry_after` is in the future the detection paths skip the table entirely, so it stops
+        re-attempting the (expensive, always-failing) full-table rewrite every sync. Once `retry_after`
+        passes, detection clears the marker and allows one fresh cycle — a table that has since started
+        fitting the budget (data shrank, or a finer partition scheme became available) recovers on its
+        own, and one that hasn't simply backs off again.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("repartition_abandoned", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    def clear_repartition_abandoned(self) -> None:
+        self.sync_type_config.pop("repartition_abandoned", None)
+        self.sync_type_config.pop("repartition_failure_count", None)
+        self._save_sync_type_config()
+
+    def reset_repartition_state(self, *, reason: str, last_error: str | None, backoff_seconds: int) -> None:
+        """Circuit breaker: drop every in-flight repartition marker and park the table with a backoff.
+
+        Clears `repartition_pending`, `repartition_swap`, `repartition_claim`, and the cumulative
+        failure counter, and records `repartition_abandoned` with a `retry_after` `backoff_seconds`
+        out. Clearing the claim also makes any lingering zombie rewrite stand down (its next claim
+        check finds the token gone). Without this a table whose rewrite always fails loops forever —
+        detection re-flags it every sync and `last_repartition_at`, stamped only on success, never
+        engages the cooldown.
+        """
+        now = timezone.now()
+        self.sync_type_config["repartition_abandoned"] = {
+            "reason": reason,
+            "failure_count": self.repartition_failure_count,
+            "abandoned_at": now.isoformat(),
+            "retry_after": (now + timedelta(seconds=backoff_seconds)).isoformat(),
+            "last_error": (last_error or "")[:1000],
+        }
+        self.sync_type_config.pop("repartition_pending", None)
+        self.sync_type_config.pop("repartition_swap", None)
+        self.sync_type_config.pop("repartition_claim", None)
+        self.sync_type_config.pop("repartition_failure_count", None)
         self._save_sync_type_config()
 
     @property
@@ -607,6 +678,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("xmin_last_value", None)
         self.sync_type_config.pop("xmin_ceiling", None)
         self.sync_type_config.pop("xmin_num_wraparound", None)
+        # An operator-driven reset is a fresh start: drop the repartition circuit-breaker state so a
+        # previously abandoned table is re-evaluated from scratch rather than staying parked.
+        self.sync_type_config.pop("repartition_abandoned", None)
+        self.sync_type_config.pop("repartition_failure_count", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
         # We intentionally don't reset partition_count_override / partition_size_override /
