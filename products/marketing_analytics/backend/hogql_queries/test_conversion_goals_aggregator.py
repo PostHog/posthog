@@ -98,7 +98,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         goal_id: str,
         goal_name: str,
         event_name: str | None = None,
-        math: BaseMathType = BaseMathType.TOTAL,
+        math: BaseMathType | PropertyMathType = BaseMathType.TOTAL,
         math_property: str | None = None,
         counts_as_revenue: bool | None = None,
     ) -> ConversionGoalFilter1:
