@@ -1,21 +1,12 @@
 // AUTO-GENERATED from products/web_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    HeatmapsEventsRetrieveQueryParams,
-    HeatmapsListQueryParams,
-    SavedCreateBody,
-    SavedListQueryParams,
-    SavedPartialUpdateBody,
-    SavedPartialUpdateParams,
-    SavedRegenerateCreateParams,
-    SavedRetrieveParams,
-    WebAnalyticsPathCleaningSuggestionsApplyParams,
-    WebAnalyticsWeeklyDigestQueryParams,
-} from '@/generated/web_analytics/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
+import type { Schemas } from '@/api/generated'
+
+import { HeatmapsEventsRetrieveQueryParams, HeatmapsListQueryParams, SavedCreateBody, SavedListQueryParams, SavedPartialUpdateBody, SavedPartialUpdateParams, SavedRegenerateCreateParams, SavedRetrieveParams, WebAnalyticsPathCleaningSuggestionsApplyParams, WebAnalyticsWeeklyDigestQueryParams } from '@/generated/web_analytics/api'
 
 const HeatmapsEventsSchema = HeatmapsEventsRetrieveQueryParams
 
@@ -86,24 +77,12 @@ const heatmapsSavedCreate = (): ToolBase<typeof HeatmapsSavedCreateSchema, Schem
     handler: async (context: Context, params: z.infer<typeof HeatmapsSavedCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.url !== undefined) {
-            body['url'] = params.url
-        }
-        if (params.data_url !== undefined) {
-            body['data_url'] = params.data_url
-        }
-        if (params.widths !== undefined) {
-            body['widths'] = params.widths
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.block_consent_modals !== undefined) {
-            body['block_consent_modals'] = params.block_consent_modals
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.url !== undefined) body["url"] = params.url
+        if (params.data_url !== undefined) body["data_url"] = params.data_url
+        if (params.widths !== undefined) body["widths"] = params.widths
+        if (params.type !== undefined) body["type"] = params.type
+        if (params.block_consent_modals !== undefined) body["block_consent_modals"] = params.block_consent_modals
         const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/`,
@@ -130,10 +109,7 @@ const heatmapsSavedGet = (): ToolBase<typeof HeatmapsSavedGetSchema, Schemas.Hea
 
 const HeatmapsSavedListSchema = SavedListQueryParams
 
-const heatmapsSavedList = (): ToolBase<
-    typeof HeatmapsSavedListSchema,
-    WithPostHogUrl<Schemas.SavedHeatmapListResponse[]>
-> => ({
+const heatmapsSavedList = (): ToolBase<typeof HeatmapsSavedListSchema, WithPostHogUrl<Schemas.SavedHeatmapListResponse[]>> => ({
     name: 'heatmaps-saved-list',
     schema: HeatmapsSavedListSchema,
     handler: async (context: Context, params: z.infer<typeof HeatmapsSavedListSchema>) => {
@@ -157,10 +133,7 @@ const heatmapsSavedList = (): ToolBase<
 
 const HeatmapsSavedRegenerateSchema = SavedRegenerateCreateParams.omit({ project_id: true })
 
-const heatmapsSavedRegenerate = (): ToolBase<
-    typeof HeatmapsSavedRegenerateSchema,
-    Schemas.HeatmapScreenshotResponse
-> => ({
+const heatmapsSavedRegenerate = (): ToolBase<typeof HeatmapsSavedRegenerateSchema, Schemas.HeatmapScreenshotResponse> => ({
     name: 'heatmaps-saved-regenerate',
     schema: HeatmapsSavedRegenerateSchema,
     handler: async (context: Context, params: z.infer<typeof HeatmapsSavedRegenerateSchema>) => {
@@ -173,9 +146,7 @@ const heatmapsSavedRegenerate = (): ToolBase<
     },
 })
 
-const HeatmapsSavedUpdateSchema = SavedPartialUpdateParams.omit({ project_id: true }).extend(
-    SavedPartialUpdateBody.shape
-)
+const HeatmapsSavedUpdateSchema = SavedPartialUpdateParams.omit({ project_id: true }).extend(SavedPartialUpdateBody.shape)
 
 const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schemas.HeatmapScreenshotResponse> => ({
     name: 'heatmaps-saved-update',
@@ -183,27 +154,13 @@ const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schem
     handler: async (context: Context, params: z.infer<typeof HeatmapsSavedUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.url !== undefined) {
-            body['url'] = params.url
-        }
-        if (params.data_url !== undefined) {
-            body['data_url'] = params.data_url
-        }
-        if (params.widths !== undefined) {
-            body['widths'] = params.widths
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        if (params.block_consent_modals !== undefined) {
-            body['block_consent_modals'] = params.block_consent_modals
-        }
+        if (params.name !== undefined) body["name"] = params.name
+        if (params.url !== undefined) body["url"] = params.url
+        if (params.data_url !== undefined) body["data_url"] = params.data_url
+        if (params.widths !== undefined) body["widths"] = params.widths
+        if (params.type !== undefined) body["type"] = params.type
+        if (params.deleted !== undefined) body["deleted"] = params.deleted
+        if (params.block_consent_modals !== undefined) body["block_consent_modals"] = params.block_consent_modals
         const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/${encodeURIComponent(String(params.short_id))}/`,
@@ -213,14 +170,9 @@ const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schem
     },
 })
 
-const WebAnalyticsPathCleaningSuggestionsApplySchema = WebAnalyticsPathCleaningSuggestionsApplyParams.omit({
-    project_id: true,
-})
+const WebAnalyticsPathCleaningSuggestionsApplySchema = WebAnalyticsPathCleaningSuggestionsApplyParams.omit({ project_id: true })
 
-const webAnalyticsPathCleaningSuggestionsApply = (): ToolBase<
-    typeof WebAnalyticsPathCleaningSuggestionsApplySchema,
-    Schemas.ApplyPathCleaningSuggestionResponse
-> => ({
+const webAnalyticsPathCleaningSuggestionsApply = (): ToolBase<typeof WebAnalyticsPathCleaningSuggestionsApplySchema, Schemas.ApplyPathCleaningSuggestionResponse> => ({
     name: 'web-analytics-path-cleaning-suggestions-apply',
     schema: WebAnalyticsPathCleaningSuggestionsApplySchema,
     handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsApplySchema>) => {
@@ -235,14 +187,11 @@ const webAnalyticsPathCleaningSuggestionsApply = (): ToolBase<
 
 const WebAnalyticsPathCleaningSuggestionsGenerateSchema = z.object({})
 
-const webAnalyticsPathCleaningSuggestionsGenerate = (): ToolBase<
-    typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema,
-    Schemas.GeneratePathCleaningSuggestionResponse
-> => ({
+const webAnalyticsPathCleaningSuggestionsGenerate = (): ToolBase<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema, Schemas.GeneratePathCleaningSuggestionResponse> => ({
     name: 'web-analytics-path-cleaning-suggestions-generate',
     schema: WebAnalyticsPathCleaningSuggestionsGenerateSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema>) => {
+handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GeneratePathCleaningSuggestionResponse>({
             method: 'POST',
