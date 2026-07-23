@@ -473,3 +473,46 @@ class TestOmniSourceEndToEnd:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
+
+
+class TestOmniSourceSsrfGuards:
+    @mock.patch.object(omni_module, "_is_host_safe", return_value=(False, "internal address"))
+    def test_sync_rejects_unsafe_host(self, _mock_host_safe):
+        # A hostname that validated publicly can be DNS-rebound to a private address before a
+        # scheduled import runs; the sync must re-check rather than trust the stored host.
+        with pytest.raises(ValueError, match="internal address"):
+            omni_source(
+                host="acme.omniapp.co",
+                api_key="test-key",
+                endpoint="Connections",
+                team_id=1,
+                job_id="job-1",
+                resumable_source_manager=_make_manager(),
+            )
+
+    @mock.patch.object(omni_module, "_is_host_safe", return_value=(True, None))
+    def test_sync_pins_host_and_disables_redirects(self, _mock_host_safe):
+        send_kwargs: list[dict[str, Any]] = []
+
+        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
+            send_kwargs.append(kwargs)
+            return _make_response({"connections": []})
+
+        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            response = omni_source(
+                host="acme.omniapp.co",
+                api_key="test-key",
+                endpoint="Connections",
+                team_id=1,
+                job_id="job-1",
+                resumable_source_manager=_make_manager(),
+            )
+            list(cast(Iterable[Any], response.items()))
+
+        # Redirects are never followed, so a 3xx can't bounce the bearer token off-host.
+        assert send_kwargs and all(kw.get("allow_redirects") is False for kw in send_kwargs)

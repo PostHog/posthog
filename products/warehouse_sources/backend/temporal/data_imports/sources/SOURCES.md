@@ -386,7 +386,7 @@ the row lists both.
 | northpass_lms                    | HTTP                        | requests                                                        | ✅                          |
 | notion                           | HTTP                        | requests                                                        | ✅                          |
 | nuget                            | HTTP                        | requests                                                        | ✅                          |
-| omni                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
+| omni                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | omnisend                         | HTTP                        | requests                                                        | ✅                          |
 | octopus_deploy                   | HTTP                        | requests                                                        | ✅                          |
 | oncehub                          | HTTP                        | requests                                                        | ✅                          |

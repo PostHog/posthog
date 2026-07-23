@@ -203,11 +203,14 @@ def get_resource(
     should_use_incremental_field: bool,
     stop_when_older_than: Optional[str],
 ) -> EndpointResource:
+    # Declared once so each branch's dict literal is checked against `Endpoint` (a re-annotation
+    # per branch trips mypy's no-redef).
+    endpoint: Endpoint
     if name == "Documents":
         write_disposition = (
             {"disposition": "merge", "strategy": "upsert"} if should_use_incremental_field else "replace"
         )
-        endpoint: Endpoint = {
+        endpoint = {
             "path": "/v1/documents",
             "params": {"sortField": "updatedAt", "sortDirection": "desc"},
             "paginator": OmniDocumentsPaginator(
@@ -387,6 +390,14 @@ def omni_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    # Re-validate the host at sync time, not just at credential-save time: the stored hostname
+    # could have been DNS-rebound to a private/internal address since it was validated, so a
+    # scheduled import must re-check before sending the bearer-authenticated request (SSRF).
+    hostname = _hostname(host)
+    host_ok, host_err = _is_host_safe(hostname, team_id)
+    if not host_ok:
+        raise ValueError(host_err or HOST_NOT_ALLOWED_ERROR)
+
     stop_when_older_than = _format_watermark(db_incremental_field_last_value) if should_use_incremental_field else None
     resource_config = get_resource(endpoint, should_use_incremental_field, stop_when_older_than)
 
@@ -395,6 +406,10 @@ def omni_source(
             "base_url": _base_api_url(host),
             "auth": {"type": "bearer", "token": api_key},
             "headers": {"Accept": "application/json"},
+            # SSRF defense in depth: pin every request to the validated host and never follow a
+            # 3xx, so a redirect can't bounce the bearer token to a private/metadata address.
+            "allowed_hosts": [hostname],
+            "allow_redirects": False,
         },
         "resources": [resource_config],
     }
