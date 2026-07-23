@@ -6361,6 +6361,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
         assert activity == expected
 

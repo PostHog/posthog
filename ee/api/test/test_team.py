@@ -42,6 +42,8 @@ def team_enterprise_api_test_factory():
             activity = starting_log_response.json()["results"]
             for item in activity:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert activity == expected
 
         # Deleting projects

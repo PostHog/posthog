@@ -105,6 +105,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
 
         # Sort 'changes' lists for order-insensitive comparison

@@ -29,6 +29,9 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 "email": self.user.email,
                 "first_name": self.user.first_name,
             },
+            "is_system": False,
+            "was_impersonated": False,
+            "client": None,
         }
 
     def assert_notebook_activity(self, expected: list[dict]) -> None:
