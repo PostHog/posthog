@@ -1,5 +1,6 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isQuickstartHomepageEnabled } from 'scenes/quickstart/quickstartVariant'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene, SceneTab } from 'scenes/sceneTypes'
@@ -29,7 +30,11 @@ export function quickstartHomepageTab(): SceneTab {
 export function setQuickstartAsDefaultHomepageOnce(
     hasCompletedOnboardingFor: Record<string, boolean> | undefined
 ): void {
-    if (featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] !== 'test') {
+    if (
+        !isQuickstartHomepageEnabled(
+            featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
+        )
+    ) {
         return
     }
     const scene = sceneLogic.findMounted()

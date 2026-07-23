@@ -12,6 +12,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { quickstartHomepageTab } from '~/scenes/quickstart/quickstartHomepage'
+import { isQuickstartHomepageEnabled } from '~/scenes/quickstart/quickstartVariant'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
@@ -58,7 +59,8 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     const isUsingQuickstart = homepage?.sceneId === Scene.Quickstart
     // Keep the option visible for anyone whose homepage already points at Quickstart,
     // even after their flag enrollment ends, so the selection isn't orphaned
-    const quickstartEnabled = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' || isUsingQuickstart
+    const quickstartEnabled =
+        isQuickstartHomepageEnabled(featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]) || isUsingQuickstart
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
     const isUsingDefaultDashboard =
         homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')

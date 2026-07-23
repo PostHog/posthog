@@ -255,6 +255,17 @@ export const Base: Story = {
     ],
 }
 
+/** The test2 arm: page ends at the product cards — no guides, companions, or publications */
+export const CardsOnlyVariant: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test2',
+            [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC]: 'test',
+        },
+    },
+    decorators: Base.decorators,
+}
+
 /** Nothing has sent data in the window: every event-based tool decays back to ready/needs setup */
 export const QuietProject: Story = {
     decorators: [mswDecorator(scenarioMocks({}))],
