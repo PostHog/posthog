@@ -22,6 +22,7 @@
         "frontend/src/queries/validators.js",
         "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
+        "services/mcp/**/generated/**",
         "services/mcp/schema/tool-inputs.json",
         "products/**/frontend/generated/**"
     ],

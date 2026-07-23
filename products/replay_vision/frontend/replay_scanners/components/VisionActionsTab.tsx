@@ -106,11 +106,10 @@ function VisionActionsTable({
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
-    // The scanner's built-in daily digest lives on the Observations tab (ScannerDigestCard), not this
-    // table — so this table lists only the summaries and alerts a user created, and its empty state is
-    // meaningful again. Filtered here, not in visionActionsLogic, so the digest stays in the shared
-    // list the card reads from.
-    const rows = visionActions.filter((a) => !a.is_scanner_digest)
+    // The scanner's built-in daily digest is listed here alongside user-created summaries and alerts
+    // (marked with a "Daily digest" chip), so this page is the one place to see and manage every
+    // automation on the scanner. It also has its own hero surface on the Observations tab.
+    const rows = visionActions
 
     if (!visionActionsLoading && rows.length === 0) {
         return (
@@ -161,6 +160,7 @@ function VisionActionsTable({
                     >
                         {action.name}
                     </Link>
+                    {action.is_scanner_digest && <LemonTag type="highlight">Daily digest</LemonTag>}
                     {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),
