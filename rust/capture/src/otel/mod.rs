@@ -31,6 +31,7 @@ pub const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024; // 4MB
 /// Maximum AI events accepted after filtering. SDKs receive a 400 (non-retryable)
 /// if this is exceeded, so callers must batch sensibly.
 const MAX_AI_EVENTS_PER_REQUEST: usize = 100;
+const MAX_EXPANDED_AI_EVENT_BYTES: usize = 8 * 1024 * 1024;
 
 /// Maximum raw spans accepted before filtering. Set well above
 /// MAX_AI_EVENTS_PER_REQUEST
@@ -334,15 +335,11 @@ pub async fn logs_handler(
     }
     let received_at = Utc::now();
     let request_fallback_distinct_id = identity::request_fallback_distinct_id();
-    let mut events = logs::expand_into_events(&request, &request_fallback_distinct_id);
-    if events.len() > MAX_AI_EVENTS_PER_REQUEST {
-        let err = CaptureError::RequestParsingError(format!(
-            "Too many evaluation events: {} exceeds limit of {MAX_AI_EVENTS_PER_REQUEST}",
-            events.len()
-        ));
-        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
-        return Err(err.into_response());
-    }
+    let mut events =
+        logs::expand_into_events(&request, &request_fallback_distinct_id).map_err(|err| {
+            report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
+            err.into_response()
+        })?;
     provenance::apply(&mut events, gateway_provenance);
     let event_count = events.len();
     Span::current().record("record_count", event_count);

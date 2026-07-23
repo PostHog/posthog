@@ -1053,7 +1053,7 @@ type RawEvaluationRunRow = [
     evaluation_source: string | null,
 ]
 
-export function normalizeEvaluationType(value: unknown): EvaluationRuntime | undefined {
+export function normalizeEvaluationRuntime(value: unknown): EvaluationRuntime | undefined {
     if (value === 'llm_judge' || value === 'hog' || value === 'sentiment' || value === 'otel') {
         return value
     }
@@ -1117,12 +1117,12 @@ export function normalizeEvaluationResultProperties({
     EvaluationRun,
     'evaluation_type' | 'result_type' | 'result' | 'sentiment_label' | 'sentiment_score' | 'applicable'
 > {
-    const evaluationType = normalizeEvaluationType(rawEvaluationType)
+    const evaluationRuntime = normalizeEvaluationRuntime(rawEvaluationType)
     const sentimentLabel =
         typeof rawSentimentLabel === 'string' && rawSentimentLabel.length > 0 ? rawSentimentLabel : null
     const resultType =
         normalizeEvaluationOutputType(rawResultType) ??
-        (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
+        (evaluationRuntime === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
     let result: EvaluationRun['result'] = null
     if (!isExplicitEvaluationNotApplicable(rawApplicable) && rawResult !== null && rawResult !== undefined) {
         if (resultType === 'label') {
@@ -1135,7 +1135,7 @@ export function normalizeEvaluationResultProperties({
     }
 
     return {
-        evaluation_type: evaluationType,
+        evaluation_type: evaluationRuntime,
         result_type: resultType,
         result,
         sentiment_label: sentimentLabel,

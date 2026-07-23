@@ -598,52 +598,67 @@ async fn test_signed_json_body_mismatch_rejects_trusted_provenance() {
 }
 
 #[tokio::test]
-async fn test_verified_gateway_logs_batch_produces_evaluation() {
+async fn test_verified_gateway_logs_batch_produces_evaluation_for_each_wire_format() {
     const SECRET: &str = "test-signing-secret";
 
-    let sink = CapturingSink::new();
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            ai_gateway_signing_secret: Some(SECRET.to_string()),
-            ..Default::default()
-        },
-    );
-    let body = make_evaluation_logs_request().encode_to_vec();
-    let signature = sign_gateway_body_with_scope(
-        SECRET,
-        "application/x-protobuf",
-        "",
-        &body,
-        DEFAULT_TEST_TIME,
-        "otel-logs-v1",
-    );
+    let protobuf_body = make_evaluation_logs_request().encode_to_vec();
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&protobuf_body).unwrap();
+    let cases = [
+        ("application/x-protobuf", "", protobuf_body),
+        (
+            "application/json",
+            "",
+            serde_json::to_vec(&make_evaluation_logs_request()).unwrap(),
+        ),
+        ("application/x-protobuf", "gzip", encoder.finish().unwrap()),
+    ];
 
-    let response = client
-        .post(LOGS_ENDPOINT)
-        .header("Content-Type", "application/x-protobuf")
-        .header("Authorization", format!("Bearer {TOKEN}"))
-        .header("PostHog-Ai-Gateway-Signature", signature)
-        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
-        .body(body)
-        .send()
-        .await;
+    for (content_type, content_encoding, body) in cases {
+        let sink = CapturingSink::new();
+        let client = make_test_client_with_options(
+            &sink,
+            TestClientOptions {
+                ai_gateway_signing_secret: Some(SECRET.to_string()),
+                ..Default::default()
+            },
+        );
+        let signature = sign_gateway_body_with_scope(
+            SECRET,
+            content_type,
+            content_encoding,
+            &body,
+            DEFAULT_TEST_TIME,
+            "otel-logs-v1",
+        );
+        let mut request = client
+            .post(LOGS_ENDPOINT)
+            .header("Content-Type", content_type)
+            .header("Authorization", format!("Bearer {TOKEN}"))
+            .header("PostHog-Ai-Gateway-Signature", signature)
+            .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME);
+        if !content_encoding.is_empty() {
+            request = request.header("Content-Encoding", content_encoding);
+        }
 
-    assert_eq!(response.status().as_u16(), 200);
-    let events = sink.get_events().await;
-    assert_eq!(events.len(), 1);
-    let data = parse_event_data(&events[0]);
-    assert_eq!(events[0].event.event, "$ai_evaluation");
-    assert_eq!(data["properties"]["$ai_evaluation_name"], "correctness");
-    assert_eq!(data["properties"]["$ai_evaluation_result"], "pass");
-    assert_eq!(data["properties"]["$ai_evaluation_result_type"], "label");
-    assert_eq!(data["properties"]["$ai_evaluation_runtime"], "otel");
-    assert_eq!(data["properties"]["$ai_evaluation_type"], "imported");
-    assert_ne!(
-        data["properties"]["$ai_evaluation_id"],
-        data["properties"]["$ai_evaluation_run_id"]
-    );
-    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+        let response = request.body(body).send().await;
+
+        assert_eq!(response.status().as_u16(), 200);
+        let events = sink.get_events().await;
+        assert_eq!(events.len(), 1);
+        let data = parse_event_data(&events[0]);
+        assert_eq!(events[0].event.event, "$ai_evaluation");
+        assert_eq!(data["properties"]["$ai_evaluation_name"], "correctness");
+        assert_eq!(data["properties"]["$ai_evaluation_result"], "pass");
+        assert_eq!(data["properties"]["$ai_evaluation_result_type"], "label");
+        assert_eq!(data["properties"]["$ai_evaluation_runtime"], "otel");
+        assert_eq!(data["properties"]["$ai_evaluation_type"], "imported");
+        assert_ne!(
+            data["properties"]["$ai_evaluation_id"],
+            data["properties"]["$ai_evaluation_run_id"]
+        );
+        assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    }
 }
 
 #[tokio::test]
@@ -701,6 +716,33 @@ async fn test_logs_batch_rejects_too_many_evaluation_records() {
     let sink = CapturingSink::new();
     let client = make_test_client(&sink);
     let request = make_logs_request((0..101).map(make_evaluation_log_record).collect());
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 400);
+    assert!(sink.get_events().await.is_empty());
+}
+
+#[tokio::test]
+async fn test_logs_batch_rejects_oversized_expanded_evaluations() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+    let mut request = make_logs_request((0..100).map(make_evaluation_log_record).collect());
+    request.resource_logs[0]
+        .resource
+        .as_mut()
+        .unwrap()
+        .attributes
+        .push(make_kv(
+            "large.shared.attribute",
+            any_value::Value::StringValue("x".repeat(100_000)),
+        ));
 
     let response = client
         .post(LOGS_ENDPOINT)
