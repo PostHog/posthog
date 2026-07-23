@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -8,6 +10,14 @@ import { PubSub } from '~/common/utils/pubsub'
 import { Team } from '~/types'
 
 import { EncryptedFields } from '../../utils/encryption-utils'
+
+// Nonzero means a flow's encrypted secret inputs couldn't be decrypted (most likely Fernet key skew
+// between Django and the workers, or a corrupt blob). The flow still runs, but its secret-input steps
+// run without their credentials, so this is worth alerting on.
+const counterEncryptedInputsDecryptFailed = new Counter({
+    name: 'cdp_hogflow_encrypted_inputs_decrypt_failed',
+    help: 'A hog flow encrypted_inputs blob could not be decrypted; the flow runs without its secrets',
+})
 
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
@@ -210,9 +220,13 @@ export class HogFlowManagerService {
                     decrypted = parseJSON(plaintext)
                 }
             } catch (error) {
-                logger.warn('[HogFlowManager]', 'Could not decrypt encrypted inputs - preserving original value', {
+                // The blob is dropped below and the flow runs without its secrets (fail-open, matching
+                // HogFunctionManagerService). The counter makes the failure alertable - the most likely
+                // cause is Fernet key skew between Django and the workers.
+                logger.warn('[HogFlowManager]', 'Could not decrypt encrypted inputs - flow will run without them', {
                     error: error instanceof Error ? error.message : 'Unknown error',
                 })
+                counterEncryptedInputsDecryptFailed.inc()
                 captureException(error)
             }
         }

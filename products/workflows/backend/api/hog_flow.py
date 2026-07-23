@@ -149,7 +149,10 @@ def snapshot_flow_content(flow: HogFlow) -> dict:
     for field in ("actions", "edges"):
         if not snapshot[field]:
             snapshot[field] = []
-    return snapshot
+    # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
+    # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
+    # secrets. New rows are already stripped, so this is a no-op for them.
+    return strip_content_secrets(snapshot)
 
 
 # --- Secret function-action inputs -------------------------------------------------------------
@@ -244,20 +247,44 @@ def mask_secret_action_inputs(
     return actions
 
 
+def _mask_derived_trigger(content: dict, template_cache: Optional[TemplateCache] = None) -> None:
+    # The `trigger` representation is derived from the trigger action, so once that action's inputs are
+    # masked, re-derive `trigger` from it. Keeps a function-shaped trigger's secret from leaking on the
+    # separately-serialized trigger field. No-op when there's no trigger action or no `trigger` key.
+    actions = content.get("actions")
+    if "trigger" not in content or not isinstance(actions, list):
+        return
+    trigger_action = next(
+        (a for a in actions if isinstance(a, dict) and a.get("type") == "trigger"),
+        None,
+    )
+    if trigger_action is not None:
+        content["trigger"] = trigger_action.get("config")
+
+
+def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    # Move secret inputs out of content["actions"] into an encrypted map, updating content["actions"]
+    # (stripped) and the derived content["trigger"] in place. Returns the {action_id: {key: value}} map.
+    # Shared by the live write, the draft write, and (map discarded) the snapshot/compare paths.
+    actions = content.get("actions")
+    if not isinstance(actions, list):
+        return {}
+    stripped, encrypted = partition_flow_secrets(actions, template_cache)
+    content["actions"] = stripped
+    if "trigger" in content:
+        trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
+        if trigger_action is not None:
+            content["trigger"] = trigger_action.get("config")
+    return encrypted
+
+
 def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
-    # Return a copy of a content snapshot with secret inputs stripped from actions (and the derived
-    # trigger re-derived from them). Used to compare two snapshots secret-free, so a resent secret that
-    # validation recovers into `actions` doesn't read as a content change against the stored (stripped)
-    # snapshot and spuriously bump the revision.
+    # Return a copy of a content snapshot with secret inputs stripped from actions (and the trigger
+    # re-derived). Used to snapshot revisions secret-free and to compare two snapshots secret-free, so a
+    # resent secret validation recovers into `actions` doesn't read as a content change against the
+    # stored (stripped) snapshot and spuriously bump the revision.
     normalized = dict(content)
-    actions = normalized.get("actions")
-    if isinstance(actions, list):
-        stripped, _ = partition_flow_secrets(actions, template_cache)
-        normalized["actions"] = stripped
-        if "trigger" in normalized:
-            trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
-            if trigger_action is not None:
-                normalized["trigger"] = trigger_action.get("config")
+    strip_secrets_from_content(normalized, template_cache)
     return normalized
 
 
@@ -1129,12 +1156,17 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         template_cache: TemplateCache = self.context.setdefault("_hogflow_template_cache", {})
         if isinstance(data.get("actions"), list):
             data["actions"] = mask_secret_action_inputs(deepcopy(data["actions"]), live_secrets, template_cache)
+            # `trigger` is a separately-serialized field derived from the trigger action, so masking
+            # `actions` alone leaves a function-shaped trigger's secret exposed on it (legacy rows).
+            # Re-derive it from the now-masked trigger action to keep the two consistent.
+            _mask_derived_trigger(data, template_cache)
         draft = data.get("draft")
         if isinstance(draft, dict) and isinstance(draft.get("actions"), list):
             draft = deepcopy(draft)
             draft["actions"] = mask_secret_action_inputs(
                 draft["actions"], merge_secret_maps(live_secrets, draft_secrets), template_cache
             )
+            _mask_derived_trigger(draft, template_cache)
             data["draft"] = draft
 
         return data
@@ -1485,15 +1517,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # action set, so deleted actions' secrets drop out.
         if "actions" not in validated_data:
             return
-        stripped, encrypted = partition_flow_secrets(validated_data["actions"], template_cache={})
-        validated_data["actions"] = stripped
-        validated_data["encrypted_inputs"] = encrypted
-        # `trigger` is derived from the trigger action's config (see validate); re-derive it from the
-        # stripped copy so a function-shaped trigger's secret inputs never persist in plaintext.
-        if "trigger" in validated_data:
-            trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
-            if trigger_action is not None:
-                validated_data["trigger"] = trigger_action.get("config")
+        validated_data["encrypted_inputs"] = strip_secrets_from_content(validated_data, template_cache={})
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
@@ -2224,11 +2248,7 @@ class HogFlowViewSet(
         # snapshot; otherwise the draft's secrets are unchanged. Publish/restore re-attach from here.
         draft_encrypted_inputs = locked.draft_encrypted_inputs
         if "actions" in validated_data:
-            stripped, draft_encrypted_inputs = partition_flow_secrets(draft["actions"], template_cache={})
-            draft["actions"] = stripped
-            trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
-            if trigger_action is not None:
-                draft["trigger"] = trigger_action.get("config")
+            draft_encrypted_inputs = strip_secrets_from_content(draft, template_cache={})
 
         instance.draft = draft
         instance.draft_updated_at = timezone.now()

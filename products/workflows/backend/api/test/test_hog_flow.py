@@ -3690,3 +3690,83 @@ class TestHogFlowSecretInputs(APIBaseTest):
         sent_actions = mock_invoke.call_args.kwargs["payload"]["configuration"]["actions"]
         sent_inputs = next(a for a in sent_actions if a["type"] == "function")["config"]["inputs"]
         assert sent_inputs["api_key"]["value"] == "SUPER-SECRET"
+
+    def test_function_shaped_trigger_secret_is_masked_on_read(self):
+        # A legacy row (pre-encryption) with a webhook trigger carrying a plaintext secret in both the
+        # trigger action and the derived `trigger` field. Read-back must mask it on the trigger field,
+        # not only inside actions - they're serialized separately.
+        trigger_config = {
+            "type": "webhook",
+            "template_id": _SECRET_TEMPLATE_ID,
+            "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": "TRIGGER-SECRET"}},
+        }
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Legacy webhook trigger",
+            status=HogFlow.State.DRAFT,
+            actions=[
+                {"id": "trigger_node", "name": "trigger", "type": "trigger", "config": trigger_config},
+                {"id": "exit_node", "name": "exit", "type": "exit", "config": {}},
+            ],
+            trigger=trigger_config,
+            edges=[{"from": "trigger_node", "to": "exit_node", "type": "continue"}],
+        )
+
+        body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}").json()
+        assert body["trigger"]["inputs"]["api_key"] == {"secret": True}
+        assert "TRIGGER-SECRET" not in json.dumps(body)
+
+    @patch(_REVISIONS_FLAG_PATH, return_value=True)
+    def test_legacy_plaintext_secret_stripped_from_revision_snapshot(self, _flag):
+        # A row written before encryption shipped still has a plaintext secret in `actions`. The first
+        # tracked live edit bootstraps a revision of that prior state, which must be stripped - not carry
+        # the plaintext forward into history.
+        trigger = {
+            "id": "trigger_node",
+            "name": "trigger",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        legacy_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": _SECRET_TEMPLATE_ID,
+                "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": "LEGACY-SECRET"}},
+            },
+        }
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Legacy flow",
+            status=HogFlow.State.ACTIVE,
+            version=1,
+            actions=[trigger, legacy_action],
+            trigger=trigger["config"],
+            edges=[{"from": "trigger_node", "to": "action_1", "type": "continue"}],
+        )
+
+        # A web live edit (flag on) bumps the version and bootstraps a revision of the pre-edit state.
+        changed_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": _SECRET_TEMPLATE_ID,
+                "inputs": {"url": {"value": "https://changed.example.com"}, "api_key": {"value": "LEGACY-SECRET"}},
+            },
+        }
+        resp = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"actions": [trigger, changed_action]},
+        )
+        assert resp.status_code == 200, resp.json()
+
+        # The bootstrap revision (v1) snapshots the prior legacy state - it must not carry the plaintext.
+        revision = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}/revisions/1").json()
+        rev_inputs = next(a for a in revision["content"]["actions"] if a["type"] == "function")["config"]["inputs"]
+        assert "api_key" not in rev_inputs
+        assert "LEGACY-SECRET" not in json.dumps(revision)

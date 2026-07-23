@@ -277,5 +277,77 @@ describe('HogFlowManager', () => {
                 auth_header: { value: 'Bearer secret' },
             })
         })
+
+        it('lets the encrypted value win over stale plaintext left in actions (mid-migration)', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Mid-migration flow')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                            // A row part-way through migration: the secret still sits in plaintext here...
+                            send_webhook: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-webhook',
+                                    inputs: { api_key: { value: 'stale-plaintext' } },
+                                },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'send_webhook', type: 'continue' },
+                            { from: 'send_webhook', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            // ...and also in the encrypted column with the current value.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [
+                    flow.id,
+                    hub.encryptedFields.encrypt(JSON.stringify({ send_webhook: { api_key: { value: 'current' } } })),
+                ],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+            const loaded = await manager.getHogFlow(flow.id)
+            const action = loaded?.actions.find((a) => a.id === 'send_webhook')
+            expect((action!.config as { inputs: Record<string, unknown> }).inputs).toEqual({
+                api_key: { value: 'current' },
+            })
+        })
+
+        it('keeps the flow (fail-open) when encrypted_inputs cannot be decrypted', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Undecryptable flow')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .build()
+            )
+
+            // Not valid Fernet ciphertext (e.g. key skew / corruption): decrypt throws internally.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [flow.id, 'not-a-valid-fernet-token'],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+            // The whole flow load must not throw - the flow is returned, just without its secrets.
+            const loaded = await manager.getHogFlow(flow.id)
+            expect(loaded).not.toBeNull()
+            expect(loaded).not.toHaveProperty('encrypted_inputs')
+        })
     })
 })
