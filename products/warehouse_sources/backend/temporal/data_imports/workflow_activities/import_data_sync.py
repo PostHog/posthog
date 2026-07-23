@@ -256,6 +256,16 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             fanout_warehouse_reuse = await _ensure_required_parents_synced(
                 new_source, schema, inputs.source_id, inputs.team_id
             )
+            # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
+            # child took, and doubles as rollout-adoption telemetry. Only fan-out children
+            # (schemas with required parents) log it; every other schema stays quiet.
+            if new_source.get_required_parent_schemas(schema.name):
+                await logger.ainfo(
+                    "data_imports.fanout_parent_source",
+                    schema=schema.name,
+                    parent_source="warehouse" if fanout_warehouse_reuse else "api",
+                    source_type=source_type,
+                )
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
