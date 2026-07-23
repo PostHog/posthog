@@ -20,6 +20,7 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
 import { insightVizDataLogic } from './insightVizDataLogic'
+import { SqlFilterOverridesPrototype } from './prototypes/sql-filter-overrides/SqlFilterOverridesPrototype'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -90,6 +91,9 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 )}
 
                 <InsightRetentionBanner insightProps={insightProps} />
+
+                {/* PROTOTYPE (throwaway): SQL insight filter overrides — dev only, needs ?variant=A|B|C */}
+                <SqlFilterOverridesPrototype query={query} />
 
                 {isDataVisualizationNode(query) && insightLoading ? (
                     // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
