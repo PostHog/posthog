@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
@@ -804,6 +805,26 @@ describe('funnelDataLogic', () => {
 
             const order = getBreakdownOrder(logic.values.flattenedBreakdowns)
             expect(order).toEqual(expectedOrder)
+        })
+
+        it('setBreakdownSorting updates the query without clobbering compareFilter or the URL', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                compareFilter: { compare: true },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                logic.actions.setBreakdownSorting('-total_conversion')
+            }).toFinishAllListeners()
+
+            expect(logic.values.querySource).toMatchObject({
+                funnelsFilter: { funnelVizType: FunnelVizType.Steps, breakdownSorting: '-total_conversion' },
+                compareFilter: { compare: true },
+            })
+            expect(router.values.searchParams.order).toBeUndefined()
         })
 
         it('visibleStepsWithConversionMetrics matches flattenedBreakdowns order', async () => {

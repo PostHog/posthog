@@ -5,6 +5,29 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 import type { Schemas } from '@/api/generated'
 
+import {
+    LlmSkillsCreateBody,
+    LlmSkillsListQueryParams,
+    LlmSkillsMarketplaceInstallCommandCreateBody,
+    LlmSkillsNameArchiveCreateParams,
+    LlmSkillsNameDuplicateCreateBody,
+    LlmSkillsNameDuplicateCreateParams,
+    LlmSkillsNameFilesCreateBody,
+    LlmSkillsNameFilesCreateParams,
+    LlmSkillsNameFilesDestroyParams,
+    LlmSkillsNameFilesDestroyQueryParams,
+    LlmSkillsNameFilesRenameCreateBody,
+    LlmSkillsNameFilesRenameCreateParams,
+    LlmSkillsNameFilesRetrieveParams,
+    LlmSkillsNameFilesRetrieveQueryParams,
+    LlmSkillsNamePartialUpdateBody,
+    LlmSkillsNamePartialUpdateParams,
+    LlmSkillsNameRetrieveParams,
+    LlmSkillsNameRetrieveQueryParams,
+} from '@/generated/skills/api'
+
+import type { Schemas } from '@/api/generated'
+
 import { LlmSkillsCreateBody, LlmSkillsListQueryParams, LlmSkillsMarketplaceInstallCommandCreateBody, LlmSkillsNameArchiveCreateParams, LlmSkillsNameDuplicateCreateBody, LlmSkillsNameDuplicateCreateParams, LlmSkillsNameFilesCreateBody, LlmSkillsNameFilesCreateParams, LlmSkillsNameFilesDestroyParams, LlmSkillsNameFilesDestroyQueryParams, LlmSkillsNameFilesRenameCreateBody, LlmSkillsNameFilesRenameCreateParams, LlmSkillsNameFilesRetrieveParams, LlmSkillsNameFilesRetrieveQueryParams, LlmSkillsNamePartialUpdateBody, LlmSkillsNamePartialUpdateParams, LlmSkillsNameRetrieveParams, LlmSkillsNameRetrieveQueryParams } from '@/generated/skills/api'
 
 const SkillArchiveSchema = (LlmSkillsNameArchiveCreateParams.omit({ project_id: true })).extend({ skill_name: LlmSkillsNameArchiveCreateParams.shape['skill_name'].describe('The kebab-case name of the skill to archive.') })

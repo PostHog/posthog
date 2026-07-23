@@ -2,13 +2,18 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.organization import OrganizationMembership
+
+from ee.models.rbac.access_control import AccessControl
 
 from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
 from ...api.skill_services import MAX_SKILL_FILE_COUNT
@@ -1321,3 +1326,119 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(data["versions"]) == 2
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
+
+
+# llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
+# posthog/rbac/user_access_control.py) - same as TestSkillMarketplaceRBAC in
+# test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
+class TestSkillAccessControlRBAC(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        # Default is "none" - a member only gets skill access via an explicit grant below.
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="make-fractals",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        self.member = User.objects.create_and_join(self.organization, "rbac-member@posthog.com", "pw")
+        self.client.force_login(self.member)
+
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def _grant_llm_skill_access(self, access_level: str) -> None:
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    @parameterized.expand(
+        [
+            ("list",),
+            ("get_by_name",),
+        ]
+    )
+    def test_member_without_skill_access_cannot_read(self, action):
+        path = "" if action == "list" else f"name/{self.skill.name}"
+        response = self.client.get(self._url(path))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("create",),
+            ("update_by_name",),
+        ]
+    )
+    def test_member_without_skill_access_cannot_write(self, action):
+        if action == "create":
+            response = self.client.post(
+                self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+            )
+        else:
+            response = self.client.patch(
+                self._url(f"name/{self.skill.name}"),
+                data={"description": "d2", "base_version": 1},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_viewer_can_read_but_not_write(self):
+        self._grant_llm_skill_access("viewer")
+
+        assert self.client.get(self._url()).status_code == status.HTTP_200_OK
+        assert self.client.get(self._url(f"name/{self.skill.name}")).status_code == status.HTTP_200_OK
+
+        create_response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+
+        update_response = self.client.patch(
+            self._url(f"name/{self.skill.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_editor_can_create_and_update(self):
+        self._grant_llm_skill_access("editor")
+
+        create_response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        update_response = self.client.patch(
+            self._url(f"name/{self.skill.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+    def test_org_admin_has_full_access_without_explicit_grant(self):
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED
