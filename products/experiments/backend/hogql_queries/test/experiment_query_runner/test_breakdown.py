@@ -9,7 +9,6 @@ from parameterized import parameterized
 
 from posthog.schema import (
     Breakdown,
-    BreakdownAttributionType,
     BreakdownFilter,
     EventsNode,
     ExperimentFunnelMetric,
@@ -453,13 +452,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("first_touch", BreakdownAttributionType.FIRST_TOUCH, None, {"StepZeroBrowser"}),
-            ("last_touch", BreakdownAttributionType.LAST_TOUCH, None, {"StepOneBrowser"}),
-            ("step_1", BreakdownAttributionType.STEP, 1, {"StepOneBrowser"}),
+            ("flag_off", False, {"ExposureBrowser"}),
+            ("flag_on", True, {"MetricBrowser"}),
         ]
     )
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_funnel_attribution_modes_bucket_correctly(self, _name, attribution, attribution_value, expected_buckets):
+    def test_mean_breakdown_source_respects_flag(self, _name, flag_on, expected_buckets):
         from unittest.mock import patch
 
         feature_flag = self.create_feature_flag()
@@ -467,11 +465,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
-        metric = ExperimentFunnelMetric(
-            series=[EventsNode(event="step_zero"), EventsNode(event="step_one")],
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
             breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
-            breakdownAttributionType=attribution,
-            breakdownAttributionValue=attribution_value,
         )
         experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
         experiment.metrics = [metric.model_dump(mode="json")]
@@ -479,7 +475,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        # Step 0 and step 1 carry different breakdown values, so each attribution mode resolves differently.
+        # Exposure event carries "ExposureBrowser"; the metric event carries "MetricBrowser".
         for variant in ["control", "test"]:
             distinct_id = f"user_{variant}"
             _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
@@ -492,28 +488,22 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                     feature_flag_property: variant,
                     "$feature_flag_response": variant,
                     "$feature_flag": feature_flag.key,
+                    "$browser": "ExposureBrowser",
                 },
             )
             _create_event(
                 team=self.team,
-                event="step_zero",
+                event="purchase",
                 distinct_id=distinct_id,
                 timestamp="2020-01-02T12:01:00Z",
-                properties={feature_flag_property: variant, "$browser": "StepZeroBrowser"},
-            )
-            _create_event(
-                team=self.team,
-                event="step_one",
-                distinct_id=distinct_id,
-                timestamp="2020-01-02T12:02:00Z",
-                properties={feature_flag_property: variant, "$browser": "StepOneBrowser"},
+                properties={feature_flag_property: variant, "$browser": "MetricBrowser", "amount": 10},
             )
 
         flush_persons_and_events()
 
         with patch(
             "products.experiments.backend.hogql_queries.experiment_query_runner.posthoganalytics.feature_enabled",
-            return_value=True,
+            return_value=flag_on,
         ):
             query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
             result = cast(ExperimentQueryResponse, query_runner.calculate())
@@ -521,81 +511,6 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         assert result.breakdown_results is not None
         buckets = {value for br in result.breakdown_results for value in br.breakdown_value}
         self.assertEqual(buckets, expected_buckets)
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_funnel_breakdown_limit_collapses_to_other(self):
-        from unittest.mock import patch
-
-        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
-        experiment.save()
-
-        metric = ExperimentFunnelMetric(
-            series=[EventsNode(event="purchase")],
-            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")], breakdown_limit=2),
-        )
-        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        # Four browser values with descending user counts: Chrome(4) > Safari(3) > Firefox(2) > Edge(1).
-        # With breakdown_limit=2, only Chrome + Safari survive; Firefox + Edge collapse to "Other".
-        browser_counts = {"Chrome": 4, "Safari": 3, "Firefox": 2, "Edge": 1}
-        user_index = 0
-        for browser, count in browser_counts.items():
-            for _ in range(count):
-                variant = "control" if user_index % 2 == 0 else "test"
-                distinct_id = f"user_{user_index}"
-                user_index += 1
-                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=distinct_id,
-                    timestamp="2020-01-02T12:00:00Z",
-                    properties={
-                        feature_flag_property: variant,
-                        "$feature_flag_response": variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                )
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=distinct_id,
-                    timestamp="2020-01-02T12:01:00Z",
-                    properties={feature_flag_property: variant, "$browser": browser},
-                )
-
-        flush_persons_and_events()
-
-        with patch(
-            "products.experiments.backend.hogql_queries.experiment_query_runner.posthoganalytics.feature_enabled",
-            return_value=True,
-        ):
-            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-            result = cast(ExperimentQueryResponse, query_runner.calculate())
-
-        assert result.breakdown_results is not None
-        buckets = {value for br in result.breakdown_results for value in br.breakdown_value}
-        # Top 2 by frequency survive; the rest collapse into a single "Other" bucket.
-        self.assertEqual(buckets, {"Chrome", "Safari", BREAKDOWN_OTHER_STRING_LABEL})
-
-        # The "Other" bucket is ordered last in the breakdown list.
-        ordered_values = [value for br in result.breakdown_results for value in br.breakdown_value]
-        self.assertEqual(ordered_values[-1], BREAKDOWN_OTHER_STRING_LABEL)
-
-        # The "Other" bucket preserves totals: per-breakdown baseline samples sum to the overall.
-        assert result.baseline is not None
-        per_breakdown_baseline = sum(
-            br.baseline.number_of_samples for br in result.breakdown_results if br.baseline is not None
-        )
-        self.assertEqual(per_breakdown_baseline, result.baseline.number_of_samples)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries

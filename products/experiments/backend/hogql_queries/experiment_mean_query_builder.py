@@ -9,7 +9,6 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     is_session_property_metric,
     validate_session_property,
 )
-from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 if TYPE_CHECKING:
@@ -304,9 +303,9 @@ class MeanQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST. The metric-event injector is funnel-only,
-        # so mean metrics always use the property-from-exposure BreakdownInjector.
-        if isinstance(self._b.breakdown_injector, BreakdownInjector):
+        # Inject breakdown columns into the query AST. Both injectors expose
+        # inject_mean_breakdown_columns (old: exposure source; new: metric-event source + limit).
+        if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_mean_breakdown_columns(query, final_cte_name="entity_metrics")
 
         return query
@@ -403,9 +402,9 @@ class MeanQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST. The metric-event injector is funnel-only,
-        # so mean metrics always use the property-from-exposure BreakdownInjector.
-        if isinstance(self._b.breakdown_injector, BreakdownInjector):
+        # Inject breakdown columns into the query AST. Both injectors expose
+        # inject_mean_breakdown_columns (old: exposure source; new: metric-event source + limit).
+        if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_mean_breakdown_columns(query, final_cte_name="winsorized_entity_metrics")
 
         return query
