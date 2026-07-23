@@ -43,7 +43,9 @@ impl<'a> Ctx<'a> {
         Self::with_options(allow, timings, ImagePolicy::Inline)
     }
 
-    pub fn with_options(
+    // pub(crate): the token-patch barriers live only in the kafka snapshot pipeline, so a
+    // caller-built Parallel Ctx on the other entry points would emit unresolved tokens.
+    pub(crate) fn with_options(
         allow: &'a AllowLists,
         timings: Option<&'a PhaseTimings>,
         image_policy: ImagePolicy,

@@ -29,9 +29,17 @@ static IMAGE_POLICY: std::sync::OnceLock<ImagePolicy> = std::sync::OnceLock::new
 
 fn image_policy() -> ImagePolicy {
     *IMAGE_POLICY.get_or_init(|| {
-        match std::env::var("REPLAY_ANONYMIZER_PARALLEL_IMAGES").as_deref() {
-            Ok("0") | Ok("false") => ImagePolicy::Inline,
-            _ => ImagePolicy::Parallel,
+        // Forgiving parse: this is an incident rollback lever, so common falsy spellings count.
+        let disabled = std::env::var("REPLAY_ANONYMIZER_PARALLEL_IMAGES").is_ok_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "no"
+            )
+        });
+        if disabled {
+            ImagePolicy::Inline
+        } else {
+            ImagePolicy::Parallel
         }
     })
 }

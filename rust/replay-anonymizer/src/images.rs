@@ -52,6 +52,9 @@ const ID_HEX_LEN: usize = 8;
 /// slower, bounded, identical output. Global memory stays bounded at (concurrent messages x cap).
 pub(crate) const MAX_QUEUED_URI_BYTES: usize = 32 * 1024 * 1024;
 
+/// Generous ceiling on one blur job (worst real decodes are hundreds of ms); see `resolve`.
+const IMAGE_JOB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Random 128 bits per process: payload bytes can't be crafted (or fluked, at any volume) to
 /// collide with a live token — a false match needs this exact 35-char ASCII run in the payload.
 static TOKEN_MARKER: LazyLock<String> = LazyLock::new(|| {
@@ -68,12 +71,12 @@ fn worker_count() -> usize {
     std::env::var("REPLAY_ANONYMIZER_IMAGE_THREADS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| n > 0)
         .unwrap_or_else(|| {
             std::thread::available_parallelism()
                 .map(|n| n.get().min(4))
                 .unwrap_or(2)
         })
+        .clamp(1, 64)
 }
 
 struct Job {
@@ -88,13 +91,15 @@ struct JobResult {
 }
 
 /// One shared pool for the whole process: total blur parallelism stays bounded no matter how many
-/// messages scrub concurrently on the libuv threadpool.
-static POOL: LazyLock<mpsc::Sender<Job>> = LazyLock::new(|| {
+/// messages scrub concurrently on the libuv threadpool. `None` when no worker could be spawned —
+/// submission then declines and every image scrubs inline instead.
+static POOL: LazyLock<Option<mpsc::Sender<Job>>> = LazyLock::new(|| {
     let (tx, rx) = mpsc::channel::<Job>();
     let rx = Arc::new(Mutex::new(rx));
+    let mut spawned = 0usize;
     for i in 0..worker_count() {
         let rx = Arc::clone(&rx);
-        std::thread::Builder::new()
+        let spawn_result = std::thread::Builder::new()
             .name(format!("replay-img-scrub-{i}"))
             .spawn(move || loop {
                 let job = match rx.lock() {
@@ -115,10 +120,12 @@ static POOL: LazyLock<mpsc::Sender<Job>> = LazyLock::new(|| {
                 let elapsed_ns = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX - 1);
                 // The queue side may already have given up on this job; a send error is fine.
                 job.result_tx.send(JobResult { b64, elapsed_ns }).ok();
-            })
-            .expect("failed to spawn image scrub worker");
+            });
+        if spawn_result.is_ok() {
+            spawned += 1;
+        }
     }
-    tx
+    (spawned > 0).then_some(tx)
 });
 
 enum JobState {
@@ -158,15 +165,17 @@ impl ImageQueue {
             if queued > max_queued_uri_bytes {
                 return None;
             }
+            let (result_tx, result_rx) = mpsc::sync_channel(1);
+            // A missing or wedged pool declines instead of panicking; the caller scrubs inline.
+            POOL.as_ref()?
+                .send(Job {
+                    uri: uri.to_string(),
+                    result_tx,
+                })
+                .ok()?;
             self.queued_uri_bytes.set(queued);
             let id = self.next_id.get();
             self.next_id.set(id + 1);
-            let (result_tx, result_rx) = mpsc::sync_channel(1);
-            POOL.send(Job {
-                uri: uri.to_string(),
-                result_tx,
-            })
-            .expect("image scrub pool is gone");
             self.ids_by_uri.borrow_mut().insert(uri.to_string(), id);
             self.jobs
                 .borrow_mut()
@@ -206,9 +215,10 @@ impl ImageQueue {
         let mut jobs = self.jobs.borrow_mut();
         let state = jobs.get_mut(&id)?;
         if let JobState::Pending(rx) = state {
-            let result = match rx.recv() {
+            // Bounded wait: a wedged worker fails this image closed instead of stalling the
+            // partition; a straggler's late result lands in the buffered channel and is dropped.
+            let result = match rx.recv_timeout(IMAGE_JOB_TIMEOUT) {
                 Ok(r) => r,
-                // The worker died before sending: fail this image closed.
                 Err(_) => JobResult {
                     b64: None,
                     elapsed_ns: 0,
@@ -376,6 +386,17 @@ mod tests {
         assert_eq!(q.submit(&b, ImageFallback::Blank, true, budget), None);
         // An already-queued URI still resolves to its token, budget notwithstanding.
         assert_eq!(q.submit(&a, ImageFallback::Blank, true, budget), Some(t1));
+    }
+
+    #[test]
+    fn replacements_never_need_json_escaping() {
+        // patch() splices replacements into already-serialized JSON without escaping, which is
+        // only sound while every possible replacement is escape-free.
+        let needs_escape = |s: &str| s.bytes().any(|b| b == b'"' || b == b'\\' || b < 0x20);
+        assert!(!needs_escape(PLACEHOLDER_SRC));
+        assert!(!needs_escape(BLANK_PNG_BASE64));
+        let blurred = blur_image_data_uri(&png_data_uri(32, 32, [9, 9, 9, 255])).unwrap();
+        assert!(!needs_escape(&blurred));
     }
 
     #[test]

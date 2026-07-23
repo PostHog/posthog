@@ -28,8 +28,19 @@ fn decode_scaled_jpeg(bytes: &[u8]) -> Option<(DynamicImage, (u32, u32))> {
     let mut decoder = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
     decoder.read_info().ok()?;
     let info = decoder.info()?;
+    // Baseline only: progressive (and lossless) frames buffer FULL-resolution coefficient planes
+    // inside decode() regardless of the requested scale, and jpeg-decoder has no allocation-limit
+    // API — a tiny crafted progressive header declaring 16k x 16k would force gigabytes. The
+    // fallback path enforces MAX_IMAGE_ALLOC_BYTES via image::Limits and rejects such files.
+    if info.coding_process != jpeg_decoder::CodingProcess::DctSequential {
+        return None;
+    }
     let (w, h) = (u32::from(info.width), u32::from(info.height));
     if w == 0 || h == 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE {
+        return None;
+    }
+    // Belt for the sequential path's own buffers: stay well under the fallback's allocation cap.
+    if u64::from(w) * u64::from(h) * 4 > MAX_IMAGE_ALLOC_BYTES {
         return None;
     }
     decoder
