@@ -14,6 +14,7 @@ from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
 from products.replay_vision.backend.models.replay_observation import (
@@ -1477,6 +1478,38 @@ class TestObserveAction(_VisionAPITestCase):
 
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
+
+    def test_stale_row_snapshot_self_corrects_after_claim(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A row count staler than the claim decay grace must not admit past the cap: the post-claim
+        # validation re-reads rows with the claim already registered.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="already-running",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.PENDING,
+        )
+
+        with (
+            patch("products.replay_vision.backend.api.trigger.MAX_IN_FLIGHT_APPLIES_PER_TEAM", 1),
+            patch("products.replay_vision.backend.enqueue_claims.MAX_IN_FLIGHT_APPLIES_PER_TEAM", 1),
+        ):
+            _, outcome = start_apply_scanner_workflow(
+                self.scanner,
+                "sess-stale",
+                triggered_by_user_id=self.user.id,
+                trigger=ObservationTrigger.ON_DEMAND,
+                team_in_flight_rows=0,
+                scanner_in_flight_rows=0,
+            )
+
+        assert outcome is WorkflowStartOutcome.CAPPED
+        start_workflow.assert_not_called()
 
     def test_observe_returns_workflow_id_and_starts_workflow(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

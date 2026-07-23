@@ -20,6 +20,7 @@ from posthog.temporal.common.search_attributes import (
 )
 
 from products.replay_vision.backend.enqueue_claims import (
+    pending_enqueue_claims_for_scanner,
     pending_enqueue_claims_for_team,
     release_enqueue_claim,
     try_claim_enqueue_slot,
@@ -30,6 +31,7 @@ from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
+    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     build_apply_scanner_workflow_id,
 )
@@ -69,6 +71,17 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
         )
 
 
+def _admission_still_within_caps(scanner: ReplayScanner) -> bool:
+    """Validate a fresh claim against fresh counts. The claim is already registered, so this read
+    sees every competitor, and rows younger than the decay grace are still covered by their claims;
+    a pre-claim row snapshot staler than the grace self-corrects here instead of over-admitting."""
+    in_flight = ReplayObservation.in_flight_for_team(scanner.team_id)
+    if in_flight.count() + pending_enqueue_claims_for_team(scanner.team_id) > MAX_IN_FLIGHT_APPLIES_PER_TEAM:
+        return False
+    scanner_rows = in_flight.filter(scanner_id=scanner.id).count()
+    return scanner_rows + pending_enqueue_claims_for_scanner(scanner.id) <= MAX_IN_FLIGHT_APPLIES_PER_SCANNER
+
+
 def start_apply_scanner_workflow(
     scanner: ReplayScanner,
     session_id: str,
@@ -94,6 +107,9 @@ def start_apply_scanner_workflow(
         team_in_flight_rows=team_in_flight_rows,
         scanner_in_flight_rows=scanner_in_flight_rows,
     ):
+        return workflow_id, WorkflowStartOutcome.CAPPED
+    if not _admission_still_within_caps(scanner):
+        release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
         return workflow_id, WorkflowStartOutcome.CAPPED
     try:
         client = sync_connect()
