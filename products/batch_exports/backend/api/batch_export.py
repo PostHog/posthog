@@ -1026,15 +1026,26 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if model is not None and model != "events":
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
-        # Convert offset_day and offset_hour to interval_offset
-        interval = attrs.get("interval")
-        if interval is not None:
-            # Check if offset fields are in the request (for PATCH, distinguish between absent and None)
-            offset_day_provided = "offset_day" in attrs
-            offset_hour_provided = "offset_hour" in attrs
-            offset_day = attrs.pop("offset_day", None)
-            offset_hour = attrs.pop("offset_hour", None)
+        # Convert offset_day and offset_hour to interval_offset.
+        # offset_day/offset_hour are serializer-only fields backed by read-only model properties, so
+        # pop them here regardless of interval — otherwise a PATCH that sends an offset without an
+        # interval would leave them in validated_data, and super().update() would setattr on the
+        # property (which has no setter) and raise AttributeError (a 500).
+        offset_day_provided = "offset_day" in attrs
+        offset_hour_provided = "offset_hour" in attrs
+        offset_day = attrs.pop("offset_day", None)
+        offset_hour = attrs.pop("offset_hour", None)
 
+        # On a PATCH that omits interval, fall back to the instance's existing interval so we still
+        # know how to convert any provided offsets.
+        interval_provided = attrs.get("interval") is not None
+        interval = attrs.get("interval")
+        if interval is None and self.instance is not None:
+            interval = self.instance.interval
+
+        if interval is not None and (
+            interval_provided or offset_day_provided or offset_hour_provided or not self.partial
+        ):
             if interval == "day":
                 # For daily exports, only offset_hour is used
                 if offset_day_provided and offset_day is not None:
