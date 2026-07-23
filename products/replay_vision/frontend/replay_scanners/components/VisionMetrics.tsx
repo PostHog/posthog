@@ -10,7 +10,7 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { formatCredits } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount, formatCredits } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
@@ -119,13 +119,17 @@ export function VisionMetrics(): JSX.Element {
                                 Estimated spend. You won't be billed during the closed beta.
                             </div>
                             <div className="text-3xl font-semibold tabular-nums">
-                                {formatCredits(quota.credits_used)}
+                                {formatCreditCount(quota.credits_used)}
                                 {hasCap && (
                                     <span className="text-muted text-lg font-normal">
                                         {' / '}
-                                        {formatCredits(quota.credit_limit ?? 0)}
+                                        {formatCreditCount(quota.credit_limit ?? 0)}
                                     </span>
                                 )}
+                            </div>
+                            <div className="text-muted text-sm tabular-nums">
+                                ≈ {creditsToUsd(quota.credits_used)}
+                                {hasCap ? ` / ${creditsToUsd(quota.credit_limit ?? 0)}` : ''}
                             </div>
                             {hasCap ? (
                                 <>
