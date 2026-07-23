@@ -41,8 +41,9 @@ export function ScannerDigestCard({
     scannerName: string
 }): JSX.Element | null {
     const logic = scannerDigestLogic({ scannerId, scannerName })
-    const { digest, latestRun, latestRunLoading, digestCreating, expanded, visionActionsLoading } = useValues(logic)
-    const { createDigest, toggleExpanded, toggleActionEnabled } = useActions(logic)
+    const { digest, latestRun, latestRunLoading, digestCreating, expanded, visionActionsLoading, runningNow } =
+        useValues(logic)
+    const { createDigest, toggleExpanded, toggleActionEnabled, runNow } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
@@ -112,14 +113,26 @@ export function ScannerDigestCard({
                             </>
                         )}
                     </span>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        to={urls.replayVisionActionEdit(digest.id)}
-                        data-attr="vision-scanner-digest-edit"
-                    >
-                        Edit schedule
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={runNow}
+                            loading={runningNow}
+                            disabledReason={editDisabledReason}
+                            data-attr="vision-scanner-digest-run-now-empty"
+                        >
+                            Run now
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={urls.replayVisionActionEdit(digest.id)}
+                            data-attr="vision-scanner-digest-edit"
+                        >
+                            Edit schedule
+                        </LemonButton>
+                    </div>
                 </div>
             </CardShell>
         )
@@ -167,6 +180,16 @@ export function ScannerDigestCard({
                     {expanded ? 'Show less' : 'Show more'}
                 </LemonButton>
                 <div className="flex-1" />
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={runNow}
+                    loading={runningNow}
+                    disabledReason={editDisabledReason}
+                    data-attr="vision-scanner-digest-run-now"
+                >
+                    Run now
+                </LemonButton>
                 {!delivers && (
                     <LemonButton
                         size="xsmall"

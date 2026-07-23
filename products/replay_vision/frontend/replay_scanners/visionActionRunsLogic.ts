@@ -3,7 +3,7 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionActionsRetrieve, visionActionsRunsList } from '../generated/api'
+import { visionActionsRetrieve, visionActionsRunCreate, visionActionsRunsList } from '../generated/api'
 import type { VisionActionApi, VisionActionRunListApi } from '../generated/api.schemas'
 import { visionActionSceneLogic } from './visionActionSceneLogic'
 
@@ -70,6 +70,8 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
         loadAction: true,
         loadActionSuccess: (action: VisionActionApi) => ({ action }),
         loadActionFailure: true,
+        runNow: true,
+        runNowDone: true,
     }),
 
     reducers({
@@ -108,6 +110,14 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
                 loadActionFailure: () => false,
             },
         ],
+        // Loading state for the "Run now" button on the run-history page.
+        runningNow: [
+            false,
+            {
+                runNow: () => true,
+                runNowDone: () => false,
+            },
+        ],
     }),
 
     listeners(({ actions, props }) => ({
@@ -139,6 +149,26 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
                 visionActionSceneLogic.actions.setActionContext(action.name, action.scanner ?? null)
             } catch {
                 actions.loadActionFailure()
+            }
+        },
+
+        runNow: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.runNowDone()
+                return
+            }
+            try {
+                const { already_running } = await visionActionsRunCreate(String(teamId), props.actionId)
+                lemonToast.success(
+                    already_running ? 'A run is already in progress.' : 'Running now — the new run appears below.'
+                )
+                // Refresh so the new (running) run shows up immediately at the top of the list.
+                actions.loadRuns()
+            } catch (error: any) {
+                lemonToast.error(`Couldn't run this summary${error?.detail ? `: ${error.detail}` : ''}`)
+            } finally {
+                actions.runNowDone()
             }
         },
     })),

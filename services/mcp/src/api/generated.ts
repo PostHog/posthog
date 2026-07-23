@@ -60252,6 +60252,16 @@ export namespace Schemas {
       reference: RoleExternalReference | null;
     }
 
+    /**
+     * Async-accepted response for POST /vision/actions/{id}/run/.
+     */
+    export interface RunActionResponse {
+      /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
+      workflow_id: string;
+      /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
+      already_running: boolean;
+    }
+
     export interface RunFailureLogs {
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
