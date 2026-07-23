@@ -78532,30 +78532,6 @@ export namespace Schemas {
       Pending: 'pending',
     } as const;
 
-    export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat;
-    };
-
-    export type PersonsFunnelRetrieveFormat = typeof PersonsFunnelRetrieveFormat[keyof typeof PersonsFunnelRetrieveFormat];
-
-
-    export const PersonsFunnelRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat;
-    };
-
-    export type PersonsFunnelCreateFormat = typeof PersonsFunnelCreateFormat[keyof typeof PersonsFunnelCreateFormat];
-
-
-    export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsLifecycleRetrieveParams = {
     format?: PersonsLifecycleRetrieveFormat;
     };
@@ -78604,18 +78580,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat;
-    };
-
-    export type PersonsTrendsRetrieveFormat = typeof PersonsTrendsRetrieveFormat[keyof typeof PersonsTrendsRetrieveFormat];
-
-
-    export const PersonsTrendsRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -79111,6 +79075,10 @@ export namespace Schemas {
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */
