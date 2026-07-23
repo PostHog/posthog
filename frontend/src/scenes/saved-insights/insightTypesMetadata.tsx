@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconApps,
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
@@ -700,7 +701,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
-    { value: 'All types', label: 'All types' },
+    { value: 'All types', label: 'All types', icon: <IconApps /> },
     ...Object.entries(INSIGHT_TYPES_METADATA)
         .filter(([, meta]) => meta.inMenu !== false)
         .map(([value, meta]) => ({
