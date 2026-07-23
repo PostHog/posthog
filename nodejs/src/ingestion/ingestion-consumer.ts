@@ -60,6 +60,7 @@ import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-o
 import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
+import { createAnalyticsOverflowStrategies } from './common/overflow-redirect/overflow-strategy'
 import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
@@ -189,8 +190,12 @@ export class IngestionConsumer {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                strategies: createAnalyticsOverflowStrategies({
+                    eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                    mergeEventBucketCapacity: this.config.MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    mergeEventReplenishRate: this.config.MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                }),
                 overflowType: 'events',
             })
         }
@@ -438,12 +443,10 @@ export class IngestionConsumer {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }
 
-        // Drain the pipeline, scheduling batch-level side effects
+        // The pipeline handles its own side effects (scheduling them on the
+        // promise scheduler), so draining results is all that's left to do.
         let result = await this.joinedPipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void this.promiseScheduler.schedule(sideEffect)
-            }
             result = await this.joinedPipeline.next()
         }
     }

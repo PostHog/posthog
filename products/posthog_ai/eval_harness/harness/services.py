@@ -89,7 +89,7 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
     Pointed at the in-process Django live server (which uses the test DB).
     Uses a non-default port to avoid conflicts with a running dev MCP server.
 
-    Runs the Node-native Hono server via ``pnpm dev:hono``. In production the
+    Runs the Node-native Hono server via ``pnpm dev``. In production the
     Cloudflare Worker is now a proxy that forwards to a regional Hono
     deployment, so Hono is what real users hit.
     """
@@ -101,7 +101,7 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
     api_url = live_server_url
 
     # The Hono server reads config directly from process env — no wrangler
-    # --var wiring needed. PORT picks the listen port; the dev:hono script
+    # --var wiring needed. PORT picks the listen port; the dev script
     # bundles via esbuild then spawns Node on the bundle.
     env = {
         **os.environ,
@@ -115,15 +115,16 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
         # Force flag-gated behavior on for evals via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # No flags currently need forcing on.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({}),
+        # product-data-catalog gates the metric-discovery section of the execute-sql
+        # description; the governed-metrics evals exercise that path.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"product-data-catalog": True}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
     _, stop = LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
-        cmd=["pnpm", "dev:hono"],
+        cmd=["pnpm", "dev"],
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",

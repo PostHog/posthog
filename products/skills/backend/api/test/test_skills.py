@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models import User
 
+from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
 from ...api.skill_services import MAX_SKILL_FILE_COUNT
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -255,6 +256,8 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(results) == 2
         assert all("description" in r for r in results)
         assert all("body" not in r for r in results)
+        # Body-paging metadata is meaningless without the body — it must not leak into the list.
+        assert all("body_total_length" not in r and "body_next_offset" not in r for r in results)
 
     def test_list_skills_search_by_name(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
@@ -344,6 +347,55 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["description"] == "Fetchable."
         assert data["body"] == "# Fetch me body"
         assert "files" in data
+
+    def test_get_skill_by_name_returns_short_body_whole_without_paging(self):
+        self.create_skill(name="whole-body", body="0123456789")
+
+        data = self.client.get(self._url("name/whole-body")).json()
+
+        assert data["body"] == "0123456789"
+        assert data["body_total_length"] == 10
+        # A body under the default page cap fits in the first page, so nothing is left to fetch.
+        assert data["body_next_offset"] is None
+
+    def test_get_skill_by_name_caps_first_page_and_reports_next_offset_without_paging(self):
+        # A body larger than the default page cap would be truncated in transit; the un-paged
+        # response must hand back a valid continuation offset rather than claiming completeness.
+        body = "x" * (DEFAULT_BODY_PAGE_LENGTH + 50)
+        self.create_skill(name="huge-body", body=body)
+
+        data = self.client.get(self._url("name/huge-body")).json()
+
+        assert data["body"] == body[:DEFAULT_BODY_PAGE_LENGTH]
+        assert data["body_total_length"] == DEFAULT_BODY_PAGE_LENGTH + 50
+        assert data["body_next_offset"] == DEFAULT_BODY_PAGE_LENGTH
+
+    @parameterized.expand(
+        [
+            # label, query, expected_body, expected_next_offset
+            ("first_page_has_more", "?body_offset=0&body_length=4", "0123", 4),
+            ("middle_page_has_more", "?body_offset=4&body_length=3", "456", 7),
+            ("last_page_exact_end", "?body_offset=8&body_length=2", "89", None),
+            ("length_past_end", "?body_offset=8&body_length=50", "89", None),
+            ("offset_only_returns_remainder", "?body_offset=7", "789", None),
+        ]
+    )
+    def test_get_skill_by_name_pages_through_body(self, _label, query, expected_body, expected_next_offset):
+        self.create_skill(name="paged-body", body="0123456789")
+
+        data = self.client.get(self._url(f"name/paged-body{query}")).json()
+
+        assert data["body"] == expected_body
+        # Total always reflects the full body, so a client can detect a truncated response.
+        assert data["body_total_length"] == 10
+        assert data["body_next_offset"] == expected_next_offset
+
+    def test_get_skill_by_name_rejects_negative_body_offset(self):
+        self.create_skill(name="bad-offset", body="hello")
+
+        response = self.client.get(self._url("name/bad-offset?body_offset=-1"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_get_skill_by_name_returns_file_manifest(self):
         skill = self.create_skill(name="with-files")

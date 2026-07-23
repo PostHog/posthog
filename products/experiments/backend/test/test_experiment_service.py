@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -28,6 +28,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -52,7 +53,6 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
-from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -3537,6 +3537,50 @@ class TestExperimentService(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.is_exposure_frozen is expected
 
+    @parameterized.expand(
+        [
+            ("running", "running", None, True),
+            ("draft", "draft", None, False),
+            ("stopped", "stopped", None, False),
+            ("paused", "paused", None, False),
+            ("frozen", "frozen", None, False),
+            ("holdout_linked", "holdout_linked", None, False),
+            ("group_aggregated", "running", {"aggregation_group_type_index": 0}, False),
+            ("flag_super_groups", "running", {"super_groups": [{"properties": [], "rollout_percentage": 100}]}, False),
+            ("no_groups", "running", {"groups": []}, False),
+        ]
+    )
+    def test_can_freeze_exposure_property(self, _name: str, state: str, extra_filters: dict | None, expected: bool):
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="CF Draft", feature_flag_key=f"cf-{_name}")
+        elif state == "stopped":
+            experiment = self._create_ended_experiment(name="CF Stopped", feature_flag_key=f"cf-{_name}")
+        else:
+            experiment = self._create_running_experiment(name="CF Running", feature_flag_key=f"cf-{_name}")
+
+        if state == "paused":
+            flag = experiment.feature_flag
+            flag.active = False
+            flag.save()
+        elif state == "frozen":
+            self._stamp_exposure_frozen_marker(experiment.feature_flag)
+        elif state == "holdout_linked":
+            holdout = ExperimentHoldout.objects.create(
+                team=self.team,
+                name="CF Holdout",
+                filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout"}],
+                created_by=self.user,
+            )
+            experiment.holdout = holdout
+            experiment.save()
+        if extra_filters:
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, **extra_filters}
+            flag.save()
+
+        experiment.refresh_from_db()
+        assert experiment.can_freeze_exposure is expected
+
     def test_freeze_exposure_success(self):
         experiment = self._create_running_experiment(name="Freeze Exposure", feature_flag_key="freeze-exposure-flag")
         original_variants = deepcopy(experiment.feature_flag.filters["multivariate"])
@@ -4150,6 +4194,8 @@ class TestExperimentService(APIBaseTest):
         else:
             experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
             assert experiment.is_stopped
+        experiment.flag_cleanup_task_id = uuid4()
+        experiment.save()
 
         reset = self._service().reset_experiment(experiment)
 
@@ -4160,6 +4206,7 @@ class TestExperimentService(APIBaseTest):
         assert reset.archived is False
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
+        assert reset.flag_cleanup_task_id is None
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
@@ -4199,6 +4246,26 @@ class TestExperimentService(APIBaseTest):
         assert reset.feature_flag.filters["groups"] == original_groups
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+    def test_reset_experiment_clears_freeze_without_request(self):
+        experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
+        original_groups = deepcopy(experiment.feature_flag.filters["groups"])
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # Non-HTTP callers (no request/user) still route the freeze-strip through the
+        # gated facade write, attributed as a system change in the activity log.
+        with self.captureOnCommitCallbacks(execute=True):
+            reset = self._service().reset_experiment(frozen)
+
+        assert reset.is_draft
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.filters["groups"] == original_groups
+        log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(reset.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert log.is_system is True
+        assert log.user is None
 
     @parameterized.expand(
         [
@@ -4833,93 +4900,6 @@ class TestExperimentService(APIBaseTest):
         service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
 
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
-
-    # ------------------------------------------------------------------
-    # Eligible feature flags
-    # ------------------------------------------------------------------
-
-    def test_get_eligible_feature_flags_only_returns_multivariate_flags_within_variant_bounds(self) -> None:
-        eligible_flag = self._create_flag(key="eligible-flag")
-        no_control_flag = self._create_flag(
-            key="no-control-flag",
-            variants=[
-                {"key": "test-1", "name": "Test 1", "rollout_percentage": 50},
-                {"key": "test-2", "name": "Test 2", "rollout_percentage": 50},
-            ],
-        )
-        self._create_flag(
-            key="single-variant-flag",
-            variants=[{"key": "control", "name": "Control", "rollout_percentage": 100}],
-        )
-
-        result = self._service().get_eligible_feature_flags(order="key")
-
-        assert result["count"] == 2
-        assert [flag.key for flag in result["results"]] == [eligible_flag.key, no_control_flag.key]
-
-    def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
-        self._create_flag(key="search-alpha")
-        self._create_flag(key="search-beta")
-        self._create_flag(key="other-flag")
-
-        result = self._service().get_eligible_feature_flags(
-            search="search",
-            order="key",
-            limit=1,
-            offset=1,
-        )
-
-        assert result["count"] == 2
-        assert [flag.key for flag in result["results"]] == ["search-beta"]
-
-    def test_get_eligible_feature_flags_filters_by_evaluation_contexts(self) -> None:
-        flag_with_tags = self._create_flag(key="flag-with-tags")
-        self._create_flag(key="flag-without-tags")
-        evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=evaluation_context)
-
-        service = self._service()
-
-        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_contexts="true", order="key")
-        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_contexts="false", order="key")
-
-        assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
-        assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
-
-    def test_get_eligible_feature_flags_excludes_flags_blocked_by_access_controls(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
-        self.organization.save()
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save()
-
-        self._create_flag(key="accessible-flag")
-        other_user = User.objects.create_and_join(self.organization, "flag-owner@posthog.com", None)
-        private_flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=other_user,
-            key="private-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        AccessControl.objects.create(
-            team=self.team, resource="feature_flag", resource_id=str(private_flag.id), access_level="none"
-        )
-
-        result = self._service().get_eligible_feature_flags(order="key")
-
-        assert result["count"] == 1
-        assert [flag.key for flag in result["results"]] == ["accessible-flag"]
 
     # ------------------------------------------------------------------
     # Experiment list/querying
@@ -5883,12 +5863,6 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
         assert qs is not None
-
-    def test_eligible_flags_order_by_invalid_field_raises(self):
-        """Ordering eligible flags by a non-allowlisted field should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.get_eligible_feature_flags(order="team__organization__name")
 
     def test_launch_with_deleted_flag_raises(self):
         """Launching an experiment whose flag is soft-deleted should fail."""

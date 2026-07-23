@@ -262,7 +262,11 @@ class TestDuckgresBatchQueueEligibility:
         assert batches[0].latest_attempt == 1
 
     @pytest.mark.asyncio
-    async def test_enforces_prior_batch_apply_order(self, conn):
+    async def test_co_claims_consecutive_live_prefix_in_one_fetch(self, conn):
+        # A live run's delta-succeeded prefix drains in ONE claim (the chunk
+        # co-claim semantics): each fetch-rotation wait amortizes across the
+        # prefix instead of gating every batch — the head-of-line throughput
+        # ceiling behind the 2026-07 team-2 workflow_histories backlog.
         first_id = await _insert_batch(conn, batch_index=0)
         second_id = await _insert_batch(conn, batch_index=1)
         await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
@@ -270,7 +274,54 @@ class TestDuckgresBatchQueueEligibility:
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
 
+        assert [batch.batch_index for batch in batches] == [0, 1]
+
+    @pytest.mark.asyncio
+    async def test_live_prefix_stops_at_a_non_delta_succeeded_gap(self, conn):
+        # Only the CONSECUTIVE delta-succeeded prefix is claimable: a gap fails
+        # closed exactly like the chunk gate, so ordering can never skip a hole.
+        first_id = await _insert_batch(conn, batch_index=0)
+        await _insert_batch(conn, batch_index=1)
+        third_id = await _insert_batch(conn, batch_index=2)
+        await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=third_id, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
         assert [batch.batch_index for batch in batches] == [0]
+
+    @pytest.mark.asyncio
+    async def test_live_batch_blocked_behind_executing_predecessor(self, conn):
+        first_id = await _insert_batch(conn, batch_index=0)
+        second_id = await _insert_batch(conn, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=second_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=first_id, job_state="executing", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+
+        assert batches == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "backoff_seconds,expected_indexes",
+        [
+            (3600, []),  # predecessor inside its backoff window gates the run
+            (0, [0, 1]),  # backoff elapsed: predecessor and successor co-claim
+        ],
+    )
+    async def test_retry_backoff_gates_successor_live_batches(self, conn, backoff_seconds, expected_indexes):
+        first_id = await _insert_batch(conn, batch_index=0)
+        second_id = await _insert_batch(conn, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=first_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=second_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=first_id, job_state="waiting_retry", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", retry_backoff_base_seconds=backoff_seconds
+        )
+
+        assert [b.batch_index for b in batches] == expected_indexes
 
     @pytest.mark.asyncio
     async def test_final_marker_waits_for_matching_data_batch_apply(self, conn):
@@ -280,13 +331,9 @@ class TestDuckgresBatchQueueEligibility:
         await BatchQueue.update_status(conn, batch_id=final_id, job_state="succeeded", attempt=1)
 
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
-        assert [str(batch.id) for batch in batches] == [data_id]
-
-        await DuckgresBatchQueue.mark_applied(conn, batch=batches[0])
-        await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches, owner_token="owner-a")
-
-        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
-        assert [str(batch.id) for batch in batches] == [final_id]
+        # Co-claimed in one fetch, data batch strictly first — the group loop
+        # applies in order and halts before the final on any non-success.
+        assert [str(batch.id) for batch in batches] == [data_id, final_id]
 
     @pytest.mark.asyncio
     async def test_delta_failed_run_is_skipped(self, conn):

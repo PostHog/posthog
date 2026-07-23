@@ -1,7 +1,7 @@
 # SQLV2 frame materialization via object storage
 
 Design notes for moving python-node frame materialization off the Redis JSON transport and onto an object-storage handoff.
-Status: **proposal** — not started; materialization is deliberately clamped at 50k rows until phase 1 lands.
+Status: **phase 1 shipped** (env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`, default off) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. Phases 2+ not started.
 
 ## Problem
 
@@ -14,12 +14,13 @@ When a python node reads an upstream SQLV2 frame, the sandbox kernel fetches the
 
 The frame is fully copied ~5 times, and the middle copy sits in Redis — the shared cache for the whole deployment.
 This transport is implicitly sized by the 50k row ceiling (`MAX_SELECT_RETURNED_ROWS` under the async limit context),
-so materialized frames are silently clipped at 50k rows today.
+so inline materialized frames are silently clipped at 50k rows.
 A `LimitContext.NOTEBOOK_MATERIALIZE` context raising the ceiling to 2M (`_MATERIALIZE_ROW_CAP`) was built and then
 **deliberately reverted**: without a better payload transport, wide multi-hundred-thousand-row frames stress Redis
 (single-threaded, 512MB per-value hard cap, eviction pressure) and the workers that render/parse the JSON.
-The clamp is pinned by `test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling` and comes off as
-part of phase 1, when the transport can carry what the limit allows.
+With phase 1 the context is back, applied **only on the object path** and at a 500k tier-1 ceiling
+(`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`, raised toward 2M on query-log evidence); the inline path — now the
+degraded fallback — keeps the 50k clamp, pinned by `test_inline_materialization_stays_clipped_at_the_row_ceiling`.
 
 ## Decision sketch: durable object handoff, not live push
 
@@ -37,8 +38,10 @@ A wins on every axis that matters here except single-transfer latency:
   Draining into S3 happens at datacenter speed, so CH resources are held for ~pure execution time.
   Draining into a Modal container is paced by public-internet throughput and the kernel's ingest —
   backpressure propagates into CH (memory pinned, query slot held, execution-time clock ticking).
-- **Reuse.** Frames are keyed by `query_hash`; an object serves retries, kernel restarts, and unchanged upstream
-  queries without re-executing CH. Push has no reuse story — every delivery is a fresh execution.
+- **Reuse.** Frames are keyed by `query_hash`; an object serves download retries and kernel restarts without
+  re-executing CH. Cross-run reuse of an unchanged query is phase 3 — and gated on a staleness policy,
+  because the key has no freshness component (see the stale-read hazard there). Push has no reuse story —
+  every delivery is a fresh execution.
 - **Attack surface.** Pull keeps the sandbox ingress-free; push requires a new streamed-upload endpoint on the
   kernel server, exposed to the internet, plus a request/callback correlation protocol.
 
@@ -72,8 +75,9 @@ Every building block already runs in production. Inventory (per deep-dive, 2026-
 ### Relevant negative
 
 There is **no generic S3-backed query-result cache** — `query_cache_factory.py` only returns the Redis manager.
-That cache exists to reuse identical insight queries within a TTL; the notebook flow already gets its reuse from
-`query_hash`-keyed frames, so we are not duplicating (or blocked on) any platform facility.
+That cache exists to reuse identical insight queries within a TTL; the notebook flow gets its reuse from
+`query_hash`-keyed frames (in-flight dedup and retry re-fetch today; cross-run reuse is phase 3), so we are
+not duplicating (or blocked on) any platform facility.
 
 ## Security model for sandbox reads
 
@@ -101,9 +105,10 @@ token-authed; only the bulk-bytes leg moves to object storage.
 - **Presigned GET discipline.** Short expiry (minutes — long enough for a resume-with-Range retry loop, no more),
   HTTPS-only, never logged. A presigned URL is a bearer secret of the same class as the existing command tokens;
   its blast radius is one object for a few minutes.
-- **Write-side auth.** CH writes via its instance role (keyless, batch-exports pattern), write-scoped to the
-  notebooks prefix. If tighter isolation is wanted later: STS prefix-scoped credentials per run
-  (file-download-export pattern).
+- **Write-side auth.** Phase 1: the Temporal worker writes with the standard worker-held object-storage
+  credentials (`OBJECT_STORAGE_*` — no new identity). Phase 2, if CH writes directly: CH's instance role
+  (keyless, batch-exports pattern), write-scoped to the notebooks prefix. If tighter isolation is wanted
+  later: STS prefix-scoped credentials per run (file-download-export pattern).
 - **Egress.** The sandbox already makes outbound HTTPS calls to the PostHog API; fetching a presigned S3 URL adds
   one more allowed destination. If Modal egress policy must stay single-destination, the fallback is proxying the
   object through the data-plane endpoint as a bounded stream — bytes transit Django once, but never Redis and
@@ -126,19 +131,24 @@ and threads.
 Layered levers:
 
 - **Per-query SETTINGS (batch-exports recipe).** The staging query carries hard caps, as `internal_stage.py`
-  does: `max_execution_time` (modestly above the insight ceiling — frame pulls are legitimately heavier),
-  `max_bytes_to_read` (refuse oversized scans up front), `max_memory_usage`,
-  `max_bytes_before_external_sort/group_by` (spill to disk), `max_threads`, `min_insert_block_size_bytes`
-  (64MiB there). `max_network_bandwidth` can throttle the S3 write rate if needed.
-- **Scheduler priority, not pool exile.** CH's `priority` setting lets materialization run ONLINE while
-  yielding CPU to interactive queries under genuine contention — dashboards get right-of-way without
-  sending notebooks to a worse pool.
+  does. Phase 1 ships `max_execution_time` 600s (via the `NOTEBOOK_MATERIALIZE` limit context — modestly
+  above the insight ceiling, frame pulls are legitimately heavier), `max_bytes_to_read` 50GB (refuse
+  oversized scans up front), `max_threads` 16, and `max_result_bytes` 2GB with `result_overflow_mode=throw`
+  (row/scan caps don't bound the _output_ — `repeat('x', 10000)` over 500k rows would make a ~5GB object
+  from a near-zero scan; the output cap bounds object size, storage abuse, and what the kernel later decodes
+  into pandas, and it throws rather than silently truncating); memory stays on the cluster profile default
+  for tier 1 (the typed `MEMORY_LIMIT_EXCEEDED` handling is the backstop). Further levers if data demands:
+  `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk), `max_network_bandwidth`
+  to throttle the S3 write rate.
+- **Scheduler priority, not pool exile.** CH's `priority` setting could let materialization run ONLINE while
+  yielding CPU to interactive queries under genuine contention. Phase 1 deliberately does not set it:
+  everything else runs unprioritized (0), so a nonzero value would form a scheduling class of one — revisit
+  if the cluster ever adopts priorities broadly.
 - **Tiered row ceiling.** Don't jump 50k → 2M in one step: raise to ~500k with the phase-1 transport,
   watch the footprint, then raise toward `_MATERIALIZE_ROW_CAP`.
 - **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
-  add a per-team concurrency cap (one concurrent materialization per team initially) and a small dedicated
-  Celery queue so global concurrency equals worker count. The refs resolver already minimizes demand —
-  only frames the code actually reads are materialized.
+  phase 1 adds the Redis-Lua concurrency slots (global 10, per-team 2) acquired at Temporal activity start.
+  The refs resolver already minimizes demand — only frames the code actually reads are materialized.
 - **Dedicated ClickHouse user as the backstop.** The repo already splits traffic across CH users
   (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. A materialization user gets
   profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced ceiling no
@@ -154,34 +164,74 @@ query-log exports make its CH footprint analyzable, so the knobs can be tightene
 
 ## Phased plan — start basic, improve later
 
-**Phase 0 (current state).** Materialization runs over the existing Redis transport, clipped at 50k rows.
+**Phase 0.** Materialization runs over the existing Redis transport, clipped at 50k rows.
 Fine for the current flag-gated audience and frames up to low hundreds of thousands of rows.
+Since phase 1 this path survives only as the degraded fallback (frame store disabled or unconfigured).
 
-**Phase 1 — swap the payload path, minimal moving parts.**
-Reintroduce `LimitContext.NOTEBOOK_MATERIALIZE` together with the new transport (tiered ceiling — see
-resource governance — landing eventually at `_MATERIALIZE_ROW_CAP`).
-When the data-plane task runs under it, the worker streams the CH result
-(`output_format="ArrowStream"`, bounded batches — data-modeling pattern) into one object,
-stores the **object key** in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
-**302 redirect to a presigned URL**.
-The kernel's `requests` client follows redirects by default and drops the `Authorization` header on cross-host
-redirects, so the existing executor works nearly unchanged and the presigned URL needs no auth.
-Keep the Redis path as fallback when object storage is unconfigured (dev parity, degraded mode).
+**Phase 1 — swap the payload path, minimal moving parts. (Shipped, env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`.)**
+The kernel opts in per request with `delivery: "object"` (pages and envelope fetches stay `"inline"`).
+The data plane registers a `notebook-frame:{team}:{query_hash}` dedup mapping and dispatches a Temporal
+materialize workflow (`temporal/frame_materialize.py`, general-purpose queue, Redis-Lua concurrency slots
+global 10 / per-team 2): the activity prints the HogQL through the guarded executor under
+`LimitContext.NOTEBOOK_MATERIALIZE` (tier-1 ceiling 500k, not yet 2M), executes over the CH HTTP interface
+with `FORMAT ArrowStream`, and relays the raw bytes into one multipart upload
+(`frame_store.py`, key `notebooks/frames/team_{team}/{notebook}/{query_hash}.arrow`).
+The **object key** lands in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
+**302 redirect to a presigned URL** (≤5 min, minted only after token verification, team-prefix-checked).
+A frame key is a slot holding the query's current result, not an immutable blob: `query_hash` is
+`sha256(user_id + wrapped query)` with no freshness component, and dedup only joins **in-flight**
+materializations — a completed status is never served as a cache. Every re-run therefore re-executes against
+ClickHouse and atomically overwrites the same key, which is exactly why a re-run after new events lands always
+returns fresh rows in this phase (a reader holding a presign across an overwrite gets one complete object or
+the other, never torn bytes).
+One correction to the sketch below: the kernel's client is `urllib`, not `requests` — urllib re-sends
+`Authorization` on redirects, so the client intercepts the 302 and fetches the presigned URL with a fresh,
+credential-free request instead of auto-following.
+Stream integrity: ClickHouse sends `200 OK` before execution finishes, so a mid-stream failure can't change
+the status code — current versions deliberately break the chunked encoding (the read tears, the multipart
+upload aborts), but older versions/intermediaries can close the body cleanly with exception text appended.
+The worker therefore refuses to finalize unless the streamed bytes end with the Arrow end-of-stream marker
+(a corrupt object at the deterministic key is deleted), and on any stream failure it recovers the real
+ClickHouse error from `system.query_log` — a confirmed query-side exception is terminal (no doomed
+re-scans), an unconfirmed failure stays retryable.
+The Redis path stays as fallback when the frame store is disabled or unconfigured (dev parity, degraded mode).
+
+_Rollout prerequisites (per environment, before flipping the flag on):_
+
+- Enable `NOTEBOOKS_FRAME_STORE_ENABLED` only **after** both the web and general-purpose Temporal worker
+  fleets are on the new image. Temporal accepts a `start_workflow` for a workflow type no worker has
+  registered yet — so flipping the flag early produces a bounded window of hung polls that the enqueue
+  rollback (which only catches a dispatch _exception_) cannot recover.
+- Confirm `OBJECT_STORAGE_PUBLIC_ENDPOINT` resolves and routes **from the sandbox kernel's network** — the
+  kernel fetches the presigned URL directly. An internal-only host (or the local SeaweedFS docker name)
+  makes every download fail (loud, not silent).
+- Provision the bucket lifecycle TTL (~24h) on the `notebooks/frames/` prefix **before** enabling.
+  Successful objects are never deleted by app code, and query-text variations (even comment-only edits)
+  mint new hashes, so without the lifecycle rule an authenticated user can accumulate unbounded durable
+  objects. The rule is infra-owned; app-level cleanup would duplicate it poorly.
+- Known degraded-mode caveat: with the flag off (the default) or object storage down, a `delivery: "object"`
+  request falls back to the inline path clamped at 50k rows and the frame is silently truncated. Fine for
+  frames under the clamp; a user-visible truncation signal is a follow-up before GA.
 
 Two decisions locked in for this phase:
 
 - **Format: one plain Arrow IPC stream object per frame — not Delta, not Parquet.** Delta earns its machinery
-  when ClickHouse re-reads a versioned, overwritten _table_ (data modeling's case). A frame is an immutable
-  write-once blob keyed by `query_hash`, read by pandas — an "update" is a different hash, i.e. a different
-  key. The executor already consumes ArrowStream from the data plane, so the sandbox-side change is just
-  "read the same bytes from a different host". If size matters, Arrow IPC supports LZ4/ZSTD buffer
-  compression without a format change; multi-file partitioning waits for phase 2, if ever.
-- **The queue is the throttle.** Under worker streaming, one active task = one running CH query = one upload,
-  so the dedicated queue's concurrency directly bounds CH concurrency, worker memory (~100MB × concurrency),
-  and S3 parallelism with a single knob — no dedicated CH user needed for v1 (that stays as hardening).
-  Throttling moves load in time (backlog), never above the cap; the real amplification risk is impatient
-  re-runs, and the async manager's existing `cache_key` dedup (`get_running_query_by_cache_key`) closes it:
-  enqueue with `cache_key = query_hash` and duplicate in-flight materializations join the running query
+  when ClickHouse re-reads a versioned, overwritten _table_ (data modeling's case). A frame key is a slot
+  holding one query's current result (see above — re-runs overwrite it atomically), read once by pandas;
+  versioned re-read machinery buys nothing for that flow. The executor already consumes ArrowStream from the
+  data plane, so the sandbox-side change is just "read the same bytes from a different host". If size matters,
+  Arrow IPC supports LZ4/ZSTD buffer compression without a format change; multi-file partitioning waits for
+  phase 2, if ever.
+- **An explicit concurrency limiter is the throttle.** Under worker streaming, one active task = one running
+  CH query = one upload — but the materialize workflow runs on the **shared** general-purpose Temporal queue,
+  so queue slots alone don't cap notebooks. The shipped throttle is the Redis-Lua concurrency limiter
+  (the `process_query_task` mechanism): slots acquired at activity start, global 10 / per-team 2, bounding CH
+  concurrency, worker memory, and S3 parallelism with one knob — no dedicated CH user needed for v1 (that
+  stays as hardening), and a dedicated notebooks task queue stays a later infra option. Throttling moves load
+  in time (retry backoff), never above the cap; the real amplification risk is impatient re-runs, and the
+  async manager's `cache_key` dedup (`get_running_query_by_cache_key`) closes it: enqueue with
+  `cache_key = notebook-frame:{team}:{sha256(user_id + query)}` (user-scoped, so differently-permissioned
+  teammates never share a job or an object) and duplicate in-flight materializations join the running query
   instead of stacking new ones.
 
 **Phase 2 — let ClickHouse do the writing (only if the data says so).**
@@ -209,11 +259,17 @@ Serve repeat materializations of an unchanged upstream query straight from the e
 (`query_hash` in the key makes this a HEAD check), tighten lifecycle (delete on supersede),
 and align the format with the local-DuckDB engine direction so materialized frames double as DuckDB-readable
 tables without re-encoding.
+**Stale-read hazard — must be solved before the HEAD check ships:** the key has no freshness dimension, so a
+bare exists-check would serve a frame materialized before newer events landed. Phase 1 stays fresh only
+because it always re-executes and overwrites; cross-run reuse needs an explicit staleness input first — an
+age-based reuse rule (the insight cache's target-age precedent), a data watermark, or a time bucket folded
+into the key.
 
 ## Open questions
 
-- Bucket choice: reuse `OBJECT_STORAGE_BUCKET` under a `notebooks/` prefix vs a dedicated bucket
-  (dedicated is cleaner for lifecycle rules and IAM scoping; more infra to provision).
+- ~~Bucket choice~~ — resolved in phase 1: `OBJECT_STORAGE_BUCKET` under the `notebooks/frames/` prefix
+  (a dedicated bucket stays an option if lifecycle/IAM scoping demands it). The lifecycle TTL (~24h) on
+  the frames prefix is an infra ticket — a bucket rule, not app code.
 - Does cloud CH's instance role already permit writes to the chosen bucket, or does that need infra work
   (batch exports suggests the pattern is established)?
 - Presign from SeaweedFS in local dev: verify the presigned host is reachable from the locally-run kernel.

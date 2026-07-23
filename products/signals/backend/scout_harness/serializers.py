@@ -8,6 +8,11 @@ in `scout_harness/tools/` so the wire shape and Python shape stay in lockstep.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+from django.utils import timezone
+
+from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -123,6 +128,15 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any "
             "inbox report, so these are generally not reports the run authored. Empty for runs that "
             "edited no report."
+        ),
+    )
+    metadata = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "Scout-owned per-run context stamped at run start. Known keys today: `model`, "
+            "`runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the "
+            "`scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. "
+            "Empty object when the run rode the default model, or for runs predating the field."
         ),
     )
 
@@ -278,23 +292,45 @@ class RecentEmissionsQuerySerializer(serializers.Serializer):
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):
-    """Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
-    renders from one cheap query instead of the client walking the whole paginated runs window."""
+    """Fleet-wide tally of recent scout output — legacy `emit_signal` findings plus reports
+    authored/edited via the report channel. Backs the "Scout findings" callout so it renders
+    from one cheap query instead of the client walking the whole paginated runs window."""
 
     count = serializers.IntegerField(
         help_text=(
-            "Total findings the fleet emitted in the window — the sum of each emitted run's "
-            "`emitted_count`, over the most recent 120 emitted runs."
+            "Total findings the fleet emitted in the window — the sum of each run's "
+            "`emitted_count`, over the most recent 120 runs that produced output."
         )
     )
     scout_count = serializers.IntegerField(
-        help_text="Number of distinct scouts (skills) that emitted at least one finding in the window."
+        help_text=(
+            "Number of distinct scouts (skills) that produced output in the window — emitted a "
+            "finding, or authored/edited an inbox report that survives the 50-report cap (a "
+            "report-only scout whose touched reports all fell outside the cap is not counted, "
+            "matching the findings page's scout filter)."
+        )
+    )
+    authored_report_count = serializers.IntegerField(
+        help_text=(
+            "Number of distinct inbox reports scouts authored via `emit_report`, deduped across runs, "
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists)."
+        )
+    )
+    edited_report_count = serializers.IntegerField(
+        help_text=(
+            "Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, "
+            "over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently "
+            "touched reports (the same slice the findings page lists) and excluding reports also "
+            "authored within that set (authoring supersedes an edit; a report whose authoring run "
+            "falls outside the cap counts as edited)."
+        )
     )
     latest_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, "
-            "falling back to run creation), or null when nothing was emitted in the window."
+            "ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back "
+            "to run creation), or null when nothing was produced in the window."
         ),
     )
 
@@ -401,6 +437,14 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
     )
+    key = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact key match — returns the single entry with this key, or nothing. Use this to "
+            "re-read a known entry; `text` searches key *and* content, so it can push the row you "
+            "asked for past the limit."
+        ),
+    )
     date_from = serializers.DateTimeField(
         required=False,
         help_text="ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.",
@@ -432,8 +476,8 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=500,
-        help_text="Max rows to return (default 20, hard cap 500).",
+        max_value=1000,
+        help_text="Max rows to return (default 20, hard cap 1000).",
     )
 
 
@@ -623,6 +667,20 @@ class SuggestedReviewerSerializer(serializers.Serializer):
             "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). "
             "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
             "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+        ),
+    )
+
+    reason = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=500,
+        help_text=(
+            "One sentence of evidence for WHY this person: what ties them to the affected surface "
+            "(e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human "
+            "correction routed the prior tracing report to them'). Persisted on the report so the "
+            "routing is auditable — always set it when you can name the evidence; 'precedent' alone "
+            "is weak, prefer code-derived ownership."
         ),
     )
 
@@ -1469,18 +1527,26 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         ),
     )
     enabled = serializers.BooleanField(
-        required=False,
+        read_only=True,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
     )
     emit = serializers.BooleanField(
-        required=False,
+        read_only=True,
         help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
     )
     run_interval_minutes = serializers.IntegerField(
-        required=False,
+        read_only=True,
         min_value=30,
         max_value=43200,
         help_text="Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+    )
+    run_cron_schedule = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. "
+            "Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule."
+        ),
     )
     last_run_at = serializers.DateTimeField(
         read_only=True,
@@ -1512,10 +1578,83 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "emit",
             "run_interval_minutes",
+            "run_cron_schedule",
             "last_run_at",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+# Matches the `run_interval_minutes` floor: one scout may not occupy the coordinator more
+# than once per 30 minutes, however the schedule is expressed.
+_CRON_MIN_GAP_SECONDS = 30 * 60
+# Occurrences sampled by the min-gap check. Enough to expose sub-30-minute patterns
+# (a `*/15` fires 96×/day) while staying trivially cheap for sparse schedules.
+_CRON_SAMPLE_OCCURRENCES = 100
+
+
+def _validate_run_cron_schedule(value: str) -> str:
+    expr = value.strip()
+    fields = expr.split()
+    # croniter also accepts 6/7-field (seconds/years) forms and @-aliases; restrict the API to
+    # the plain five-field shape so the stored expressions stay predictable across consumers.
+    if len(fields) != 5 or not croniter.is_valid(expr):
+        raise serializers.ValidationError("Not a valid five-field cron expression, e.g. '30 9 * * *' or '0 9 * * 1-5'.")
+    iterator = croniter(expr, datetime(2026, 1, 1, tzinfo=UTC))
+    occurrences = [iterator.get_next(datetime) for _ in range(_CRON_SAMPLE_OCCURRENCES)]
+    min_gap = min((later - earlier).total_seconds() for earlier, later in zip(occurrences, occurrences[1:]))
+    if min_gap < _CRON_MIN_GAP_SECONDS:
+        raise serializers.ValidationError(
+            "Scheduled runs must be at least 30 minutes apart (the same floor as run_interval_minutes)."
+        )
+    return expr
+
+
+class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
+    """Editable schedule, enablement, and emit posture for one scout config."""
+
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=30,
+        max_value=43200,
+        help_text="Minutes between runs (30–43200). Use 1440 for a daily schedule.",
+    )
+    run_cron_schedule = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=100,
+        help_text=(
+            "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
+            "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "
+            "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes "
+            "apart. Set null to return to the rolling interval schedule."
+        ),
+    )
+
+    def validate_run_cron_schedule(self, value: str | None) -> str | None:
+        return _validate_run_cron_schedule(value) if value is not None else None
+
+    def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
+        # an emit/enabled-only save must not defer an already-overdue scheduled run.
+        schedule_fields = ("run_interval_minutes", "run_cron_schedule")
+        if any(
+            field in validated_data and validated_data[field] != getattr(instance, field) for field in schedule_fields
+        ):
+            validated_data["schedule_changed_at"] = timezone.now()
+        return super().update(instance, validated_data)
+
+    class Meta:
+        model = SignalScoutConfig
+        fields = ["enabled", "emit", "run_interval_minutes", "run_cron_schedule"]
 
 
 class SignalScoutConfigCreateSerializer(serializers.Serializer):
@@ -1549,6 +1688,19 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         max_value=43200,
         help_text="Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
     )
+    run_cron_schedule = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=100,
+        help_text=(
+            "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
+            "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "
+            "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+        ),
+    )
+
+    def validate_run_cron_schedule(self, value: str | None) -> str | None:
+        return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_skill_name(self, value: str) -> str:
         # A config for a non-scout skill would never dispatch (the coordinator only considers

@@ -9,7 +9,7 @@ import { mockCohort } from '~/test/mocks'
 import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CohortCountWarningLogicProps, cohortCountWarningLogic } from './cohortCountWarningLogic'
-import type { cohortCountWarningLogicType } from './cohortCountWarningLogicType'
+import type { cohortCountWarningLogicType } from './cohortCountWarningLogic'
 
 const createMockQuery = (cohortId: number, overrides: Partial<ActorsQuery> = {}): DataTableNode => ({
     kind: NodeKind.DataTableNode,

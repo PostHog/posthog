@@ -144,14 +144,21 @@ abstract `AttachedContextItem`s — `type` is an **arbitrary string** (`'insight
 `'text'`…; never an enumerated union), plus `key`/`label`/`value`. `contextItems` flattens and dedupes by
 `${type}:${key ?? value}`. At send time the send paths (`runInteractionLogic.sendNow`/`startNewRun`,
 `taskTrackerSceneLogic.submitNewTask`) wrap the outgoing message with
-`wrapWithPosthogContext` (`utils/posthogContextBlock.ts`) — a `<posthog_context>` prefix that is **invisible
-to the user**: the live echo (`pushHumanMessage`) carries the raw text and `unwrapUserMessageContent` strips
-the block on history replay. The open/close **tags** must stay identical to the backend template
-(`products/posthog_ai/backend/context_wrapper.py`) — stripping works on the tags, not the body.
-The send paths prune entity refs already sent for the task (`attachedContextLogic.sentContextKeysByTask`,
-keyed by task id so the dedupe survives a terminal-run send re-pointing to a fresh run, matching the
-backend's `prune_repeated_entity_refs`, which dedupes across the task's whole resume chain); `text` items
-are never deduped, repeated text is intentional.
+`wrapWithPosthogContext` (`utils/posthogContextBlock.ts`) — a prefix of `<posthog_trusted_context>`
+(`type: 'instructions'` items, our own injected guidance) and/or `<posthog_untrusted_context>` (everything
+else — data that can embed user/ingested text, rendered behind hardening prose) that is **invisible to the
+user**: the live echo (`pushHumanMessage`) carries the raw text and `unwrapUserMessageContent` strips every
+leading block on history replay (including the legacy `<posthog_context>` wrapper still emitted by the
+deprecated backend `context_wrapper.py` path and present in old history) — stripping works on the tags, not
+the body.
+The send paths prune context already sent anywhere in the task's resume chain, via two task-keyed layers in
+`attachedContextLogic` (task-scoped so the dedupe survives a terminal-run send re-pointing to a fresh run):
+`sentContextKeysByTask`, in-memory keys marked right after each send (covers the send→echo window), and
+`seenContextLinesByTask`, the durable layer — `runStreamLogic.ingestAcpFrame` records the rendered lines
+(`contextItemLine`/`extractContextBlockLines`) of every context block found in a persisted or echoed user
+message, and since the `logs/` snapshot replays the full resume chain this survives reloads, other tabs, and
+other users' sessions (matching the backend's `_collect_seen_entity_refs`/`prune_repeated_entity_refs`);
+`text` items are never deduped, repeated text is intentional.
 
 **User-picked context (`logics/contextPickerLogic.ts` + `components/composer/AttachedContextBar.tsx`):** the
 composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Header`, the top-of-frame row above the textarea; already wired into
@@ -170,8 +177,11 @@ tools, onEvent })`, or kea-natively by connecting to the bus and listening to
 `toolStreamEventsLogic.actionTypes.emitToolEvent`. Replay-sourced events are suppressed unless the
 subscription sets `includeReplay` (a reload must not re-trigger UI reactions). Caveat: for exec-wrapped
 PostHog tools the resolved name may be `__posthog_exec_unknown__` at `started` (the `command` streams in via
-updates) and is reliable by `completed` — match on `completed`, or also check `rawToolName`, when you need
-certainty. Subscriber callbacks are isolated (a throwing listener is captured, never breaks ingestion).
+updates) and is reliable by `completed`. `useMcpToolApplyBack` supports `tool_call_completed` and `turn_end`
+timing.
+The bus also publishes live turn-complete and run-terminal events so apply-back consumers can flush after a
+persistent run's response. Subscriber callbacks are isolated (a throwing listener is captured, never breaks
+ingestion).
 
 ## 4. Conventions
 
@@ -222,7 +232,7 @@ policy/             # tool policy + permission/question utils
 types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), contextTypes
                     #   (AttachedContextItem), toolTypes, taskTypes (task/run domain)
 messages/           # MessageTemplate, MarkdownMessage, ReasoningAnswer, AssistantFailureMessage
-utils/              # thinkingMessages, posthogContextBlock (<posthog_context> builder)
+utils/              # thinkingMessages, posthogContextBlock (trusted/untrusted context-block builder)
 lib/                # task/run helpers (parse-logs, task-status, repository, ph-debug, util-functions)
 scenes/             # standalone scenes registered via ../manifest.tsx
   TaskTracker/      #   the runner scene (component, stories, scene logics, scene-specific components/)

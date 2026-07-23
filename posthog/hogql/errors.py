@@ -59,6 +59,16 @@ class QueryError(ExposedHogQLError):
     pass
 
 
+class TableAccessDeniedError(QueryError):
+    """The user has no access to the table (raised by Database.get_table)."""
+
+    table_name: str
+
+    def __init__(self, table_name: str):
+        super().__init__(f"You don't have access to table `{table_name}`.")
+        self.table_name = table_name
+
+
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 

@@ -13,8 +13,20 @@
             "description": "A UUID string identifying this Signal scout config.",
             "type": "string"
         },
+        "run_cron_schedule": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule."
+        },
         "run_interval_minutes": {
-            "description": "Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+            "description": "Minutes between runs (30–43200). Use 1440 for a daily schedule.",
             "maximum": 43200,
             "minimum": 30,
             "type": "number"

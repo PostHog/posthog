@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import K6CloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
+    K6CloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.k6_cloud import (
     K6CloudResumeConfig,
     k6_cloud_source,
@@ -37,6 +42,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class K6CloudSource(ResumableSource[K6CloudSourceConfig, K6CloudResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v6",)
+    default_version = "v6"
+    api_docs_url = "https://grafana.com/docs/grafana-cloud/testing/k6/reference/cloud-rest-api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -108,26 +116,23 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = K6_CLOUD_ENDPOINTS[endpoint]
-            has_incremental = endpoint_config.time_filter_param is not None and bool(INCREMENTAL_FIELDS.get(endpoint))
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=has_incremental,
-                supports_append=has_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only test_runs carries incremental fields, so build_endpoint_schemas marks exactly it
+        # incremental/append (matching the endpoint's `created_after` server-side filter).
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={name: cfg.should_sync_default for name, cfg in K6_CLOUD_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
-        self, config: K6CloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: K6CloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, is_forbidden = validate_k6_cloud_credentials(config.api_token, config.stack_id, schema_name)
         if is_valid:
@@ -156,9 +161,9 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
             api_token=config.api_token,
             stack_id=config.stack_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,

@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoCardlessSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gocardless import (
+    GoCardlessSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.gocardless import (
     GoCardlessResumeConfig,
 )
@@ -130,6 +132,8 @@ class TestGoCardlessSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_gc_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "events"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-02T03:04:05.000Z"
         manager = mock.MagicMock()
@@ -141,8 +145,9 @@ class TestGoCardlessSource:
         assert kwargs["environment"] == "live"
         assert kwargs["access_token"] == "access-token"
         assert kwargs["endpoint"] == "events"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05.000Z"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.source.gocardless_source")

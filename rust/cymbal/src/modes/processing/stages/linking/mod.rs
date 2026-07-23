@@ -15,7 +15,7 @@ use crate::{
         linking::{
             issue::IssueLinker, rule_suppression::RuleSuppression, suppression::IssueSuppression,
         },
-        pipeline::ExceptionEventPipelineItem,
+        pipeline::{FingerprintedPipelineItem, LinkedPipelineItem},
     },
     types::{
         batch::Batch,
@@ -37,21 +37,28 @@ pub struct LinkingStage {
 }
 
 impl Stage for LinkingStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = FingerprintedPipelineItem;
+    type Output = LinkedPipelineItem;
 
     fn name(&self) -> &'static str {
         LINKING_STAGE
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        batch
-            .apply_operator(RuleSuppression, self.clone())
-            .await?
-            .apply_operator(IssueLinker, self.clone())
-            .await?
-            .apply_operator(IssueSuppression, self.clone())
-            .await
+        let fingerprinted = batch.apply_operator(RuleSuppression, self.clone()).await?;
+        let linker = IssueLinker;
+        let timing = common_metrics::timing_guard(linker.name(), &[]);
+        let linked = fingerprinted
+            .apply_func(
+                move |item, context| {
+                    let linker = linker.clone();
+                    async move { linker.execute(item, context).await }
+                },
+                self.clone(),
+            )
+            .await?;
+        timing.label("outcome", "success");
+        linked.apply_operator(IssueSuppression, self.clone()).await
     }
 }
 

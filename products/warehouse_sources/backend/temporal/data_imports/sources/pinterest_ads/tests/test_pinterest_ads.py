@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
     fetch_entities,
     fetch_entity_ids,
     get_date_range,
+    list_ad_accounts,
 )
 
 
@@ -161,6 +162,29 @@ class TestFetchEntities:
 
         result = fetch_entities(session, "acc123", "campaigns")
         assert result == []
+
+
+class TestListAdAccounts:
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils._make_request")
+    def test_walks_every_bookmarked_page(self, mock_request):
+        # A user with many ad accounts gets them across pages: the picker must list all of them, not
+        # just the first page, and must pass the previous page's bookmark back to Pinterest.
+        mock_request.side_effect = [
+            {"items": [{"id": "549770029420"}], "bookmark": "page_2"},
+            {"items": [{"id": "111"}], "bookmark": None},
+        ]
+        session = mock.MagicMock()
+
+        result = list_ad_accounts(session)
+
+        assert [account["id"] for account in result] == ["549770029420", "111"]
+        assert mock_request.call_count == 2
+
+        first_call, second_call = mock_request.call_args_list
+        assert first_call[0][1] == "https://api.pinterest.com/v5/ad_accounts"
+        assert "bookmark" not in first_call[0][2]
+        assert second_call[0][1] == "https://api.pinterest.com/v5/ad_accounts"
+        assert second_call[0][2]["bookmark"] == "page_2"
 
 
 class TestFetchEntityIds:

@@ -20,8 +20,60 @@ import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
+import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
 import { RunningTime } from './RunningTime'
 import { StatusTag } from './StatusTag'
+
+function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
+    const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))
+
+    if (!cleanupTask) {
+        return null
+    }
+
+    let text = 'Preparing cleanup PR…'
+    let prUrl: string | null = null
+    if (cleanupTask.is_terminal) {
+        if (cleanupTask.run_status === 'completed' && cleanupTask.pr_url) {
+            text = 'Cleanup PR opened'
+            prUrl = cleanupTask.pr_url
+        } else if (cleanupTask.run_status === 'completed') {
+            text = 'Cleanup found no flag code to remove'
+        } else if (cleanupTask.run_status === 'failed') {
+            text = 'Cleanup PR failed'
+        } else {
+            text = 'Cleanup PR cancelled'
+        }
+    }
+
+    const isExternalLink = prUrl !== null
+    // The task page 404s for everyone but the task's creator — hide the internal link from others.
+    const showLink = isExternalLink || cleanupTask.can_view_task
+
+    return (
+        <div className="text-xs text-muted mt-1 mb-3 flex items-center gap-1">
+            {text}
+            {showLink && (
+                <>
+                    ·
+                    <Link
+                        target={isExternalLink ? '_blank' : undefined}
+                        className="flex items-center gap-0.5"
+                        to={prUrl ?? urls.taskDetail(taskId)}
+                    >
+                        {isExternalLink ? (
+                            <>
+                                View on GitHub <IconOpenInNew fontSize="12" />
+                            </>
+                        ) : (
+                            'View task'
+                        )}
+                    </Link>
+                </>
+            )}
+        </div>
+    )
+}
 
 export function Info(): JSX.Element {
     const {
@@ -235,6 +287,12 @@ export function Info(): JSX.Element {
                                 </span>
                             </div>
                             <div>{experiment.conclusion_comment}</div>
+                            {experiment.flag_cleanup_task_id && typeof experiment.id === 'number' && (
+                                <FlagCleanupLine
+                                    experimentId={experiment.id}
+                                    taskId={experiment.flag_cleanup_task_id}
+                                />
+                            )}
                         </div>
                     </div>
                 )}

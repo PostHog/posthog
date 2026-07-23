@@ -28,6 +28,7 @@ import { DisabledOverflowRedirectComponent } from '~/ingestion/common/overflow-r
 import { MainLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
+import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
@@ -120,8 +121,13 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     ? new MainLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                          bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                          replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                          strategies: [
+                              {
+                                  ...eventRateStrategy(),
+                                  bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                                  replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                              },
+                          ],
                           overflowType: 'ai',
                       })
                     : new DisabledOverflowRedirectComponent()

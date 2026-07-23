@@ -379,6 +379,8 @@ async function main(): Promise<void> {
         identityCredentials,
         identityLinks: new PgIdentityLinkStateStore(agentDb),
         identities,
+        routingMode: config.routingMode,
+        domainSuffix: config.domainSuffix,
         linkRedirectBaseUrl: config.linkRedirectBaseUrl,
         mcpConnections,
         devMcpBearerToken: config.devMcpBearerToken,

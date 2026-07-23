@@ -5,6 +5,22 @@ from collections.abc import Generator
 
 import pytest
 
+from django.db import connection
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item: pytest.Item) -> Generator[None]:
+    # Some tests in this product run production code that calls close_old_connections() from
+    # worker threads (the transaction=True duckgres backfill classes), which severs the shared
+    # default connection. Under pytest-xdist the next test on the same worker — often a migration
+    # TestCase whose setUp drives MigrationExecutor(connection) — would then fail in setUp with
+    # "the connection is closed". Drop the dead handle before each test so Django reconnects.
+    wrapped = connection.connection
+    if wrapped is not None and wrapped.closed:
+        connection.close()
+    return (yield)
+
+
 # Runs in a clean interpreter — the pytest process imports the google-ads SDK itself (via the
 # google_ads test modules), so we can't inspect this process's sys.modules.
 _SDK_LEAK_CHECK = """

@@ -20,8 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NotionSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+    NOTION_VERSION_2025_09_03,
+    NOTION_VERSION_2026_03_11,
     NotionResumeConfig,
     notion_source,
     validate_credentials as validate_notion_credentials,
@@ -35,8 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
-    supported_versions = ("2025-09-03",)
-    default_version = "2025-09-03"
+    supported_versions = (NOTION_VERSION_2025_09_03, NOTION_VERSION_2026_03_11)
+    default_version = NOTION_VERSION_2026_03_11
     api_docs_url = "https://developers.notion.com/page/changelog"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -95,6 +97,7 @@ Then **share** each page or database you want to sync with the integration (via 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -111,9 +114,15 @@ Then **share** each page or database you want to sync with the integration (via 
         return schemas
 
     def validate_credentials(
-        self, config: NotionSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NotionSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_notion_credentials(config.api_key)
+        # Pre-creation calls pass no pin and resolve to default_version (what new rows are
+        # stamped with); a pinned source revalidates under its own `Notion-Version` header.
+        return validate_notion_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NotionResumeConfig]:
         return ResumableSourceManager[NotionResumeConfig](inputs, NotionResumeConfig)
@@ -129,4 +138,5 @@ Then **share** each page or database you want to sync with the integration (via 
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

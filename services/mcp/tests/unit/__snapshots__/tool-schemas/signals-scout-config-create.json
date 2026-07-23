@@ -10,6 +10,18 @@
             "description": "Whether this scout runs on its schedule. Defaults to true.",
             "type": "boolean"
         },
+        "run_cron_schedule": {
+            "anyOf": [
+                {
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+        },
         "run_interval_minutes": {
             "description": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
             "maximum": 43200,

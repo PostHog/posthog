@@ -24,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlatformShSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.platformsh import (
+    PlatformShSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.platform_sh import (
     AUTH_FAILED_MESSAGE,
     PlatformShResumeConfig,
@@ -44,6 +46,7 @@ logger = structlog.get_logger(__name__)
 @SourceRegistry.register
 class PlatformShSource(ResumableSource[PlatformShSourceConfig, PlatformShResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://api.platform.sh/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -127,6 +130,7 @@ Create an API token in the Console under **My profile > API tokens** ([Platform.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in ENDPOINTS:
@@ -148,7 +152,11 @@ Create an API token in the Console under **My profile > API tokens** ([Platform.
         return schemas
 
     def validate_credentials(
-        self, config: PlatformShSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PlatformShSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_platform_sh_credentials(config.api_token, config.platform, logger)
 

@@ -66,7 +66,12 @@ class OpenAIEndpointConfig:
 _USAGE_GROUP_BY = ["project_id", "user_id", "api_key_id", "model"]
 _COMPLETIONS_GROUP_BY = [*_USAGE_GROUP_BY, "batch", "service_tier"]
 _IMAGES_GROUP_BY = [*_USAGE_GROUP_BY, "size", "source"]
-_COSTS_GROUP_BY = ["project_id", "line_item", "api_key_id"]
+_WEB_SEARCH_GROUP_BY = [*_USAGE_GROUP_BY, "context_level"]
+# File search groups by the vector store it ran against, not the model (there is no model dimension).
+_FILE_SEARCH_GROUP_BY = ["project_id", "user_id", "api_key_id", "vector_store_id"]
+# The costs endpoint only accepts project_id and line_item. The SDK types also list api_key_id,
+# but requesting it makes the live API reject the whole request with a 400.
+_COSTS_GROUP_BY = ["project_id", "line_item"]
 
 # For 1d buckets the usage endpoints allow at most 31 buckets per page; costs allows 180.
 _USAGE_PAGE_LIMIT = 31
@@ -109,6 +114,8 @@ OPENAI_ENDPOINTS: dict[str, OpenAIEndpointConfig] = {
     "usage_code_interpreter_sessions": _usage_endpoint(
         "usage_code_interpreter_sessions", "code_interpreter_sessions", ["project_id"]
     ),
+    "usage_web_search_calls": _usage_endpoint("usage_web_search_calls", "web_search_calls", _WEB_SEARCH_GROUP_BY),
+    "usage_file_search_calls": _usage_endpoint("usage_file_search_calls", "file_search_calls", _FILE_SEARCH_GROUP_BY),
     "costs": OpenAIEndpointConfig(
         name="costs",
         path="/v1/organization/costs",

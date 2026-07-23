@@ -23,6 +23,7 @@ test loop) must tolerate this lag.
 
 from __future__ import annotations
 
+import json
 import uuid
 import logging
 from collections.abc import Sequence
@@ -32,16 +33,22 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+from pydantic import ValidationError
+
 from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 
 from products.signals.backend.artefact_schemas import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
     NoteArtefact,
     PriorityAssessment,
     SafetyJudgment,
+    SuggestedReviewerEntry,
     SuggestedReviewers,
+    TaskRunArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -170,6 +177,17 @@ def create_scout_report(
             attribution=attribution,
             reevaluate_autostart=False,
         )
+        # Link the authoring scout run itself as a `task_run` artefact, so the report's Runs section
+        # and activity log can surface the scout's transcript — without it the run is only visible as
+        # an anonymous "by agent" byline on the rows above. Written in-txn for the same no-divergence
+        # reason as the note; skipped when the run isn't bridged to a resolvable task.
+        if run is not None and attribution.task_id is not None:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=_scout_task_run_content(run, attribution.task_id),
+                attribution=attribution,
+            )
         # The judge verdicts that set `status`, recorded as the report's status artefacts so the
         # decision is auditable on the report (and so the inbox derives the same actionability/safety
         # state a pipeline report would). Written in-txn with the report for the same no-divergence reason.
@@ -317,6 +335,53 @@ def append_report_note(
     return report_id
 
 
+def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: SuggestedReviewers) -> SuggestedReviewers:
+    """Carry evidence from the report's current reviewer list onto a scout-supplied replacement.
+
+    For each supplied login that is already on the latest `suggested_reviewers` artefact, keep the
+    prior `relevant_commits` and `github_name`, and keep the prior `reason` unless the scout supplied
+    one (an explicit new reason wins; a scout cannot clear a reason). Unparseable prior entries are
+    ignored — the supplied entry stands as-is."""
+    current = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if current is None:
+        return suggested_reviewers
+    try:
+        prior_content = json.loads(current.content)
+    except (json.JSONDecodeError, ValueError):
+        return suggested_reviewers
+    if not isinstance(prior_content, list):
+        return suggested_reviewers
+    prior_by_login: dict[str, dict] = {}
+    for prior in prior_content:
+        if isinstance(prior, dict) and isinstance(prior.get("github_login"), str):
+            prior_by_login[prior["github_login"].strip().lower()] = prior
+
+    merged: list[SuggestedReviewerEntry] = []
+    for entry in suggested_reviewers.root:
+        prior = prior_by_login.get(entry.github_login)
+        if prior is None:
+            merged.append(entry)
+            continue
+        candidate = {
+            "github_login": entry.github_login,
+            "github_name": entry.github_name if entry.github_name is not None else prior.get("github_name"),
+            "relevant_commits": entry.relevant_commits or prior.get("relevant_commits") or [],
+            "reason": entry.reason if entry.reason is not None else prior.get("reason"),
+        }
+        try:
+            merged.append(SuggestedReviewerEntry.model_validate(candidate))
+        except ValidationError:
+            # Malformed prior evidence (e.g. hand-crafted commits) must not fail the edit.
+            merged.append(entry)
+    return SuggestedReviewers(root=merged)
+
+
 def set_scout_report_reviewers(
     *,
     team_id: int,
@@ -337,19 +402,26 @@ def set_scout_report_reviewers(
     (`_do_edit_report`) fires `maybe_autostart_from_report_artefacts` after this returns — never in-txn,
     since it spawns a Task — mirroring `create_scout_report`. Autostart is idempotent, so re-running it
     for an already-started report no-ops, while a report that lacked a qualifying reviewer can now open a
-    draft PR."""
+    draft PR.
+
+    Evidence merges forward: a scout can only supply `github_login`/`user_uuid` (+ `reason`), so for
+    logins already on the report's current reviewer list, the prior entry's `relevant_commits`,
+    `github_name`, and (when the scout supplies none) `reason` are carried over — mirroring the inbox
+    PUT. Without this, a reason-only re-route would wipe the commit evidence precedent-weighing runs on."""
     _validate_report_id(report_id)
     if len(suggested_reviewers.root) == 0:
         return False
     logins = [entry.github_login for entry in suggested_reviewers.root]
     with transaction.atomic():
-        # Existence is the team-scoped gate; the artefact append itself is keyed by report_id.
-        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+        # The lock is the team-scoped gate AND serializes the read-merge-append against concurrent
+        # reviewer edits (same discipline as the inbox PUT) so an interleaved write isn't lost.
+        if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        merged = _merge_forward_reviewer_evidence(report_id=report_id, suggested_reviewers=suggested_reviewers)
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
-            content=suggested_reviewers,
+            content=merged,
             attribution=attribution,
             reevaluate_autostart=False,
         )
@@ -494,6 +566,58 @@ def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> No
             run.save(update_fields=["edited_report_ids"])
     except Exception:
         logger.exception("signals_scout.edit_report: failed to record report edit for run %s", run_id)
+
+
+def record_scout_run_task_artefact(*, team_id: int, report_id: str, run: SignalScoutRun, task_id: str | None) -> None:
+    """Link the editing scout run to the report as a `task_run` artefact — the edit-channel
+    counterpart to the in-txn append in `create_scout_report`. `edit_report` can target ANY inbox
+    report (pipeline-authored included), so this is what makes the editing run's transcript reachable
+    from the report's work log rather than just an anonymous "by agent" byline.
+
+    Deduped by task: a run that edits the report it authored (or edits the same report twice) records
+    the link once — the artefact is an association, not a per-edit log entry (that detail lives in the
+    note/status artefacts the edit itself appends). Best-effort like the run tallies: the edit has
+    already committed by the time this runs, so a failure here is swallowed rather than surfaced as a
+    false edit failure. No-ops when the run isn't bridged to a resolvable task (`task_id` is None).
+    """
+    if task_id is None:
+        return
+    try:
+        with transaction.atomic():
+            # The artefact log has no uniqueness constraint, so serialize the check-then-append under
+            # the report row lock — concurrent edits from the same run would otherwise both pass the
+            # exists() check and double-write the association.
+            if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first():
+                return
+            # The `task_id` column mirrors the content's task id on every signals-pipeline `task_run`
+            # artefact (they're attributed to the task they record), so it doubles as the dedupe key.
+            if SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                task_id=task_id,
+            ).exists():
+                return
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=_scout_task_run_content(run, task_id),
+                attribution=ArtefactAttribution.from_task(task_id),
+            )
+    except Exception:
+        logger.exception(
+            "signals_scout.edit_report: failed to record scout task_run artefact",
+            extra={"team_id": team_id, "report_id": report_id, "run_id": str(run.id)},
+        )
+
+
+def _scout_task_run_content(run: SignalScoutRun, task_id: str) -> TaskRunArtefact:
+    return TaskRunArtefact(
+        task_id=task_id,
+        run_id=str(run.task_run_id) if run.task_run_id else None,
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_SCOUT,
+    )
 
 
 def _provenance_note_text(run: SignalScoutRun | None) -> str:

@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from django.utils import timezone
 
@@ -14,12 +14,28 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.error_tracking.backend.models import ErrorTrackingStackFrame, ErrorTrackingSymbolSet
-from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import cleanup_symbol_sets_activity
+from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import (
+    _delete_symbol_set_contents_with_pacing,
+    cleanup_symbol_sets_activity,
+)
 from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
     SymbolSetCleanupInputs,
     SymbolSetCleanupResult,
 )
 from products.error_tracking.backend.temporal.symbol_set_cleanup.workflow import ErrorTrackingSymbolSetCleanupWorkflow
+
+
+class TestDeleteSymbolSetContentsWithPacing:
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.time.sleep")
+    @patch("products.error_tracking.backend.temporal.symbol_set_cleanup.activities.delete_symbol_set_contents_many")
+    def test_paces_storage_delete_requests(self, delete_contents, sleep) -> None:
+        storage_ptrs = [f"symbols/{index}" for index in range(1001)]
+        delete_contents.return_value = []
+
+        assert _delete_symbol_set_contents_with_pacing(storage_ptrs) == []
+
+        assert delete_contents.call_args_list == [call(storage_ptrs[:1000]), call(storage_ptrs[1000:])]
+        sleep.assert_called_once_with(0.1)
 
 
 class TestSymbolSetCleanupActivity(BaseTest):

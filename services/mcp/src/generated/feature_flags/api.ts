@@ -71,6 +71,12 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
         ),
+    eligible_for_experiment: zod
+        .enum(['true'])
+        .optional()
+        .describe(
+            "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored."
+        ),
     evaluation_runtime: zod
         .enum(['all', 'client', 'server'])
         .optional()
@@ -89,6 +95,7 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
+    key: zod.string().optional().describe('Filter by exact feature flag key match. Case insensitive.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Search by feature flag key or name. Case insensitive.'),

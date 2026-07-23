@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -161,4 +162,26 @@ describe('DashboardHeader', () => {
             logic.unmount()
         }
     )
+
+    it.each([
+        { variant: 'control', showsLabel: false },
+        { variant: 'control_b', showsLabel: false },
+        { variant: 'test', showsLabel: true },
+    ])('$variant variant sets the PostHog AI button label', ({ variant, showsLabel }) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL], {
+            [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: variant,
+        })
+
+        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD })
+        const aiButton = document.querySelector('[data-attr="open-context-panel-ai-button"]')
+
+        expect(aiButton).toBeInTheDocument()
+        if (showsLabel) {
+            expect(aiButton).toHaveTextContent('PostHog AI')
+        } else {
+            expect(aiButton).not.toHaveTextContent('PostHog AI')
+        }
+
+        logic.unmount()
+    })
 })

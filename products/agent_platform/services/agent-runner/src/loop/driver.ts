@@ -50,6 +50,7 @@ import {
     BundleStore,
     buildSystemPrompt,
     buildAskerIdentity,
+    type IngressRoutingMode,
     ConversationMessage,
     CredentialBroker,
     createLogger,
@@ -262,7 +263,13 @@ export interface RunSessionDeps {
     identityLinks?: IdentityLinkStateStore
     /** Resolves a non-slack principal to its AgentUser id for linking. */
     identities?: IdentityStore
-    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    /** Agent slug — the OAuth link callback host in domain mode is `<slug><domainSuffix>`. */
+    applicationSlug?: string
+    /** Ingress routing mode; mirrors the ingress `ROUTING_MODE`. Defaults to `path`. */
+    routingMode?: IngressRoutingMode
+    /** Domain suffix for domain mode (e.g. `.agents.us.posthog.com`). */
+    domainSuffix?: string
+    /** Flat ingress base URL for the OAuth link callback in `path` mode (dev). */
     linkRedirectBaseUrl?: string
 }
 
@@ -296,10 +303,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // language instead of calling a slack tool).
     const slackReply = session.trigger_metadata?.kind === 'slack' ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
+        availableMcps: (deps.mcpClients ?? []).map((client) => client.prefix),
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
             category: f.category,
-            authorizeUrl: f.authorizeUrl,
+            provider: f.provider,
         })),
         slackReplyRelay: slackReply !== null,
     })
@@ -469,6 +477,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 http: deps.http,
                 secret: (name) => deps.secrets[name],
                 posthogApiBaseUrl: deps.posthogApiBaseUrl,
+                slug: deps.applicationSlug ?? '',
+                routingMode: deps.routingMode,
+                domainSuffix: deps.domainSuffix,
                 linkRedirectBaseUrl: deps.linkRedirectBaseUrl,
                 log,
             })

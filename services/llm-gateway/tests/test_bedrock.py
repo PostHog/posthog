@@ -7,6 +7,7 @@ from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from llm_gateway.bedrock import supports_bedrock_runtime_count_tokens
 from llm_gateway.metrics.prometheus import BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES, BEDROCK_COUNT_TOKENS_ERRORS
 
 BEDROCK_SETTINGS_PATCH = patch(
@@ -491,7 +492,7 @@ class TestBedrockCountTokensViaProvider:
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
-    def test_falls_back_to_mantle_when_runtime_unsupported(
+    def test_falls_back_to_mantle_when_runtime_fails(
         self,
         mock_count_tokens: MagicMock,
         mock_mantle_count_tokens: AsyncMock,
@@ -505,12 +506,13 @@ class TestBedrockCountTokensViaProvider:
         mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
-        # Mirrors bedrock-runtime rejecting CountTokens for a CRIS-only model like claude-opus-4-8.
+        # Mirrors bedrock-runtime rejecting the request contents (e.g. an oversized prompt) for a
+        # model whose CountTokens support is otherwise fine — the mantle fallback still runs.
         mock_count_tokens.side_effect = ClientError(
             {
                 "Error": {
                     "Code": "ValidationException",
-                    "Message": "The provided model doesn't support counting tokens.",
+                    "Message": "prompt is too long: 290010 tokens > 200000 maximum",
                 },
                 "ResponseMetadata": {
                     "HTTPHeaders": {},
@@ -557,7 +559,7 @@ class TestBedrockCountTokensViaProvider:
             product="llm_gateway",
             runtime_status=400,
             runtime_error_type="ClientError",
-            runtime_error_message="The provided model doesn't support counting tokens.",
+            runtime_error_message="prompt is too long: 290010 tokens > 200000 maximum",
             runtime_error_code="ValidationException",
         )
         mock_logger.info.assert_any_call(
@@ -565,6 +567,81 @@ class TestBedrockCountTokensViaProvider:
             model="us.anthropic.claude-sonnet-4-6",
             product="llm_gateway",
         )
+
+    @pytest.mark.parametrize(
+        "model,expected_mantle_model",
+        [
+            pytest.param("claude-opus-4-8", "us.anthropic.claude-opus-4-8", id="opus_4_8"),
+            pytest.param("claude-fable-5", "us.anthropic.claude-fable-5", id="fable_5"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
+    def test_cris_only_models_skip_runtime_and_count_via_mantle(
+        self,
+        mock_count_tokens: MagicMock,
+        mock_mantle_count_tokens: AsyncMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_headers: dict[str, str],
+        model: str,
+        expected_mantle_model: str,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_mantle_count_tokens.return_value = 55
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
+            headers=valid_request_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["input_tokens"] == 55
+        # The runtime CountTokens API always rejects CRIS-only models, so it must not be tried.
+        mock_count_tokens.assert_not_called()
+        assert mock_mantle_count_tokens.await_count == 1
+        mantle_count_tokens_call = mock_mantle_count_tokens.await_args
+        assert mantle_count_tokens_call is not None
+        assert mantle_count_tokens_call.args[1] == expected_mantle_model
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
+    def test_returns_502_when_mantle_fails_for_cris_only_model(
+        self,
+        mock_count_tokens: MagicMock,
+        mock_mantle_count_tokens: AsyncMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_headers: dict[str, str],
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_mantle_count_tokens.side_effect = HTTPException(
+            status_code=400,
+            detail={
+                "error": {"message": "data retention mode 'default' is not available", "type": "invalid_request_error"}
+            },
+        )
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hello"}]},
+            headers=valid_request_headers,
+        )
+
+        assert response.status_code == 502
+        assert "Failed to count tokens via Bedrock" in response.json()["error"]["message"]
+        mock_count_tokens.assert_not_called()
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
@@ -802,10 +879,17 @@ class TestModelMapping:
 
         assert map_to_bedrock_model("us.anthropic.claude-sonnet-4-6") == "us.anthropic.claude-sonnet-4-6"
 
-    def test_maps_to_eu_profile_for_eu_regions(self) -> None:
+    @pytest.mark.parametrize(
+        "anthropic_model,expected_bedrock_model",
+        [
+            pytest.param("claude-opus-4-6", "eu.anthropic.claude-opus-4-6-v1", id="opus_4_6"),
+            pytest.param("claude-fable-5", "global.anthropic.claude-fable-5", id="fable_5"),
+        ],
+    )
+    def test_maps_to_available_profile_for_eu_regions(self, anthropic_model: str, expected_bedrock_model: str) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model
 
-        assert map_to_bedrock_model("claude-opus-4-6", region_name="eu-west-1") == "eu.anthropic.claude-opus-4-6-v1"
+        assert map_to_bedrock_model(anthropic_model, region_name="eu-west-1") == expected_bedrock_model
 
     def test_raises_for_unknown_model(self) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model
@@ -824,6 +908,23 @@ class TestModelMapping:
         # which is not a valid product, so returns 400
         assert response.status_code == 400
         assert "Invalid product" in response.json()["detail"]
+
+
+class TestSupportsBedrockRuntimeCountTokens:
+    @pytest.mark.parametrize(
+        "model,expected",
+        [
+            pytest.param("us.anthropic.claude-sonnet-4-5-20250929-v1:0", True, id="dated_foundation_model"),
+            # CRIS-only but supported — support is per-model, not derivable from the id shape.
+            pytest.param("us.anthropic.claude-sonnet-4-6", True, id="cris_only_but_supported"),
+            pytest.param("us.anthropic.claude-opus-4-6-v1", True, id="not_denylisted_versioned_suffix"),
+            pytest.param("us.anthropic.claude-opus-4-8", False, id="unsupported_opus"),
+            pytest.param("eu.anthropic.claude-opus-4-8", False, id="unsupported_opus_eu_prefix"),
+            pytest.param("us.anthropic.claude-fable-5", False, id="unsupported_fable"),
+        ],
+    )
+    def test_classifies_bedrock_model_ids(self, model: str, expected: bool) -> None:
+        assert supports_bedrock_runtime_count_tokens(model) is expected
 
 
 class TestBedrockMantleCountTokens:

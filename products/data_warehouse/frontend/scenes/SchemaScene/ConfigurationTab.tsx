@@ -188,6 +188,8 @@ function DetailsSection({
     onConfigureSyncMethod: () => void
     onViewSyncHistory: () => void
 }): JSX.Element {
+    const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
+
     return (
         <div>
             <SectionHeader
@@ -280,20 +282,21 @@ function DetailsSection({
                 </div>
                 <div className="flex items-center justify-between">
                     <span className="text-muted">Synced table</span>
-                    {schema.table ? (
+                    {schema.table && syncedTableName ? (
                         <Link
                             to={urls.sqlEditor({
-                                query: defaultQuery(schema.table.name, schema.table.columns).source.query,
+                                query: defaultQuery(syncedTableName, schema.table.columns).source.query,
                             })}
                             onClick={(event) => {
                                 event.preventDefault()
-                                const table = schema.table!
                                 newInternalTab(
-                                    urls.sqlEditor({ query: defaultQuery(table.name, table.columns).source.query })
+                                    urls.sqlEditor({
+                                        query: defaultQuery(syncedTableName, schema.table!.columns).source.query,
+                                    })
                                 )
                             }}
                         >
-                            <code>{schema.table.name}</code>
+                            <code>{syncedTableName}</code>
                         </Link>
                     ) : (
                         <span className="text-muted">Not yet synced</span>
@@ -542,9 +545,19 @@ function ApiVersionSection({
     const isDirty = (draftVersion ?? null) !== (schema.api_version ?? null)
     const deprecation = schema.api_version_deprecation
 
+    const sourceVersionRetired = !!sourceVersion && !supportedVersions.includes(sourceVersion)
     const options: LemonSelectOption<string | null>[] = [
-        { value: null, label: `Source default${sourceVersion ? ` (${sourceVersion})` : ''}` },
+        {
+            value: null,
+            label: `Source default${sourceVersion ? ` (${sourceVersion}${sourceVersionRetired ? ', no longer supported' : ''})` : ''}`,
+        },
         ...supportedVersions.map((version) => ({ value: version, label: version })),
+        // A stored override can outlive its version's removal from supported_versions — the backend
+        // keeps honoring it verbatim, so keep it visible here. Saving it again is blocked by
+        // validation; this entry exists so the current state is representable, not as a choice.
+        ...(schema.api_version && !supportedVersions.includes(schema.api_version)
+            ? [{ value: schema.api_version, label: `${schema.api_version} (no longer supported)` }]
+            : []),
     ]
 
     const persist = async (resyncAfter: boolean): Promise<void> => {
@@ -999,7 +1012,12 @@ function AnchorTimeField({
         <div className="flex flex-col gap-1">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex flex-col">
-                    <span>Anchor time</span>
+                    <span>
+                        Anchor time
+                        {(currentTeam?.timezone === 'UTC' || currentTeam?.timezone === 'GMT') && (
+                            <span className="text-muted"> (UTC)</span>
+                        )}
+                    </span>
                     <span className="text-xs text-muted max-w-md">
                         Pin the sync schedule so runs start at a predictable time each day (useful for coordinating with
                         downstream jobs). Only applies to intervals longer than one hour.

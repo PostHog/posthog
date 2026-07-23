@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -70,6 +72,7 @@ class TestBillingConsumerBillingActivity(BaseTest):
                 ],
             },
             "event_id": "evt-1",
+            "ip_address": "203.0.113.7",
         }
         message.update(overrides)
         return message
@@ -84,17 +87,20 @@ class TestBillingConsumerBillingActivity(BaseTest):
         assert log.is_system is False
         assert log.item_id == str(self.organization.id)
         assert log.activity == "updated"
+        assert log.ip_address == "203.0.113.7"
         assert log.detail is not None
         assert log.detail["changes"][0]["field"] == "product_analytics"
         assert log.detail["changes"][0]["after"] == 1000
 
     def test_writes_system_activity_when_distinct_id_absent(self):
-        # System-origin changes (Stripe webhooks, dunning) carry no actor.
+        # System-origin changes (Stripe webhooks, dunning) carry no actor. Even though the
+        # message carries an IP, it must not be pinned to an unattributed system row.
         self._build_consumer()._process_billing_activity(self._message(distinct_id=None))
 
         log = ActivityLog.objects.get(scope="Billing")
         assert log.user_id is None
         assert log.is_system is True
+        assert log.ip_address is None
 
     def test_does_not_attribute_distinct_id_from_another_organization(self):
         # distinct_id is globally unique; a user outside this org must never be
@@ -107,6 +113,24 @@ class TestBillingConsumerBillingActivity(BaseTest):
         log = ActivityLog.objects.get(scope="Billing")
         assert log.user_id is None
         assert log.is_system is True
+        # A foreign actor is not attributed, so its IP must not be persisted either.
+        assert log.ip_address is None
+
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("garbage", "not-an-ip"),
+            ("non_string", 12345),
+            ("missing", None),
+        ]
+    )
+    def test_malformed_ip_is_dropped_instead_of_blocking_the_queue(self, _name, bad_ip):
+        # A malformed IP must not reach the IP column and fail the write; otherwise the message
+        # would loop on redelivery forever. The row is still written, just without an IP.
+        self._build_consumer()._process_billing_activity(self._message(ip_address=bad_ip))
+
+        log = ActivityLog.objects.get(scope="Billing")
+        assert log.ip_address is None
 
     @patch(f"{CONSUMER}.capture_exception")
     def test_missing_organization_id_skips_and_captures(self, mock_capture):

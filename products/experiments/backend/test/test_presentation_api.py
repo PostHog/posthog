@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
+from uuid import uuid4
 
 import unittest
 from freezegun import freeze_time
@@ -160,55 +161,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_can_list_eligible_feature_flags(self) -> None:
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="eligible-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="wrong-order-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="single-variant-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 100},
-                    ]
-                },
-            },
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/eligible_feature_flags/?order=key")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual([flag["key"] for flag in response.json()["results"]], ["eligible-flag", "wrong-order-flag"])
 
     @parameterized.expand(
         [
@@ -4925,6 +4877,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "draft")
+        # False counterpart to the wiring guard in test_launching_experiment_sets_status_running,
+        # proving the field tracks the property value rather than being hardcoded truthy.
+        self.assertFalse(response.json()["can_freeze_exposure"])
 
     def test_launching_experiment_sets_status_running(self):
         response = self.client.post(
@@ -4938,6 +4893,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "running")
+        # Wiring guard for the serializer-computed field; the case matrix lives on the
+        # model property test (test_can_freeze_exposure_property).
+        self.assertTrue(response.json()["can_freeze_exposure"])
 
     def test_ending_experiment_sets_status_stopped(self):
         response = self.client.post(
@@ -5745,6 +5703,94 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 format="json",
             )
             self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+    def test_flag_cleanup_task_endpoint(self):
+        exp_id = self._create_running_experiment(name="Cleanup Status", flag_key="cleanup-status-flag")["id"]
+
+        # No cleanup task opened yet.
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        task_id = uuid4()
+        Experiment.objects.filter(id=exp_id).update(flag_cleanup_task_id=task_id)
+
+        run = SimpleNamespace(
+            status="completed",
+            is_terminal=True,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            team_id=self.team.id,
+        )
+        with (
+            patch(
+                "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+                return_value={str(task_id): run},
+            ),
+            patch(
+                "products.experiments.backend.presentation.views.tasks_facade.task_visible",
+                return_value=True,
+            ) as mock_task_visible,
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(
+            resp.json(),
+            {
+                "task_id": str(task_id),
+                "run_status": "completed",
+                "is_terminal": True,
+                "pr_url": "https://github.com/PostHog/posthog/pull/123",
+                "can_view_task": True,
+            },
+        )
+        mock_task_visible.assert_called_once_with(task_id, self.team.pk, self.user.id)
+
+        # No Task row exists for this id, so the real visibility check reports False.
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertFalse(resp.json()["can_view_task"])
+
+        # A PR URL that doesn't point at GitHub is dropped rather than rendered as a link.
+        run = SimpleNamespace(
+            status="completed", is_terminal=True, pr_url="http://evil.example.com/pr/1", team_id=self.team.id
+        )
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertIsNone(resp.json()["pr_url"])
+
+        # A run in another team (experiment transferred across projects) is treated as absent.
+        run = SimpleNamespace(
+            status="completed",
+            is_terminal=True,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            team_id=self.team.id + 1,
+        )
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["run_status"], "queued")
+        self.assertFalse(resp.json()["is_terminal"])
+        self.assertIsNone(resp.json()["pr_url"])
+
+        # Task recorded but no run row yet: reported as queued, non-terminal.
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["run_status"], "queued")
+        self.assertFalse(resp.json()["is_terminal"])
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")

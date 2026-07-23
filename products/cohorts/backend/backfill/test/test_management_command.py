@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from io import StringIO
 
 from posthog.test.base import BaseTest
@@ -7,7 +8,9 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
 
-from products.cohorts.backend.models.backfill import CohortBackfillRun, CohortBackfillRunCohort
+from parameterized import parameterized
+
+from products.cohorts.backend.models.backfill import CohortBackfillRun, CohortBackfillRunCohort, CohortBackfillRunStatus
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 
@@ -94,6 +97,54 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             ),
             [selected.id],
         )
+
+    def test_disaster_recovery_boundary_is_persisted_without_promoting_the_run(self) -> None:
+        self._cohort("$pageview")
+
+        call_command(
+            "create_cohort_backfill_run",
+            team_id=self.team.id,
+            trigger="disaster_recovery",
+            boundary_at="2026-07-14T09:45:12-03:00",
+        )
+
+        run = CohortBackfillRun.objects.for_team(self.team.id).get()
+        self.assertEqual(run.boundary_at, datetime(2026, 7, 14, 12, 45, 12, tzinfo=UTC))
+        self.assertIsNone(run.boundary_established_at)
+        self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand(
+        [
+            ("missing_offset", "disaster_recovery", "2026-07-14T09:45:12", "must include a UTC offset"),
+            ("invalid", "disaster_recovery", "not-a-timestamp", "must be a valid ISO 8601 timestamp"),
+            (
+                "utc_overflow",
+                "disaster_recovery",
+                "0001-01-01T00:00:00+23:59",
+                "falls outside the supported UTC range",
+            ),
+            (
+                "wrong_trigger",
+                "team_enablement",
+                "2026-07-14T09:45:12Z",
+                "only valid with --trigger disaster_recovery",
+            ),
+        ]
+    )
+    def test_invalid_boundary_returns_clean_command_error(
+        self, _name: str, trigger: str, boundary_at: str, error_message: str
+    ) -> None:
+        self._cohort("$pageview")
+
+        with self.assertRaisesMessage(CommandError, error_message):
+            call_command(
+                "create_cohort_backfill_run",
+                team_id=self.team.id,
+                trigger=trigger,
+                boundary_at=boundary_at,
+            )
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
     def test_active_team_run_returns_clean_command_error(self) -> None:
         first = self._cohort("$pageview")

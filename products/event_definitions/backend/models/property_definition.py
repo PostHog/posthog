@@ -10,15 +10,11 @@ from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.utils import invalidate_has_person_email_cache
 
+# Relocated to the Django-free products.event_definitions.backend.property_type module so the
+# HogQL engine can use it without booting Django; re-exported here for existing callers.
+from products.event_definitions.backend.property_type import PropertyType
+
 PERSON_EMAIL_PROPERTY_NAME = "email"
-
-
-class PropertyType(models.TextChoices):
-    Datetime = "DateTime", "DateTime"
-    String = "String", "String"
-    Numeric = "Numeric", "Numeric"
-    Boolean = "Boolean", "Boolean"
-    Duration = "Duration", "Duration"
 
 
 class PropertyFormat(models.TextChoices):

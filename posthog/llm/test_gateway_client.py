@@ -8,6 +8,7 @@ from django.test import override_settings
 
 from posthog.llm.gateway_client import (
     Product,
+    build_async_anthropic_client,
     build_async_openai_client,
     build_openai_client,
     get_async_anthropic_gateway_client,
@@ -250,3 +251,58 @@ class TestBuildAsyncOpenAIClient:
 
         mock_get_async.assert_called_once_with("llma_eval_summary")
         assert result is mock_get_async.return_value
+
+
+class TestBuildAsyncAnthropicClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncAnthropic")
+    def test_gateway_mode_strips_v1_and_labels_product_stage_and_team(self, mock_anthropic, mock_httpx):
+        result = build_async_anthropic_client(
+            "signals", ai_product="signals_grouping", ai_stage="match", team_id=42, use_bedrock_fallback=True
+        )
+
+        mock_httpx.assert_called_once_with(trust_env=False)
+        mock_anthropic.assert_called_once_with(
+            api_key=AI_GATEWAY_KEY,
+            # The Anthropic SDK appends /v1/messages, so the /v1 OpenAI suffix is stripped.
+            base_url="https://ai-gateway.example",
+            # team_id rides as a property (usage report reads it) since the Go gateway drops the
+            # per-key header form.
+            default_headers={
+                "X-PostHog-Properties": json.dumps(
+                    {"ai_product": "signals_grouping", "ai_stage": "match", "team_id": "42"}
+                )
+            },
+            http_client=mock_httpx.return_value,
+        )
+        assert result is mock_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncAnthropic")
+    def test_gateway_mode_omits_stage_when_unset(self, mock_anthropic, mock_httpx):
+        build_async_anthropic_client("signals", ai_product="signals")
+
+        _, kwargs = mock_anthropic.call_args
+        assert kwargs["default_headers"] == {"X-PostHog-Properties": json.dumps({"ai_product": "signals"})}
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.llm.gateway_client.get_async_anthropic_gateway_client")
+    def test_falls_back_to_python_anthropic_gateway_when_unset(self, mock_get_anthropic):
+        result = build_async_anthropic_client(
+            "signals", ai_product="signals_grouping", ai_stage="match", team_id=42, use_bedrock_fallback=True
+        )
+
+        # Fallback keeps the Python-gateway signature: route-derived product plus the passthrough knobs.
+        mock_get_anthropic.assert_called_once_with("signals", team_id=42, use_bedrock_fallback=True)
+        assert result is mock_get_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL="https://ai-gateway.example", AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.get_async_anthropic_gateway_client")
+    def test_misconfig_falls_back_to_python_anthropic_gateway(self, mock_get_anthropic):
+        # URL missing the /v1 base path is a misconfig: resolve returns None and the caller falls back.
+        result = build_async_anthropic_client("signals", ai_product="signals_grouping")
+
+        mock_get_anthropic.assert_called_once_with("signals", team_id=None, use_bedrock_fallback=False)
+        assert result is mock_get_anthropic.return_value

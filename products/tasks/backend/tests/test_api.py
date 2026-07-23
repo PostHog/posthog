@@ -170,13 +170,19 @@ class BaseTaskAPITest(TestCase):
 
         self.mock_feature_flag.side_effect = check_flag
 
-    def create_task(self, title="Test Task", created_by: User | None = None):
+    def create_task(
+        self,
+        title: str = "Test Task",
+        created_by: User | None = None,
+        runtime: Task.Runtime = Task.Runtime.ACP,
+    ) -> Task:
         return Task.objects.create(
             team=self.team,
             created_by=created_by or self.user,
             title=title,
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
+            runtime=runtime,
         )
 
     def create_organization_user(self, email_prefix: str = "other") -> User:
@@ -369,6 +375,44 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = {r["id"] for r in response.json()["results"]}
         self.assertEqual(ids, {str(run.id)})
+
+    def test_retrieve_experiments_task_owned_by_another_user_is_visible(self):
+        # Flag-cleanup tasks are surfaced on the (team-visible) experiment, so any
+        # team member must be able to open them, not just whoever ended the experiment.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_update_experiments_task_owned_by_another_user_returns_404(self):
+        # Experiments tasks are team-readable but stay creator-driven: runs execute
+        # with the creator's credentials, so teammates must not be able to edit,
+        # run, or command them.
+        other_user = self.create_organization_user("experiment-ender")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"title": "Hijacked"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertEqual(task.title, "Clean up feature flag my-experiment-flag")
 
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
@@ -1128,6 +1172,35 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
+        self.assertEqual(data["runtime"], Task.Runtime.ACP)
+
+    def test_create_task_with_pi_runtime(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Pi Task",
+                "description": "New Description",
+                "runtime": Task.Runtime.PI,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["runtime"], Task.Runtime.PI)
+        self.assertEqual(Task.objects.get(id=response.json()["id"]).runtime, Task.Runtime.PI)
+
+    def test_update_task_rejects_runtime_change(self):
+        task = self.create_task(runtime=Task.Runtime.ACP)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"runtime": Task.Runtime.PI},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        task.refresh_from_db()
+        self.assertEqual(task.runtime, Task.Runtime.ACP)
 
     def test_create_task_accepts_null_runtime_fields(self):
         # The Code app's cloud-task flows (e.g. Discuss) send the write-only
@@ -1190,13 +1263,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
-    def test_create_task_rejects_internal_image_builder_origin(self):
+    @parameterized.expand(
+        [
+            ("image_builder",),
+            ("experiments",),
+        ]
+    )
+    def test_create_task_rejects_internal_origin(self, origin: str):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": "image_builder",
+                "origin_product": origin,
                 "repository": "posthog/posthog",
             },
             format="json",
@@ -1551,6 +1630,17 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(latest_run["status"], "queued")
         self.assertEqual(latest_run["environment"], "cloud")
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_pi_task(self, mock_workflow):
+        task = self.create_task(runtime=Task.Runtime.PI)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Pi tasks cannot be run through the ACP task workflow.")
+        self.assertFalse(task.runs.exists())
+        mock_workflow.assert_not_called()
+
     @parameterized.expand(
         [
             ("run_source_omitted", None, "full"),
@@ -1812,6 +1902,226 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["auto_publish"], True)
         mock_workflow.assert_not_called()
 
+    # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow, _mock_url_allowed):
+        task = self.create_task()
+        servers = [
+            {
+                "type": "http",
+                "name": "grafana",
+                "url": "https://mcp.grafana.example.com/mcp",
+                "headers": [{"name": "Authorization", "value": "Bearer abc"}],
+            },
+            {"type": "sse", "name": "docs", "url": "https://docs.example.com/mcp", "headers": []},
+        ]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "imported_mcp_servers": servers,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task_run.imported_mcp_servers, servers)
+        # Header values are credentials: never echoed back, never in the plain state JSON.
+        self.assertNotIn("imported_mcp_servers", response.json())
+        self.assertNotIn("imported_mcp_servers", task_run.state)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow, _mock_url_allowed):
+        task = self.create_task()
+        servers = [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"runtime_adapter": "claude", "model": "claude-sonnet-4-5", "imported_mcp_servers": servers},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run = task.runs.latest("created_at")
+        self.assertEqual(task_run.imported_mcp_servers, servers)
+        self.assertNotIn("imported_mcp_servers", task_run.state)
+        self.assertNotIn("imported_mcp_servers", json.dumps(response.json()))
+
+    # FORCE_URL_VALIDATION exercises the real SSRF guard; otherwise is_url_allowed short-circuits in tests.
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_create_run_endpoint_rejects_private_imported_mcp_server_urls(self):
+        task = self.create_task()
+        for url in ("http://192.168.1.4:8000/mcp", "http://10.0.0.5/mcp", "http://localhost:3001/mcp"):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/",
+                {
+                    "environment": "cloud",
+                    "imported_mcp_servers": [{"type": "http", "name": "internal", "url": url, "headers": []}],
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, url)
+            self.assertIn("imported_mcp_servers", json.dumps(response.json()))
+        self.assertEqual(task.runs.count(), 0)
+
+    @parameterized.expand(
+        [
+            (
+                "reserved_name",
+                [{"type": "http", "name": "posthog", "url": "https://a.example.com", "headers": []}],
+            ),
+            (
+                "duplicate_names",
+                [
+                    {"type": "http", "name": "dup", "url": "https://a.example.com", "headers": []},
+                    {"type": "http", "name": "dup", "url": "https://b.example.com", "headers": []},
+                ],
+            ),
+            (
+                "duplicate_names_differing_case",
+                [
+                    {"type": "http", "name": "MyServer", "url": "https://a.example.com", "headers": []},
+                    {"type": "http", "name": "myserver", "url": "https://b.example.com", "headers": []},
+                ],
+            ),
+            (
+                "too_many_servers",
+                [
+                    {"type": "http", "name": f"server-{i}", "url": "https://a.example.com", "headers": []}
+                    for i in range(21)
+                ],
+            ),
+            (
+                "oversized_header_value",
+                [
+                    {
+                        "type": "http",
+                        "name": "big",
+                        "url": "https://a.example.com",
+                        "headers": [{"name": "Authorization", "value": "x" * 5000}],
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_create_run_endpoint_rejects_invalid_imported_mcp_servers(self, _name, servers):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud", "imported_mcp_servers": servers},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(task.runs.count(), 0)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_persists_relayed_mcp_servers_outside_state(self, mock_workflow):
+        task = self.create_task()
+        servers = [{"name": "playwright"}, {"name": "internal-cli"}]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "relayed_mcp_servers": servers,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task_run.relayed_mcp_servers, servers)
+        # Names only, and still write-only: never echoed back, never in the plain state JSON.
+        self.assertNotIn("relayed_mcp_servers", response.json())
+        self.assertNotIn("relayed_mcp_servers", task_run.state)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_persists_relayed_mcp_servers(self, mock_workflow):
+        task = self.create_task()
+        servers = [{"name": "playwright"}]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"runtime_adapter": "claude", "model": "claude-sonnet-4-5", "relayed_mcp_servers": servers},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run = task.runs.latest("created_at")
+        self.assertEqual(task_run.relayed_mcp_servers, servers)
+        self.assertNotIn("relayed_mcp_servers", task_run.state)
+        self.assertNotIn("relayed_mcp_servers", json.dumps(response.json()))
+
+    @parameterized.expand(
+        [
+            ("reserved_name", [{"name": "posthog"}], None),
+            ("duplicate_names", [{"name": "dup"}, {"name": "dup"}], None),
+            ("duplicate_names_differing_case", [{"name": "MyServer"}, {"name": "myserver"}], None),
+            ("too_many_servers", [{"name": f"server-{i}"} for i in range(21)], None),
+            (
+                "collides_with_imported_name_differing_case",
+                [{"name": "Grafana"}],
+                [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}],
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    def test_create_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+        task = self.create_task()
+        body: dict = {"environment": "cloud", "relayed_mcp_servers": relayed}
+        if imported is not None:
+            body["imported_mcp_servers"] = imported
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(task.runs.count(), 0)
+
+    @parameterized.expand(
+        [
+            ("reserved_name", [{"name": "posthog"}], None),
+            ("duplicate_names_differing_case", [{"name": "MyServer"}, {"name": "myserver"}], None),
+            (
+                "collides_with_imported_name",
+                [{"name": "grafana"}],
+                [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}],
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    def test_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+        task = self.create_task()
+        body: dict = {"relayed_mcp_servers": relayed}
+        if imported is not None:
+            body["imported_mcp_servers"] = imported
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(task.runs.count(), 0)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_caches_user_github_token(self, mock_workflow):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
@@ -1938,6 +2248,17 @@ class TestTaskAPI(BaseTaskAPITest):
             user_id=self.user.id,
             posthog_mcp_scopes="full",
         )
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_start_run_endpoint_rejects_pi_task(self, mock_workflow):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Pi tasks cannot be run through the ACP task workflow.")
+        mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_rejects_missing_run_artifacts(self, mock_workflow):
@@ -2194,25 +2515,29 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("gpt_5_3_low", "gpt-5.3-codex", "low"),
-            ("gpt_5_3_medium", "gpt-5.3-codex", "medium"),
-            ("gpt_5_3_high", "gpt-5.3-codex", "high"),
-            ("gpt_5_5_xhigh", "gpt-5.5", "xhigh"),
-            ("gpt_5_6_sol_xhigh", "gpt-5.6-sol", "xhigh"),
-            ("gpt_5_6_sol_max", "gpt-5.6-sol", "max"),
-            ("gpt_5_6_luna_xhigh", "gpt-5.6-luna", "xhigh"),
-            ("gpt_5_6_luna_max", "gpt-5.6-luna", "max"),
+            ("gpt_5_3_low", "codex", "gpt-5.3-codex", "low", "openai"),
+            ("gpt_5_3_medium", "codex", "gpt-5.3-codex", "medium", "openai"),
+            ("gpt_5_3_high", "codex", "gpt-5.3-codex", "high", "openai"),
+            ("gpt_5_5_xhigh", "codex", "gpt-5.5", "xhigh", "openai"),
+            ("gpt_5_6_sol_xhigh", "codex", "gpt-5.6-sol", "xhigh", "openai"),
+            ("gpt_5_6_sol_max", "codex", "gpt-5.6-sol", "max", "openai"),
+            ("gpt_5_6_luna_xhigh", "codex", "gpt-5.6-luna", "xhigh", "openai"),
+            ("gpt_5_6_luna_max", "codex", "gpt-5.6-luna", "max", "openai"),
+            ("glm_5_2_high", "claude", "@cf/zai-org/glm-5.2", "high", "anthropic"),
+            ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_persists_runtime_metadata(self, _case_name, model, reasoning_effort, mock_workflow):
+    def test_run_endpoint_persists_runtime_metadata(
+        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow
+    ):
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "mode": "interactive",
-                "runtime_adapter": "codex",
+                "runtime_adapter": runtime_adapter,
                 "model": model,
                 "reasoning_effort": reasoning_effort,
             },
@@ -2222,12 +2547,12 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_200_OK
         latest_run = response.json()["latest_run"]
         task_run = TaskRun.objects.get(id=latest_run["id"])
-        assert task_run.state["runtime_adapter"] == "codex"
-        assert task_run.state["provider"] == "openai"
+        assert task_run.state["runtime_adapter"] == runtime_adapter
+        assert task_run.state["provider"] == provider
         assert task_run.state["model"] == model
         assert task_run.state["reasoning_effort"] == reasoning_effort
-        assert latest_run["runtime_adapter"] == "codex"
-        assert latest_run["provider"] == "openai"
+        assert latest_run["runtime_adapter"] == runtime_adapter
+        assert latest_run["provider"] == provider
         assert latest_run["model"] == model
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
@@ -2459,17 +2784,25 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("unknown_model", "claude-sonnet-4-5", "high", "none"),
+            ("glm_medium", "@cf/zai-org/glm-5.2", "medium", "high, max"),
+        ]
+    )
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow, mock_capture):
+    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(
+        self, _case_name, model, reasoning_effort, supported_values, mock_workflow, mock_capture
+    ):
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-4-5",
-                "reasoning_effort": "high",
+                "model": model,
+                "reasoning_effort": reasoning_effort,
             },
             format="json",
         )
@@ -2479,8 +2812,8 @@ class TestTaskAPI(BaseTaskAPITest):
             "type": "validation_error",
             "code": "invalid_input",
             "detail": (
-                "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
-                "and model 'claude-sonnet-4-5'. Supported values: none."
+                f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
+                f"and model '{model}'. Supported values: {supported_values}."
             ),
             "attr": "reasoning_effort",
         }
@@ -2494,11 +2827,11 @@ class TestTaskAPI(BaseTaskAPITest):
             event="task run reasoning effort rejected",
             properties={
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-4-5",
-                "reasoning_effort": "high",
+                "model": model,
+                "reasoning_effort": reasoning_effort,
                 "error": (
-                    "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
-                    "and model 'claude-sonnet-4-5'. Supported values: none."
+                    f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
+                    f"and model '{model}'. Supported values: {supported_values}."
                 ),
             },
             groups=ANY,
@@ -3682,6 +4015,10 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_run_task_automation.assert_not_called()
 
 
+_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
+_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
+
+
 class TestTaskRunAPI(BaseTaskAPITest):
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
@@ -3715,6 +4052,52 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            # Both caller-controlled output writers have to enforce this: the dedicated set_output
+            # action and the generic run PATCH, which merges `output` just the same.
+            (endpoint, case_name, webhook_flag, caller_pr_url, expected)
+            for endpoint in ("set_output/", "")
+            for case_name, webhook_flag, caller_pr_url, expected in [
+                ("caller_cannot_forge", None, _PR_URL, False),
+                ("webhook_flag_survives_caller_write", True, _PR_URL, True),
+                # The attestation is about one PR — repointing the run drops it rather than
+                # transferring GitHub's word about the old PR onto a new one.
+                ("flag_dropped_when_caller_changes_pr", True, _OTHER_PR_URL, False),
+            ]
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_caller_output_writes_never_set_pr_merged(
+        self,
+        endpoint: str,
+        _case_name: str,
+        webhook_flag: bool | None,
+        caller_pr_url: str,
+        expected: bool,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        # pr_merged is GitHub's word that the PR merged, and signals reads it to decide refund
+        # finality — so a task:write caller must not be able to write, clear, or move it.
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        if webhook_flag is not None:
+            run.output = {"pr_url": _PR_URL, "pr_merged": webhook_flag}
+            run.save(update_fields=["output"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{endpoint}",
+            {"output": {"pr_url": caller_pr_url, "pr_merged": True}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual((run.output or {}).get("pr_merged", False), expected)
 
     @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
     @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
@@ -3906,7 +4289,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
+        pending_external_followups = [
+            {
+                "message": "server queued message",
+                "artifact_ids": [],
+                "source": "user",
+                "actor_user_id": self.user.id,
+                "message_id": "server-message",
+                "context": {},
+                "steer": False,
+                "sequence": 0,
+            }
+        ]
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -3926,6 +4322,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "snapshot_mount_path": "/tmp",
                 "workflow_id": "wf-real",
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
+                "pending_external_followups": pending_external_followups,
+                "pending_external_followups_generation": 7,
             },
         )
 
@@ -3955,6 +4353,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_mount_path": "/tmp/workspace",
                     "workflow_id": "wf-another-teams-workflow",
                     "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
+                    "pending_external_followups": [
+                        {
+                            "message": "attacker message",
+                            "actor_user_id": credential_target.id,
+                            "context": {"interaction_origin": "slack"},
+                        }
+                    ],
+                    "pending_external_followups_generation": 999,
                     "scratch": "ok",
                 }
             },
@@ -3977,6 +4383,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_mount_path"] == "/tmp"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["pending_external_followups"] == pending_external_followups
+        assert run.state["pending_external_followups_generation"] == 7
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -3994,6 +4402,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_mount_path",
                     "workflow_id",
                     "pending_dispatch",
+                    "pending_external_followups",
+                    "pending_external_followups_generation",
                     "scratch",
                 ],
             },
@@ -4010,6 +4420,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["pending_external_followups"] == pending_external_followups
+        assert run.state["pending_external_followups_generation"] == 7
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -4032,6 +4444,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
+
+    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_rejects_pi_task(self, mock_resume):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Pi tasks cannot be run through the ACP task workflow.")
+        mock_resume.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_resume):
@@ -4508,6 +4936,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text="Which license should I use?",
             delete_progress=True,
+            message_id=None,
         )
 
     @parameterized.expand(
@@ -4560,6 +4989,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text=expected_posted_text,
             delete_progress=True,
+            message_id=None,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -7506,6 +7936,21 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_post.return_value = mock_resp
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_rejects_pi_task(self, mock_signal_followup):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Pi tasks do not support ACP task commands.")
+        mock_signal_followup.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -7521,7 +7966,30 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(data["jsonrpc"], "2.0")
         self.assertTrue(data["result"]["queued"])
 
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "Hello agent", [], None, self.user.id, None, steer=False
+        )
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_signals_steer_intent(self, mock_signal_followup):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "user_message",
+                "params": {"content": "Change direction", "steer": True},
+                "id": "req-steer",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "Change direction", [], None, self.user.id, None, steer=True
+        )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_user_message_requires_code_access(self, mock_signal_followup):
@@ -7557,7 +8025,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "Hello agent", [], None, self.user.id, None, steer=False
+        )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
@@ -7589,7 +8059,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"])
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "See attached", ["artifact-123"], None, self.user.id, None, steer=False
+        )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_returns_502_when_user_message_signal_fails(self, mock_signal_followup):
@@ -7736,6 +8208,75 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "set_config_option")
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_mcp_response_with_payload(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-6", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "mcp_response",
+                "params": {
+                    "requestId": "relay-1",
+                    "server": "playwright",
+                    "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
+                },
+                "id": "req-6",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
+        self.assertEqual(call_kwargs["json"]["params"]["requestId"], "relay-1")
+        self.assertEqual(call_kwargs["json"]["params"]["server"], "playwright")
+        # The relayed JSON-RPC response is forwarded to the sandbox verbatim.
+        self.assertEqual(
+            call_kwargs["json"]["params"]["payload"], {"jsonrpc": "2.0", "id": 1, "result": {"content": []}}
+        )
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_mcp_response_with_error(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-7", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "mcp_response",
+                "params": {
+                    "requestId": "relay-2",
+                    "server": "playwright",
+                    "error": {"code": -32001, "message": "server process exited"},
+                },
+                "id": "req-7",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
+        self.assertEqual(call_kwargs["json"]["params"]["error"], {"code": -32001, "message": "server process exited"})
 
     def _create_posthog_ai_task(self, created_by: User | None = None):
         return Task.objects.create(
@@ -7934,6 +8475,88 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             (
                 "set_config_option_empty_params",
                 {"jsonrpc": "2.0", "method": "set_config_option", "params": {}},
+            ),
+            (
+                "mcp_response_missing_requestId",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"server": "playwright", "payload": {"result": {}}},
+                },
+            ),
+            (
+                "mcp_response_missing_server",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"requestId": "relay-1", "payload": {"result": {}}},
+                },
+            ),
+            (
+                "mcp_response_missing_payload_and_error",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"requestId": "relay-1", "server": "playwright"},
+                },
+            ),
+            (
+                "mcp_response_both_payload_and_error",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "payload": {"result": {}},
+                        "error": {"code": -32001, "message": "boom"},
+                    },
+                },
+            ),
+            (
+                "mcp_response_non_object_payload",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"requestId": "relay-1", "server": "playwright", "payload": "not-an-object"},
+                },
+            ),
+            (
+                "mcp_response_malformed_error",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "error": {"code": "not-an-int", "message": "boom"},
+                    },
+                },
+            ),
+            (
+                # bool is an int subclass — the isinstance(code, bool) guard must still reject it.
+                "mcp_response_bool_error_code",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "error": {"code": True, "message": "boom"},
+                    },
+                },
+            ),
+            (
+                "mcp_response_oversized_params",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "payload": {"result": "x" * 300_001},
+                    },
+                },
             ),
         ]
     )
@@ -8948,6 +9571,9 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         state = run.state or {}
         self.assertEqual(state["custom_image_builder_id"], data["id"])
         self.assertIs(state["use_modal_vm_sandbox"], True)
+        self.assertEqual(state["runtime_adapter"], "claude")
+        self.assertEqual(state["model"], "@cf/zai-org/glm-5.2")
+        self.assertEqual(state["reasoning_effort"], "high")
         self.assertIn("image-spec.yaml", state["pending_user_message"])
         self.assertIn("install pytorch and flox", state["pending_user_message"])
 
@@ -8965,6 +9591,88 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rename_updates_name(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="Old name")
+        response = self.client.patch(self.detail_url(image.id), {"name": "New name"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "New name")
+        image.refresh_from_db()
+        self.assertEqual(image.name, "New name")
+
+    def test_rename_updates_description(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img", description="old")
+        response = self.client.patch(self.detail_url(image.id), {"description": "fresh"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["description"], "fresh")
+        image.refresh_from_db()
+        self.assertEqual(image.description, "fresh")
+
+    @parameterized.expand(
+        [
+            ("blank_name", {"name": "   "}),
+            ("empty_name", {"name": ""}),
+        ]
+    )
+    def test_rename_rejects_blank_name(self, _name, payload):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        image.refresh_from_db()
+        self.assertEqual(image.name, "img")
+
+    def test_rename_rejects_name_over_max_length(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), {"name": "x" * 256}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rename_not_reachable_for_other_user_private_image(self):
+        # A teammate must not be able to rename (or even see) another user's
+        # private image: the rename surfaces as a 404 and leaves the name intact.
+        other_user = self.create_organization_user("imageowner")
+        image = _make_custom_image(team=self.team, user=other_user, name="private", private=True)
+        response = self.client.patch(self.detail_url(image.id), {"name": "hijack"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        image.refresh_from_db()
+        self.assertEqual(image.name, "private")
+
+    def test_rename_other_team_image_returns_404(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_image = _make_custom_image(team=other_team, user=self.user, name="theirs")
+        response = self.client.patch(self.detail_url(other_image.id), {"name": "mine"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_rename_disabled_without_vm_sandbox_flag(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        self.enable_vm_sandbox_flag(False)
+        response = self.client.patch(self.detail_url(image.id), {"name": "renamed"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rename_empty_body_is_noop_success(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.patch(self.detail_url(image.id), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "img")
+        image.refresh_from_db()
+        self.assertEqual(image.name, "img")
+
+    def test_rename_returns_404_when_image_deleted_after_update(self):
+        # A concurrent delete between the UPDATE and the reload must surface as a
+        # 404 (the facade's missing-image contract), not a 500 from DoesNotExist.
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+
+        real_get = tasks_facade.get_sandbox_custom_image
+
+        def get_after_delete(image_id, team_id, user_id):
+            # Simulate another request deleting the row right after our UPDATE lands.
+            SandboxCustomImage.objects.filter(id=image_id).delete()
+            return real_get(image_id, team_id, user_id)
+
+        with patch.object(tasks_facade, "get_sandbox_custom_image", side_effect=get_after_delete):
+            response = self.client.patch(self.detail_url(image.id), {"name": "renamed"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
     def test_build_with_inline_spec_persists_and_triggers_workflow(self, mock_workflow):
@@ -9010,6 +9718,33 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    @patch("products.tasks.backend.logic.services.image_spec.validate_spec_buildable")
+    def test_build_rejected_when_refresh_claims_image_after_initial_read(self, mock_validate, mock_workflow):
+        image = _make_custom_image(
+            team=self.team,
+            user=self.user,
+            name="img",
+            status=SandboxCustomImage.Status.READY,
+            spec={"version": 1, "apt_packages": ["git"]},
+        )
+
+        mock_validate.side_effect = lambda *_args: (
+            SandboxCustomImage.objects.for_team(self.team.id)
+            .filter(id=image.id, status=SandboxCustomImage.Status.READY)
+            .update(status=SandboxCustomImage.Status.BUILDING)
+        )
+
+        response = self.client.post(
+            self.detail_url(image.id) + "build/", {"spec_yaml": "version: 1\napt_packages: [jq]\n"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_workflow.assert_not_called()
+        image.refresh_from_db()
+        self.assertEqual(image.status, SandboxCustomImage.Status.BUILDING)
+        self.assertEqual(image.spec["apt_packages"], ["git"])
 
     def test_other_team_image_not_reachable(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -9256,3 +9991,66 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "scanning")
         mock_workflow.assert_called_once()
+
+
+class TestTaskRunSlackTaskTeamControl(BaseTaskAPITest):
+    """Slack-originated tasks are multiplayer: any same-team user may drive their runs.
+
+    Guards the incident where a non-creator's thread follow-up resumed a run whose sandbox
+    then 404'd on every callback (status PATCH, log append, Slack relay), so the workflow
+    starved of heartbeats and the thread died silently.
+    """
+
+    def _create_run(self, *, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
+        creator = self.create_organization_user("thread-starter")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=creator,
+            title="Thread task",
+            description="Test Description",
+            origin_product=origin_product,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        return task, run
+
+    @parameterized.expand(
+        [
+            ("teammate_can_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_200_OK),
+            ("teammate_can_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_200_OK),
+            (
+                "teammate_cannot_patch_user_created_run",
+                Task.OriginProduct.USER_CREATED,
+                "patch",
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "teammate_cannot_retrieve_user_created_run",
+                Task.OriginProduct.USER_CREATED,
+                "get",
+                status.HTTP_404_NOT_FOUND,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_non_creator_run_access_by_origin(
+        self,
+        _case_name: str,
+        origin_product: Task.OriginProduct,
+        method: str,
+        expected_status: int,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        task, run = self._create_run(origin_product=origin_product)
+
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+        if method == "patch":
+            response = self.client.patch(url, {"output": {"marker": "from-teammate"}}, format="json")
+        else:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, expected_status)

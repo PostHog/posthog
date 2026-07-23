@@ -23,7 +23,12 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES, KAFKA_MESSAGE_ASSETS } from '~/common/config/kafka-topics'
+import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_HOG_INVOCATION_RESULTS,
+    KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
+} from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -50,7 +55,13 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
-import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
+import { createCdpOutputsRegistry } from './outputs/registry'
+import {
+    CyclotronV2Janitor,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+    JANITOR_POISON_PILL_ERROR_KIND,
+} from './services/cyclotron-v2'
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
     MAX_RESOLVER_ATTEMPTS,
@@ -62,6 +73,7 @@ import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgr
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
+import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
@@ -4006,5 +4018,146 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(0)
+    })
+})
+
+// Janitor poison-pill recovery (postgres-v2). Exercises the REAL results service
+// + real Kafka produce — the seam the mocked unit tests can't cover: an isolated
+// poison pill is recorded as a failed, replayable result on hog_invocation_results
+// BEFORE its cyclotron row is deleted, and with recovery disabled the janitor
+// reverts to master's legacy path (marks the pill failed, no recovery record).
+describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
+    jest.setTimeout(30000)
+
+    let hub: Hub
+    let kafkaProducer: KafkaProducerWrapper
+    let mockProducerObserver: KafkaProducerObserver
+    let team: Team
+    let cyclotronPool: Pool
+    let invocationResults: HogInvocationResultsService
+    let janitor: CyclotronV2Janitor | undefined
+
+    beforeAll(() => {
+        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+    })
+
+    afterAll(async () => {
+        await cyclotronPool.end()
+    })
+
+    beforeEach(async () => {
+        MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
+
+        // KAFKA_HOG_INVOCATION_RESULTS isn't in TEST_KAFKA_TOPICS — the janitor
+        // produces the give-up record there, so it must exist or the produce
+        // fails and the row is (correctly) never deleted.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
+        await resetTestDatabase()
+        await cyclotronPool.query('DELETE FROM cyclotron_jobs')
+
+        hub = await createHub()
+        // The give-up record path is gated on this flag (off by default outside dev).
+        hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+        team = await getFirstTeam(hub.postgres)
+        mockProducerObserver.resetKafkaProducer()
+
+        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, hub)
+        invocationResults = new HogInvocationResultsService(outputs, hub)
+    })
+
+    afterEach(async () => {
+        await janitor?.stop().catch(() => {})
+        janitor = undefined
+        await kafkaProducer.disconnect()
+        await closeHub(hub)
+        mockProducerObserver.resetKafkaProducer()
+    })
+
+    function createJanitor(overrides: Record<string, unknown> = {}): CyclotronV2Janitor {
+        return new CyclotronV2Janitor(
+            {
+                pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                cleanupGraceMs: 0,
+                stallTimeoutMs: 1000,
+                maxTouchCount: 3,
+                ...overrides,
+            },
+            invocationResults
+        )
+    }
+
+    // A hogflow job stuck 'running' with a long-stale heartbeat and a touch count
+    // over the budget. The serialized state mirrors a wait_until_condition that
+    // had already advanced past earlier actions.
+    async function insertPoisonedHogflowJob(): Promise<string> {
+        const id = new UUIDT().toString()
+        const state = Buffer.from(
+            JSON.stringify({
+                state: {
+                    event: { uuid: 'evt-poison', distinct_id: 'd-poison' },
+                    actionStepCount: 2,
+                    variables: {},
+                    currentAction: { id: 'wait_condition', startedAtTimestamp: 1 },
+                },
+            })
+        )
+        await cyclotronPool.query(
+            `INSERT INTO cyclotron_jobs
+                (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                 lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, state)
+             VALUES ($1, $2, $3, 'hogflow', 'running'::CyclotronJobStatus, 0, NOW(), NOW(),
+                     $4, NOW() - INTERVAL '5 minutes', 5, 10, NOW(), $5)`,
+            [id, team.id, new UUIDT().toString(), new UUIDT().toString(), state]
+        )
+        return id
+    }
+
+    it('records an isolated poison pill as a failed, replayable result and only then deletes it', async () => {
+        const id = await insertPoisonedHogflowJob()
+
+        janitor = createJanitor()
+        const result = await janitor.runOnce()
+
+        expect(result.poisonedIds).toEqual([id])
+
+        // A failed lifecycle row reached the hog_invocation_results topic so the
+        // run is discoverable in the Invocations UI and replayable by rerun.
+        await waitForExpect(() => {
+            const rows = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            expect(rows.some((m: any) => m.value.invocation_id === id)).toBe(true)
+        }, 10000)
+
+        const row = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            .find((m: any) => m.value.invocation_id === id)!.value
+        expect(row.status).toBe('failed')
+        expect(row.function_kind).toBe('hog_flow')
+        expect(row.function_id).toBeTruthy()
+        expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
+
+        // The cyclotron row is gone — but only because the record exists first.
+        const remaining = await cyclotronPool.query('SELECT 1 FROM cyclotron_jobs WHERE id = $1', [id])
+        expect(remaining.rowCount).toBe(0)
+    })
+
+    it('reverts to legacy mark-failed (records nothing) when recovery is disabled', async () => {
+        const id = await insertPoisonedHogflowJob()
+
+        janitor = createJanitor({ poisonRecoveryEnabled: false })
+        const result = await janitor.runOnce()
+
+        // Kill-switch off → master's legacy path: mark the pill failed and produce
+        // no recovery record. The give-up is terminal (no infinite retry) but not
+        // replayable — exactly master's pre-recovery behavior.
+        expect(result.poisonedIds).toEqual([id])
+        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toHaveLength(0)
+
+        const rows = await cyclotronPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
+        expect(rows.rowCount).toBe(1)
+        expect(rows.rows[0].status).toBe('failed')
     })
 })

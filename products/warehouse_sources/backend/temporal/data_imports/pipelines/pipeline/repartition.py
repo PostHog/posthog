@@ -42,7 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     append_partition_key_to_table,
+    normalize_column_name,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
@@ -252,6 +254,45 @@ async def _live_missing_data_file(live_uri: str, storage_options: dict[str, str]
     return referenced
 
 
+# Arrow/discovery type names that carry day granularity and no time-of-day component.
+# Prefix-matched carefully: "datetime*"/"timestamp*" must NOT match.
+_DATE_ONLY_COLUMN_TYPE_PREFIXES = ("date32", "date64")
+
+
+def _datetime_tier_ceiling(schema: ExternalDataSchema) -> PartitionFormat:
+    """The finest datetime tier that can physically split this schema's partition key.
+
+    A date-typed key (e.g. Google Ads `segments.date`) carries no time-of-day, so every row of a
+    day lands in the same `hour` bucket — an hour rewrite is a full-table rewrite that changes
+    nothing, and afterwards the controller parks at "finest tier" with the table still OOMing.
+    Cap such keys at `day`. Detected from either the incremental cursor being the partition key
+    and declared `date`, or discovery metadata typing the key column as a date.
+    """
+    keys = schema.partitioning_keys or schema.primary_key_columns or []
+    if len(keys) != 1:
+        return DATETIME_FORMAT_TIERS[-1]
+    key = normalize_column_name(keys[0])
+
+    incremental_field = schema.incremental_field
+    if (
+        incremental_field is not None
+        and normalize_column_name(incremental_field) == key
+        and schema.incremental_field_type == IncrementalFieldType.Date
+    ):
+        return "day"
+
+    for column in (schema.schema_metadata or {}).get("columns") or []:
+        if not isinstance(column, dict):
+            continue
+        if normalize_column_name(str(column.get("name") or "")) != key:
+            continue
+        data_type = str(column.get("data_type") or "").lower()
+        if data_type == "date" or data_type.startswith(_DATE_ONLY_COLUMN_TYPE_PREFIXES):
+            return "day"
+
+    return DATETIME_FORMAT_TIERS[-1]
+
+
 def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
@@ -297,17 +338,20 @@ def select_repartition_target(
     if mode == "datetime":
         current_format: PartitionFormat = schema.partition_format or "month"
         try:
-            next_index = DATETIME_FORMAT_TIERS.index(current_format) + 1
+            current_index = DATETIME_FORMAT_TIERS.index(current_format)
         except ValueError:
-            next_index = 1
-        if next_index >= len(DATETIME_FORMAT_TIERS):
-            # Already at the finest tier (hour) — can't go finer. Caller alerts.
+            current_index = 0
+        # A date-granular key caps out at `day`; a table already at or past its ceiling (e.g.
+        # no-op'd to `hour` before the ceiling existed) has nothing finer to gain either.
+        ceiling_index = DATETIME_FORMAT_TIERS.index(_datetime_tier_ceiling(schema))
+        if current_index >= ceiling_index:
+            # Already at the finest usable tier — can't go finer. Caller alerts.
             return None, "datetime_at_finest_tier"
         return RepartitionTarget(
             partition_keys=keys,
             trigger_reason="",
             partition_mode="datetime",
-            partition_format=DATETIME_FORMAT_TIERS[next_index],
+            partition_format=DATETIME_FORMAT_TIERS[current_index + 1],
         ), "selected"
 
     # Unpartitioned but over budget: attempt to enable partitioning via auto-detection. Needs keys.

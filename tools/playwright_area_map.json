@@ -53,7 +53,6 @@
         "surveys": ["products/surveys/frontend/e2e/"],
         "session-recordings": ["products/replay/frontend/e2e/"],
         "sessions": ["products/replay/frontend/e2e/"],
-        "billing": ["playwright/e2e/billing/"],
         "experiments": ["playwright/e2e/experiments/"],
         "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
         "dashboard": [
@@ -68,7 +67,6 @@
         "saved-insights": ["playwright/e2e/product-analytics/insights-list.spec.ts"],
         "insights": [
             "playwright/e2e/product-analytics/",
-            "playwright/e2e/api-insight-creation.spec.ts",
             "playwright/e2e/insight-sharing-password.spec.ts",
             "playwright/e2e/shared-insight-unauthenticated.spec.ts"
         ],
@@ -76,27 +74,17 @@
         "paths": ["playwright/e2e/product-analytics/"],
         "paths-v2": ["playwright/e2e/product-analytics/"],
         "retention": ["playwright/e2e/product-analytics/retention.spec.ts"],
-        "web-analytics": ["playwright/e2e/web-analytics.spec.ts"],
         "persons": ["playwright/e2e/persons/persons.spec.ts"],
         "persons-management": ["playwright/e2e/persons/persons.spec.ts"],
         "authentication": ["playwright/e2e/auth.spec.ts", "playwright/e2e/auth-password-reset.spec.ts"],
         "onboarding": ["playwright/e2e/before-onboarding.spec.ts", "playwright/e2e/signup.spec.ts"],
-        "data-management": [
-            "playwright/e2e/event-definitions.spec.ts",
-            "playwright/e2e/events.spec.ts",
-            "playwright/e2e/annotations.spec.ts"
-        ],
+        "data-management": ["playwright/e2e/event-definitions.spec.ts", "playwright/e2e/annotations.spec.ts"],
         "annotations": ["playwright/e2e/annotations.spec.ts"],
-        "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"],
-        "project-homepage": ["playwright/e2e/project-home-page.spec.ts"]
+        "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"]
     },
     "explicit": {
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
-        "products/batch_exports/frontend/**": ["playwright/e2e/batch-exports/"],
-        "products/logs/frontend/**": ["playwright/e2e/logs/"],
-        "products/cdp/frontend/**": ["playwright/e2e/cdp/"],
         "products/experiments/frontend/**": ["playwright/e2e/experiments/"],
-        "products/web_analytics/frontend/**": ["playwright/e2e/web-analytics.spec.ts"],
         "products/persons/frontend/**": ["playwright/e2e/persons/persons.spec.ts"],
         "products/cohorts/frontend/**": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
         "products/notebooks/frontend/**": [

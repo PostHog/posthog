@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GongSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gong import GongSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
@@ -58,6 +58,9 @@ Grant the following read scopes so the connected endpoints can sync:
 - `api:users:read`
 - `api:settings:scorecards:read`
 - `api:workspaces:read`
+
+To also sync the `calls_extensive` table (call participants and CRM associations), additionally grant:
+- `api:calls:read:extensive`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",
@@ -98,6 +101,7 @@ Grant the following read scopes so the connected endpoints can sync:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -117,7 +121,7 @@ Grant the following read scopes so the connected endpoints can sync:
         return schemas
 
     def validate_credentials(
-        self, config: GongSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GongSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_gong_credentials(config.access_key, config.access_key_secret, schema_name)
 

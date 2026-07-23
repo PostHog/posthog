@@ -27,6 +27,9 @@ class SlackThreadTaskMapping(UUIDModel):
         related_name="slack_thread_mappings",
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
+    # Reply-tag fallback for runs started before per-turn actor capture
+    # (tasks slack_relay); drop the column and its stamp in task_creation
+    # once those runs drain.
     latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of the most recent message we've already shown to the agent (either
     # in the original `<slack_thread_context>` block at task creation, or in a follow-up
@@ -73,24 +76,10 @@ class SlackUserProfileCache(UUIDModel):
         ]
 
 
-class SlackPermissionMode(models.TextChoices):
-    """Approval policy for Slack-started agent runs.
-
-    Values are recorded on the task run as ``slack_permission_mode`` and drive the
-    permission broker in ``products/tasks/backend/logic/services/permission_broker.py``,
-    plus the sandbox session's ``initial_permission_mode`` at task creation.
-    """
-
-    READ_ONLY = "read_only", "Read-only"
-    ASK_BEFORE_WRITE = "ask_before_write", "Ask before write"
-    FULL_AUTO = "full_auto", "Full auto"
-
-
 class SlackSettings(UUIDModel):
     """Per-(Slack workspace, Slack user) settings for inbound Slack events.
     Currently stores the routing default — which PostHog integration a mention
-    from this Slack user should route to — and the permission mode for Slack-started
-    agent runs.
+    from this Slack user should route to.
 
     Two row shapes share this table:
     - ``slack_user_id`` set → that Slack user's personal settings for this workspace.
@@ -117,10 +106,8 @@ class SlackSettings(UUIDModel):
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
-    # Maps integration id (as a string) → SlackPermissionMode value. Keyed per integration
-    # because one Slack workspace can route to multiple PostHog projects, and a grant like
-    # "full_auto" (bypassPermissions in the sandbox) made while working in one project must
-    # not leak to runs created against another.
+    # Unused: holds historical per-integration agent permission modes from the retired
+    # approval-card flow. Retained so the column needs no migration.
     permission_modes = models.JSONField(
         blank=True,
         null=True,
@@ -151,11 +138,6 @@ class SlackSettings(UUIDModel):
         who = self.slack_user_id or "(workspace default)"
         target = self.default_integration_id if self.default_integration_id else "(inherit)"
         return f"{self.slack_workspace_id} / {who} → integration {target}"
-
-    def permission_mode_for_integration(self, integration_id: int | str) -> str | None:
-        modes = self.permission_modes if isinstance(self.permission_modes, dict) else {}
-        mode = modes.get(str(integration_id))
-        return mode if isinstance(mode, str) and mode else None
 
     @property
     def runtime_adapter(self) -> str | None:

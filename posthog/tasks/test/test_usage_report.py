@@ -2,7 +2,7 @@ import gzip
 import json
 import base64
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -42,7 +42,7 @@ from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Organization, Team
+from posthog.models import Organization, Project, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
@@ -671,6 +671,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 6,
                     "mobile_recording_count_in_period": 1,
                     "mobile_billable_recording_count_in_period": 0,
+                    "heatmap_events_count_in_period": 0,
                     "replay_vision_credits_used_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
@@ -748,6 +749,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
+                            "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
@@ -819,6 +821,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 6,
                             "mobile_recording_count_in_period": 1,
                             "mobile_billable_recording_count_in_period": 0,
+                            "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
@@ -913,6 +916,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_recording_bytes_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
+                    "heatmap_events_count_in_period": 0,
                     "replay_vision_credits_used_in_period": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
@@ -990,6 +994,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
+                            "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
@@ -1285,6 +1290,44 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.mobile_billable_recording_count_in_period == 1
         assert report.zero_duration_recording_count_in_period == 0
         assert report.recording_bytes_in_period == 20  # 2 web * 10 bytes each
+
+
+class TestHeatmapUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def _create_heatmap(self, team_id: int, timestamp: datetime, count: int = 1, session_id: str | None = None) -> None:
+        session_ids = [session_id] * count if session_id else [f"sess_{i}" for i in range(count)]
+        rows = ", ".join(
+            f"('{heatmap_session_id}', {team_id}, 'user_1', '{timestamp.strftime('%Y-%m-%d %H:%M:%S')}', "
+            f"10, 20, 16, 100, 200, false, 'https://example.com', 'click')"
+            for heatmap_session_id in session_ids
+        )
+        sync_execute(
+            "INSERT INTO sharded_heatmaps "
+            "(session_id, team_id, distinct_id, timestamp, x, y, scale_factor, "
+            "viewport_width, viewport_height, pointer_target_fixed, current_url, type) VALUES " + rows
+        )
+
+    def test_heatmap_events_counted_per_team_within_period(self) -> None:
+        period_start, period_end = get_previous_day()
+
+        # 3 in-period interactions for our team, 1 the day before (out of period),
+        # and 2 for another team — only the 3 in-period ones should be counted for our team.
+        self._create_heatmap(
+            self.team.pk,
+            period_start + relativedelta(hours=1),
+            count=3,
+            session_id="shared_session",
+        )
+        self._create_heatmap(self.team.pk, period_start - relativedelta(hours=1), count=1)
+        self._create_heatmap(self.team.pk + 1, period_start + relativedelta(hours=1), count=2)
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert report.heatmap_events_count_in_period == 3
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+        assert org_reports[str(self.organization.id)].heatmap_events_count_in_period == 3
 
 
 class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
@@ -4606,6 +4649,64 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
 
 
+class TestTaskSandboxUsageReport(APIBaseTest):
+    PERIOD_START = datetime(2026, 1, 2, tzinfo=UTC)
+    PERIOD_END = datetime(2026, 1, 3, tzinfo=UTC)
+
+    def _session(self, **overrides: Any) -> None:
+        # String-based model access (like ErrorTrackingIssue above): the tasks product
+        # only exposes its facade to static imports from the posthog module.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        SandboxSession = apps.get_model("tasks", "SandboxSession")
+
+        task = Task.objects.create(team=self.team, title="t", description="", origin_product="user_created")
+        run = TaskRun.objects.create(task=task, team=self.team)
+        defaults: dict = {
+            "team": self.team,
+            "task_run": run,
+            "sandbox_id": f"sb-{SandboxSession.objects.unscoped().count()}",
+            "cpu_cores": 4.0,
+            "memory_gb": 16.0,
+            "ttl_seconds": 6 * 60 * 60,
+            "created_at": datetime(2026, 1, 2, 1, tzinfo=UTC),
+            "user_attributed_at": datetime(2026, 1, 2, 1, tzinfo=UTC),
+            "ended_at": datetime(2026, 1, 2, 2, tzinfo=UTC),
+        }
+        defaults.update(overrides)
+        defaults.setdefault("ttl_expires_at", defaults["created_at"] + timedelta(seconds=defaults["ttl_seconds"]))
+        SandboxSession.objects.unscoped().create(**defaults)
+
+    def test_counts_attributed_in_period_usage_only(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_task_sandbox_usage_in_period
+
+        self._session()
+        self._session(user_attributed_at=None, ended_at=None)
+        self._session(
+            created_at=datetime(2026, 1, 1, 20, tzinfo=UTC),
+            user_attributed_at=datetime(2026, 1, 1, 22, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, 6, tzinfo=UTC),
+            ttl_seconds=24 * 60 * 60,
+        )
+
+        usage = get_teams_with_task_sandbox_usage_in_period(self.PERIOD_START, self.PERIOD_END)
+
+        # 1h fully in period + the in-period 6h slice of the boundary-spanning session.
+        self.assertEqual(usage.seconds, [(self.team.id, 7 * 3600)])
+        self.assertEqual(usage.cpu_core_seconds, [(self.team.id, 7 * 3600 * 4)])
+        self.assertEqual(usage.memory_gib_seconds, [(self.team.id, 7 * 3600 * 16)])
+
+    def test_has_non_zero_usage_counts_task_sandbox_seconds(self) -> None:
+        import dataclasses
+
+        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
+
+        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+
+        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
+        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
+
+
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -5157,13 +5258,14 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         # Clear existing Django data
         Team.objects.all().delete()
+        Project.objects.all().delete()
         Organization.objects.all().delete()
 
         # Create analytics team for AI credits tests (team 2 for US region). The explicit
         # pk doesn't advance the id sequence, so bump it past the max to keep the auto-pk
         # team below from being handed id 2 and colliding.
         analytics_org = Organization.objects.create(name="PostHog Analytics")
-        self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self.analytics_team = Team.objects.create(id=2, organization=analytics_org, name="Analytics")
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT setval(pg_get_serial_sequence('posthog_team', 'id'), (SELECT MAX(id) FROM posthog_team))"

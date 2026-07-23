@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -112,6 +113,29 @@ describe('maxGlobalLogic', () => {
             preflightLogic.actions.loadPreflightSuccess(preflight as any)
 
             await expectLogic(logic).toMatchValues({ isMaxAvailable: expected })
+        })
+    })
+
+    // Consent state (accept/dismiss/request-access) now lives in aiConsentLogic (see aiConsentLogic.test.ts)
+    // and is only forwarded here via `connect` so the ~15 existing consumers keep reading it off
+    // maxGlobalLogic unchanged. This guards the forwarding wiring itself — a mistake here (e.g. connecting
+    // to the wrong source, or a stale value) wouldn't be caught by typechecking, since the shape stays the
+    // same either way.
+    describe('consent forwarding from aiConsentLogic', () => {
+        it('dismissing via maxGlobalLogic updates aiConsentLogic and is reflected back', () => {
+            const consent = aiConsentLogic()
+            consent.mount()
+
+            // Same underlying state, not two independent copies.
+            expect(logic.values.dataProcessingAccepted).toBe(consent.values.dataProcessingAccepted)
+            expect(logic.values.dataProcessingDismissed).toBe(false)
+
+            logic.actions.dismissDataProcessing()
+
+            expect(consent.values.dataProcessingDismissed).toBe(true)
+            expect(logic.values.dataProcessingDismissed).toBe(true)
+
+            consent.unmount()
         })
     })
 

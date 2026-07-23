@@ -24,6 +24,7 @@ export type IntegrationConfigureProps = {
     integration?: string
     beforeRedirect?: () => void
     autoSelectFirstIntegration?: boolean
+    allowClear?: boolean
 }
 
 export function IntegrationChoice({
@@ -34,6 +35,7 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
     autoSelectFirstIntegration = true,
+    allowClear = true,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
@@ -154,7 +156,7 @@ export function IntegrationChoice({
                             label: 'Manage integrations',
                             sideIcon: <IconExternal />,
                         },
-                        value
+                        value && allowClear
                             ? {
                                   onClick: () => onChange?.(null),
                                   label: 'Clear selection',

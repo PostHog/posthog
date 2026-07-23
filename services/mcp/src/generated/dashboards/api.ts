@@ -3,10 +3,56 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+    is_featured: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).'
+        ),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.'
+        ),
+    scope: zod
+        .enum(['feature_flag', 'global', 'organization', 'team'])
+        .optional()
+        .describe(
+            "Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior)."
+        ),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).'
+        ),
+})
+
+export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dashboard template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const DashboardsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -44,6 +90,12 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsCreateBodyNameMax = 400
@@ -97,6 +149,12 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
             'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
         ),
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     variables_override: zod
         .string()
         .optional()
@@ -116,6 +174,12 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const dashboardsPartialUpdateBodyNameMax = 400

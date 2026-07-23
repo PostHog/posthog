@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LobSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lob import LobSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob import (
     LobResumeConfig,
     lob_source,
@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
+    api_docs_url = "https://docs.lob.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LOB
@@ -92,6 +94,7 @@ Test and Live keys return different data, so connect the environment whose data 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LOB_ENDPOINTS[endpoint]
@@ -111,7 +114,7 @@ Test and Live keys return different data, so connect the environment whose data 
         return schemas
 
     def validate_credentials(
-        self, config: LobSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: LobSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_lob_credentials(config.api_key)
         if is_valid:

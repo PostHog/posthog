@@ -70,8 +70,21 @@ describe('actionEditorSceneLogic', () => {
                 scannerId: 's1',
                 effectiveScannerId: 's1',
                 scannerName: 'Checkout scanner',
-                actionForm: expect.objectContaining({ name: '', prompt_guide: '', integration_id: null }),
+                // No ?mode= param opens the summary form.
+                actionForm: expect.objectContaining({
+                    name: '',
+                    prompt_guide: '',
+                    integration_id: null,
+                    mode: 'group_summary',
+                }),
             })
+    })
+
+    it('the new-action route opens the alert form when ?mode=alert', async () => {
+        router.actions.push(urls.replayVisionActionNew('s1', 'alert'))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ actionForm: expect.objectContaining({ mode: 'alert' }) })
     })
 
     it('the edit route loads the action and seeds the form from it', async () => {

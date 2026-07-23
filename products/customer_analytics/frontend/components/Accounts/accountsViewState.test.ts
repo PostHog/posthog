@@ -1,3 +1,5 @@
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
 import { ACCOUNTS_HOGQL_DEFAULT_SELECT } from './accountsColumnConfigLogic'
 import {
     deserializeAccountsView,
@@ -56,6 +58,15 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 unassigned: false,
                 assignedTo: [1, 2, 3],
                 tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+                customProperties: [
+                    {
+                        type: PropertyFilterType.AccountCustomProperty as const,
+                        key: '11111111-2222-3333-4444-555555555555',
+                        operator: PropertyOperator.Exact,
+                        value: 'Enterprise',
+                        label: 'Tier',
+                    },
+                ],
             },
             tiles: [{ id: 't1', label: 'Accounts', metric: { type: 'count' as const } }],
         }
@@ -76,6 +87,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 unassigned: false,
                 assignedTo: [],
                 tileFilter: null,
+                customProperties: [],
             },
             tiles: [...DEFAULT_TILES],
         })
@@ -91,6 +103,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
             unassigned: false,
             assignedTo: [],
             tileFilter: null,
+            customProperties: [],
         })
         expect(state.tiles).toEqual(DEFAULT_TILES)
         expect(state.sortOrder).toBeNull()

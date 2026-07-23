@@ -85,7 +85,12 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   row-volume cliffs, and failed/abandoned materialized views. Its discriminator is
   configured-to-sync (`should_sync: true`) vs actually-syncing and
   promised-freshness vs actual-freshness — paused schemas, billing limits, and
-  draft sources are operator choices, not signal. The mirror image of
+  draft sources are operator choices, not signal. Also carries a second,
+  lower-priority **optimization lane** that runs only when the integrity lane is
+  quiet: reads the per-team `query_log` table for recurring, multi-user query
+  time and read-bytes concentrated on one warehouse table or query shape
+  (materialization candidates, queries bypassing an existing matview, matviews
+  with no readers), filing each as a capped, evergreen-deduped P3 suggestion. The mirror image of
   data-pipelines (which watches data leaving PostHog); active `external_data_failure`
   health issues overlap the health-checks scout, so it dedupes against the inbox and
   owns the silent gaps the active-failure summary misses (staleness behind a green
@@ -121,7 +126,8 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
   Reads the `sessions` table for per-channel volume diverging from
-  seasonality-aligned baselines (same 24h window 7/14 days back), attribution
+  seasonality-aligned baselines (robust z against the median/MAD of four
+  same-weekday aligned windows), attribution
   breakage (paid traffic reclassifying into Direct/Unknown when UTM tagging breaks),
   entry-path bounce steps and traffic cliffs, and 404 spikes (via the project's own
   not-found event, discovered by name). Its
@@ -276,6 +282,24 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   has problem tools; falls back to one report per tool where category coverage is absent
   (external-SDK regime); bundles `references/queries.md`, a HogQL cookbook validated
   against real telemetry.
+- `signals-scout-conversations/` — support-delivery health watcher for the
+  Conversations (support inbox) product. Reads the `$conversation_*` ticket-lifecycle
+  events for operational regressions: SLA breach-rate steps on team replies
+  (`sla_active` / `sla_breached`), first-response latency blowouts (ticket-created →
+  first team reply), backlog inflow-vs-resolution imbalance, and channel / assignment /
+  priority concentration. Its discriminator is a _rate against a volume-stable
+  denominator, per operational dimension, stepping away from its own trailing baseline
+  while ticket volume holds_ — a breach share / response latency / inflow-minus-resolution
+  delta moving on steady volume is signal, a raw count that tracks inbound volume is
+  baseline — always gated by a minimum-volume guard. On the **report channel**
+  (`emit_report` / `edit_report`): files each dated, dimension-named regression as a 1:1
+  inbox report, editing the live report while the regression persists. It is the
+  operational complement to the per-ticket emission path: the emission pipeline
+  (`source_product="conversations"`) already reads each ticket thread and fires a
+  per-ticket _product-feedback_ signal (bugs / feature requests / usability), so this
+  scout never re-surfaces individual ticket content — it owns the aggregate throughput /
+  SLA / backlog / routing shape the one-ticket-at-a-time emitter can't see, and (reading
+  analytics events) it works whether or not that emission source is enabled.
 
 ### How the coordinator decides what runs
 

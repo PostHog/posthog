@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import N8nSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.n8n import N8nSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n import N8nResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source import N8nSource

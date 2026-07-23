@@ -1,6 +1,8 @@
 import logging
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from django.conf import settings
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -29,14 +31,22 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     urgency_threshold = serializers.ChoiceField(
         required=False,
         choices=ReviewUserSettings.UrgencyThreshold.choices,
-        help_text="Minimum priority a validated finding needs to be published: 'consider' publishes "
-        "everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only "
+        help_text="Minimum priority a validated finding needs to be published: 'consider' (default) "
+        "publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only "
         "blocking issues.",
+    )
+    can_trigger_reviews = serializers.SerializerMethodField(
+        help_text="Whether reviews can be started from this project's Code review page (the UI trigger "
+        "is limited to the designated ReviewHog team while the product is in alpha).",
     )
 
     class Meta:
         model = ReviewUserSettings
-        fields = ["review_inbox_prs", "review_labeled_prs", "urgency_threshold"]
+        fields = ["review_inbox_prs", "review_labeled_prs", "urgency_threshold", "can_trigger_reviews"]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
+        return bool(settings.REVIEWHOG_TEAM_ID) and instance.team_id == settings.REVIEWHOG_TEAM_ID
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

@@ -4,6 +4,7 @@ import {
     IconBug,
     IconCompass,
     IconDatabase,
+    IconEye,
     IconGithub,
     IconGraph,
     IconHeartPlus,
@@ -38,6 +39,11 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
         color: 'var(--warning)',
         label: 'Session replay',
     },
+    [SignalSourceProduct.ReplayVision]: {
+        Icon: IconEye,
+        color: 'var(--warning)',
+        label: 'Replay vision',
+    },
     [SignalSourceProduct.ErrorTracking]: {
         Icon: IconBug,
         color: 'var(--danger)',
@@ -66,7 +72,7 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
     [SignalSourceProduct.Conversations]: {
         Icon: IconSupport,
         color: 'var(--blue)',
-        label: 'Conversations',
+        label: 'Support',
     },
     [SignalSourceProduct.Pganalyze]: {
         Icon: IconDatabase,

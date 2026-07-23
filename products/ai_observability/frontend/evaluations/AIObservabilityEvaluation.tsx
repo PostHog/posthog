@@ -56,6 +56,7 @@ import { EvaluationTarget, EvaluationType } from './types'
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
         hasUnsavedChanges,
@@ -225,7 +226,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
+        push(evaluationBackTarget.path)
     }
 
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
@@ -458,10 +459,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <Link to="https://posthog.com/docs/hog" target="_blank">
                                                             Hog code
                                                         </Link>{' '}
-                                                        against each generation. No LLM cost, instant results.
+                                                        against{' '}
+                                                        {evaluation.target === 'trace'
+                                                            ? 'the whole trace'
+                                                            : 'each generation'}
+                                                        . No LLM cost.
                                                     </>
                                                 ) : (
-                                                    'Use an LLM to evaluate each generation against a natural-language prompt.'
+                                                    `Use an LLM to evaluate ${
+                                                        evaluation.target === 'trace'
+                                                            ? 'the whole trace'
+                                                            : 'each generation'
+                                                    } against a natural-language prompt.`
                                                 )}
                                             </p>
 
@@ -628,25 +637,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        trialModels,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey, modelSelectionRequired } =
-        useValues(llmEvaluationLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
-    const showTrialModels = !hasByokKeys && !requiresProviderKey
-    const allModels = showTrialModels ? trialModels : byokModels
-    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = showTrialModels ? trialProviderModelGroups : providerModelGroups
-    const loading = showTrialModels ? trialModelsLoading : byokModelsLoading || providerKeysLoading
+    // Evals always run on the team's own provider key, so only BYOK models are offered.
+    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const groups = providerModelGroups
+    const loading = byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 

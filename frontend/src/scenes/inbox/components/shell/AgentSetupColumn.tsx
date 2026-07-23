@@ -18,6 +18,7 @@ import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
+import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
@@ -233,7 +234,12 @@ function McpServersWidget(): JSX.Element {
             {count > 0 && (
                 <div className="flex items-center gap-1 pt-1">
                     {installations.slice(0, 6).map((installation) => (
-                        <ServerIcon key={installation.id} iconKey={installation.icon_key} size={16} />
+                        <ServerIcon
+                            key={installation.id}
+                            iconDomain={installation.icon_domain}
+                            serverUrl={installation.url}
+                            size={16}
+                        />
                     ))}
                     {count > 6 && <span className="text-[11px] text-muted">+{count - 6}</span>}
                 </div>
@@ -347,6 +353,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
+                <SelfDrivingSection />
             </SetupSection>
             <SetupSection title="Connections">
                 <CodeAccessWidget />

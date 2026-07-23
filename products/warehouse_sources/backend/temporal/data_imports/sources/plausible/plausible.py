@@ -1,16 +1,17 @@
-import time
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     DEFAULT_BACKFILL_DAYS,
@@ -25,15 +26,6 @@ QUERY_PATH = "/api/v2/query"
 
 # Stats API v2 caps pagination.limit at 10000 rows per page.
 DEFAULT_PAGE_LIMIT = 10000
-REQUEST_TIMEOUT_SECONDS = 120
-# Default rate limit is 600 requests/hour per API key. We can't enforce a global budget here, so we
-# add a light per-request throttle and lean on retry/backoff to absorb 429s.
-REQUEST_THROTTLE_SECONDS = 0.25
-MAX_RETRY_ATTEMPTS = 5
-
-
-class PlausibleRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -69,16 +61,6 @@ def hostname_of(host: Optional[str]) -> str:
     return urlparse(resolve_host(host)).hostname or ""
 
 
-def _get_session(api_key: str) -> requests.Session:
-    # `host` is user-supplied, so pin redirects off: validation and the outbound request must stay
-    # on the same target (SSRF defense-in-depth). The key is redacted from logged URLs/samples.
-    return make_tracked_session(
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        redact_values=(api_key,),
-        allow_redirects=False,
-    )
-
-
 def _to_date(value: Any) -> Optional[date]:
     if isinstance(value, datetime):
         return value.date()
@@ -90,19 +72,6 @@ def _to_date(value: Any) -> Optional[date]:
         except ValueError:
             return None
     return None
-
-
-def _build_query(config: PlausibleEndpointConfig, site_id: str, start: date, end: date, offset: int) -> dict[str, Any]:
-    return {
-        "site_id": site_id,
-        "metrics": config.metrics,
-        "date_range": [start.isoformat(), end.isoformat()],
-        "dimensions": config.dimensions,
-        # Ascending by day so the pipeline's incremental watermark only ever advances forward.
-        "order_by": [["time:day", "asc"]],
-        "pagination": {"limit": DEFAULT_PAGE_LIMIT, "offset": offset},
-        "include": {"total_rows": True},
-    }
 
 
 def _normalize_row(config: PlausibleEndpointConfig, result: dict[str, Any]) -> dict[str, Any]:
@@ -117,34 +86,65 @@ def _normalize_row(config: PlausibleEndpointConfig, result: dict[str, Any]) -> d
     return row
 
 
-@retry(
-    retry=retry_if_exception_type((PlausibleRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=2, max=90),
-    reraise=True,
-)
-def _query(
-    session: requests.Session, url: str, payload: dict[str, Any], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    # Throttle every call, including tenacity retries, so a retry storm can't blow past the rate
-    # limit on top of the backoff.
-    time.sleep(REQUEST_THROTTLE_SECONDS)
-    response = session.post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
+class PlausiblePaginator(BasePaginator):
+    """Offset pagination for the Stats API v2 query endpoint.
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise PlausibleRetryableError(f"Plausible API error (retryable): status={response.status_code}")
+    The offset/limit live nested under ``pagination`` in the POST body (not a flat top-level key),
+    and the grand total is at ``meta.total_rows``, so the built-in OffsetPaginator (flat JSON keys)
+    can't express it. Termination mirrors the hand-rolled loop: stop on a short page OR once the next
+    offset reaches ``total_rows``.
+    """
 
-    if not response.ok:
-        logger.error(f"Plausible API error: status={response.status_code}, body={response.text[:500]}")
-        response.raise_for_status()
+    def __init__(self, limit: int, offset: int = 0) -> None:
+        super().__init__()
+        self.limit = limit
+        self.offset = offset
 
-    return response.json()
+    def _set_pagination(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        request.json["pagination"] = {"limit": self.limit, "offset": self.offset}
+
+    def init_request(self, request: Request) -> None:
+        self._set_pagination(request)
+
+    def update_request(self, request: Request) -> None:
+        self._set_pagination(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        results = data or []
+        try:
+            total_rows = response.json().get("meta", {}).get("total_rows")
+        except Exception:
+            total_rows = None
+
+        next_offset = self.offset + self.limit
+        reached_end = len(results) < self.limit or (total_rows is not None and next_offset >= total_rows)
+        self.offset = next_offset
+        self._has_next_page = not reached_end
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.offset already points at the next page to fetch (update_state advanced it).
+        return {"offset": self.offset} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self.offset = int(offset)
+            self._has_next_page = True
 
 
 def validate_credentials(host: Optional[str], site_id: str, api_key: str) -> tuple[bool, str | None]:
     """Confirm the instance is reachable and the key can read the site's stats."""
     try:
-        response = _get_session(api_key).post(
+        # `host` is user-supplied, so pin redirects off: validation and the outbound request must
+        # stay on the same target (SSRF defense-in-depth). The key is redacted from logged samples.
+        session = make_tracked_session(
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            redact_values=(api_key,),
+            allow_redirects=False,
+        )
+        response = session.post(
             f"{resolve_host(host)}{QUERY_PATH}",
             # Cheapest possible probe: one metric over a short relative range, no dimensions.
             json={"site_id": site_id, "metrics": ["visitors"], "date_range": "7d"},
@@ -167,20 +167,11 @@ def validate_credentials(host: Optional[str], site_id: str, api_key: str) -> tup
     return False, message or f"Plausible returned status {response.status_code}."
 
 
-def get_rows(
-    host: Optional[str],
-    site_id: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PlausibleResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = PLAUSIBLE_ENDPOINTS[endpoint]
-    session = _get_session(api_key)
-    url = f"{resolve_host(host)}{QUERY_PATH}"
-
+def _resolve_window(
+    resume_config: Optional[PlausibleResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> tuple[date, date]:
     today = datetime.now(tz=UTC).date()
     start = today - timedelta(days=DEFAULT_BACKFILL_DAYS)
     if should_use_incremental_field:
@@ -190,9 +181,7 @@ def get_rows(
             # on the (date, ...) primary key overwrite the changed rows.
             start = watermark - timedelta(days=REPORT_LOOKBACK_DAYS)
     end = today
-    offset = 0
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         resumed_start = _to_date(resume_config.date_range_start)
         resumed_end = _to_date(resume_config.date_range_end)
@@ -200,32 +189,10 @@ def get_rows(
             start = resumed_start
         if resumed_end is not None:
             end = resumed_end
-        offset = resume_config.offset or 0
-        logger.debug(f"Plausible: resuming {endpoint} from offset={offset}, range={start}..{end}")
 
     if start > end:
         start = end
-
-    while True:
-        body = _query(session, url, _build_query(config, site_id, start, end, offset), logger)
-        results = body.get("results", []) or []
-
-        rows = [_normalize_row(config, result) for result in results]
-        if rows:
-            yield rows
-
-        total_rows = body.get("meta", {}).get("total_rows")
-        next_offset = offset + DEFAULT_PAGE_LIMIT
-        reached_end = len(results) < DEFAULT_PAGE_LIMIT or (total_rows is not None and next_offset >= total_rows)
-        if reached_end:
-            break
-
-        offset = next_offset
-        # Save AFTER yielding so a crash resumes on the next unfetched page (already-yielded rows
-        # are deduped by the primary key on merge).
-        resumable_source_manager.save_state(
-            PlausibleResumeConfig(offset=offset, date_range_start=start.isoformat(), date_range_end=end.isoformat())
-        )
+    return start, end
 
 
 def plausible_source(
@@ -233,25 +200,77 @@ def plausible_source(
     site_id: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PlausibleResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = PLAUSIBLE_ENDPOINTS[endpoint]
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start, end = _resolve_window(resume_config, should_use_incremental_field, db_incremental_field_last_value)
+    start_iso, end_iso = start.isoformat(), end.isoformat()
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume_config is not None:
+        initial_paginator_state = {"offset": resume_config.offset or 0}
+
+    body: dict[str, Any] = {
+        "site_id": site_id,
+        "metrics": config.metrics,
+        "date_range": [start_iso, end_iso],
+        "dimensions": config.dimensions,
+        # Ascending by day so the pipeline's incremental watermark only ever advances forward.
+        "order_by": [["time:day", "asc"]],
+        "include": {"total_rows": True},
+    }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": resolve_host(host),
+            "headers": {"Content-Type": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+            # `host` is user-supplied: reject redirects so a request (and the Authorization header)
+            # can't be bounced off the validated target.
+            "allow_redirects": False,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": QUERY_PATH,
+                    "method": "POST",
+                    "json": body,
+                    "data_selector": "results",
+                    "paginator": PlausiblePaginator(limit=DEFAULT_PAGE_LIMIT),
+                },
+                "data_map": lambda result, config=config: _normalize_row(config, result),
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # the last page (merge dedupes on the primary key) rather than skipping it. The window is
+        # pinned so the resumed query keeps a consistent total_rows/ordering.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(
+                PlausibleResumeConfig(offset=int(state["offset"]), date_range_start=start_iso, date_range_end=end_iso)
+            )
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            host=host,
-            site_id=site_id,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=list(config.primary_keys),
         # Reports are pulled oldest-day-first (order_by time:day asc), so the cursor only moves forward.
         sort_mode="asc",

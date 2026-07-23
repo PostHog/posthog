@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 // Adds team/feature labels to a PR based on its conventional-commit scope
-// (`type(scope): summary`). Additive only — it never removes labels, so manual
-// labels and the ownership-based labeler (assign-reviewers.js) are left intact.
+// (`type(scope): summary`), plus the `docs` label for docs-typed or Inkeep-bot
+// PRs. Additive only — it never removes labels, so manual labels and the
+// ownership-based labeler (assign-reviewers.js) are left intact.
 //
 // The scope -> labels mapping lives in .github/auto-assign-labels.json, OUTSIDE
 // this script, so the owning team can adjust mappings without changing (and
@@ -38,6 +39,25 @@ function parseScopes(title) {
         .split(',')
         .map((scope) => scope.trim().toLowerCase())
         .filter(Boolean)
+}
+
+// The Inkeep docs bot's login. Its PRs get the `docs` label so the website
+// team's project board can exclude them — GitHub project views can't filter by
+// author.
+const INKEEP_BOT_LOGIN = 'inkeep[bot]'
+
+// Pull the conventional-commit type out of a subject: `type(scope): …` / `type: …`.
+// Requires the trailing colon so stray words don't match. Case-insensitive.
+function parseType(title) {
+    const match = /^\s*(\w+)(\([^)]*\))?!?:/.exec(title || '')
+    return match ? match[1].toLowerCase() : null
+}
+
+// The `docs` label applies to docs-typed PRs (`docs:` / `docs(scope):`) and to
+// anything the Inkeep docs bot opens. Unlike the scope rules, this keys off the
+// commit type and the author rather than the scope.
+function docsLabelApplies(title, author) {
+    return parseType(title) === 'docs' || author === INKEEP_BOT_LOGIN
 }
 
 // Map a title's scopes to the de-duplicated labels they should carry.
@@ -99,7 +119,7 @@ async function addLabels(labels) {
 }
 
 async function main() {
-    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, PR_TITLE } = process.env
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, PR_TITLE, PR_AUTHOR } = process.env
     const missing = Object.entries({ GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER })
         .filter(([, value]) => !value)
         .map(([name]) => name)
@@ -112,6 +132,9 @@ async function main() {
     try {
         const rules = loadRules()
         const labels = labelsForTitle(PR_TITLE, rules)
+        if (docsLabelApplies(PR_TITLE, PR_AUTHOR) && !labels.includes('docs')) {
+            labels.push('docs')
+        }
         console.info(`PR title: ${PR_TITLE || '(empty)'}`)
         await addLabels(labels)
     } catch (error) {
@@ -124,4 +147,4 @@ if (require.main === module) {
     main()
 }
 
-module.exports = { parseScopes, labelsForTitle, loadRules }
+module.exports = { parseScopes, parseType, docsLabelApplies, labelsForTitle, loadRules }
