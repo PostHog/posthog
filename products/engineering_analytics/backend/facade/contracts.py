@@ -44,6 +44,23 @@ class GitHubSourceNotConnectedError(Exception):
         super().__init__(message)
 
 
+# The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
+ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
+
+
+class CISignalsSyncStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class CISignalsConfig:
+    configured: bool
+    enabled: bool
+    sync_status: CISignalsSyncStatus | None
+
+
 class QuarantineWriteError(Exception):
     """A quarantine write could not be completed — no GitHub App installed on the
     target repo, the App lives on a different org, a malformed quarantine file, or a
@@ -870,6 +887,11 @@ class WorkflowHealthItem:
     repo: RepoRef
     workflow_name: str
     run_count: int
+    successful_run_count: int
+    # Completed runs that reached a verdict (success / failure / timed_out). Cancelled and skipped
+    # runs inflate `success_rate`'s denominator; pair this with `successful_run_count` for a rate
+    # meaning "of the runs that actually ran".
+    conclusive_run_count: int
     success_rate: float | None
     p50_seconds: float | None
     p95_seconds: float | None
@@ -883,6 +905,8 @@ class WorkflowHealthItem:
     # UI can tell a real pass from a cancelled/skipped run (both have latest_run_failed false). None when
     # nothing has completed. A str, not WorkflowConclusion, because the data carries values outside the enum.
     latest_run_conclusion: str | None
+    latest_run_id: int | None
+    latest_run_attempt: int | None
     # Bucket width of the history series, chosen to fit the window: 'hour', 'day', or 'week'.
     granularity: str
     # Run history across the whole window, oldest first, zero-filled, bucketed by `granularity`.
@@ -895,6 +919,10 @@ class WorkflowHealthItem:
     rerun_cycles: int = 0
     # Success rate over the equal-length window before date_from; None when it had no completed runs.
     success_rate_prev: float | None = None
+    # Successful runs that did real work; the exact population p50/p95 are computed over (no-op gate
+    # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
+    # a duration comparison should size its min-sample gate on this, not on `successful_run_count`.
+    percentile_run_count: int = 0
 
 
 @dataclass(frozen=True)
