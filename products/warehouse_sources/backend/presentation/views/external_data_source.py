@@ -1238,11 +1238,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
-        if job_inputs_were_submitted:
-            # Probe the version this request is saving, not the one it replaces: a repin arrives
-            # alongside job_inputs from the configuration form, and gating the credential check on
-            # the old version would approve a move the stored credentials can't actually reach.
-            # `validate()` has already rejected an unsupported label, so this is safe to send.
+        # Compare resolved versions (not raw labels): null↔default and an explicit pin equal to the
+        # default are no-ops that must not trigger a probe or a sync-cancel.
+        api_version_changed = "api_version" in validated_data and source.resolve_api_version(
+            validated_data["api_version"]
+        ) != source.resolve_api_version(instance.api_version)
+
+        # Probe credentials whenever the config OR the pinned version changes. The version matters on
+        # its own: a bare `{"api_version": ...}` PATCH (API/MCP, not the form) carries no job_inputs,
+        # and without this gate a move the stored credentials can't serve would only fail at the next
+        # sync. Probe the version being saved, not the one it replaces. `validate()` has already
+        # rejected an unsupported label, so this is safe to send.
+        if job_inputs_were_submitted or api_version_changed:
             effective_api_version = source.resolve_api_version(validated_data.get("api_version", instance.api_version))
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
@@ -1269,7 +1276,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 )
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
-            if instance.is_direct_query:
+            if job_inputs_were_submitted and instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
                     source_config, instance.team_id, api_version=effective_api_version
                 )
@@ -1297,13 +1304,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         old_namespaced_resources: list[str] = []
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
-
-        # Compare the *resolved* versions, not the raw labels: null↔default and an explicit pin
-        # equal to the default are no-ops that must not cancel syncs (a bare `api_version: "v1"`
-        # write-back on an unversioned source would otherwise abort its running jobs).
-        api_version_changed = "api_version" in validated_data and source.resolve_api_version(
-            validated_data["api_version"]
-        ) != source.resolve_api_version(instance.api_version)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
@@ -2942,7 +2942,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "total_tables_seen": {"type": "integer"},
                 },
             }
-        }
+        },
     )
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""

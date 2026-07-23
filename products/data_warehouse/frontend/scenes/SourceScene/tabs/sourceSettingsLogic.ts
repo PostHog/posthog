@@ -1096,7 +1096,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
 
                 try {
-                    await sourcesDataLogic.asyncActions.updateSource({
+                    const updatePayload: ExternalDataSource = {
                         ...values.source!,
                         job_inputs: newJobInputs,
                         prefix: prefix !== undefined ? prefix : values.source?.prefix,
@@ -1114,8 +1114,16 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                 ? auto_sync_schema_patterns
                                 : values.source?.auto_sync_schema_patterns,
                         description: description !== '' ? description : (values.source?.description ?? null),
-                        api_version: api_version !== undefined ? api_version : values.source?.api_version,
-                    })
+                    }
+                    // Send api_version only when the picker actually changed. The form spreads the
+                    // whole loaded source, so echoing a stale poll value would overwrite a concurrent
+                    // repin (and cancel its syncs). Omitting it leaves the pin untouched on unrelated edits.
+                    if (api_version !== undefined && api_version !== values.source?.api_version) {
+                        updatePayload.api_version = api_version
+                    } else {
+                        delete updatePayload.api_version
+                    }
+                    await sourcesDataLogic.asyncActions.updateSource(updatePayload)
                     actions.loadSource()
                     lemonToast.success('Source updated')
                     tryShowMCPHint('data_warehouse_sources.update', {

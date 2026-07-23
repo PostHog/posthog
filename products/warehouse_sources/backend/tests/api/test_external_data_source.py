@@ -240,7 +240,10 @@ class TestExternalDataSource(APIBaseTest):
     def test_api_version_pin_can_be_upgraded_and_rolled_back(self):
         # An existing source moves to a newer vendor version, and back again if it doesn't work out.
         source = self._create_external_data_source()
-        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
             upgrade = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
                 data={"api_version": "2026-02-25.clover"},
@@ -305,6 +308,23 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert mock_validate.call_args.kwargs["api_version"] == "2026-02-25.clover"
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_bare_repin_without_job_inputs_still_probes_credentials(self, mock_validate):
+        # An API/MCP PATCH that carries only api_version (no job_inputs) must still confirm the stored
+        # credentials can serve the new version, rather than discovering the failure at the next sync.
+        source = self._create_external_data_source()
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert mock_validate.call_args.kwargs["api_version"] == "2026-02-25.clover"
+
     def test_unchanged_retired_pin_survives_a_full_payload_patch(self):
         # The sources list PATCHes the whole GET payload back. A pin the vendor has since retired
         # is honored verbatim, so echoing it must not 400 an unrelated edit.
@@ -342,7 +362,10 @@ class TestExternalDataSource(APIBaseTest):
                 pipeline_version=ExternalDataJob.PipelineVersion.V1,
             )
 
-        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
                 data={"api_version": "2026-02-25.clover"},
@@ -388,7 +411,10 @@ class TestExternalDataSource(APIBaseTest):
         source = self._create_external_data_source()
         self._create_running_job(source, self._create_external_data_schema(source.id))
 
-        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
                 data={"api_version": "2026-02-25.clover"},
@@ -413,7 +439,10 @@ class TestExternalDataSource(APIBaseTest):
         )
         self._create_running_job(source, cdc_schema)
 
-        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
                 data={"api_version": "2026-02-25.clover"},
