@@ -46,11 +46,16 @@ def format_conversation(ticket: Ticket, messages: Iterable[Comment]) -> str:
     parts: list[str] = []
 
     current_url = None
+    url_truncated = False
     if ticket.session_context and isinstance(ticket.session_context, dict):
         current_url = ticket.session_context.get("current_url")
+        url_truncated = bool(ticket.session_context.get("current_url_truncated"))
 
     if current_url:
-        parts.append(f"The customer was on the page: {current_url}")
+        if url_truncated:
+            parts.append(f"The customer was on the page: {current_url} (this URL was shortened and may be incomplete)")
+        else:
+            parts.append(f"The customer was on the page: {current_url}")
         parts.append("")
 
     parts.append("Conversation:")
