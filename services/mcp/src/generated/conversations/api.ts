@@ -196,6 +196,7 @@ export const ConversationsTicketsReplyCreateParams = /* @__PURE__ */ zod.object(
 export const conversationsTicketsReplyCreateBodyMessageMax = 5000
 
 export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
+export const conversationsTicketsReplyCreateBodyAttachmentMediaIdsMax = 20
 
 export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
     .object({
@@ -207,6 +208,25 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
         rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        cc: zod
+            .array(zod.email())
+            .optional()
+            .describe(
+                "Email addresses to copy (Cc) on the reply. Cc'd addresses are remembered for the rest of the thread, so later replies keep copying them. Ignored for private notes."
+            ),
+        bcc: zod
+            .array(zod.email())
+            .optional()
+            .describe(
+                'Email addresses to blind-copy (Bcc) on the reply. Applies to this message only and is never revealed to the other recipients. Ignored for private notes.'
+            ),
+        attachment_media_ids: zod
+            .array(zod.string())
+            .max(conversationsTicketsReplyCreateBodyAttachmentMediaIdsMax)
+            .optional()
+            .describe(
+                'IDs of files previously uploaded via the upload_attachment action, attached to the outbound email as file attachments. Ignored for private notes.'
+            ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 

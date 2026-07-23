@@ -149,6 +149,9 @@ tools:
             - anonymous_traits
             - ai_resolved
             - escalation_reason
+    conversations-tickets-upload-attachment-create:
+        operation: conversations_tickets_upload_attachment_create
+        enabled: false
     conversations-views-create:
         operation: conversations_views_create
         enabled: false

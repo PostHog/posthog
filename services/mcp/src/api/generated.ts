@@ -10388,6 +10388,22 @@ export namespace Schemas {
       delete_verified_at: string | null;
     }
 
+    export interface AttachmentUploadRequest {
+      /** File to attach to an outbound reply (max 10MB). */
+      file: string;
+    }
+
+    export interface AttachmentUploadResponse {
+      /** Uploaded file ID to pass as attachment_media_ids when replying. */
+      id: string;
+      /** Sanitized file name. */
+      name: string;
+      /** Detected MIME type of the file. */
+      content_type: string;
+      /** File size in bytes. */
+      size: number;
+    }
+
     export interface AttributeBreakdownRow {
       count: number;
       error_count: number;
@@ -15337,6 +15353,15 @@ export namespace Schemas {
       message: string;
       /** TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+      /** Email addresses to copy (Cc) on the first message and the rest of the thread. */
+      cc?: string[];
+      /** Email addresses to blind-copy (Bcc) on the first message. Never revealed to the other recipients. */
+      bcc?: string[];
+      /**
+         * IDs of files previously uploaded via the upload_attachment action, attached to the first message.
+         * @maxItems 20
+         */
+      attachment_media_ids?: string[];
     }
 
     export interface ComposeTicketResponse {
@@ -68481,6 +68506,15 @@ export namespace Schemas {
       is_private?: boolean;
       /** Optional TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+      /** Email addresses to copy (Cc) on the reply. Cc'd addresses are remembered for the rest of the thread, so later replies keep copying them. Ignored for private notes. */
+      cc?: string[];
+      /** Email addresses to blind-copy (Bcc) on the reply. Applies to this message only and is never revealed to the other recipients. Ignored for private notes. */
+      bcc?: string[];
+      /**
+         * IDs of files previously uploaded via the upload_attachment action, attached to the outbound email as file attachments. Ignored for private notes.
+         * @maxItems 20
+         */
+      attachment_media_ids?: string[];
     }
 
     export interface TopPage {

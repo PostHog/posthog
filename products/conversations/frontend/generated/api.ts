@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AiFeedbackRequestApi,
+    AttachmentUploadRequestApi,
+    AttachmentUploadResponseApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
@@ -587,6 +589,31 @@ export const conversationsTicketsUnreadCountRetrieve = async (
     return apiMutator<TicketApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsTicketsUploadAttachmentCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/upload_attachment/`
+}
+
+/**
+ * Upload a file to attach to a support email reply or new outbound ticket.
+ *
+ * Returns the stored file's ID, which the caller passes back as ``attachment_media_ids``
+ * when sending. Unlike the image-only media upload, this accepts arbitrary file types.
+ */
+export const conversationsTicketsUploadAttachmentCreate = async (
+    projectId: string,
+    attachmentUploadRequestApi: AttachmentUploadRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadResponseApi> => {
+    const formData = new FormData()
+    formData.append(`file`, attachmentUploadRequestApi.file)
+
+    return apiMutator<AttachmentUploadResponseApi>(getConversationsTicketsUploadAttachmentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
 
