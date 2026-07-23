@@ -5,11 +5,7 @@ from unittest.mock import MagicMock
 
 from posthog.schema import AlertCalculationInterval
 
-from posthog.tasks.alerts.utils import (
-    alert_calculation_interval_to_relativedelta,
-    calculation_interval_to_order,
-    next_check_time,
-)
+from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time
 
 from products.alerts.backend.models.alert import AlertConfiguration
 
@@ -19,10 +15,6 @@ class TestAlertUtils:
         assert calculation_interval_to_order(AlertCalculationInterval.REAL_TIME) < calculation_interval_to_order(
             AlertCalculationInterval.EVERY_15_MINUTES
         )
-
-    def test_alert_calculation_interval_to_relativedelta_real_time(self) -> None:
-        delta = alert_calculation_interval_to_relativedelta(AlertCalculationInterval.REAL_TIME)
-        assert delta.minutes == 2
 
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)

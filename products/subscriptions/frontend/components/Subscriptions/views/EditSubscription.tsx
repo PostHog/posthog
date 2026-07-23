@@ -321,7 +321,7 @@ function DashboardInsightsField({
                     selectedInsightIds={value ?? []}
                     onChange={onChange}
                     // The logic decides whether the auto-selection resets the form to a clean state
-                    // or joins a prefill's baseline — see applyInsightSelectionDefaults.
+                    // or joins a prefill's baseline — see applyDefaultSelectedInsights.
                     onDefaultsApplied={onDefaultsApplied}
                 />
             )}
@@ -353,7 +353,7 @@ function EditSubscriptionForm({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyInsightSelectionDefaults, generatePreview } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -512,7 +512,7 @@ function EditSubscriptionForm({
                         {dashboard?.tiles && selectionReady && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
-                                onDefaultsApplied={applyInsightSelectionDefaults}
+                                onDefaultsApplied={applyDefaultSelectedInsights}
                             />
                         )}
 

@@ -20,7 +20,7 @@ from django.conf import settings
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
-from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
     ProcessTaskError,
     SandboxCleanupError,
@@ -34,7 +34,6 @@ from products.tasks.backend.models import SandboxSnapshot
 
 from .agentsh import (
     BASH_ENV_SCRIPT,
-    ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
     build_exec_prefix,
@@ -44,7 +43,7 @@ from .agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache, bundled_skills_disabled
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -440,7 +439,11 @@ class DockerSandbox(SandboxBase):
             # the baked-in rendered skills in the image stay visible — only
             # the specific skills the user has on disk get overlaid.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
-            if local_skills_host and os.path.isdir(local_skills_host):
+            if (
+                not bundled_skills_disabled(config.environment_variables)
+                and local_skills_host
+                and os.path.isdir(local_skills_host)
+            ):
                 for entry in sorted(os.listdir(local_skills_host)):
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
@@ -800,6 +803,7 @@ class DockerSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        posthog_exec_permission_regex: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -825,6 +829,11 @@ class DockerSandbox(SandboxBase):
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
+        exec_permission_flag = (
+            f" --posthogExecPermissionRegex {shlex.quote(posthog_exec_permission_regex)}"
+            if posthog_exec_permission_regex
+            else ""
+        )
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -835,7 +844,7 @@ class DockerSandbox(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -846,16 +855,15 @@ class DockerSandbox(SandboxBase):
             'export NO_PROXY="host.docker.internal,${NO_PROXY:-localhost,127.0.0.1}"; export no_proxy="$NO_PROXY"; '
         )
         inner = f"cd /scripts && {no_proxy_export}{server_cmd} > /tmp/agent-server.log 2>&1"
+        initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && env -0 > {ENV_FILE} && "
-                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+                f"cd /scripts && {initialize_env_file} && "
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
             )
         else:
-            # Write the env file even without agentsh so BASH_ENV (and the
-            # in-process token resolver) can re-read a backend-refreshed token.
-            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.
@@ -904,6 +912,8 @@ class DockerSandbox(SandboxBase):
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
 
+        self.clear_bundled_skills_if_disabled()
+
         repo_path: str | None = None
         if repository:
             org, repo = repository.lower().split("/")
@@ -931,6 +941,14 @@ class DockerSandbox(SandboxBase):
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
 
+        exec_permission_regex: str | None = POSTHOG_EXEC_PERMISSION_REGEX
+        if not self.agent_server_supports_exec_permission_regex():
+            logger.warning(
+                f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
+                "exec sub-tools will not prompt"
+            )
+            exec_permission_regex = None
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
@@ -953,6 +971,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            posthog_exec_permission_regex=exec_permission_regex,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -1003,6 +1022,7 @@ class DockerSandbox(SandboxBase):
                 event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
+                posthog_exec_permission_regex=exec_permission_regex,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")

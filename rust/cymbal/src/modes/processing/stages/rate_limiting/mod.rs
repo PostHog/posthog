@@ -545,7 +545,7 @@ fn evaluate_bypass_rules<'a>(
         let Some(rules) = rules_by_team.get(&props.team_id()) else {
             continue;
         };
-        let props_json = props.to_properties_value();
+        let props_json = props.rate_limit_rule_properties();
         for rule in rules {
             if disabled_rules.contains(&rule.id) {
                 continue;
@@ -591,7 +591,7 @@ mod tests {
     use super::*;
     use crate::issue_resolution::{Issue, IssueStatus};
     use crate::modes::processing::types::{
-        exception_event::{FingerprintData, ResolvedMetadata},
+        exception_event::{ResolvedMetadata, SelectedFingerprint},
         ExceptionList,
     };
     use async_trait::async_trait;
@@ -673,11 +673,7 @@ mod tests {
                     handled: false,
                     releases: HashMap::new(),
                 },
-                fingerprint: FingerprintData {
-                    value: "test-fingerprint".to_string(),
-                    version: None,
-                    record: vec![],
-                },
+                fingerprint: SelectedFingerprint::manual("test-fingerprint".to_string()),
                 issue: Issue {
                     id: issue_id.unwrap_or_default(),
                     team_id,

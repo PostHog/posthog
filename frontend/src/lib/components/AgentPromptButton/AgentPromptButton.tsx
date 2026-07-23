@@ -100,6 +100,11 @@ function openDeepLink(buildDeepLink: (prompt: string) => string): (prompt: strin
     return (prompt: string) => window.open(buildDeepLink(prompt), '_blank')
 }
 
+export function buildPostHogCodeDeepLink(prompt: string, repository?: string): string {
+    const repoParam = repository ? `&repo=${encodeURIComponent(repository)}` : ''
+    return `posthog-code://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
+}
+
 const AGENTS: AgentDef[] = [
     {
         key: 'posthog-ai',
@@ -113,7 +118,7 @@ const AGENTS: AgentDef[] = [
         name: 'PostHog Code',
         logo: <IconLogomark className="size-4 shrink-0" />,
         verb: 'Open',
-        open: openDeepLink((p) => `posthog-code://new?prompt=${encodeURIComponent(p)}`),
+        open: (prompt, { repository }) => window.open(buildPostHogCodeDeepLink(prompt, repository), '_blank'),
     },
     {
         key: 'claude-code',

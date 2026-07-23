@@ -2,8 +2,9 @@
 
 The single source of truth every enrichment writer imports, so the Postgres record,
 the ClickHouse group-property projection, and the at-signup snapshot stay in lockstep.
-Provider-agnostic: providers transform their responses into this shape. icp_score is
-intentionally excluded from v0.
+Provider-agnostic: providers transform their responses into this shape. The ICP score is
+deliberately not a field here: it is derived rather than provider-reported, and the writer
+takes it separately so it stays out of the `fields_filled` launch signal.
 
 Precedent: ee/billing/salesforce_enrichment/usage_signals.py (UsageSignals).
 """

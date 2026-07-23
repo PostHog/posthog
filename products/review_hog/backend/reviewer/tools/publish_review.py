@@ -209,8 +209,10 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
     """Format a finding + its verdict as an inline comment body.
 
     Leads with the title, then a line of colored severity/category badges (replacing the old
-    `Priority | Category | Lines` text meta); the four collapsed sections below are unchanged. Line
-    refs are omitted from the top — the comment is anchored inline and the lines live in the AI prompt.
+    `Priority | Category | Lines` text meta); four collapsed sections follow, the validator's verdict
+    first — it is the human-facing evidence, so the reading order is claim (title) → why it's real
+    (validation) → description / fix / AI prompt for whoever wants more. Line refs are omitted from
+    the top — the comment is anchored inline and the lines live in the AI prompt.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
 
@@ -218,6 +220,14 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         f"### {finding.title}",
         "",
         _finding_badge_line(priority, verdict.category),
+        "",
+        "<details>",
+        "<summary><strong>Why we think it's a valid issue</strong></summary>",
+        "<br>",
+        "",
+        verdict.argumentation,
+        "",
+        "</details>",
         "",
         "<details>",
         "<summary><strong>Issue description</strong></summary>",
@@ -232,14 +242,6 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         "<br>",
         "",
         finding.suggestion,
-        "",
-        "</details>",
-        "",
-        "<details>",
-        "<summary><strong>Why we think it's a valid issue</strong></summary>",
-        "<br>",
-        "",
-        verdict.argumentation,
         "",
         "</details>",
         "",

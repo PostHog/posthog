@@ -555,6 +555,21 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
+    def test_search_by_ticket_number_with_hash_prefix(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=%23{self.ticket.ticket_number}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit):
+        # "²" passes str.isdigit() but int() rejects it; it must fall through to text search
+        # rather than 500.
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=%C2%B2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
     @parameterized.expand(
         [
             ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
@@ -997,6 +1012,43 @@ class TestTicketAssignment(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    @parameterized.expand(
+        [
+            ("user_and_role", "user:{user_id},role:{role_id}", {"user", "role"}),
+            ("unassigned_and_user", "unassigned,user:{user_id}", {"user", "unassigned"}),
+            ("multiple_users", "user:{user_id},user:{other_user_id}", {"user", "other_user"}),
+            ("invalid_entries_ignored", "user:abc,role:not-a-uuid,user:{user_id}", {"user"}),
+            ("all_invalid_applies_no_filter", "user:abc,bogus", {"user", "role", "other_user", "unassigned"}),
+        ]
+    )
+    def test_filter_by_multiple_assignees(self, _name: str, assignee_template: str, expected_keys: set[str]) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other-assignee@posthog.com", None)
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        tickets = {"user": self.ticket}
+        for key, assignment in (
+            ("role", {"role": self.role}),
+            ("other_user", {"user": other_user}),
+            ("unassigned", None),
+        ):
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"session-{key}",
+                distinct_id=f"distinct-{key}",
+            )
+            if assignment:
+                TicketAssignment.objects.create(ticket=ticket, **assignment)
+            tickets[key] = ticket
+
+        assignee_param = assignee_template.format(
+            user_id=self.user.id, other_user_id=other_user.id, role_id=self.role.id
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee={assignee_param}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {result["id"] for result in response.json()["results"]}
+        self.assertEqual(returned_ids, {str(tickets[key].id) for key in expected_keys})
 
     def test_assignment_logs_activity(self):
         """Test that assignment changes are logged in activity log."""

@@ -38,6 +38,9 @@ A = AggregationAxisFormat
         (-72.0, {"axis_format": A.DURATION}, "-1m 12s"),
         (3660.0, {"axis_format": A.DURATION}, "1h 1m"),
         (1500.0, {"axis_format": A.DURATION_MS}, "1.5s"),
+        (500.0, {"axis_format": A.DURATION_NS}, "500ns"),
+        (500_000.0, {"axis_format": A.DURATION_NS}, "500µs"),
+        (1_500_000_000.0, {"axis_format": A.DURATION_NS}, "1.5s"),
         # percentage variants (axis %, distinct from a PERCENTAGE threshold's own rendering)
         (50.0, {"axis_format": A.PERCENTAGE}, "50%"),
         (0.5, {"axis_format": A.PERCENTAGE_SCALED}, "50%"),

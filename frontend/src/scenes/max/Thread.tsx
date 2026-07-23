@@ -65,7 +65,13 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 
-import { getThinkingMessageFromResponse, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import {
+    AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
+    getThinkingMessageFromResponse,
+    runStreamLogic,
+    useAttachedContext,
+    useForegroundStream,
+} from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
     ContextUsageBar,
@@ -88,7 +94,7 @@ import { FeedbackPrompt } from './FeedbackPrompt'
 import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
 import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { ThreadMessage, maxLogic } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
@@ -121,8 +127,21 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
+    const { panelId } = useValues(maxLogic)
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
+
+    // Register the sandbox stream rendered in the side panel as the foreground stream (tool apply-back
+    // reacts only to it). Only the side-panel instance qualifies — the full-page /ai scene (any other
+    // panelId) never registers. Cleared on unmount / conversation change via the streamKey dependency.
+    const rendersSandboxThread = isSandboxRuntime || isConvertedConversation
+    useForegroundStream(panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread ? sandboxConversationKey : null)
+
+    // While the side panel shows a sandbox thread, tell the agent its tool calls are applied back into
+    // whatever the user has open (the prompt-side half of the apply-back the foreground stream enables).
+    useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM], {
+        active: panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread,
+    })
 
     const containerClassName = cn(
         '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',

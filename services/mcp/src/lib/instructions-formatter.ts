@@ -10,10 +10,13 @@ import {
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
+import CLI_LEARN from '@/templates/sections/cli-learn.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
@@ -23,11 +26,14 @@ import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
+import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
-import type { ExecHelpEntry } from '@/tools/exec-help'
+import type { ExecLearnGuide } from '@/tools/exec-learn'
 
 export interface InstructionsContext {
     guidelines: string
@@ -39,6 +45,10 @@ export interface InstructionsContext {
      *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
      *  like Claude Code — that can't mount the iframe. */
     renderUiEnabled?: boolean | undefined
+    /** Whether the governed-metrics catalog (`system.information_schema.metrics`) exists
+     *  for this org. Gates the metric-discovery section so flag-off renders never steer
+     *  the model at a table it can't query — and stay byte-identical. */
+    dataCatalogEnabled?: boolean | undefined
 }
 
 /**
@@ -54,8 +64,10 @@ export class InstructionsFormatter {
             [
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
+                ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -68,14 +80,24 @@ export class InstructionsFormatter {
 
     /** Build the compact `instructions` payload for single-exec clients (~2KB budget).
      *  The bulk of the system prompt lives on the exec tool's `command` parameter
-     *  description (`buildExecCommandReference`) — this is just env + tool index. */
+     *  description (`buildExecCommandReference`) — this is just env + tool index.
+     *  The skills-first mandate stays out of here to protect the budget; it lives
+     *  on the exec tool description and command reference instead. */
     buildExecInstructions(ctx: InstructionsContext): string {
         return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
     }
 
-    /** Build the top-level description of the `posthog:exec` tool. */
-    buildExecToolDescription(): string {
-        return EXEC_TOOL_BLURB.trim()
+    /** Build the top-level description of the `posthog:exec` tool. Lives in the
+     *  uncapped top-level `description`, so the skills text costs no schema budget.
+     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  an agent before its first tool call, and agents that answer PostHog-behavior
+     *  questions by cloning the public repo never make a call for the gate to catch. */
+    buildExecToolDescription(opts: { skillsEnabled?: boolean } = {}): string {
+        const blurb = EXEC_TOOL_BLURB.trim()
+        if (!opts.skillsEnabled) {
+            return blurb
+        }
+        return `${SKILLS_FIRST.trim()}\n\n${blurb}`
     }
 
     /**
@@ -83,21 +105,31 @@ export class InstructionsFormatter {
      * existing prompt sections remain the source of truth; only their delivery
      * moves from the advertised schema to `exec learn`.
      */
-    buildClaudeExecHelpEntries(ctx: InstructionsContext): ExecHelpEntry[] {
-        const entries: ExecHelpEntry[] = [
+    buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+        const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
-                kind: 'guide',
                 title: 'Analytics',
-                description: 'Query or analyze PostHog data, metrics, and events.',
-                content: this.compose([RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES], ctx, { compact: false }),
+                description: ctx.dataCatalogEnabled
+                    ? 'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.'
+                    : 'Query or analyze PostHog data, metrics, and events.',
+                content: this.compose(
+                    [
+                        ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                        RETRIEVING_DATA,
+                        SCHEMA_WORKFLOW,
+                        ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                        EXAMPLES,
+                    ],
+                    ctx,
+                    { compact: false }
+                ),
             },
         ]
 
         if (ctx.renderUiEnabled) {
             entries.push({
                 id: 'visualizations',
-                kind: 'guide',
                 title: 'Visualizations',
                 description: 'Create or render a visualization.',
                 content: this.compose([CLI_RENDERING], ctx, { compact: false }),
@@ -105,8 +137,14 @@ export class InstructionsFormatter {
         }
 
         entries.push({
+            id: 'urls',
+            title: 'URL patterns',
+            description: 'Load before writing any PostHog app link or URL.',
+            content: this.compose([URL_PATTERNS], ctx, { compact: false }),
+        })
+
+        entries.push({
             id: 'feedback',
-            kind: 'guide',
             title: 'Feedback',
             description: 'Send feedback about PostHog.',
             content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
@@ -122,10 +160,19 @@ export class InstructionsFormatter {
      * guidance inline and move only task-specific sections behind `learn <topic...>`.
      * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
      */
-    buildClaudeExecCommandReference(ctx: InstructionsContext): string {
-        const helpEntries = this.buildClaudeExecHelpEntries(ctx)
-        const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
+    buildClaudeExecCommandReference(
+        ctx: InstructionsContext,
+        opts: { learnEnabled?: boolean; skillsEnabled?: boolean } = {}
+    ): string {
+        const learnEnabled = opts.learnEnabled ?? true
+        const skillsEnabled = opts.skillsEnabled ?? true
+        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
+        const learnSection = learnEnabled
+            ? formatPrompt(EXEC_LEARN, {
+                  help_topics: learnGuideList,
+              })
+            : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
             metadata: ctx.metadata,
@@ -136,7 +183,12 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 CLI_SYNTAX,
-                helpSection,
+                // Compact skills-first variant: this reference lives inside the
+                // schema-capped `command` description (see the budget test), so the
+                // content-routing paragraph is reserved for the uncapped full reference.
+                ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
+                ...(learnSection ? [learnSection] : []),
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES_CLAUDE,
@@ -144,13 +196,15 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ENV_CONTEXT,
-                URL_PATTERNS,
+                // URL patterns live behind `learn urls` to protect the schema budget;
+                // with learn unavailable there is no topic to load, so stay inline.
+                ...(learnSection ? [] : [URL_PATTERNS]),
             ],
             renderCtx,
             {
                 compact: false,
                 compactToolDomains: true,
-                extraCommands: 'learn <topic...> - load one or more learning topics\n',
+                extraCommands: learnEnabled ? 'learn <topic...> - load one or more learning topics\n' : undefined,
             }
         )
     }
@@ -172,10 +226,12 @@ export class InstructionsFormatter {
      *  its complete JSON schema has a smaller client-enforced size budget. */
     buildExecCommandReference(
         ctx: InstructionsContext,
-        opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
+        opts: { stripEnvContext: boolean; keepEnvContext?: boolean; learnEnabled?: boolean }
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...((opts.learnEnabled ?? true) ? [CLI_LEARN] : []),
+            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -185,6 +241,7 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
+            ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,

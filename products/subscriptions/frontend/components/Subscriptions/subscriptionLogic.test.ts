@@ -231,7 +231,7 @@ describe('subscriptionLogic', () => {
         router.actions.push(`/dashboard/9/subscriptions/new${search}`)
         await expectLogic(testLogic).toFinishListeners()
 
-        testLogic.actions.applyInsightSelectionDefaults([101, 102])
+        testLogic.actions.applyDefaultSelectedInsights([101, 102])
         await expectLogic(testLogic).toFinishListeners()
 
         expect(testLogic.values.subscription.dashboard_export_insights).toEqual([101, 102])

@@ -396,8 +396,10 @@ pub struct Config {
     // `Cohort::uses_realtime_membership()` also requires `condition_type` to flag a
     // behavioral/lifecycle condition. `condition_type` wasn't backfilled when it was added, so
     // any cohort that hasn't been saved since must be resaved (`python manage.py resave_cohorts
-    // --team-id <id>`) before allowlisting a team here, or its behavioral cohorts will read as
-    // condition_type = NULL and fall back to legacy dynamic evaluation.
+    // --team-id <id>`) for every team in REALTIME_COHORT_EVALUATION_TEAM_IDS, including any
+    // already allowlisted at deploy time — otherwise its behavioral cohorts read as
+    // condition_type = NULL and fall back to legacy dynamic evaluation, which resolves every
+    // person as a non-member rather than just evaluating slower.
     #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
     pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
 

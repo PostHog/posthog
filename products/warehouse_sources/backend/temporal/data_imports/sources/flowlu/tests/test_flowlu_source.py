@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.flowlu import FlowluResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.source import FlowluSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlowluSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

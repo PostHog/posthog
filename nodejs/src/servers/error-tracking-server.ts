@@ -13,7 +13,6 @@ import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-pers
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { ErrorTrackingSettingsManager } from '~/common/utils/error-tracking-settings-manager'
 import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
@@ -160,9 +159,6 @@ export class ErrorTrackingServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
-        const errorTrackingSettingsManager = this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED
-            ? new ErrorTrackingSettingsManager(this.postgres)
-            : undefined
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -212,23 +208,10 @@ export class ErrorTrackingServer implements NodeServer {
                         this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                     preservePartitionLocality: this.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
                     pipeline: this.config.INGESTION_PIPELINE ?? 'errortracking',
-                    rateLimiterEnabled: this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED,
-                    rateLimiterReportingMode: this.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
-                    rateLimiterRedisHost: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
-                    rateLimiterRedisPort: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
-                    rateLimiterRedisTls: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-                    rateLimiterTtlSeconds: this.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
-                    perIssueGuardThreshold: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
-                    perIssueGuardWindowTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-                    perIssueGuardCooldownTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
-                    fallbackRedisUrl: this.config.REDIS_URL,
-                    rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-                    rateLimiterRedisPoolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                 },
                 {
                     outputs,
                     teamManager,
-                    errorTrackingSettingsManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
                     groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository),
                     cookielessManager: this.cookielessManager!,

@@ -125,9 +125,16 @@ def mint_command_token(secret: str, run_id: str, ttl_seconds: int = _COMMAND_TOK
 
 
 def _backend_base_url() -> str:
-    # The sandbox reaches the host backend here. Docker maps localhost -> host.docker.internal,
-    # so default to that for local dev; SANDBOX_API_URL overrides (e.g. ngrok for Modal).
-    base = getattr(settings, "SANDBOX_API_URL", None) or "http://host.docker.internal:8000"
+    # The sandbox reaches the host backend here. SANDBOX_API_URL overrides (e.g. ngrok for Modal
+    # from local dev). In dev the kernel runs in local Docker, where the host is
+    # host.docker.internal (SITE_URL would be an unreachable localhost); in prod the kernel runs
+    # remotely and must use the public SITE_URL.
+    if settings.SANDBOX_API_URL:
+        base = settings.SANDBOX_API_URL
+    elif settings.DEBUG:
+        base = "http://host.docker.internal:8000"
+    else:
+        base = settings.SITE_URL
     return base.rstrip("/")
 
 
@@ -267,7 +274,12 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
 
     runtime.server_url = credentials.url
     runtime.server_connect_token = credentials.token
-    runtime.save(update_fields=["server_url", "server_connect_token"])
+    # A redeploy relaunches the kernel inside a live sandbox and keeps this row, so the frame
+    # snapshot would outlive the kernel that produced it — the one path where the row's
+    # lifetime stops tracking the kernel's. Its registrations are gone with the namespace, so
+    # drop the snapshot; the next run repopulates it from the new kernel's catalog.
+    runtime.frames = None
+    runtime.save(update_fields=["server_url", "server_connect_token", "frames"])
     return runtime
 
 
@@ -288,6 +300,11 @@ def dispatch_sql_v2_run(
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
+    # Record which kernel took the run: the sandbox can't name it (its secret is a one-way
+    # derivation of the runtime id, not the id), and letting it name one would let a sandbox
+    # write over another kernel's state. So the backend decides here and the callback follows.
+    run.kernel_runtime_id = runtime.id
+    run.save(update_fields=["kernel_runtime_id", "updated_at"])
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
     payload: dict = {

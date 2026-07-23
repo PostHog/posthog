@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, Mock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -16,7 +16,107 @@ from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow_async,
     redispatch_orphaned_task_run,
     resume_task_in_cloud_workflow,
+    signal_task_followup_message,
 )
+from products.tasks.backend.temporal.constants import (
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
+)
+
+
+@override_settings(DEBUG=False)
+class TestSignalTaskFollowupMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                False,
+                True,
+                None,
+                "send_followup_message",
+                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
+            ),
+            (
+                True,
+                False,
+                1,
+                "send_followup_message",
+                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
+            ),
+            (
+                True,
+                True,
+                1,
+                SEND_STEER_SIGNAL,
+                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
+            ),
+            (
+                True,
+                True,
+                RuntimeError("query not registered"),
+                "send_followup_message",
+                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
+            ),
+            (
+                True,
+                True,
+                TimeoutError("query timed out"),
+                "send_followup_message",
+                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
+            ),
+            (
+                True,
+                RuntimeError("feature flag unavailable"),
+                1,
+                "send_followup_message",
+                ["hello", ["artifact-1"], "message-1", 42, {"actor_slack_user_id": "U1"}],
+            ),
+        ]
+    )
+    def test_capability_gates_versioned_signal_and_preserves_sender_fields(
+        self,
+        steer: bool,
+        feature_flag_result: bool | Exception,
+        query_result: int | Exception | None,
+        expected_signal: str,
+        expected_args: list[object],
+    ) -> None:
+        handle = Mock()
+        handle.signal = AsyncMock()
+        handle.query = AsyncMock()
+        if isinstance(query_result, Exception):
+            handle.query.side_effect = query_result
+        else:
+            handle.query.return_value = query_result
+        client = Mock()
+        client.get_workflow_handle.return_value = handle
+
+        with (
+            patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled") as feature_enabled,
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+        ):
+            if isinstance(feature_flag_result, Exception):
+                feature_enabled.side_effect = feature_flag_result
+            else:
+                feature_enabled.return_value = feature_flag_result
+            signal_task_followup_message(
+                "workflow-id",
+                "hello",
+                ["artifact-1"],
+                "message-1",
+                42,
+                {"actor_slack_user_id": "U1"},
+                steer=steer,
+            )
+
+        handle.signal.assert_awaited_once_with(expected_signal, args=expected_args)
+        if steer and feature_flag_result is True:
+            handle.query.assert_awaited_once_with(
+                STEERING_PROTOCOL_QUERY,
+                rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+            )
+        else:
+            handle.query.assert_not_awaited()
 
 
 @override_settings(DEBUG=False)

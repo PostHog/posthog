@@ -72,8 +72,7 @@ export function DefaultTooltip<Meta = unknown>({
           ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
           : visible
     const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
-    const closestKey =
-        hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
+    const closestKey = hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))
@@ -161,7 +160,18 @@ export function DefaultTooltip<Meta = unknown>({
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
                             className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5 rounded transition-colors duration-150${isClosest ? ' font-semibold bg-current/[.1]' : ''}${clickable}`}
-                            onClick={onRowClick ? () => onRowClick(s) : undefined}
+                            onClick={
+                                onRowClick
+                                    ? () => {
+                                          // A click that completes a text selection is a copy
+                                          // gesture, not a drill-down.
+                                          if (window.getSelection()?.toString()) {
+                                              return
+                                          }
+                                          onRowClick(s)
+                                      }
+                                    : undefined
+                            }
                         >
                             <TooltipSwatch color={s.color} />
                             {/* Grid-stack the label so an invisible semibold ghost always reserves

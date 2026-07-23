@@ -443,6 +443,19 @@ export function validateFeatureFlagKey(key: string): string | undefined {
             : undefined
 }
 
+/** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
+ * Wider than flag keys: dots and slashes are allowed because variant keys often carry values SDKs consume
+ * directly (e.g. model IDs like "provider/model-1.2"), and the API has always accepted them. */
+export function validateFeatureFlagVariantKey(key: string): string | undefined {
+    return !key
+        ? 'Please set a key'
+        : key.length > 400
+          ? 'Key must be 400 characters or less.'
+          : !key.match?.(/^[a-zA-Z0-9_\-./]+$/)
+            ? 'Only letters, numbers, hyphens (-), underscores (_), dots (.) & slashes (/) are allowed.'
+            : undefined
+}
+
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
@@ -2057,7 +2070,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         multivariate: {
                             variants: filters?.multivariate?.variants?.map(
                                 ({ key: variantKey }: MultivariateFlagVariant) => ({
-                                    key: validateFeatureFlagKey(variantKey),
+                                    key: validateFeatureFlagVariantKey(variantKey),
                                 })
                             ),
                         },
@@ -4200,7 +4213,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.variants],
             (variants: MultivariateFlagVariant[]) => {
                 const errors: VariantError[] = variants.map(({ key: variantKey }: MultivariateFlagVariant) => ({
-                    key: validateFeatureFlagKey(variantKey),
+                    key: validateFeatureFlagVariantKey(variantKey),
                 }))
                 return errors
             },

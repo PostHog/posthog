@@ -71,6 +71,23 @@ For email, call `send_alert_email(...)` through the facade. The product must cho
 
 ## 6. Add scheduling and due selection
 
+Import the product-facing scheduling contract directly from its implementation module:
+
+```python
+from products.alerts.backend.scheduling import (
+    CalendarInterval,
+    advance_next_check_at,
+    compute_shard_offset_seconds,
+    is_utc_datetime_blocked,
+    is_weekend,
+    next_calendar_check_time,
+    parse_blocked_windows_tuples,
+    scan_next_unblocked_utc,
+    to_calendar_interval,
+    validate_and_normalize_schedule_restriction,
+)
+```
+
 For fixed-minute checks:
 
 - Reuse `compute_shard_offset_seconds(...)` and `advance_next_check_at(...)`.
@@ -78,7 +95,12 @@ For fixed-minute checks:
 - Keep one stable shard calculation across create, update, and evaluation paths.
 - Implement and test a product-specific due predicate with team scoping, enabled state, broken state, snooze state, and `next_check_at` behavior.
 
-For calendar scheduling, keep timezone anchors and restrictions in the product. Do not mix calendar semantics into the fixed-cadence helpers.
+For calendar-aligned checks:
+
+- Convert product interval values with `to_calendar_interval(...)`, then use `next_calendar_check_time(...)` with the team's IANA timezone.
+- Validate stored quiet-hour payloads with `validate_and_normalize_schedule_restriction(...)` and parse them with `parse_blocked_windows_tuples(...)`.
+- Use `scan_next_unblocked_utc(...)`, `is_utc_datetime_blocked(...)`, and `is_weekend(...)` instead of recreating timezone or DST logic.
+- Keep model access, API error translation, bounded-retry logging, and `next_check_at` persistence in the product adapter.
 
 ## 7. Add product orchestration
 
@@ -88,15 +110,24 @@ Avoid large Temporal payloads. Pass alert IDs and references, then load data ins
 
 ## 8. Add the frontend
 
-Use the shared `AlertWizard` when the product creates HogFunction-backed alerts.
+Read [frontend-alerting.md](frontend-alerting.md), then choose the appropriate shared path.
+
+Use `AlertWizard` when the product creates HogFunction-backed alerts from trigger and destination templates.
 
 - Configure a unique `logicKey`.
 - Supply supported sub-template IDs, triggers, and destinations.
 - Add product-specific configuration outside the shared wizard when it is not a reusable HogFunction input.
 - Keep the traditional HogFunction editor as the advanced fallback when the product already supports it.
-- Ensure every network-backed action has loading and double-submit protection.
 
-A product may skip `AlertWizard` if it has no HogFunction destinations.
+Use the shared product alert components in `products/alerts/frontend/components/` when the product owns an alert configuration, evaluation rules, lifecycle state, destinations, and history.
+
+- Compose the form with `AlertEditor`, `AlertEditorFormDetails`, and `AlertEditorSection`.
+- Use the shared definition, schedule, next-evaluation, timezone, and advanced-options components for presentation.
+- Normalize destinations into `AlertNotificationDestinationEditor` view models while keeping supported types, payloads, grouping, and persistence product-owned.
+- Normalize numeric evaluations and current bounds into `AlertEvaluationHistoryChart`; keep the product history table or event timeline beside it.
+- Keep container sizing in the product modal, scene, or embedded section.
+
+A product may use either path or both. Ensure every network-backed action has loading and double-submit protection.
 
 ## 9. Verify the boundaries
 

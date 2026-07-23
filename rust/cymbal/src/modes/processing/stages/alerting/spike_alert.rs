@@ -17,7 +17,7 @@ use crate::{
         batch::Batch,
         exception_event::ExceptionEvent,
         stage::{Stage, StageResult},
-        OutputErrProps,
+        ProcessedExceptionProperties,
     },
 };
 
@@ -42,14 +42,14 @@ impl Stage for SpikeAlertStage {
 
     async fn process(self, batch: Batch<RateCheckedPipelineItem>) -> StageResult<Self> {
         let mut issues: Vec<Issue> = Vec::new();
-        let mut issue_props_by_id: HashMap<Uuid, OutputErrProps> = HashMap::new();
+        let mut issue_props_by_id: HashMap<Uuid, ProcessedExceptionProperties> = HashMap::new();
 
         for res in batch.inner_ref() {
             let Ok(evt) = res else { continue };
             let issue = evt.issue();
-            // Keep one OutputErrProps per issue (they share the same stack shape)
+            // Keep one ProcessedExceptionProperties per issue (they share the same stack shape)
             if let Entry::Vacant(e) = issue_props_by_id.entry(issue.id) {
-                e.insert(evt.to_output());
+                e.insert(evt.processed_properties());
             }
             issues.push(issue.clone());
         }

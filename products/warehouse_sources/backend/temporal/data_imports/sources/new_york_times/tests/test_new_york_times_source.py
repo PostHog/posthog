@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewYorkTimesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newyorktimes import (
+    NewYorkTimesSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
     NewYorkTimesResumeConfig,

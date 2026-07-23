@@ -8,7 +8,10 @@ use cymbal::{
     fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
     symbolication::symbol_store::saving::SymbolSetRecord,
-    types::{event::AnyEvent, Exception, ExceptionList, Mechanism, OutputErrProps, Stacktrace},
+    types::{
+        event::AnyEvent, Exception, ExceptionList, Mechanism, ProcessedExceptionProperties,
+        Stacktrace,
+    },
 };
 use insta::assert_json_snapshot;
 use mockall::predicate;
@@ -140,7 +143,7 @@ fn frame_at(mut frame: Frame, source: &str, line: u32, column: u32) -> Frame {
 struct SuccessResponse(Vec<Option<AnyEvent>>);
 
 impl SuccessResponse {
-    fn take_properties(self) -> OutputErrProps {
+    fn take_properties(self) -> ProcessedExceptionProperties {
         let event = self.0.first().expect("Should have at least one event");
         serde_json::from_value(event.as_ref().unwrap().properties.clone())
             .expect("Should deserialize properties")
@@ -332,9 +335,10 @@ async fn insert_symbol_set_record(db: &PgPool, team_id: i32, chunk_id: &str) {
 // Helper to extract exception list from response
 fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
     let event = response.first_event();
-    let props: OutputErrProps = serde_json::from_value(event.as_ref().unwrap().properties.clone())
-        .expect("Should deserialize properties");
-    props.exception_list
+    let props: ProcessedExceptionProperties =
+        serde_json::from_value(event.as_ref().unwrap().properties.clone())
+            .expect("Should deserialize properties");
+    props.exception_list().clone()
 }
 
 // Tests
@@ -389,11 +393,11 @@ async fn creates_issue_with_fingerprint(db: PgPool) {
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success(), "Expected success, got {:?}", status);
-    let event: OutputErrProps = body.take_properties();
-    assert!(!event.fingerprint.is_empty());
-    assert_eq!(event.types, vec!["Error".to_string()]);
-    assert_eq!(event.values, vec!["test error message".to_string()]);
-    assert_eq!(harness.get_issue_id().await, event.issue_id);
+    let event: ProcessedExceptionProperties = body.take_properties();
+    assert!(!event.fingerprint().is_empty());
+    assert_eq!(event.types(), ["Error"]);
+    assert_eq!(event.values(), ["test error message"]);
+    assert_eq!(harness.get_issue_id().await, event.issue_id());
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -440,7 +444,7 @@ async fn uses_client_fingerprint_override(db: PgPool) {
 
     let event = body.take_properties();
     assert!(status.is_success());
-    assert_eq!(event.fingerprint, "custom-fingerprint".to_string());
+    assert_eq!(event.fingerprint(), "custom-fingerprint");
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -457,8 +461,8 @@ async fn same_fingerprint_returns_same_issue(db: PgPool) {
     let event1 = body1.take_properties();
     let event2 = body2.take_properties();
 
-    assert_eq!(event1.fingerprint, event2.fingerprint);
-    assert_eq!(event1.issue_id, event2.issue_id);
+    assert_eq!(event1.fingerprint(), event2.fingerprint());
+    assert_eq!(event1.issue_id(), event2.issue_id());
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -468,7 +472,7 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
 
     let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
     let body = created.take_properties();
-    let issue_id = body.issue_id;
+    let issue_id = body.issue_id();
     harness.suppress_issue(issue_id).await;
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
@@ -511,18 +515,22 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
     assert!(status.is_success());
     let event = body.take_properties();
 
-    assert_eq!(event.types, vec!["TypeError"]);
-    assert_eq!(
-        event.values,
-        vec!["Cannot read property 'foo' of undefined"]
-    );
-    assert!(event.handled);
+    assert_eq!(event.types(), ["TypeError"]);
+    assert_eq!(event.values(), ["Cannot read property 'foo' of undefined"]);
+    assert!(event.is_handled());
     assert!(event
-        .sources
-        .contains(&"src/components/Button.tsx".to_string()));
-    assert!(event.sources.contains(&"src/App.tsx".to_string()));
-    assert!(event.functions.contains(&"handleClick".to_string()));
-    assert!(event.functions.contains(&"onClick".to_string()));
+        .sources()
+        .iter()
+        .any(|source| source == "src/components/Button.tsx"));
+    assert!(event.sources().iter().any(|source| source == "src/App.tsx"));
+    assert!(event
+        .functions()
+        .iter()
+        .any(|function| function == "handleClick"));
+    assert!(event
+        .functions()
+        .iter()
+        .any(|function| function == "onClick"));
 }
 
 // Frame resolution tests
@@ -662,9 +670,9 @@ fn resolved_stack_event(source: &str) -> AnyEvent {
 }
 
 fn automatic_fingerprint(version: FingerprintVersion, event: &AnyEvent) -> Fingerprint {
-    let props: OutputErrProps = serde_json::from_value(event.properties.clone())
+    let props: ProcessedExceptionProperties = serde_json::from_value(event.properties.clone())
         .expect("event properties should deserialize");
-    version.compute(&props.exception_list)
+    version.compute(props.exception_list())
 }
 
 fn grouping_rule_bytecode() -> JsonValue {

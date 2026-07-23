@@ -6,6 +6,7 @@
     "dependencies": {
         "@posthog/quill-primitives": "workspace:*",
         "@tanstack/react-virtual": "*",
+        "@toon-format/toon": "^2.1.0",
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",

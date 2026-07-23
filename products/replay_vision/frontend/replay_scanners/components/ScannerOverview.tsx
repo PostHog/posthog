@@ -188,9 +188,12 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
             <div className="space-y-1.5">
                 {top.map(([tag, count]) => (
                     <div key={tag} className="flex items-center gap-2">
-                        <LemonTag type="option" className="shrink-0">
-                            {tag}
-                        </LemonTag>
+                        {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
+                        <div className="w-40 shrink-0 flex">
+                            <LemonTag type="option" title={tag} className="max-w-full truncate">
+                                {tag}
+                            </LemonTag>
+                        </div>
                         <LemonProgress percent={Math.round((count / maxCount) * 100)} className="flex-1" />
                         <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
                             {count.toLocaleString()}

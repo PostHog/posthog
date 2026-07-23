@@ -64,7 +64,9 @@ export class SessionRecordingIngesterMetrics {
         name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
         help: 'Per-message ML mirror anonymize time in ms, by implementation and route',
         labelNames: ['impl', 'route'],
-        buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, Infinity],
+        // The measured interval includes libuv threadpool queue wait, which under backpressure
+        // reaches tens of seconds — the tail buckets exist so quantiles don't clamp at 10s.
+        buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, Infinity],
     })
 
     private static readonly mlAnonymizeFailed = new Counter({

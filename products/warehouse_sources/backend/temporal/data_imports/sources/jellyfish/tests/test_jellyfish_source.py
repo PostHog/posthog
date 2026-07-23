@@ -7,7 +7,9 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JellyfishSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jellyfish import (
+    JellyfishSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.jellyfish import JellyfishResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.settings import ENDPOINTS

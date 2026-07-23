@@ -5,7 +5,8 @@ from django.test import override_settings
 
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
+from posthog.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, start_signup_enrichment_workflow
+from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
 
 class _InlineExecutor:
@@ -118,6 +119,23 @@ def test_work_email_write_failure_does_not_block_dispatch():
 
 
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+@pytest.mark.parametrize(
+    "error,propagates",
+    [
+        (WorkflowAlreadyStartedError("signup-enrichment-org-1", "signup-enrichment"), False),
+        (RuntimeError("temporal unreachable"), True),
+    ],
+)
+def test_dispatch_signup_enrichment_swallows_only_already_started(error, propagates):
+    inputs = SignupEnrichmentInputs(organization_id="org-1", distinct_id="d1", domain="stripe.com")
+    with patch("posthog.temporal.signup_enrichment.trigger._start_workflow", side_effect=error):
+        if propagates:
+            with pytest.raises(RuntimeError):
+                dispatch_signup_enrichment(inputs)
+        else:
+            dispatch_signup_enrichment(inputs)
+
+
 def test_duplicate_workflow_is_logged_not_captured():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect, run as run_mock, region, record:
@@ -151,3 +169,45 @@ def test_dispatch_slot_released_after_run():
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
             start_signup_enrichment_workflow(organization_id="org-2", distinct_id="d2", email="ceo@vercel.com")
     assert connect_mock.call_count == 2
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+def test_signup_geoip_country_is_threaded_into_workflow_inputs():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with (
+        on_commit,
+        connect as connect_mock,
+        run,
+        region,
+        record,
+        patch(
+            "posthog.temporal.signup_enrichment.trigger.get_geoip_properties",
+            return_value={"$geoip_country_code": "US"},
+        ),
+    ):
+        start_signup_enrichment_workflow(
+            organization_id="org-1", distinct_id="d1", email="founder@stripe.com", ip_address="8.8.8.8"
+        )
+    inputs = connect_mock.return_value.start_workflow.call_args.args[1]
+    assert inputs.geoip_country_code == "US"
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+def test_geoip_failure_degrades_to_no_country_and_still_dispatches():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with (
+        on_commit,
+        connect as connect_mock,
+        run,
+        region,
+        record,
+        patch(
+            "posthog.temporal.signup_enrichment.trigger.get_geoip_properties",
+            side_effect=RuntimeError("geoip db missing"),
+        ),
+    ):
+        start_signup_enrichment_workflow(
+            organization_id="org-1", distinct_id="d1", email="founder@stripe.com", ip_address="8.8.8.8"
+        )
+    inputs = connect_mock.return_value.start_workflow.call_args.args[1]
+    assert inputs.geoip_country_code is None

@@ -37,7 +37,7 @@ def bucket_name(request) -> str:
 async def test_get_credentials_using_user_aws_role(
     external_aws_role_arn: str, destination_aws_role_arn: str, aorganization: Organization, bucket_name: str
 ):
-    external_id = str(aorganization.id)
+    external_id = f"posthog-{aorganization.id}"
 
     with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=external_aws_role_arn):
         credentials = await get_credentials_using_user_aws_role(

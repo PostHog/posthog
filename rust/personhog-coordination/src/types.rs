@@ -58,6 +58,17 @@ pub enum AssignmentStatus {
     Active,
 }
 
+/// What a rebalance plan asserts, at apply time, about a touched
+/// partition's assignment record: the plan's handoffs derive their
+/// `old_owner` from the assignments it read, so applying is only sound
+/// while those records are exactly as read (moves) or still absent
+/// (fresh partitions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignmentPrecondition {
+    UnchangedSince { partition: u32, mod_revision: i64 },
+    Absent { partition: u32 },
+}
+
 /// Tracks the progress of moving a partition from one writer pod to another,
 /// or a fresh initial assignment.
 ///

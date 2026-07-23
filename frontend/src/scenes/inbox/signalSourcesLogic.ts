@@ -7,18 +7,22 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import {
+    engineeringAnalyticsCiSignalsConfigRetrieve,
+    engineeringAnalyticsCiSignalsConfigUpdate,
+} from 'products/engineering_analytics/frontend/generated/api'
+import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import type { PaginatedResponse } from '../../lib/api'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import { captureSignalSourceConnected } from './inboxAnalytics'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
-
-export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github' | 'PgAnalyze'
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
@@ -27,63 +31,96 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueSpiking,
 ]
 
-const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
-    DataWarehouseSource,
+/** Warehouse-backed signal sources, keyed by roster source id. */
+export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
+
+type WarehouseSourceCompletion =
+    | {
+          kind: 'source_config'
+          sourceProduct: SignalSourceProduct
+          sourceType: SignalSourceType
+          enableErrorMessage: string
+      }
+    | { kind: 'ci_signals_bundle' }
+
+/**
+ * One registration per warehouse-backed signal source: the warehouse product that backs it, the
+ * tables its signals read (pre-selected in the wizard and forced to sync), and what enabling means
+ * once connected. Keyed by signal source, not warehouse product — GitHub backs more than one source.
+ */
+export const WAREHOUSE_SOURCE_SETUP: Record<
+    WarehouseBackedSource,
     {
-        sourceProduct: SignalSourceProduct
-        sourceType: SignalSourceType
-        requiredTable: 'issues' | 'tickets'
-        enableErrorMessage: string
+        dwSourceType: ExternalDataSourceType
+        requiredTables: string[]
+        completion: WarehouseSourceCompletion
     }
 > = {
-    Github: {
-        sourceProduct: SignalSourceProduct.Github,
-        sourceType: SignalSourceType.Issue,
-        requiredTable: 'issues',
-        enableErrorMessage: 'Failed to enable GitHub Issues',
+    github: {
+        dwSourceType: 'Github',
+        requiredTables: ['issues'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Github,
+            sourceType: SignalSourceType.Issue,
+            enableErrorMessage: 'Failed to enable GitHub Issues',
+        },
     },
-    Linear: {
-        sourceProduct: SignalSourceProduct.Linear,
-        sourceType: SignalSourceType.Issue,
-        requiredTable: 'issues',
-        enableErrorMessage: 'Failed to enable Linear Issues',
+    linear: {
+        dwSourceType: 'Linear',
+        requiredTables: ['issues'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Linear,
+            sourceType: SignalSourceType.Issue,
+            enableErrorMessage: 'Failed to enable Linear Issues',
+        },
     },
-    Zendesk: {
-        sourceProduct: SignalSourceProduct.Zendesk,
-        sourceType: SignalSourceType.Ticket,
-        requiredTable: 'tickets',
-        enableErrorMessage: 'Failed to enable Zendesk Tickets',
+    zendesk: {
+        dwSourceType: 'Zendesk',
+        requiredTables: ['tickets'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Zendesk,
+            sourceType: SignalSourceType.Ticket,
+            enableErrorMessage: 'Failed to enable Zendesk Tickets',
+        },
     },
-    PgAnalyze: {
-        sourceProduct: SignalSourceProduct.Pganalyze,
-        sourceType: SignalSourceType.Issue,
-        requiredTable: 'issues',
-        enableErrorMessage: 'Failed to enable pganalyze',
+    pganalyze: {
+        dwSourceType: 'PgAnalyze',
+        requiredTables: ['issues', 'servers'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Pganalyze,
+            sourceType: SignalSourceType.Issue,
+            enableErrorMessage: 'Failed to enable pganalyze',
+        },
+    },
+    engineering_analytics: {
+        dwSourceType: 'Github',
+        requiredTables: ['workflow_runs', 'pull_requests', 'workflow_jobs'],
+        completion: { kind: 'ci_signals_bundle' },
     },
 }
 
 /** Values subset used by data-warehouse source helpers */
 interface SignalSourcesLogicValuesForDw {
-    githubIssuesConfig: SignalSourceConfig | null
-    linearIssuesConfig: SignalSourceConfig | null
-    zendeskTicketsConfig: SignalSourceConfig | null
-    pgAnalyzeIssuesConfig: SignalSourceConfig | null
+    sourceConfigs: SignalSourceConfig[] | null
 }
 
-function getDataWarehouseSourceConfig(
+function getWarehouseSourceConfig(
     values: SignalSourcesLogicValuesForDw,
-    dwSource: DataWarehouseSource
+    source: WarehouseBackedSource
 ): SignalSourceConfig | null {
-    if (dwSource === 'Github') {
-        return values.githubIssuesConfig
+    const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+    if (completion.kind !== 'source_config') {
+        return null
     }
-    if (dwSource === 'Linear') {
-        return values.linearIssuesConfig
-    }
-    if (dwSource === 'PgAnalyze') {
-        return values.pgAnalyzeIssuesConfig
-    }
-    return values.zendeskTicketsConfig
+    return (
+        values.sourceConfigs?.find(
+            (c) => c.source_product === completion.sourceProduct && c.source_type === completion.sourceType
+        ) ?? null
+    )
 }
 
 function toggleSourceConfigState(
@@ -121,8 +158,11 @@ export interface signalSourcesLogicValues {
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
     anomalyInvestigationConfig: SignalSourceConfig | null
+    ciSignalsConfig: CISignalsConfigApi | null
+    ciSignalsConfigLoading: boolean
+    ciSignalsIsFullyEnabled: boolean
     conversationsConfig: SignalSourceConfig | null
-    dataSourceSetupProduct: ExternalDataSourceType | null
+    dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
     errorTrackingIsFullyEnabled: boolean
     evalReportsConfig: SignalSourceConfig | null
@@ -130,6 +170,7 @@ export interface signalSourcesLogicValues {
     hasNoSources: boolean
     healthChecksConfig: SignalSourceConfig | null
     isAnomalyInvestigationToggling: boolean
+    isCiSignalsToggling: boolean
     isConversationsToggling: boolean
     isErrorTrackingToggling: boolean
     isEvalReportsToggling: boolean
@@ -168,8 +209,23 @@ export interface signalSourcesLogicActions {
     closeSourcesModal: () => {
         value: true
     }
-    initiateDataWarehouseSourceToggle: (dwSource: DataWarehouseSource) => {
-        dwSource: DataWarehouseSource
+    initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
+        source: WarehouseBackedSource
+    }
+    loadCiSignalsConfig: () => any
+    loadCiSignalsConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCiSignalsConfigSuccess: (
+        ciSignalsConfig: CISignalsConfigApi,
+        payload?: any
+    ) => {
+        ciSignalsConfig: CISignalsConfigApi
+        payload?: any
     }
     loadSourceConfigs: () => any
     loadSourceConfigsFailure: (
@@ -186,1727 +242,11 @@ export interface signalSourcesLogicActions {
         sourceConfigs: SignalSourceConfig[]
         payload?: any
     }
-    onDataSourceSetupComplete: (product: ExternalDataSourceType) => {
-        product:
-            | 'ActiveCampaign'
-            | 'AcuityScheduling'
-            | 'Adapty'
-            | 'Adjust'
-            | 'AdobeAnalytics'
-            | 'AdobeCommerce'
-            | 'AdpWorkforceNow'
-            | 'AdRoll'
-            | 'Adyen'
-            | 'AgileCRM'
-            | 'Aha'
-            | 'Ahrefs'
-            | 'AikidoSecurity'
-            | 'Airbrake'
-            | 'Airbyte'
-            | 'Aircall'
-            | 'AirOps'
-            | 'Airtable'
-            | 'Aiven'
-            | 'Akeneo'
-            | 'Algolia'
-            | 'Alguna'
-            | 'AlpacaBrokerAPI'
-            | 'AlphaVantage'
-            | 'AmazonAds'
-            | 'AmazonCloudWatch'
-            | 'AmazonEventBridge'
-            | 'AmazonKinesis'
-            | 'AmazonS3'
-            | 'AmazonSellingPartner'
-            | 'AmazonSNS'
-            | 'AmazonSQS'
-            | 'Amplitude'
-            | 'Anthropic'
-            | 'ApifyDataset'
-            | 'Apollo'
-            | 'Appcues'
-            | 'Appdynamics'
-            | 'Appfigures'
-            | 'Appfollow'
-            | 'AppleSearchAds'
-            | 'AppLovin'
-            | 'AppsFlyer'
-            | 'Appsignal'
-            | 'Appstack'
-            | 'Apptivo'
-            | 'Appwrite'
-            | 'Argocd'
-            | 'Asana'
-            | 'Ashby'
-            | 'Asknicely'
-            | 'AssemblyAI'
-            | 'Attentive'
-            | 'Attio'
-            | 'Auth0'
-            | 'Automox'
-            | 'Autumn'
-            | 'Aviationstack'
-            | 'Aviator'
-            | 'Awin'
-            | 'AwsCloudTrail'
-            | 'AzureBlob'
-            | 'AzureDevOps'
-            | 'AzureTableStorage'
-            | 'Babelforce'
-            | 'Backblaze'
-            | 'BambooHR'
-            | 'Basecamp'
-            | 'Baserow'
-            | 'Baseten'
-            | 'Beamer'
-            | 'Bettermode'
-            | 'BetterStack'
-            | 'BigCommerce'
-            | 'BigMailer'
-            | 'BigQuery'
-            | 'BingAds'
-            | 'Bitbucket'
-            | 'Bitly'
-            | 'Bitrise'
-            | 'BlandAI'
-            | 'Blogger'
-            | 'Bluetally'
-            | 'BoldSign'
-            | 'Box'
-            | 'Braintree'
-            | 'Braintrust'
-            | 'Branch'
-            | 'Braze'
-            | 'Breezometer'
-            | 'BreezyHR'
-            | 'Brevo'
-            | 'Brex'
-            | 'BrowseAI'
-            | 'Browserbase'
-            | 'BrowserUse'
-            | 'Bugsnag'
-            | 'BuildBetter'
-            | 'Buildkite'
-            | 'Bunny'
-            | 'Buzzsprout'
-            | 'CalCom'
-            | 'Calendly'
-            | 'CallRail'
-            | 'CampaignManager360'
-            | 'CampaignMonitor'
-            | 'Campayn'
-            | 'Campfire'
-            | 'Canny'
-            | 'CapsuleCRM'
-            | 'CaptainData'
-            | 'CareQualityCommission'
-            | 'CartCom'
-            | 'CastorEDC'
-            | 'Chameleon'
-            | 'Chargebee'
-            | 'Chargedesk'
-            | 'Chargify'
-            | 'ChartHop'
-            | 'ChartMogul'
-            | 'Chatwoot'
-            | 'Checkmarx'
-            | 'CheckoutCom'
-            | 'Chift'
-            | 'Chorus'
-            | 'Churnkey'
-            | 'Cimis'
-            | 'Cin7'
-            | 'CircleCI'
-            | 'CircleciInsights'
-            | 'CiscoDuo'
-            | 'CiscoMeraki'
-            | 'Clari'
-            | 'Clarifai'
-            | 'Clazar'
-            | 'Clerk'
-            | 'ClickHouse'
-            | 'ClickhouseCloud'
-            | 'ClickUp'
-            | 'Clockify'
-            | 'Clockodo'
-            | 'Close'
-            | 'Cloudbeds'
-            | 'Cloudflare'
-            | 'Coassemble'
-            | 'CockroachDB'
-            | 'Coda'
-            | 'Codacy'
-            | 'Codecov'
-            | 'Codefresh'
-            | 'Cody'
-            | 'Cohere'
-            | 'CoinApi'
-            | 'CoinGecko'
-            | 'CoinMarketCap'
-            | 'Commercetools'
-            | 'Concord'
-            | 'ConfigCat'
-            | 'Confluence'
-            | 'ConfluentCloud'
-            | 'ConstantContact'
-            | 'ConvertKit'
-            | 'Convex'
-            | 'Copper'
-            | 'Coralogix'
-            | 'CosmosDB'
-            | 'Couchbase'
-            | 'Coupa'
-            | 'Coveralls'
-            | 'CratesIO'
-            | 'Criteo'
-            | 'Cronitor'
-            | 'Crunchbase'
-            | 'CultureAmp'
-            | 'Cursor'
-            | 'Curve'
-            | 'Custom'
-            | 'CustomerIO'
-            | 'Customerly'
-            | 'DagsterCloud'
-            | 'Databricks'
-            | 'Datadog'
-            | 'Datahub'
-            | 'Datascope'
-            | 'Datorama'
-            | 'Db2'
-            | 'Dbt'
-            | 'Decagon'
-            | 'Deel'
-            | 'Deepgram'
-            | 'Deepsource'
-            | 'Delighted'
-            | 'DenoDeploy'
-            | 'Deputy'
-            | 'DevinAI'
-            | 'DigitalOcean'
-            | 'DingConnect'
-            | 'DisplayVideo360'
-            | 'Dixa'
-            | 'Dockerhub'
-            | 'Docuseal'
-            | 'Docusign'
-            | 'DodoPayments'
-            | 'DoIt'
-            | 'Dolibarr'
-            | 'Doppler'
-            | 'Drata'
-            | 'Dremio'
-            | 'Drip'
-            | 'Dropbox'
-            | 'DropboxSign'
-            | 'Dub'
-            | 'Dubsado'
-            | 'Dwolla'
-            | 'Dynamics365'
-            | 'DynamoDB'
-            | 'Dynatrace'
-            | 'E2B'
-            | 'Easypost'
-            | 'Easypromos'
-            | 'Ebay'
-            | 'EConomic'
-            | 'Elasticemail'
-            | 'Elasticsearch'
-            | 'ElevenLabs'
-            | 'Eloqua'
-            | 'EmailOctopus'
-            | 'EmploymentHero'
-            | 'Encharge'
-            | 'Env0'
-            | 'Eventbrite'
-            | 'Eventee'
-            | 'Eventzilla'
-            | 'Everhour'
-            | 'ExchangeRatesApi'
-            | 'Expensify'
-            | 'EZOfficeInventory'
-            | 'FacebookPages'
-            | 'Factorial'
-            | 'Fastbill'
-            | 'Fastly'
-            | 'Fauna'
-            | 'Featurebase'
-            | 'Feishu'
-            | 'Fillout'
-            | 'Finage'
-            | 'FinancialModelling'
-            | 'Finnhub'
-            | 'Finnworlds'
-            | 'Fintoc'
-            | 'Firebase'
-            | 'Firebolt'
-            | 'Firecrawl'
-            | 'FireHydrant'
-            | 'FireworksAI'
-            | 'Flagsmith'
-            | 'Fleetio'
-            | 'Flexmail'
-            | 'Flexport'
-            | 'FloatApp'
-            | 'Flowlu'
-            | 'FlyIo'
-            | 'Formbricks'
-            | 'FreeAgent'
-            | 'Freightview'
-            | 'FreshBooks'
-            | 'Freshcaller'
-            | 'Freshchat'
-            | 'Freshdesk'
-            | 'Freshsales'
-            | 'Freshservice'
-            | 'Frill'
-            | 'Front'
-            | 'Fulcrum'
-            | 'FullStory'
-            | 'GainsightPx'
-            | 'Gerrit'
-            | 'GetStream'
-            | 'Giphy'
-            | 'GitBook'
-            | 'Gitea'
-            | 'Gitguardian'
-            | 'Github'
-            | 'GitLab'
-            | 'Gladly'
-            | 'Glassfrog'
-            | 'Gmail'
-            | 'GNews'
-            | 'GoCardless'
-            | 'Gojiberry'
-            | 'Goldcast'
-            | 'GoLogin'
-            | 'Gong'
-            | 'GoogleAdManager'
-            | 'GoogleAds'
-            | 'GoogleAnalytics'
-            | 'GoogleCalendar'
-            | 'GoogleChat'
-            | 'GoogleClassroom'
-            | 'GoogleCloudStorage'
-            | 'GoogleDirectory'
-            | 'GoogleDrive'
-            | 'GoogleForms'
-            | 'GooglePageSpeedInsights'
-            | 'GoogleSearchConsole'
-            | 'GoogleSheets'
-            | 'GoogleTasks'
-            | 'GoogleWebfonts'
-            | 'GoogleWorkspaceAdminReports'
-            | 'Gorgias'
-            | 'Grafana'
-            | 'Granola'
-            | 'Greenhouse'
-            | 'GreytHr'
-            | 'Gridly'
-            | 'Groq'
-            | 'GrowthBook'
-            | 'Guardian'
-            | 'Gumloop'
-            | 'Guru'
-            | 'Gusto'
-            | 'Harness'
-            | 'Harvey'
-            | 'Hatchet'
-            | 'Healthchecks'
-            | 'Heap'
-            | 'Height'
-            | 'Helicone'
-            | 'Hellobaton'
-            | 'HelpScout'
-            | 'Heroku'
-            | 'Hetzner'
-            | 'Hex'
-            | 'HeyGen'
-            | 'HiBob'
-            | 'HighLevel'
-            | 'Hightouch'
-            | 'Honeybadger'
-            | 'Honeycomb'
-            | 'HoorayHR'
-            | 'Hubplanner'
-            | 'Hubspot'
-            | 'HuggingFace'
-            | 'Humanitix'
-            | 'Huntr'
-            | 'Hyperspell'
-            | 'Ikas'
-            | 'IlluminaBasespace'
-            | 'Imagga'
-            | 'Impact'
-            | 'IncidentIo'
-            | 'Infisical'
-            | 'Inflowinventory'
-            | 'InforNexus'
-            | 'Inngest'
-            | 'Insightful'
-            | 'Insightly'
-            | 'Instagram'
-            | 'Instana'
-            | 'Instantly'
-            | 'Instatus'
-            | 'Intercom'
-            | 'Interzoid'
-            | 'Intruder'
-            | 'Invoiced'
-            | 'Invoiceninja'
-            | 'IP2Whois'
-            | 'Iterable'
-            | 'JamfPro'
-            | 'Jellyfish'
-            | 'Jenkins'
-            | 'JfrogArtifactory'
-            | 'Jira'
-            | 'Jobber'
-            | 'JobNimbus'
-            | 'Jotform'
-            | 'JudgeMeReviews'
-            | 'Jumpcloud'
-            | 'JustCall'
-            | 'JustSift'
-            | 'K6Cloud'
-            | 'Kafka'
-            | 'Kajabi'
-            | 'Kandji'
-            | 'KapaAI'
-            | 'Katana'
-            | 'Keka'
-            | 'Kernel'
-            | 'Kickscale'
-            | 'Kisi'
-            | 'Kissmetrics'
-            | 'Klarna'
-            | 'Klaus'
-            | 'Klaviyo'
-            | 'Knock'
-            | 'KongKonnect'
-            | 'Koyeb'
-            | 'Kubecost'
-            | 'Kustomer'
-            | 'KYVE'
-            | 'Lacework'
-            | 'Lago'
-            | 'LambdaLabs'
-            | 'Langfuse'
-            | 'LangSmith'
-            | 'Lattice'
-            | 'LaunchDarkly'
-            | 'Leadfeeder'
-            | 'Leexi'
-            | 'Lemlist'
-            | 'LemonSqueezy'
-            | 'LessAnnoyingCRM'
-            | 'Lever'
-            | 'Liana'
-            | 'Lightfield'
-            | 'LightspeedRetail'
-            | 'Linear'
-            | 'Linearb'
-            | 'LingoDev'
-            | 'LinkedinAds'
-            | 'LinkedinPages'
-            | 'Linkrunner'
-            | 'Linnworks'
-            | 'Linode'
-            | 'LlamaCloud'
-            | 'Lob'
-            | 'LogzIO'
-            | 'Lokalise'
-            | 'Looker'
-            | 'Loops'
-            | 'Luma'
-            | 'M3ter'
-            | 'Mailchimp'
-            | 'MailerLite'
-            | 'MailerSend'
-            | 'Mailgun'
-            | 'Mailjet'
-            | 'Mailosaur'
-            | 'Mailtrap'
-            | 'Mantle'
-            | 'Marketo'
-            | 'Marketstack'
-            | 'Matomo'
-            | 'Maxio'
-            | 'Mem0'
-            | 'Mendeley'
-            | 'Mention'
-            | 'MercadoAds'
-            | 'Mercury'
-            | 'Merge'
-            | 'MetaAds'
-            | 'Metabase'
-            | 'Metaplane'
-            | 'Metorial'
-            | 'Metricool'
-            | 'Metriport'
-            | 'Metronome'
-            | 'MicrosoftDataverse'
-            | 'MicrosoftEntraId'
-            | 'MicrosoftLists'
-            | 'MicrosoftTeams'
-            | 'Mintlify'
-            | 'Miro'
-            | 'Missive'
-            | 'MistralAI'
-            | 'MixMax'
-            | 'Mixpanel'
-            | 'Mode'
-            | 'Mollie'
-            | 'Monday'
-            | 'MongoDB'
-            | 'Mono'
-            | 'MonteCarlo'
-            | 'MSSQL'
-            | 'Mux'
-            | 'MyHours'
-            | 'MySQL'
-            | 'N8n'
-            | 'Nasa'
-            | 'Navan'
-            | 'NebiusAI'
-            | 'Neon'
-            | 'Netlify'
-            | 'NetSuite'
-            | 'NewRelic'
-            | 'NewsApi'
-            | 'NewsData'
-            | 'NewYorkTimes'
-            | 'Nexiopay'
-            | 'NextdoorAds'
-            | 'NinjaOneRMM'
-            | 'NoCRM'
-            | 'Northflank'
-            | 'NorthpassLMS'
-            | 'Notion'
-            | 'Nuget'
-            | 'Nutshell'
-            | 'Nylas'
-            | 'Octolens'
-            | 'OctopusDeploy'
-            | 'Okta'
-            | 'Omnisend'
-            | 'Oncehub'
-            | 'OneDrive'
-            | 'OneHundredMs'
-            | 'Onepagecrm'
-            | 'OnePassword'
-            | 'OneSignal'
-            | 'Onfleet'
-            | 'OpenAI'
-            | 'OpenAIAds'
-            | 'OpenAQ'
-            | 'OpenDataDc'
-            | 'OpenExchangeRates'
-            | 'OpenFDA'
-            | 'OpenRouter'
-            | 'OpenWeather'
-            | 'OpinionStage'
-            | 'Opsgenie'
-            | 'Optimizely'
-            | 'OPUSWatch'
-            | 'Oracle'
-            | 'OracleEbs'
-            | 'OracleFusion'
-            | 'Orb'
-            | 'Orbit'
-            | 'OrcaSecurity'
-            | 'Ortto'
-            | 'Oura'
-            | 'Outbrain'
-            | 'Outlook'
-            | 'Outreach'
-            | 'Oveit'
-            | 'PabblySubscriptionsBilling'
-            | 'Packagist'
-            | 'Paddle'
-            | 'PagerDuty'
-            | 'PandaDoc'
-            | 'Paperform'
-            | 'Papersign'
-            | 'Pardot'
-            | 'Partnerize'
-            | 'PartnerStack'
-            | 'PayFit'
-            | 'Paylocity'
-            | 'PayPal'
-            | 'Paystack'
-            | 'PeecAI'
-            | 'Pendo'
-            | 'Pennylane'
-            | 'Perigon'
-            | 'Perk'
-            | 'PersistIq'
-            | 'Persona'
-            | 'Personio'
-            | 'Pexels'
-            | 'PgAnalyze'
-            | 'Phyllo'
-            | 'Picqer'
-            | 'Pinecone'
-            | 'Pingdom'
-            | 'PinterestAds'
-            | 'Pipedrive'
-            | 'Pipeliner'
-            | 'PivotalTracker'
-            | 'Piwik'
-            | 'Plaid'
-            | 'Plain'
-            | 'PlanetScale'
-            | 'Planhat'
-            | 'PlatformSh'
-            | 'Plausible'
-            | 'Plunk'
-            | 'Pocket'
-            | 'Podium'
-            | 'Polar'
-            | 'Polygon'
-            | 'Poplar'
-            | 'Postgres'
-            | 'Postmark'
-            | 'PrefectCloud'
-            | 'PrestaShop'
-            | 'Pretix'
-            | 'Primetric'
-            | 'Printify'
-            | 'Productboard'
-            | 'Productive'
-            | 'PromptingCompany'
-            | 'PromptWatch'
-            | 'PulumiCloud'
-            | 'Pylon'
-            | 'PyPI'
-            | 'Qdrant'
-            | 'Qonto'
-            | 'Qualaroo'
-            | 'Qualtrics'
-            | 'QualysVmdr'
-            | 'QuickBooks'
-            | 'Railway'
-            | 'Railz'
-            | 'Ramp'
-            | 'Rapid7Insightvm'
-            | 'Raygun'
-            | 'Razorpay'
-            | 'RB2B'
-            | 'RDStationMarketing'
-            | 'Recharge'
-            | 'Recreation'
-            | 'Recruitee'
-            | 'Recurly'
-            | 'Reddit'
-            | 'RedditAds'
-            | 'Redis'
-            | 'Redshift'
-            | 'ReferralHero'
-            | 'Render'
-            | 'RentCast'
-            | 'Repairshopr'
-            | 'Replicate'
-            | 'ReplyIo'
-            | 'Resend'
-            | 'RetailExpress'
-            | 'RetellAI'
-            | 'Retently'
-            | 'RevenueCat'
-            | 'RevolutMerchant'
-            | 'RingCentral'
-            | 'Rippling'
-            | 'RKICovid'
-            | 'Roark'
-            | 'RocketChat'
-            | 'Rocketlane'
-            | 'Rollbar'
-            | 'Rootly'
-            | 'Rss'
-            | 'RudderStack'
-            | 'Ruddr'
-            | 'RunPod'
-            | 'SafetyCulture'
-            | 'SageHR'
-            | 'SageIntacct'
-            | 'Sailthru'
-            | 'Salesflare'
-            | 'Salesforce'
-            | 'SalesforceMarketingCloud'
-            | 'SalesLoft'
-            | 'Salestrics'
-            | 'Sanity'
-            | 'SapConcur'
-            | 'SapErp'
-            | 'SAPFieldglass'
-            | 'SapHana'
-            | 'SapSuccessFactors'
-            | 'SavvyCal'
-            | 'ScaleAI'
-            | 'Scaleway'
-            | 'SearchAds360'
-            | 'Secoda'
-            | 'Secureframe'
-            | 'Segment'
-            | 'Semaphore'
-            | 'Semgrep'
-            | 'SendGrid'
-            | 'Sendowl'
-            | 'SendPulse'
-            | 'Senseforce'
-            | 'Sentinelone'
-            | 'Sentry'
-            | 'Serpstat'
-            | 'ServiceNow'
-            | 'SevenShifts'
-            | 'SFTP'
-            | 'SharePoint'
-            | 'Sharetribe'
-            | 'Shippo'
-            | 'ShipStation'
-            | 'Shopify'
-            | 'Shopware'
-            | 'ShopWired'
-            | 'Shortcut'
-            | 'Shortio'
-            | 'Shutterstock'
-            | 'SigmaComputing'
-            | 'SignNow'
-            | 'SigNoz'
-            | 'Sim'
-            | 'SimFin'
-            | 'SimpleCast'
-            | 'Simplesat'
-            | 'Singular'
-            | 'Skyvern'
-            | 'Slack'
-            | 'Slash'
-            | 'Smaily'
-            | 'SmartEngage'
-            | 'Smartreach'
-            | 'Smartsheet'
-            | 'Smartwaiver'
-            | 'SnapchatAds'
-            | 'Snowflake'
-            | 'Snowplow'
-            | 'Snyk'
-            | 'SolarwindsServiceDesk'
-            | 'SonarCloud'
-            | 'Sonarqube'
-            | 'SonatypeNexus'
-            | 'Sourcegraph'
-            | 'Spacelift'
-            | 'SparkPost'
-            | 'SplitIo'
-            | 'SplunkObservabilityCloud'
-            | 'SpotifyAds'
-            | 'SpotlerCRM'
-            | 'Squadcast'
-            | 'Square'
-            | 'Squarespace'
-            | 'Statsig'
-            | 'Statuscake'
-            | 'Statuspage'
-            | 'Stigg'
-            | 'StockData'
-            | 'Strava'
-            | 'StreamElements'
-            | 'Streamlabs'
-            | 'Stripe'
-            | 'Stytch'
-            | 'SumoLogic'
-            | 'Sumsub'
-            | 'Supabase'
-            | 'Superwall'
-            | 'SurveyMonkey'
-            | 'SurveySparrow'
-            | 'Survicate'
-            | 'Svix'
-            | 'Swarmia'
-            | 'Swonkie'
-            | 'Synthesia'
-            | 'Systeme'
-            | 'Taboola'
-            | 'Tailscale'
-            | 'Talkwalker'
-            | 'Tavus'
-            | 'TawkTo'
-            | 'Teachable'
-            | 'Teamcity'
-            | 'Teamtailor'
-            | 'Teamwork'
-            | 'Telli'
-            | 'Tempo'
-            | 'TemporalIO'
-            | 'TenableVulnerabilityManagement'
-            | 'TerraApi'
-            | 'TerraformCloud'
-            | 'Testrail'
-            | 'Thinkific'
-            | 'ThinkificCourses'
-            | 'ThriveLearning'
-            | 'Ticketmaster'
-            | 'TicketTailor'
-            | 'TickTick'
-            | 'TikTokAds'
-            | 'Tile38'
-            | 'Timely'
-            | 'Tinyemail'
-            | 'TMDb'
-            | 'Todoist'
-            | 'TogetherAI'
-            | 'Toggl'
-            | 'TrackPMS'
-            | 'TravisCI'
-            | 'Trello'
-            | 'Tremendous'
-            | 'TriggerDev'
-            | 'TrustPilot'
-            | 'Turso'
-            | 'TVMaze'
-            | 'TwelveData'
-            | 'TwelveLabs'
-            | 'Twenty'
-            | 'Twilio'
-            | 'Twitter'
-            | 'TwitterAds'
-            | 'TyntecSMS'
-            | 'Typeform'
-            | 'Ubidots'
-            | 'Unleash'
-            | 'Unstructured'
-            | 'UpPromote'
-            | 'Upstash'
-            | 'Uptick'
-            | 'Uptimerobot'
-            | 'USCensus'
-            | 'Usersnap'
-            | 'Uservoice'
-            | 'Vantage'
-            | 'Vapi'
-            | 'Veeqo'
-            | 'Vellum'
-            | 'Veracode'
-            | 'Vercel'
-            | 'Vespa'
-            | 'VismaEconomic'
-            | 'Vitally'
-            | 'Vultr'
-            | 'VWO'
-            | 'Waiteraid'
-            | 'Wasabi'
-            | 'Watchmode'
-            | 'Webflow'
-            | 'WeightsAndBiases'
-            | 'WhenIWork'
-            | 'WikipediaPageviews'
-            | 'Windmill'
-            | 'WooCommerce'
-            | 'Wordpress'
-            | 'Workable'
-            | 'Workday'
-            | 'Workflowmax'
-            | 'WorkOS'
-            | 'Workramp'
-            | 'Wrike'
-            | 'Writesonic'
-            | 'Wufoo'
-            | 'Xero'
-            | 'Xmatters'
-            | 'Xsolla'
-            | 'YahooFinance'
-            | 'YandexMetrica'
-            | 'Ynab'
-            | 'Yotpo'
-            | 'Younium'
-            | 'YouSign'
-            | 'YouTubeAnalytics'
-            | 'YoutubeData'
-            | 'ZapierSupportedStorage'
-            | 'ZapSign'
-            | 'Zellify'
-            | 'Zendesk'
-            | 'ZendeskSell'
-            | 'ZendeskSunshine'
-            | 'Zenduty'
-            | 'Zenefits'
-            | 'Zenloop'
-            | 'Zep'
-            | 'ZohoAnalytics'
-            | 'ZohoBigin'
-            | 'ZohoBilling'
-            | 'ZohoBooks'
-            | 'ZohoCampaign'
-            | 'ZohoCRM'
-            | 'ZohoDesk'
-            | 'ZohoExpense'
-            | 'ZohoInventory'
-            | 'ZohoInvoice'
-            | 'ZonkaFeedback'
-            | 'Zoom'
-            | 'ZoomInfo'
-            | 'Zuora'
+    onDataSourceSetupComplete: () => {
+        value: true
     }
-    openDataSourceSetup: (product: ExternalDataSourceType) => {
-        product:
-            | 'ActiveCampaign'
-            | 'AcuityScheduling'
-            | 'Adapty'
-            | 'Adjust'
-            | 'AdobeAnalytics'
-            | 'AdobeCommerce'
-            | 'AdpWorkforceNow'
-            | 'AdRoll'
-            | 'Adyen'
-            | 'AgileCRM'
-            | 'Aha'
-            | 'Ahrefs'
-            | 'AikidoSecurity'
-            | 'Airbrake'
-            | 'Airbyte'
-            | 'Aircall'
-            | 'AirOps'
-            | 'Airtable'
-            | 'Aiven'
-            | 'Akeneo'
-            | 'Algolia'
-            | 'Alguna'
-            | 'AlpacaBrokerAPI'
-            | 'AlphaVantage'
-            | 'AmazonAds'
-            | 'AmazonCloudWatch'
-            | 'AmazonEventBridge'
-            | 'AmazonKinesis'
-            | 'AmazonS3'
-            | 'AmazonSellingPartner'
-            | 'AmazonSNS'
-            | 'AmazonSQS'
-            | 'Amplitude'
-            | 'Anthropic'
-            | 'ApifyDataset'
-            | 'Apollo'
-            | 'Appcues'
-            | 'Appdynamics'
-            | 'Appfigures'
-            | 'Appfollow'
-            | 'AppleSearchAds'
-            | 'AppLovin'
-            | 'AppsFlyer'
-            | 'Appsignal'
-            | 'Appstack'
-            | 'Apptivo'
-            | 'Appwrite'
-            | 'Argocd'
-            | 'Asana'
-            | 'Ashby'
-            | 'Asknicely'
-            | 'AssemblyAI'
-            | 'Attentive'
-            | 'Attio'
-            | 'Auth0'
-            | 'Automox'
-            | 'Autumn'
-            | 'Aviationstack'
-            | 'Aviator'
-            | 'Awin'
-            | 'AwsCloudTrail'
-            | 'AzureBlob'
-            | 'AzureDevOps'
-            | 'AzureTableStorage'
-            | 'Babelforce'
-            | 'Backblaze'
-            | 'BambooHR'
-            | 'Basecamp'
-            | 'Baserow'
-            | 'Baseten'
-            | 'Beamer'
-            | 'Bettermode'
-            | 'BetterStack'
-            | 'BigCommerce'
-            | 'BigMailer'
-            | 'BigQuery'
-            | 'BingAds'
-            | 'Bitbucket'
-            | 'Bitly'
-            | 'Bitrise'
-            | 'BlandAI'
-            | 'Blogger'
-            | 'Bluetally'
-            | 'BoldSign'
-            | 'Box'
-            | 'Braintree'
-            | 'Braintrust'
-            | 'Branch'
-            | 'Braze'
-            | 'Breezometer'
-            | 'BreezyHR'
-            | 'Brevo'
-            | 'Brex'
-            | 'BrowseAI'
-            | 'Browserbase'
-            | 'BrowserUse'
-            | 'Bugsnag'
-            | 'BuildBetter'
-            | 'Buildkite'
-            | 'Bunny'
-            | 'Buzzsprout'
-            | 'CalCom'
-            | 'Calendly'
-            | 'CallRail'
-            | 'CampaignManager360'
-            | 'CampaignMonitor'
-            | 'Campayn'
-            | 'Campfire'
-            | 'Canny'
-            | 'CapsuleCRM'
-            | 'CaptainData'
-            | 'CareQualityCommission'
-            | 'CartCom'
-            | 'CastorEDC'
-            | 'Chameleon'
-            | 'Chargebee'
-            | 'Chargedesk'
-            | 'Chargify'
-            | 'ChartHop'
-            | 'ChartMogul'
-            | 'Chatwoot'
-            | 'Checkmarx'
-            | 'CheckoutCom'
-            | 'Chift'
-            | 'Chorus'
-            | 'Churnkey'
-            | 'Cimis'
-            | 'Cin7'
-            | 'CircleCI'
-            | 'CircleciInsights'
-            | 'CiscoDuo'
-            | 'CiscoMeraki'
-            | 'Clari'
-            | 'Clarifai'
-            | 'Clazar'
-            | 'Clerk'
-            | 'ClickHouse'
-            | 'ClickhouseCloud'
-            | 'ClickUp'
-            | 'Clockify'
-            | 'Clockodo'
-            | 'Close'
-            | 'Cloudbeds'
-            | 'Cloudflare'
-            | 'Coassemble'
-            | 'CockroachDB'
-            | 'Coda'
-            | 'Codacy'
-            | 'Codecov'
-            | 'Codefresh'
-            | 'Cody'
-            | 'Cohere'
-            | 'CoinApi'
-            | 'CoinGecko'
-            | 'CoinMarketCap'
-            | 'Commercetools'
-            | 'Concord'
-            | 'ConfigCat'
-            | 'Confluence'
-            | 'ConfluentCloud'
-            | 'ConstantContact'
-            | 'ConvertKit'
-            | 'Convex'
-            | 'Copper'
-            | 'Coralogix'
-            | 'CosmosDB'
-            | 'Couchbase'
-            | 'Coupa'
-            | 'Coveralls'
-            | 'CratesIO'
-            | 'Criteo'
-            | 'Cronitor'
-            | 'Crunchbase'
-            | 'CultureAmp'
-            | 'Cursor'
-            | 'Curve'
-            | 'Custom'
-            | 'CustomerIO'
-            | 'Customerly'
-            | 'DagsterCloud'
-            | 'Databricks'
-            | 'Datadog'
-            | 'Datahub'
-            | 'Datascope'
-            | 'Datorama'
-            | 'Db2'
-            | 'Dbt'
-            | 'Decagon'
-            | 'Deel'
-            | 'Deepgram'
-            | 'Deepsource'
-            | 'Delighted'
-            | 'DenoDeploy'
-            | 'Deputy'
-            | 'DevinAI'
-            | 'DigitalOcean'
-            | 'DingConnect'
-            | 'DisplayVideo360'
-            | 'Dixa'
-            | 'Dockerhub'
-            | 'Docuseal'
-            | 'Docusign'
-            | 'DodoPayments'
-            | 'DoIt'
-            | 'Dolibarr'
-            | 'Doppler'
-            | 'Drata'
-            | 'Dremio'
-            | 'Drip'
-            | 'Dropbox'
-            | 'DropboxSign'
-            | 'Dub'
-            | 'Dubsado'
-            | 'Dwolla'
-            | 'Dynamics365'
-            | 'DynamoDB'
-            | 'Dynatrace'
-            | 'E2B'
-            | 'Easypost'
-            | 'Easypromos'
-            | 'Ebay'
-            | 'EConomic'
-            | 'Elasticemail'
-            | 'Elasticsearch'
-            | 'ElevenLabs'
-            | 'Eloqua'
-            | 'EmailOctopus'
-            | 'EmploymentHero'
-            | 'Encharge'
-            | 'Env0'
-            | 'Eventbrite'
-            | 'Eventee'
-            | 'Eventzilla'
-            | 'Everhour'
-            | 'ExchangeRatesApi'
-            | 'Expensify'
-            | 'EZOfficeInventory'
-            | 'FacebookPages'
-            | 'Factorial'
-            | 'Fastbill'
-            | 'Fastly'
-            | 'Fauna'
-            | 'Featurebase'
-            | 'Feishu'
-            | 'Fillout'
-            | 'Finage'
-            | 'FinancialModelling'
-            | 'Finnhub'
-            | 'Finnworlds'
-            | 'Fintoc'
-            | 'Firebase'
-            | 'Firebolt'
-            | 'Firecrawl'
-            | 'FireHydrant'
-            | 'FireworksAI'
-            | 'Flagsmith'
-            | 'Fleetio'
-            | 'Flexmail'
-            | 'Flexport'
-            | 'FloatApp'
-            | 'Flowlu'
-            | 'FlyIo'
-            | 'Formbricks'
-            | 'FreeAgent'
-            | 'Freightview'
-            | 'FreshBooks'
-            | 'Freshcaller'
-            | 'Freshchat'
-            | 'Freshdesk'
-            | 'Freshsales'
-            | 'Freshservice'
-            | 'Frill'
-            | 'Front'
-            | 'Fulcrum'
-            | 'FullStory'
-            | 'GainsightPx'
-            | 'Gerrit'
-            | 'GetStream'
-            | 'Giphy'
-            | 'GitBook'
-            | 'Gitea'
-            | 'Gitguardian'
-            | 'Github'
-            | 'GitLab'
-            | 'Gladly'
-            | 'Glassfrog'
-            | 'Gmail'
-            | 'GNews'
-            | 'GoCardless'
-            | 'Gojiberry'
-            | 'Goldcast'
-            | 'GoLogin'
-            | 'Gong'
-            | 'GoogleAdManager'
-            | 'GoogleAds'
-            | 'GoogleAnalytics'
-            | 'GoogleCalendar'
-            | 'GoogleChat'
-            | 'GoogleClassroom'
-            | 'GoogleCloudStorage'
-            | 'GoogleDirectory'
-            | 'GoogleDrive'
-            | 'GoogleForms'
-            | 'GooglePageSpeedInsights'
-            | 'GoogleSearchConsole'
-            | 'GoogleSheets'
-            | 'GoogleTasks'
-            | 'GoogleWebfonts'
-            | 'GoogleWorkspaceAdminReports'
-            | 'Gorgias'
-            | 'Grafana'
-            | 'Granola'
-            | 'Greenhouse'
-            | 'GreytHr'
-            | 'Gridly'
-            | 'Groq'
-            | 'GrowthBook'
-            | 'Guardian'
-            | 'Gumloop'
-            | 'Guru'
-            | 'Gusto'
-            | 'Harness'
-            | 'Harvey'
-            | 'Hatchet'
-            | 'Healthchecks'
-            | 'Heap'
-            | 'Height'
-            | 'Helicone'
-            | 'Hellobaton'
-            | 'HelpScout'
-            | 'Heroku'
-            | 'Hetzner'
-            | 'Hex'
-            | 'HeyGen'
-            | 'HiBob'
-            | 'HighLevel'
-            | 'Hightouch'
-            | 'Honeybadger'
-            | 'Honeycomb'
-            | 'HoorayHR'
-            | 'Hubplanner'
-            | 'Hubspot'
-            | 'HuggingFace'
-            | 'Humanitix'
-            | 'Huntr'
-            | 'Hyperspell'
-            | 'Ikas'
-            | 'IlluminaBasespace'
-            | 'Imagga'
-            | 'Impact'
-            | 'IncidentIo'
-            | 'Infisical'
-            | 'Inflowinventory'
-            | 'InforNexus'
-            | 'Inngest'
-            | 'Insightful'
-            | 'Insightly'
-            | 'Instagram'
-            | 'Instana'
-            | 'Instantly'
-            | 'Instatus'
-            | 'Intercom'
-            | 'Interzoid'
-            | 'Intruder'
-            | 'Invoiced'
-            | 'Invoiceninja'
-            | 'IP2Whois'
-            | 'Iterable'
-            | 'JamfPro'
-            | 'Jellyfish'
-            | 'Jenkins'
-            | 'JfrogArtifactory'
-            | 'Jira'
-            | 'Jobber'
-            | 'JobNimbus'
-            | 'Jotform'
-            | 'JudgeMeReviews'
-            | 'Jumpcloud'
-            | 'JustCall'
-            | 'JustSift'
-            | 'K6Cloud'
-            | 'Kafka'
-            | 'Kajabi'
-            | 'Kandji'
-            | 'KapaAI'
-            | 'Katana'
-            | 'Keka'
-            | 'Kernel'
-            | 'Kickscale'
-            | 'Kisi'
-            | 'Kissmetrics'
-            | 'Klarna'
-            | 'Klaus'
-            | 'Klaviyo'
-            | 'Knock'
-            | 'KongKonnect'
-            | 'Koyeb'
-            | 'Kubecost'
-            | 'Kustomer'
-            | 'KYVE'
-            | 'Lacework'
-            | 'Lago'
-            | 'LambdaLabs'
-            | 'Langfuse'
-            | 'LangSmith'
-            | 'Lattice'
-            | 'LaunchDarkly'
-            | 'Leadfeeder'
-            | 'Leexi'
-            | 'Lemlist'
-            | 'LemonSqueezy'
-            | 'LessAnnoyingCRM'
-            | 'Lever'
-            | 'Liana'
-            | 'Lightfield'
-            | 'LightspeedRetail'
-            | 'Linear'
-            | 'Linearb'
-            | 'LingoDev'
-            | 'LinkedinAds'
-            | 'LinkedinPages'
-            | 'Linkrunner'
-            | 'Linnworks'
-            | 'Linode'
-            | 'LlamaCloud'
-            | 'Lob'
-            | 'LogzIO'
-            | 'Lokalise'
-            | 'Looker'
-            | 'Loops'
-            | 'Luma'
-            | 'M3ter'
-            | 'Mailchimp'
-            | 'MailerLite'
-            | 'MailerSend'
-            | 'Mailgun'
-            | 'Mailjet'
-            | 'Mailosaur'
-            | 'Mailtrap'
-            | 'Mantle'
-            | 'Marketo'
-            | 'Marketstack'
-            | 'Matomo'
-            | 'Maxio'
-            | 'Mem0'
-            | 'Mendeley'
-            | 'Mention'
-            | 'MercadoAds'
-            | 'Mercury'
-            | 'Merge'
-            | 'MetaAds'
-            | 'Metabase'
-            | 'Metaplane'
-            | 'Metorial'
-            | 'Metricool'
-            | 'Metriport'
-            | 'Metronome'
-            | 'MicrosoftDataverse'
-            | 'MicrosoftEntraId'
-            | 'MicrosoftLists'
-            | 'MicrosoftTeams'
-            | 'Mintlify'
-            | 'Miro'
-            | 'Missive'
-            | 'MistralAI'
-            | 'MixMax'
-            | 'Mixpanel'
-            | 'Mode'
-            | 'Mollie'
-            | 'Monday'
-            | 'MongoDB'
-            | 'Mono'
-            | 'MonteCarlo'
-            | 'MSSQL'
-            | 'Mux'
-            | 'MyHours'
-            | 'MySQL'
-            | 'N8n'
-            | 'Nasa'
-            | 'Navan'
-            | 'NebiusAI'
-            | 'Neon'
-            | 'Netlify'
-            | 'NetSuite'
-            | 'NewRelic'
-            | 'NewsApi'
-            | 'NewsData'
-            | 'NewYorkTimes'
-            | 'Nexiopay'
-            | 'NextdoorAds'
-            | 'NinjaOneRMM'
-            | 'NoCRM'
-            | 'Northflank'
-            | 'NorthpassLMS'
-            | 'Notion'
-            | 'Nuget'
-            | 'Nutshell'
-            | 'Nylas'
-            | 'Octolens'
-            | 'OctopusDeploy'
-            | 'Okta'
-            | 'Omnisend'
-            | 'Oncehub'
-            | 'OneDrive'
-            | 'OneHundredMs'
-            | 'Onepagecrm'
-            | 'OnePassword'
-            | 'OneSignal'
-            | 'Onfleet'
-            | 'OpenAI'
-            | 'OpenAIAds'
-            | 'OpenAQ'
-            | 'OpenDataDc'
-            | 'OpenExchangeRates'
-            | 'OpenFDA'
-            | 'OpenRouter'
-            | 'OpenWeather'
-            | 'OpinionStage'
-            | 'Opsgenie'
-            | 'Optimizely'
-            | 'OPUSWatch'
-            | 'Oracle'
-            | 'OracleEbs'
-            | 'OracleFusion'
-            | 'Orb'
-            | 'Orbit'
-            | 'OrcaSecurity'
-            | 'Ortto'
-            | 'Oura'
-            | 'Outbrain'
-            | 'Outlook'
-            | 'Outreach'
-            | 'Oveit'
-            | 'PabblySubscriptionsBilling'
-            | 'Packagist'
-            | 'Paddle'
-            | 'PagerDuty'
-            | 'PandaDoc'
-            | 'Paperform'
-            | 'Papersign'
-            | 'Pardot'
-            | 'Partnerize'
-            | 'PartnerStack'
-            | 'PayFit'
-            | 'Paylocity'
-            | 'PayPal'
-            | 'Paystack'
-            | 'PeecAI'
-            | 'Pendo'
-            | 'Pennylane'
-            | 'Perigon'
-            | 'Perk'
-            | 'PersistIq'
-            | 'Persona'
-            | 'Personio'
-            | 'Pexels'
-            | 'PgAnalyze'
-            | 'Phyllo'
-            | 'Picqer'
-            | 'Pinecone'
-            | 'Pingdom'
-            | 'PinterestAds'
-            | 'Pipedrive'
-            | 'Pipeliner'
-            | 'PivotalTracker'
-            | 'Piwik'
-            | 'Plaid'
-            | 'Plain'
-            | 'PlanetScale'
-            | 'Planhat'
-            | 'PlatformSh'
-            | 'Plausible'
-            | 'Plunk'
-            | 'Pocket'
-            | 'Podium'
-            | 'Polar'
-            | 'Polygon'
-            | 'Poplar'
-            | 'Postgres'
-            | 'Postmark'
-            | 'PrefectCloud'
-            | 'PrestaShop'
-            | 'Pretix'
-            | 'Primetric'
-            | 'Printify'
-            | 'Productboard'
-            | 'Productive'
-            | 'PromptingCompany'
-            | 'PromptWatch'
-            | 'PulumiCloud'
-            | 'Pylon'
-            | 'PyPI'
-            | 'Qdrant'
-            | 'Qonto'
-            | 'Qualaroo'
-            | 'Qualtrics'
-            | 'QualysVmdr'
-            | 'QuickBooks'
-            | 'Railway'
-            | 'Railz'
-            | 'Ramp'
-            | 'Rapid7Insightvm'
-            | 'Raygun'
-            | 'Razorpay'
-            | 'RB2B'
-            | 'RDStationMarketing'
-            | 'Recharge'
-            | 'Recreation'
-            | 'Recruitee'
-            | 'Recurly'
-            | 'Reddit'
-            | 'RedditAds'
-            | 'Redis'
-            | 'Redshift'
-            | 'ReferralHero'
-            | 'Render'
-            | 'RentCast'
-            | 'Repairshopr'
-            | 'Replicate'
-            | 'ReplyIo'
-            | 'Resend'
-            | 'RetailExpress'
-            | 'RetellAI'
-            | 'Retently'
-            | 'RevenueCat'
-            | 'RevolutMerchant'
-            | 'RingCentral'
-            | 'Rippling'
-            | 'RKICovid'
-            | 'Roark'
-            | 'RocketChat'
-            | 'Rocketlane'
-            | 'Rollbar'
-            | 'Rootly'
-            | 'Rss'
-            | 'RudderStack'
-            | 'Ruddr'
-            | 'RunPod'
-            | 'SafetyCulture'
-            | 'SageHR'
-            | 'SageIntacct'
-            | 'Sailthru'
-            | 'Salesflare'
-            | 'Salesforce'
-            | 'SalesforceMarketingCloud'
-            | 'SalesLoft'
-            | 'Salestrics'
-            | 'Sanity'
-            | 'SapConcur'
-            | 'SapErp'
-            | 'SAPFieldglass'
-            | 'SapHana'
-            | 'SapSuccessFactors'
-            | 'SavvyCal'
-            | 'ScaleAI'
-            | 'Scaleway'
-            | 'SearchAds360'
-            | 'Secoda'
-            | 'Secureframe'
-            | 'Segment'
-            | 'Semaphore'
-            | 'Semgrep'
-            | 'SendGrid'
-            | 'Sendowl'
-            | 'SendPulse'
-            | 'Senseforce'
-            | 'Sentinelone'
-            | 'Sentry'
-            | 'Serpstat'
-            | 'ServiceNow'
-            | 'SevenShifts'
-            | 'SFTP'
-            | 'SharePoint'
-            | 'Sharetribe'
-            | 'Shippo'
-            | 'ShipStation'
-            | 'Shopify'
-            | 'Shopware'
-            | 'ShopWired'
-            | 'Shortcut'
-            | 'Shortio'
-            | 'Shutterstock'
-            | 'SigmaComputing'
-            | 'SignNow'
-            | 'SigNoz'
-            | 'Sim'
-            | 'SimFin'
-            | 'SimpleCast'
-            | 'Simplesat'
-            | 'Singular'
-            | 'Skyvern'
-            | 'Slack'
-            | 'Slash'
-            | 'Smaily'
-            | 'SmartEngage'
-            | 'Smartreach'
-            | 'Smartsheet'
-            | 'Smartwaiver'
-            | 'SnapchatAds'
-            | 'Snowflake'
-            | 'Snowplow'
-            | 'Snyk'
-            | 'SolarwindsServiceDesk'
-            | 'SonarCloud'
-            | 'Sonarqube'
-            | 'SonatypeNexus'
-            | 'Sourcegraph'
-            | 'Spacelift'
-            | 'SparkPost'
-            | 'SplitIo'
-            | 'SplunkObservabilityCloud'
-            | 'SpotifyAds'
-            | 'SpotlerCRM'
-            | 'Squadcast'
-            | 'Square'
-            | 'Squarespace'
-            | 'Statsig'
-            | 'Statuscake'
-            | 'Statuspage'
-            | 'Stigg'
-            | 'StockData'
-            | 'Strava'
-            | 'StreamElements'
-            | 'Streamlabs'
-            | 'Stripe'
-            | 'Stytch'
-            | 'SumoLogic'
-            | 'Sumsub'
-            | 'Supabase'
-            | 'Superwall'
-            | 'SurveyMonkey'
-            | 'SurveySparrow'
-            | 'Survicate'
-            | 'Svix'
-            | 'Swarmia'
-            | 'Swonkie'
-            | 'Synthesia'
-            | 'Systeme'
-            | 'Taboola'
-            | 'Tailscale'
-            | 'Talkwalker'
-            | 'Tavus'
-            | 'TawkTo'
-            | 'Teachable'
-            | 'Teamcity'
-            | 'Teamtailor'
-            | 'Teamwork'
-            | 'Telli'
-            | 'Tempo'
-            | 'TemporalIO'
-            | 'TenableVulnerabilityManagement'
-            | 'TerraApi'
-            | 'TerraformCloud'
-            | 'Testrail'
-            | 'Thinkific'
-            | 'ThinkificCourses'
-            | 'ThriveLearning'
-            | 'Ticketmaster'
-            | 'TicketTailor'
-            | 'TickTick'
-            | 'TikTokAds'
-            | 'Tile38'
-            | 'Timely'
-            | 'Tinyemail'
-            | 'TMDb'
-            | 'Todoist'
-            | 'TogetherAI'
-            | 'Toggl'
-            | 'TrackPMS'
-            | 'TravisCI'
-            | 'Trello'
-            | 'Tremendous'
-            | 'TriggerDev'
-            | 'TrustPilot'
-            | 'Turso'
-            | 'TVMaze'
-            | 'TwelveData'
-            | 'TwelveLabs'
-            | 'Twenty'
-            | 'Twilio'
-            | 'Twitter'
-            | 'TwitterAds'
-            | 'TyntecSMS'
-            | 'Typeform'
-            | 'Ubidots'
-            | 'Unleash'
-            | 'Unstructured'
-            | 'UpPromote'
-            | 'Upstash'
-            | 'Uptick'
-            | 'Uptimerobot'
-            | 'USCensus'
-            | 'Usersnap'
-            | 'Uservoice'
-            | 'Vantage'
-            | 'Vapi'
-            | 'Veeqo'
-            | 'Vellum'
-            | 'Veracode'
-            | 'Vercel'
-            | 'Vespa'
-            | 'VismaEconomic'
-            | 'Vitally'
-            | 'Vultr'
-            | 'VWO'
-            | 'Waiteraid'
-            | 'Wasabi'
-            | 'Watchmode'
-            | 'Webflow'
-            | 'WeightsAndBiases'
-            | 'WhenIWork'
-            | 'WikipediaPageviews'
-            | 'Windmill'
-            | 'WooCommerce'
-            | 'Wordpress'
-            | 'Workable'
-            | 'Workday'
-            | 'Workflowmax'
-            | 'WorkOS'
-            | 'Workramp'
-            | 'Wrike'
-            | 'Writesonic'
-            | 'Wufoo'
-            | 'Xero'
-            | 'Xmatters'
-            | 'Xsolla'
-            | 'YahooFinance'
-            | 'YandexMetrica'
-            | 'Ynab'
-            | 'Yotpo'
-            | 'Younium'
-            | 'YouSign'
-            | 'YouTubeAnalytics'
-            | 'YoutubeData'
-            | 'ZapierSupportedStorage'
-            | 'ZapSign'
-            | 'Zellify'
-            | 'Zendesk'
-            | 'ZendeskSell'
-            | 'ZendeskSunshine'
-            | 'Zenduty'
-            | 'Zenefits'
-            | 'Zenloop'
-            | 'Zep'
-            | 'ZohoAnalytics'
-            | 'ZohoBigin'
-            | 'ZohoBilling'
-            | 'ZohoBooks'
-            | 'ZohoCampaign'
-            | 'ZohoCRM'
-            | 'ZohoDesk'
-            | 'ZohoExpense'
-            | 'ZohoInventory'
-            | 'ZohoInvoice'
-            | 'ZonkaFeedback'
-            | 'Zoom'
-            | 'ZoomInfo'
-            | 'Zuora'
+    openDataSourceSetup: (source: WarehouseBackedSource) => {
+        source: WarehouseBackedSource
     }
     openSessionAnalysisSetup: () => {
         value: true
@@ -1920,11 +260,17 @@ export interface signalSourcesLogicActions {
     toggleAnomalyInvestigation: () => {
         value: true
     }
+    toggleCiSignals: (viaSetupWizard?: boolean) => {
+        viaSetupWizard: boolean
+    }
+    toggleCiSignalsComplete: () => {
+        value: true
+    }
     toggleConversations: () => {
         value: true
     }
-    toggleDataWarehouseSource: (dwSource: DataWarehouseSource) => {
-        dwSource: DataWarehouseSource
+    toggleDataWarehouseSource: (source: WarehouseBackedSource) => {
+        source: WarehouseBackedSource
     }
     toggleErrorTracking: () => {
         value: true
@@ -1979,6 +325,8 @@ export interface signalSourcesLogicMeta {
         anomalyInvestigationConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
         errorTrackingIsFullyEnabled: (sourceConfigs: SignalSourceConfig[] | null) => boolean
+        ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
+        isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
         enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null) => number
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
@@ -2011,16 +359,18 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openSessionAnalysisSetup: true,
         closeSessionAnalysisSetup: true,
         toggleSessionAnalysis: true,
-        toggleDataWarehouseSource: (dwSource: DataWarehouseSource) => ({ dwSource }),
-        initiateDataWarehouseSourceToggle: (dwSource: DataWarehouseSource) => ({ dwSource }),
-        openDataSourceSetup: (product: ExternalDataSourceType) => ({ product }),
+        toggleDataWarehouseSource: (source: WarehouseBackedSource) => ({ source }),
+        initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
+        openDataSourceSetup: (source: WarehouseBackedSource) => ({ source }),
         closeDataSourceSetup: true,
-        onDataSourceSetupComplete: (product: ExternalDataSourceType) => ({ product }),
+        onDataSourceSetupComplete: true,
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
+        toggleCiSignalsComplete: true,
         toggleHealthChecks: true,
         toggleEvalReports: true,
         toggleConversations: true,
@@ -2037,6 +387,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     const response = await api.signalSourceConfigs.list()
                     return response.results
                 },
+            },
+        ],
+        ciSignalsConfig: [
+            null as CISignalsConfigApi | null,
+            {
+                loadCiSignalsConfig: async (): Promise<CISignalsConfigApi> =>
+                    engineeringAnalyticsCiSignalsConfigRetrieve(String(teamLogic.values.currentTeamId)),
             },
         ],
     }),
@@ -2057,10 +414,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 closeSessionAnalysisSetup: () => false,
             },
         ],
-        dataSourceSetupProduct: [
-            null as ExternalDataSourceType | null,
+        dataSourceSetupSource: [
+            null as WarehouseBackedSource | null,
             {
-                openDataSourceSetup: (_, { product }) => product,
+                openDataSourceSetup: (_, { source }) => source,
                 closeDataSourceSetup: () => null,
                 closeSourcesModal: () => null,
             },
@@ -2072,9 +429,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     SignalSourceProduct.SessionReplay,
                     SignalSourceType.SessionAnalysisCluster
                 ),
-            toggleDataWarehouseSource: (state: SignalSourceConfig[] | null, { dwSource }) => {
-                const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
-                return toggleSourceConfigState(state, sourceProduct, sourceType)
+            toggleDataWarehouseSource: (state: SignalSourceConfig[] | null, { source }) => {
+                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+                if (completion.kind !== 'source_config') {
+                    return state
+                }
+                return toggleSourceConfigState(state, completion.sourceProduct, completion.sourceType)
             },
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
@@ -2111,6 +471,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 toggleErrorTrackingComplete: (state) => {
                     const next = new Set(state)
                     next.delete('error_tracking')
+                    return next
+                },
+                toggleCiSignals: (state) => {
+                    const next = new Set(state)
+                    next.add('engineering_analytics')
+                    return next
+                },
+                toggleCiSignalsComplete: (state) => {
+                    const next = new Set(state)
+                    next.delete('engineering_analytics')
                     return next
                 },
             },
@@ -2251,6 +621,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 })
             },
         ],
+        ciSignalsIsFullyEnabled: [
+            (s) => [s.ciSignalsConfig],
+            (ciSignalsConfig: CISignalsConfigApi | null): boolean => ciSignalsConfig?.enabled ?? false,
+        ],
+        isCiSignalsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has('engineering_analytics'),
+        ],
         isSessionAnalysisRunning: [
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
@@ -2279,61 +657,75 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
 
     listeners(({ actions, values }) => {
         // If the required table for a signal source is not yet syncing on the existing DW source,
-        // enable it so the signals workflow has data to process.
+        // enable it. Multi-repo sources qualify schema names (`owner/repo.endpoint`): match by suffix.
         async function ensureRequiredTableSyncing(dwSourceType: string, tableName: string): Promise<void> {
-            const source = values.dataWarehouseSources?.results?.find(
-                (s: ExternalDataSource) => s.source_type === dwSourceType
+            const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
+                schema.name === tableName || schema.name.endsWith(`.${tableName}`)
+            const schemas = values.dataWarehouseSources?.results
+                ?.filter((source: ExternalDataSource) => source.source_type === dwSourceType)
+                .flatMap((source: ExternalDataSource) => source.schemas ?? [])
+                .filter((schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync)
+            await Promise.all(
+                (schemas ?? []).map((schema: ExternalDataSourceSchema) =>
+                    api.externalDataSchemas.update(schema.id, { should_sync: true })
+                )
             )
-            if (!source) {
-                return
-            }
-            const schema = source.schemas?.find((s: ExternalDataSourceSchema) => s.name === tableName)
-            if (schema && !schema.should_sync) {
-                await api.externalDataSchemas.update(schema.id, { should_sync: true })
-            }
         }
 
         return {
+            loadCiSignalsConfigFailure: ({ error, errorObject }) => {
+                // Silent failure would leave the card claiming setup is required for an armed source.
+                lemonToast.error(errorObject?.detail || error || 'Failed to load CI signals status')
+            },
             openSourcesModal: () => {
                 // Load external data sources so we can check connectivity when user toggles a source
                 actions.loadSources()
             },
-            initiateDataWarehouseSourceToggle: async ({ dwSource }) => {
-                const { requiredTable, enableErrorMessage } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
-                const sourceConfig = getDataWarehouseSourceConfig(values, dwSource)
+            initiateDataWarehouseSourceToggle: async ({ source }) => {
+                const { dwSourceType, requiredTables, completion } = WAREHOUSE_SOURCE_SETUP[source]
+                const sourceConfig = getWarehouseSourceConfig(values, source)
                 const isCurrentlyEnabled = sourceConfig?.enabled === true
                 if (!isCurrentlyEnabled) {
                     const hasSource =
                         values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === dwSource
+                            (s: ExternalDataSource) => s.source_type === dwSourceType
                         ) ?? false
                     if (!hasSource) {
-                        actions.openDataSourceSetup(dwSource)
+                        actions.openDataSourceSetup(source)
                         return
                     }
                     try {
-                        await ensureRequiredTableSyncing(dwSource, requiredTable)
+                        for (const table of requiredTables) {
+                            await ensureRequiredTableSyncing(dwSourceType, table)
+                        }
                     } catch (error: any) {
-                        lemonToast.error(error?.detail || error?.message || enableErrorMessage)
+                        const fallback =
+                            completion.kind === 'source_config'
+                                ? completion.enableErrorMessage
+                                : 'Failed to enable source'
+                        lemonToast.error(error?.detail || error?.message || fallback)
                         return
                     }
                 }
-                actions.toggleDataWarehouseSource(dwSource)
+                actions.toggleDataWarehouseSource(source)
             },
-            onDataSourceSetupComplete: ({ product }: { product: ExternalDataSourceType }) => {
-                const mapping: Partial<
-                    Record<ExternalDataSourceType, { sourceProduct: SignalSourceProduct; sourceType: SignalSourceType }>
-                > = {
-                    Github: { sourceProduct: SignalSourceProduct.Github, sourceType: SignalSourceType.Issue },
-                    Linear: { sourceProduct: SignalSourceProduct.Linear, sourceType: SignalSourceType.Issue },
-                    Zendesk: { sourceProduct: SignalSourceProduct.Zendesk, sourceType: SignalSourceType.Ticket },
-                    PgAnalyze: { sourceProduct: SignalSourceProduct.Pganalyze, sourceType: SignalSourceType.Issue },
-                }
-                const mapped = mapping[product]
-                if (mapped) {
-                    actions.toggleSignalSource({ ...mapped, enabled: true, viaSetupWizard: true })
-                }
+            onDataSourceSetupComplete: () => {
+                const source = values.dataSourceSetupSource
                 actions.closeDataSourceSetup()
+                if (source === null) {
+                    return
+                }
+                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+                if (completion.kind === 'ci_signals_bundle') {
+                    actions.toggleCiSignals(true)
+                    return
+                }
+                actions.toggleSignalSource({
+                    sourceProduct: completion.sourceProduct,
+                    sourceType: completion.sourceType,
+                    enabled: true,
+                    viaSetupWizard: true,
+                })
             },
             toggleSignalSource: async ({ params }, breakpoint) => {
                 const { sourceProduct, sourceType, enabled, config } = params
@@ -2421,6 +813,58 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.loadSourceConfigs()
                 }
             },
+            toggleCiSignals: async ({ viaSetupWizard }, breakpoint) => {
+                const desiredEnabled = !values.ciSignalsIsFullyEnabled
+                const wasConnected = values.ciSignalsConfig?.configured ?? false
+                // The setup wizard just connected GitHub with the CI tables preselected, so both
+                // checks below would race the still-refreshing sources list — skip them.
+                if (desiredEnabled && !viaSetupWizard) {
+                    const hasGithubSource =
+                        values.dataWarehouseSources?.results?.some(
+                            (s: ExternalDataSource) => s.source_type === 'Github'
+                        ) ?? false
+                    if (!hasGithubSource) {
+                        actions.toggleCiSignalsComplete()
+                        actions.openDataSourceSetup('engineering_analytics')
+                        return
+                    }
+                    try {
+                        const ciSetup = WAREHOUSE_SOURCE_SETUP.engineering_analytics
+                        for (const tableName of ciSetup.requiredTables) {
+                            await ensureRequiredTableSyncing(ciSetup.dwSourceType, tableName)
+                        }
+                    } catch (error: any) {
+                        actions.toggleCiSignalsComplete()
+                        lemonToast.error(error?.detail || error?.message || 'Failed to enable GitHub CI signals')
+                        return
+                    }
+                }
+                try {
+                    const updatedConfig = await engineeringAnalyticsCiSignalsConfigUpdate(
+                        String(teamLogic.values.currentTeamId),
+                        { enabled: desiredEnabled }
+                    )
+                    breakpoint()
+                    actions.loadCiSignalsConfigSuccess(updatedConfig)
+                    actions.toggleCiSignalsComplete()
+                    if (desiredEnabled) {
+                        captureSignalSourceConnected({
+                            sourceProduct: SignalSourceProduct.EngineeringAnalytics,
+                            sourceType: SignalSourceType.CiFlakyCheck,
+                            isFirstConnection: !wasConnected,
+                            viaSetupWizard,
+                        })
+                    }
+                    actions.loadSourceConfigs()
+                } catch (error: any) {
+                    breakpoint() // re-throws if superseded, skipping the lines below
+                    actions.toggleCiSignalsComplete()
+                    const errorMessage = error?.detail || error?.message || 'Failed to toggle GitHub CI signals'
+                    lemonToast.error(errorMessage)
+                    actions.loadCiSignalsConfig()
+                    actions.loadSourceConfigs()
+                }
+            },
             toggleSessionAnalysis: () => {
                 const config = values.sessionAnalysisConfig
                 const desiredEnabled = config?.enabled ?? true
@@ -2474,14 +918,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     enabled: desiredEnabled,
                 })
             },
-            toggleDataWarehouseSource: ({ dwSource }) => {
-                const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
-                const config = getDataWarehouseSourceConfig(values, dwSource)
-                const desiredEnabled = config?.enabled ?? true
+            toggleDataWarehouseSource: ({ source }) => {
+                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+                if (completion.kind !== 'source_config') {
+                    return
+                }
+                const config = getWarehouseSourceConfig(values, source)
                 actions.toggleSignalSource({
-                    sourceProduct,
-                    sourceType,
-                    enabled: desiredEnabled,
+                    sourceProduct: completion.sourceProduct,
+                    sourceType: completion.sourceType,
+                    enabled: config?.enabled ?? true,
                 })
             },
             saveSessionAnalysisFilters: async ({ filters }) => {
@@ -2534,6 +980,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
+                if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                    actions.loadCiSignalsConfig()
+                }
             }
         },
     })),

@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.av
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.source import AviatorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AviatorSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviator import (
+    AviatorSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

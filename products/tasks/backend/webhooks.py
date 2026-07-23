@@ -16,6 +16,7 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.facade.api import signal_workflow_completion
+from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
@@ -197,6 +198,12 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
             _record_run_pr_merged(task_run)
         _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
+    if task_run and action == "closed" and not merged:
+        # Same trust rule as the merge branch: only the run that claims this PR URL.
+        run_output = task_run.output if isinstance(task_run.output, dict) else {}
+        if run_output.get("pr_url") == pr_url:
+            _cancel_wizard_run_on_close(task_run)
+
     return HttpResponse(status=200)
 
 
@@ -273,6 +280,40 @@ def _complete_wizard_run_on_merge(task_run: TaskRun) -> None:
     transaction.on_commit(_signal)
 
 
+def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
+    """Cancel a wizard cloud run when its setup PR is closed without merging.
+
+    Closing the setup PR is the user's clearest "I don't want this" signal, yet without this
+    hook the workflow keeps the sandbox running until its TTL expires and the onboarding UI
+    reports the run as in flight for hours. Scoped to wizard runs: closing a regular task
+    run's PR is a normal review action owned by the CI follow-up loop. Best-effort: the
+    webhook must stay 2xx even if Temporal is unreachable or the run just finished.
+    """
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if "wizard_config" not in state:
+        return
+    if task_run.environment != TaskRun.Environment.CLOUD:
+        return
+    if task_run.status in _TERMINAL_RUN_STATUSES:
+        return
+
+    def _cancel() -> None:
+        try:
+            cancel_task_run(
+                task_run.id,
+                task_run.task_id,
+                task_run.team_id,
+                reason="Setup pull request was closed",
+                source="pr_closed",
+            )
+        except Exception:
+            logger.warning("github_pr_webhook_wizard_cancel_failed", run_id=str(task_run.id), exc_info=True)
+
+    # cancel_task_run does a synchronous Temporal round-trip; on_commit keeps it out of any
+    # open transaction and after the webhook's own writes have committed.
+    transaction.on_commit(_cancel)
+
+
 def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:
     """Idempotently merge ``{key: value}`` into a run's ``output`` JSON under a row lock.
 
@@ -302,6 +343,23 @@ def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, fai
 _TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
 
 
+def _account_type(payload: dict) -> str | None:
+    """Whether the webhook's repo is owned by a GitHub org or a personal account.
+
+    ``repository.owner.type`` is "Organization" or "User"; the top-level
+    ``organization`` object is present only for org-owned repos and backs it up
+    when the owner block is missing. Returns None when neither signal is present.
+    """
+    owner_type = ((payload.get("repository") or {}).get("owner") or {}).get("type")
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    if payload.get("organization"):
+        return "organization"
+    return None
+
+
 def _pr_payload_properties(payload: dict) -> dict:
     pull_request = payload.get("pull_request") or {}
     return {
@@ -314,6 +372,8 @@ def _pr_payload_properties(payload: dict) -> dict:
         "pr_deletions": pull_request.get("deletions"),
         "pr_changed_files": pull_request.get("changed_files"),
         "pr_commits": pull_request.get("commits"),
+        "account_type": _account_type(payload),
+        "repo_owner_type": ((payload.get("repository") or {}).get("owner") or {}).get("type"),
     }
 
 

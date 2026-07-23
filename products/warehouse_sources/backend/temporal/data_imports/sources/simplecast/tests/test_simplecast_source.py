@@ -7,7 +7,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SimpleCastSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplecast import (
+    SimpleCastSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import (
     ENDPOINTS,
     SIMPLECAST_API_VERSION_2_0,

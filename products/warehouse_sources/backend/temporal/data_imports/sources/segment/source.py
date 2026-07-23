@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SegmentSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
+    SegmentSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -107,6 +109,7 @@ This connects to the Segment **Public API** (workspace configuration, admin, and
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Segment Public API exposes no server-side timestamp filter on these resources, so every
         # endpoint is full refresh only.
@@ -128,7 +131,11 @@ This connects to the Segment **Public API** (workspace configuration, admin, and
         return schemas
 
     def validate_credentials(
-        self, config: SegmentSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SegmentSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_segment_credentials(config.api_token, config.region):
             return True, None

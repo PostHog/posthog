@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class IntruderEndpointConfig:
@@ -42,3 +44,8 @@ INTRUDER_ENDPOINTS: dict[str, IntruderEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(INTRUDER_ENDPOINTS.keys())
+
+# Every endpoint is full refresh: no list endpoint exposes a documented, verifiable server-side
+# "created/updated after" cursor we can persist between runs, so nothing advertises incremental
+# fields.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in INTRUDER_ENDPOINTS}

@@ -109,7 +109,7 @@ class PersonStrategy(ActorStrategy):
                 "is_identified": p.is_identified,
                 "created_at": datetime.fromtimestamp(p.created_at / 1000, tz=UTC) if p.created_at else None,
                 "last_seen_at": datetime.fromtimestamp(p.last_seen_at / 1000, tz=UTC) if p.last_seen_at else None,
-                "distinct_ids": distinct_ids_by_person.get(p.id, []),
+                "distinct_ids": [d.id for d in distinct_ids_by_person.get(p.id, [])],
             }
             for p in all_persons
         }

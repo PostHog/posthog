@@ -6,14 +6,16 @@ use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
-    fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
+    fingerprinting::{Fingerprint, FingerprintVersion},
     issue_resolution::IssueFingerprintOverride,
     metric_consts::{FINGERPRINT_GENERATOR_OPERATOR, FINGERPRINT_LEGACY_VERSION_USED},
     modes::processing::normalization::legacy_wire_order,
     modes::processing::rules::grouping::evaluate_grouping_rules,
     stages::grouping::GroupingStage,
     types::{
-        exception_event::{ExceptionEvent, FingerprintData, Fingerprinted, PipelineItem, Resolved},
+        exception_event::{
+            ExceptionEvent, Fingerprinted, PipelineItem, Resolved, SelectedFingerprint,
+        },
         ExceptionList,
     },
 };
@@ -52,17 +54,12 @@ impl FingerprintGenerator {
         // defer it: `evaluate_grouping_rules` invokes this closure only when rules exist.
         let matched_rule =
             evaluate_grouping_rules(&ctx.connection, input.team_id(), &ctx.team_manager, || {
-                Ok(input.to_grouping_value())
+                Ok(input.grouping_rule_properties())
             })
             .await?;
 
         if let Some(rule) = matched_rule {
-            let fingerprint = Fingerprint::from_rule(rule);
-            return Ok(input.into_fingerprinted(FingerprintData {
-                value: fingerprint.value,
-                version: None,
-                record: fingerprint.record,
-            }));
+            return Ok(input.into_fingerprinted(SelectedFingerprint::custom(rule.id)));
         }
 
         // Legacy fingerprint versions keep issues keyed before wire-order
@@ -86,11 +83,7 @@ impl FingerprintGenerator {
                 .increment(1);
         }
 
-        Ok(input.into_fingerprinted(FingerprintData {
-            value: fingerprint.value,
-            version: Some(version),
-            record: fingerprint.record,
-        }))
+        Ok(input.into_fingerprinted(SelectedFingerprint::automatic(version, fingerprint)))
     }
 
     pub fn name(&self) -> &'static str {
@@ -98,7 +91,7 @@ impl FingerprintGenerator {
     }
 }
 
-fn manual_fingerprint(value: &str) -> FingerprintData {
+fn manual_fingerprint(value: &str) -> SelectedFingerprint {
     let value = if value.len() > 64 {
         let mut hasher = Sha512::default();
         hasher.update(value);
@@ -106,11 +99,7 @@ fn manual_fingerprint(value: &str) -> FingerprintData {
     } else {
         value.to_string()
     };
-    FingerprintData {
-        value,
-        version: None,
-        record: vec![FingerprintRecordPart::Manual],
-    }
+    SelectedFingerprint::manual(value)
 }
 
 // Walks versions newest-first and keeps the first fingerprint that already maps to an issue,

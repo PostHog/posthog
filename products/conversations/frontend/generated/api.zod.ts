@@ -122,7 +122,9 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                             .describe('Optional human-readable label rendered in the context block.'),
                         value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
                     })
-                    .describe('One typed attachment carried by a sandbox message.')
+                    .describe(
+                        'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
+                    )
             )
             .optional()
             .describe('Typed PostHog entities (and free text) attached to this message.'),
@@ -403,6 +405,12 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
         ),
+    is_favorited: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
+        ),
 })
 
 export const conversationsViewsPartialUpdateBodyNameMax = 400
@@ -414,6 +422,12 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
+    is_favorited: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
         ),
 })
 

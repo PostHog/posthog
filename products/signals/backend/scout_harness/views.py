@@ -91,6 +91,7 @@ from products.signals.backend.scout_harness.serializers import (
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
+    SignalScoutConfigUpdateSerializer,
     SignalScoutEmissionSerializer,
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
@@ -298,6 +299,7 @@ def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | Non
         ReviewerInput(
             github_login=entry.get("github_login"),
             user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
+            reason=entry.get("reason") or None,
         )
         for entry in entries
     ]
@@ -962,7 +964,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout"
-    # `list` returns a raw newest-first array (capped at limit=500 by the query serializer),
+    # `list` returns a raw newest-first array (capped at limit=1000 by the query serializer),
     # not a paginated wrapper. See SignalScoutRunViewSet for the same rationale.
     pagination_class = None
 
@@ -986,11 +988,12 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Search the scout scratchpad",
         description=(
             "Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` "
-            "and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
+            "and `key`; pass `key` instead for an exact single-entry lookup. "
+            "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
             "to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
-            "from returning every entry's full prose. Results capped at 500."
+            "from returning every entry's full prose. Results capped at 1000."
         ),
         operation_id="signals_scout_scratchpad_search",
     )
@@ -1005,6 +1008,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         rows = search_scratchpad(
             team_id=_canonical_team_id(self),
             text=text,
+            key=validated.get("key") or None,
             date_from=date_from,
             date_to=date_to,
             limit=limit,
@@ -1359,10 +1363,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List scout configs",
         description=(
-            "List the per-(team, skill) scout configs for this project — schedule "
-            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly "
-            "authored scout skill appears here once its config is registered, either "
-            "explicitly via create or by the coordinator's next tick."
+            "List the per-(team, skill) scout configs for this project. Each row includes its schedule "
+            "(rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, "
+            "and `emit` posture. A freshly authored scout skill appears here once its config is registered, "
+            "either explicitly via create or by the coordinator's next tick."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -1401,16 +1405,19 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Create a scout config",
         description=(
             "Register the config for a `signals-scout-*` skill immediately, without waiting "
-            "for the coordinator to auto-register it — optionally setting `run_interval_minutes`, "
-            "`enabled`, and `emit` in the same call. The skill must already exist on this "
-            "project. Upsert: if a config already exists for the skill, the provided fields "
-            "are applied to it."
+            "for the coordinator to auto-register it. The same call can optionally set "
+            "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. "
+            "The skill must already exist on this project. Upsert: if a config already exists "
+            "for the skill, the provided fields are applied to it."
         ),
         operation_id="signals_scout_config_create",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        serializer = SignalScoutConfigCreateSerializer(data=request.data)
+        serializer = SignalScoutConfigCreateSerializer(
+            data=request.data,
+            context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        )
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
         if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
@@ -1447,7 +1454,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not created and tunables:
             # The coordinator tick (or a concurrent caller) won the race — apply the provided
             # fields to the existing row so the call still lands the requested settings.
-            update = SignalScoutConfigSerializer(config, data=tunables, partial=True)
+            update = SignalScoutConfigUpdateSerializer(
+                config,
+                data=tunables,
+                partial=True,
+                context={**self.get_serializer_context(), "project_id": self.team.project_id},
+            )
             update.is_valid(raise_exception=True)
             save_kwargs = {}
             if not config.enabled and update.validated_data.get("enabled"):
@@ -1460,7 +1472,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @extend_schema(
-        request=SignalScoutConfigSerializer,
+        request=SignalScoutConfigUpdateSerializer,
         responses={
             200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Updated config."),
             400: OpenApiResponse(
@@ -1470,9 +1482,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Update a scout config",
         description=(
-            "Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` "
-            "(dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is "
-            "activity-logged since it drives spend."
+            "Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron "
+            "`run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) "
+            "posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` "
+            "and is activity-logged since it drives spend."
         ),
         operation_id="signals_scout_config_update",
     )
@@ -1482,7 +1495,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
             raise exceptions.NotFound()
-        serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
+        serializer = SignalScoutConfigUpdateSerializer(
+            config,
+            data=request.data,
+            partial=True,
+            context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        )
         serializer.is_valid(raise_exception=True)
         enabling = not config.enabled and serializer.validated_data.get("enabled")
         if enabling:

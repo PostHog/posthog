@@ -459,6 +459,9 @@ tools:
             gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks healthy
             (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a repair is
             already running. Safe to retry after a failure. Returns {success, schemas_reset}.
+    external-data-sources-resume-cdc-create:
+        operation: external_data_sources_resume_cdc_create
+        enabled: false
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
         enabled: true

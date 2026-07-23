@@ -20,12 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZuoraSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zuora import ZuoraSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -57,6 +60,9 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Permanent token-exchange failures (invalid_client, bad request, wrong environment, …)
+            # all carry the framework's stable marker; transient 429/5xx token errors don't.
+            OAUTH2_PERMANENT_ERROR_MARKER: "Zuora authentication failed. Please check your client ID and client secret (and that they match the selected environment).",
             "400 Client Error: Bad Request for url: https://rest.": "Zuora rejected the request. If this occurs while connecting, check your client ID and client secret (and that they match the selected environment).",
             "401 Client Error: Unauthorized for url: https://rest.": "Zuora authentication failed. Please check your client ID and client secret (and that they match the selected environment).",
             "403 Client Error: Forbidden for url: https://rest.": "Zuora denied access. Please check that the OAuth client's user has permission for this object.",
@@ -119,11 +125,12 @@ A Zuora admin can create an OAuth client under Settings > Administration > Manag
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ZuoraSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: ZuoraSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_zuora_credentials(config.environment, config.client_id, config.client_secret):
             return True, None
@@ -144,7 +151,8 @@ A Zuora admin can create an OAuth client under Settings > Administration > Manag
             client_id=config.client_id,
             client_secret=config.client_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

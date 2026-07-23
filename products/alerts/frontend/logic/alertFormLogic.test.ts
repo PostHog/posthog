@@ -115,6 +115,7 @@ describe('alertFormLogic', () => {
     let errorToastSpy: jest.SpyInstance
     let successToastSpy: jest.SpyInstance
     let captureExceptionSpy: jest.SpyInstance
+    let captureSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
@@ -126,6 +127,7 @@ describe('alertFormLogic', () => {
         errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
         captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
+        captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(jest.fn())
 
         insightLogic(insightLogicProps).mount()
         insightDataLogic(insightLogicProps).mount()
@@ -149,6 +151,7 @@ describe('alertFormLogic', () => {
             onEditSuccess,
             insightVizDataLogicProps: insightLogicProps,
             insightInterval: 'day',
+            uiVersion: 'redesigned',
         })
         logic.mount()
         logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
@@ -191,6 +194,24 @@ describe('alertFormLogic', () => {
         }
     )
 
+    it.each([
+        ['legacy', 'legacy' as const, '', {}],
+        ['redesigned', 'redesigned' as const, 'Weekly signups alert', {}],
+    ])('keeps %s creation defaults scoped to its UI', (_name, uiVersion, expectedName, expectedBounds) => {
+        const logic = alertFormLogic({
+            alert: null,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightName: 'Weekly signups',
+            uiVersion,
+        })
+        logic.mount()
+
+        expect(logic.values.alertForm.name).toBe(expectedName)
+        expect(logic.values.alertForm.threshold.configuration.bounds).toEqual(expectedBounds)
+    })
+
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()
 
@@ -206,11 +227,14 @@ describe('alertFormLogic', () => {
                 action: expect.any(Function),
             },
         })
+        expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
+            ui_version: 'redesigned',
+        })
 
         const toastOptions = successToastSpy.mock.calls[0][1] as { button: { action: () => void } }
         toastOptions.button.action()
-        expect(router.values.location.pathname).toMatch(/\/insights$/)
-        expect(router.values.searchParams.tab).toBe('alerts')
+        expect(router.values.location.pathname).toMatch(/\/alerts$/)
+        expect(router.values.searchParams).toEqual({})
     })
 
     // Funnels hide the #/% unit toggle and always compare a relative change as a percentage of the

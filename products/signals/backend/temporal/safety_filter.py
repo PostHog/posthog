@@ -201,6 +201,7 @@ async def safety_filter(
             user_prompt=description,
             validate=validate,
             stage="safety_filter",
+            ai_product="signals_safety",
         )
     except EmptyLLMResponseError:
         return SafetyFilterJudgeResponse(

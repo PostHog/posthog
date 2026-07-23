@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono::Utc;
 use cymbal::{
     issue_resolution::{Issue, IssueStatus},
@@ -7,7 +5,7 @@ use cymbal::{
     modes::processing::ProcessingConfig,
     stages::linking::issue::process_assignment,
     teams::TeamManager,
-    types::OutputErrProps,
+    types::ProcessedExceptionProperties,
 };
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -44,12 +42,20 @@ fn get_test_rule() -> AssignmentRule {
     }
 }
 
-fn test_props() -> OutputErrProps {
-    OutputErrProps {
-        fingerprint: "test value".to_string(),
-        other: HashMap::from([("test_value".to_string(), json!("test_value"))]),
-        ..Default::default()
-    }
+fn test_props() -> ProcessedExceptionProperties {
+    serde_json::from_value(json!({
+        "$exception_list": [{"type": "Error", "value": "test value"}],
+        "$exception_fingerprint": "test value",
+        "$exception_fingerprint_record": [{"type": "manual"}],
+        "$exception_issue_id": Uuid::nil(),
+        "$exception_handled": false,
+        "$exception_types": ["Error"],
+        "$exception_values": ["test value"],
+        "$exception_sources": [],
+        "$exception_functions": [],
+        "test_value": "test_value",
+    }))
+    .unwrap()
 }
 
 fn test_issue() -> Issue {

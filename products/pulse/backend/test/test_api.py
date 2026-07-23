@@ -204,7 +204,8 @@ class TestPulseAPI(APIBaseTest):
         assert str(other_config.id) not in [row["id"] for row in configs]
         assert str(other_brief.id) not in [row["id"] for row in briefs]
 
-    def test_project_member_cannot_mutate_or_generate(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+    def test_project_member_can_mutate_and_generate(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        mock_connect.return_value = _temporal_client()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.organization.available_product_features = [
@@ -220,13 +221,13 @@ class TestPulseAPI(APIBaseTest):
         )
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/")
-        create_response = self.client.post(f"/api/projects/{self.team.id}/pulse/brief_configs/", {"name": "blocked"})
+        create_response = self.client.post(f"/api/projects/{self.team.id}/pulse/brief_configs/", {"name": "allowed"})
         generate_response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
 
         assert list_response.status_code == status.HTTP_200_OK
-        assert create_response.status_code == status.HTTP_403_FORBIDDEN
-        assert generate_response.status_code == status.HTTP_403_FORBIDDEN
-        mock_connect.assert_not_called()
+        assert create_response.status_code == status.HTTP_201_CREATED
+        assert generate_response.status_code == status.HTTP_201_CREATED
+        mock_connect.assert_called_once()
 
     def test_config_crud_roundtrip(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         insight = Insight.objects.create(team=self.team, name="Pageviews")

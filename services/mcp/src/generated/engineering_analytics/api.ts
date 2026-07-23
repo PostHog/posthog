@@ -20,6 +20,12 @@ export const EngineeringAnalyticsBrokenTestsParams = /* @__PURE__ */ zod.object(
 })
 
 export const EngineeringAnalyticsBrokenTestsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -51,7 +57,7 @@ export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.
 })
 
 /**
- * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ * The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span. A test is a 'confirmed_flake' when an in-job retry recovered it in the same run; 'quarantined' when it fails while masked as xfail; otherwise 'suspected_regression'. It qualifies on any recovery, any master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const EngineeringAnalyticsFlakyTestsParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -74,13 +80,13 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .number()
         .optional()
         .describe(
-            'A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.'
+            'A test with no recorded recovery qualifies once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3.'
         ),
-    min_rerun_passes: zod
-        .number()
+    repo: zod
+        .string()
         .optional()
         .describe(
-            'A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     source_id: zod
         .string()
@@ -148,6 +154,12 @@ export const EngineeringAnalyticsPullRequestsParams = /* @__PURE__ */ zod.object
 export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.object({
     author: zod.string().optional().describe("Optional GitHub login to scope the list to one author's pull requests."),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -168,6 +180,12 @@ export const EngineeringAnalyticsRunFailureLogsParams = /* @__PURE__ */ zod.obje
 })
 
 export const EngineeringAnalyticsRunFailureLogsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     run_id: zod.number().describe('Workflow run id whose failure logs to fetch.'),
     source_id: zod
         .string()
@@ -178,7 +196,7 @@ export const EngineeringAnalyticsRunFailureLogsQueryParams = /* @__PURE__ */ zod
 })
 
 /**
- * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ * The team's selectable GitHub repositories, oldest source first — one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
  */
 export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -189,7 +207,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests an in-job retry recovered in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -212,13 +230,7 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
         .number()
         .optional()
         .describe(
-            'A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.'
-        ),
-    min_rerun_passes: zod
-        .number()
-        .optional()
-        .describe(
-            'A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+            'An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.'
         ),
     source_id: zod
         .string()
@@ -248,6 +260,12 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     run_scope: zod
         .enum(['all', 'pull_request'])
         .optional()
@@ -274,6 +292,12 @@ export const EngineeringAnalyticsWorkflowJobsParams = /* @__PURE__ */ zod.object
 })
 
 export const EngineeringAnalyticsWorkflowJobsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     run_attempt: zod
         .number()
         .optional()

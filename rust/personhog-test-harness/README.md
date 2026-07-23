@@ -3,7 +3,7 @@
 Load, consistency, and e2e correctness harness for the personhog leader path.
 Revived from the original personhog-cannon draft (#55581) and extended with stack orchestration, Postgres seeding, and an acked-write journal so it can gate CI, not just generate load.
 
-The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads once coordination has converged (post-chaos handoffs re-driven; an already-settled run waits zero time, and failing to converge within 90s fails the gate), and in Postgres (at or above the highest acked version) once the writer drains.
+The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads once coordination has converged (post-chaos handoffs re-driven; an already-settled run waits zero time, and failing to converge within 30s fails the gate), and in Postgres (at or above the highest acked version) once the writer drains.
 Every acked update is journaled under a unique property key, so the final state must contain all of them regardless of how concurrent writers interleaved.
 Version assignment is asserted throughout: the leader assigns each version of a person to at most one acked write, so a duplicated acked version (two writes served from the same base state), or a strong read observing a version below the highest ack, is a violation.
 Read-your-write recency is asserted live: `--probers` (default 2) workers run write-then-strong-read cycles alongside the blast traffic, so a staleness window during a chaos event trips a probe even if it heals before the end-of-run verification.
@@ -90,19 +90,18 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 20s \
 
 ### Known defects these scenarios reproduce
 
-Four real leader-path bugs surface under specific gate configurations.
+Four real leader-path bugs surfaced under specific gate configurations; two are fixed and gated, one is mostly fixed, one remains open.
 They are documented here so red or noisy runs read as signal, not harness flakiness.
 
-**Cache eviction under writer lag loses acked writes — the gate goes RED.**
+**Cache eviction under writer lag loses acked writes — FIXED, now a CI regression gate.**
 `--cache-capacity` sets the leader cache size in entries; below `--persons` it forces eviction of dirty entries whose writes the writer has not yet flushed.
-The next operation reloads the stale Postgres row, later merges build on the stale base, and acked writes disappear — exactly what the journal catches:
+Every operation used to reload the stale Postgres row on the next miss, later merges built on the stale base, and acked writes disappeared (this exact configuration once produced 4,886 violations).
+The leader now marks every acked produce in a dirty index and recovers evicted marked persons from their changelog record instead of trusting PG; the scenario runs in CI (with a writer pause to guarantee the lag) and must stay green:
 
 ```bash
-# Expect thousands of violations until the eviction hazard is fixed
-target/debug/personhog-test-harness gate --persons 50 --cache-capacity 10 --duration 10s
+target/debug/personhog-test-harness gate --leaders 3 --partitions 8 --persons 50 \
+  --cache-capacity 10 --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
 ```
-
-Fix direction: pin dirty entries until the writer's committed offset passes their produce offset (see the TODO in `personhog-leader/src/cache/persons.rs`).
 
 **Graceful shutdown black-holes the leader's partitions — FIXED via lifecycle shutdown phases.**
 The leader's lifecycle manager used to signal every component at SIGTERM simultaneously, so the gRPC server and Kafka producer finished shutting down (~160ms) long before the coordination drain handed partitions off, leaving the pod a registered owner with a dead server for the whole drain (~1% failed writes per drain).
@@ -143,8 +142,24 @@ target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s 
   --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
 ```
 
-Verification still waits for convergence (bounded at 90s) before asserting strong reads; red here means convergence itself failed.
-Remaining scope: draining pods should be excluded as rebalance targets (now mere churn rather than a black hole — a mid-drain rebalance can hand partitions to a pod that immediately re-drains them), and one stuck handoff should not defer all rebalancing.
+Verification still waits for convergence (bounded at 30s — 2x the slow-crash TTL chain, the slowest legitimate recovery) before asserting strong reads; red here means convergence itself failed.
+The two follow-ups once listed here are resolved: draining pods were never actually rebalance targets (`active_pod_names` has filtered to `Ready` pods since the original PoC — the earlier claim misread the wedge, whose real mechanism was the shutdown ordering fixed above), and a stuck handoff now defers only its own partition (the coordinator pins in-flight partitions and rebalances the rest — see `plan_partial_rebalance`).
+
+**Follow-up: the guarded rebalance transaction has a partition-count budget.**
+Plan application guards every handoff with two etcd compares (handoff-key absence + assignment precondition), and etcd's default `--max-txn-ops` of 128 caps the compare list — so a full-fleet plan (bootstrap, mass failover) fits in one transaction only up to 64 partitions; beyond that etcd rejects it with a hard error, not a guard failure.
+Every environment today runs well under the bound, but it must be resolved as part of choosing the prod partition count: either an explicitly-set shared chart value rendered into both etcd's `--max-txn-ops` and a coordinator plan budget (so the two validate against each other), or chunked plan application — which must not ship without stateright coverage of partial application and harness scenarios at that scale.
+
+**Follow-up: coalesce changelog recovery fetches if the pool ever queues.**
+Recoveries check out one pooled consumer per person, so N concurrent misses on genuinely-behind persons cost N sequential Kafka point-reads once the pool saturates.
+The changelog is offset-ordered, so a batch executor could assign one consumer at the lowest pending offset per partition and satisfy every waiter it passes in a single sweep (group-commit shape; bound the sweep span so sparse marks don't degenerate into scanning the gap between them).
+Build this only when `personhog_leader_recovery_pool_wait_ms` shows sustained queuing.
+Considered and rejected instead: a PG-first version check on marked misses (serve PG when its row version reaches the mark's).
+Routing it off the prune loop's committed-offset snapshot is circular — every mark below the snapshot was already pruned by the same tick that produced it — and an unconditional PG-first probe taxes exactly the writer-lag bursts it can't help, while the 1s prune interval already shrinks its target window (applied-but-unpruned marks) to about a second.
+
+**Follow-up: partition ownership should be invisible to clients.**
+A leader refuses requests it cannot safely serve — a write against a fenced partition, or a read that races a release (both refuse *before* any state changes, so a redirect cannot double-apply) — and today those refusals propagate to the client as `FAILED_PRECONDITION`.
+The router should absorb them instead: detect the not-owned refusal in the raw-proxy response (a typed header from the leader, not status-code matching), and re-stash the request if a handoff is in flight for the partition, else re-resolve the owner and retry once.
+Most of the gate's residual failed writes during handoff scenarios are these refusals; with the redirect in place those counts become hard zero-failure invariants.
 
 ## `seed` / `cleanup` — manage traffic targets
 

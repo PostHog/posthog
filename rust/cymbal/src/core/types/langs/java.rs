@@ -146,6 +146,30 @@ impl RawJavaFrame {
         let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
         Ok(map.remap_class(class)?)
     }
+
+    // Android SDKs derive the proguard chunk id from build metadata as
+    // `<applicationId>@<versionName>+<versionCode>`.
+    fn application_id(&self) -> Option<&str> {
+        let (app_id, _) = self.map_id.as_deref()?.split_once('@')?;
+        (!app_id.is_empty()).then_some(app_id)
+    }
+
+    // The SDK classifies in_app at capture time by matching *runtime* class
+    // names against its inAppIncludes, so on a minified build (obfuscated
+    // names) nothing matches and every frame arrives as in_app: false. Once
+    // proguard resolution recovers the real class name, reclassify frames
+    // under the app's own package. We never demote: unminified builds (and
+    // user-configured inAppIncludes) already classify correctly client-side.
+    fn resolved_in_app(&self, resolved_class: &str) -> bool {
+        if self.meta.in_app {
+            return true;
+        }
+        self.application_id().is_some_and(|app_id| {
+            resolved_class
+                .strip_prefix(app_id)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+        })
+    }
 }
 
 impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
@@ -156,7 +180,7 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             line: Some(remapped.line() as u32),
             column: None,
             source: remapped.file().map(ToString::to_string),
-            in_app: raw.meta.in_app,
+            in_app: raw.resolved_in_app(remapped.class()),
             resolved_name: Some(remapped.method().to_string()),
             lang: "java".to_string(),
             resolved: true,
@@ -206,5 +230,114 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
         add_raw_to_junk(&mut f, raw);
 
         f
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PROGUARD_MAP: &str =
+        include_str!("../../../../tests/static/proguard/mapping_example.txt");
+
+    fn raw_frame(module: &str, in_app: bool, map_id: Option<&str>) -> RawJavaFrame {
+        RawJavaFrame {
+            filename: Some("SourceFile".to_string()),
+            function: "onClick".to_string(),
+            lineno: Some(14),
+            module: module.to_string(),
+            map_id: map_id.map(ToString::to_string),
+            method_synthetic: false,
+            meta: CommonFrameMetadata {
+                in_app,
+                synthetic: false,
+            },
+        }
+    }
+
+    #[test]
+    fn resolved_frames_under_application_id_promote_to_in_app() {
+        let mapping = proguard::ProguardMapping::new(PROGUARD_MAP.as_bytes());
+        let mut cache_bytes = Vec::new();
+        proguard::ProguardCache::write(&mapping, &mut cache_bytes).unwrap();
+        let cache = proguard::ProguardCache::parse(&cache_bytes).unwrap();
+
+        let raw = raw_frame("a1.d", false, Some("com.posthog.android.sample@3.0+3"));
+        let frame = StackFrame::with_file("a1.d", "onClick", 14, "SourceFile");
+        let frames: Vec<Frame> = cache
+            .remap_frame(&frame)
+            .map(|re| (&raw, re).into())
+            .collect();
+
+        assert!(!frames.is_empty());
+        assert!(frames.iter().all(|f| f.in_app
+            && f.module
+                .as_deref()
+                .unwrap()
+                .starts_with("com.posthog.android.sample.")));
+    }
+
+    #[test]
+    fn resolved_in_app_classification() {
+        let map_id = Some("com.posthog.android.sample@3.0+3");
+        let cases = [
+            // (raw in_app, map_id, resolved class, expected)
+            (
+                false,
+                map_id,
+                "com.posthog.android.sample.ErrorTrackingActivityKt",
+                true,
+            ),
+            (
+                false,
+                map_id,
+                "androidx.appcompat.app.AppCompatActivity",
+                false,
+            ),
+            (false, map_id, "kotlin.jvm.internal.Intrinsics", false),
+            (false, map_id, "okhttp3.RealCall", false),
+            // prefix must end on a package boundary
+            (false, map_id, "com.posthog.android.sampleother.Foo", false),
+            // raw true is never downgraded, even outside the applicationId
+            (
+                true,
+                map_id,
+                "androidx.appcompat.app.AppCompatActivity",
+                true,
+            ),
+            (true, None, "androidx.appcompat.app.AppCompatActivity", true),
+            // map_id absent or not in <applicationId>@<version> form: keep raw flag
+            (
+                false,
+                None,
+                "com.posthog.android.sample.ErrorTrackingActivityKt",
+                false,
+            ),
+            (
+                false,
+                Some("somechunkid"),
+                "com.posthog.android.sample.ErrorTrackingActivityKt",
+                false,
+            ),
+        ];
+
+        for (raw_in_app, map_id, class, expected) in cases {
+            let raw = raw_frame("a1.d", raw_in_app, map_id);
+            assert_eq!(
+                raw.resolved_in_app(class),
+                expected,
+                "raw={raw_in_app} map_id={map_id:?} class={class}"
+            );
+        }
+    }
+
+    #[test]
+    fn unresolved_frames_keep_raw_in_app() {
+        for raw_in_app in [false, true] {
+            let raw = raw_frame("a1.d", raw_in_app, Some("com.posthog.android.sample@3.0+3"));
+            let frame: Frame = (&raw, ProguardError::NoMapId).into();
+            assert!(!frame.resolved);
+            assert_eq!(frame.in_app, raw_in_app);
+        }
     }
 }

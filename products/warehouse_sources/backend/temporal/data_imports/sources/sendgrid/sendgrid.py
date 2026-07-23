@@ -1,37 +1,40 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponsePaginator,
+    OffsetPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import (
     SENDGRID_ENDPOINTS,
     SendGridEndpointConfig,
 )
 
 SENDGRID_BASE_URL = "https://api.sendgrid.com/v3"
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-
-
-class SendGridRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class SendGridResumeConfig:
-    # Absolute URL of the next page to fetch within the current sync. Works for both offset
-    # pagination (we build the URL with the incremented offset) and metadata pagination (the
-    # API hands us the full next URL).
-    next_url: str
+    # Full next-page URL to fetch within the current sync. Set by metadata pagination (the API
+    # hands us the whole next URL) and by pre-migration saved states (which stored the offset URL
+    # for offset pagination too). Optional so old single-field states still parse.
+    next_url: Optional[str] = None
+    # Row offset of the next unfetched page (offset pagination).
+    offset: Optional[int] = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -55,10 +58,6 @@ def _to_epoch_seconds(value: Any) -> int:
     return int(value)
 
 
-def _url(base_url: str, params: dict[str, Any]) -> str:
-    return f"{base_url}?{urlencode(params)}" if params else base_url
-
-
 def _offset_from_url(url: str) -> int:
     """Recover the `offset` query param so a resumed offset-paginated sync keeps advancing."""
     values = parse_qs(urlparse(url).query).get("offset", ["0"])
@@ -68,7 +67,42 @@ def _offset_from_url(url: str) -> int:
         return 0
 
 
-def _build_base_params(
+def _is_sendgrid_url(url: Any) -> bool:
+    # Only follow URLs that stay on the canonical SendGrid host, so a tampered or compromised API
+    # response (or Redis resume state) can't point our authenticated request at an internal address
+    # (SSRF) and leak the API key carried in the Authorization header.
+    return isinstance(url, str) and url.startswith(SENDGRID_BASE_URL)
+
+
+def _require_sendgrid_url(url: str) -> None:
+    if not _is_sendgrid_url(url):
+        raise ValueError(f"SendGrid resume state contains an unexpected URL: {url!r}")
+
+
+class SendGridMetadataPaginator(JSONResponsePaginator):
+    """Follow the absolute `_metadata.next` URL SendGrid returns, dropping any off-host next link
+    (stop cleanly) rather than following it — the SSRF guard for marketing/asm metadata endpoints."""
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="_metadata.next")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._next_url is not None and not _is_sendgrid_url(self._next_url):
+            self._next_url = None
+            self._has_next_page = False
+
+
+def _build_paginator(config: SendGridEndpointConfig) -> BasePaginator:
+    if config.pagination == "offset":
+        # No top-level `total`; termination is a short/empty page (OffsetPaginator default).
+        return OffsetPaginator(limit=config.page_size, total_path=None)
+    if config.pagination == "metadata":
+        return SendGridMetadataPaginator()
+    return SinglePagePaginator()
+
+
+def _build_params(
     config: SendGridEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
@@ -76,141 +110,55 @@ def _build_base_params(
 ) -> dict[str, Any]:
     params: dict[str, Any] = dict(config.extra_params)
 
+    # Metadata endpoints carry the page size as a query param; offset endpoints get limit/offset
+    # from the paginator, single endpoints take no pagination params.
+    if config.pagination == "metadata":
+        params["page_size"] = config.page_size
+
     if (
         should_use_incremental_field
         and config.incremental_param
         and incremental_field
         and db_incremental_field_last_value is not None
     ):
-        # start_time is inclusive (created >= start_time); the boundary row re-appears but
-        # merge dedupes it on the primary key.
+        # start_time is inclusive (created >= start_time); the boundary row re-appears but merge
+        # dedupes it on the primary key.
         params[config.incremental_param] = _to_epoch_seconds(db_incremental_field_last_value)
 
     return params
 
 
-def _select_items(config: SendGridEndpointConfig, data: Any) -> list[dict[str, Any]]:
-    # Fail loudly on an API-shape change rather than silently syncing zero rows.
-    if config.data_key is None:
-        if not isinstance(data, list):
-            raise ValueError(f"SendGrid {config.name}: expected a list response, got {type(data).__name__}")
-        return data
-    return data[config.data_key]
-
-
-def _next_url(
+def _initial_paginator_state(
     config: SendGridEndpointConfig,
-    base_url: str,
-    base_params: dict[str, Any],
-    offset: int,
-    data: Any,
-    logger: FilteringBoundLogger,
-) -> Optional[str]:
-    if config.pagination == "offset":
-        return _url(base_url, {**base_params, "limit": config.page_size, "offset": offset + config.page_size})
-    if config.pagination == "metadata":
-        metadata = data.get("_metadata") if isinstance(data, dict) else None
-        next_url = metadata.get("next") if isinstance(metadata, dict) else None
-        if next_url is None:
-            return None
-        # Only follow pagination URLs that stay on the canonical SendGrid host, so a tampered or
-        # compromised API response can't point our authenticated request at an internal address
-        # (SSRF) and leak the API key carried in the Authorization header.
-        if not isinstance(next_url, str) or not next_url.startswith(SENDGRID_BASE_URL):
-            logger.warning(f"SendGrid: ignoring off-host pagination URL: {next_url!r}")
-            return None
-        return next_url
-    return None
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SendGridResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: Optional[str] = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = SENDGRID_ENDPOINTS[endpoint]
-    base_url = f"{SENDGRID_BASE_URL}{config.path}"
-    base_params = _build_base_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
+) -> Optional[dict[str, Any]]:
+    if not resumable_source_manager.can_resume():
+        return None
+    resume = resumable_source_manager.load_state()
+    if resume is None:
+        return None
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url = resume_config.next_url
-        # Guard the persisted resume URL too — only ever saved from a host-pinned next URL, but
-        # re-check so a tampered Redis state can't redirect our authenticated request (SSRF).
-        if not url.startswith(SENDGRID_BASE_URL):
-            raise ValueError(f"SendGrid resume state contains an unexpected URL: {url!r}")
-        offset = _offset_from_url(url)
-        logger.debug(f"SendGrid: resuming {endpoint} from URL {url}")
-    else:
-        offset = 0
-        if config.pagination == "offset":
-            url = _url(base_url, {**base_params, "limit": config.page_size, "offset": offset})
-        elif config.pagination == "metadata":
-            url = _url(base_url, {**base_params, "page_size": config.page_size})
-        else:
-            url = _url(base_url, base_params)
+    if config.pagination == "offset":
+        if resume.offset is not None:
+            return {"offset": resume.offset}
+        if resume.next_url is not None:
+            # Pre-migration state stored the offset inside a URL; re-check the host before trusting it.
+            _require_sendgrid_url(resume.next_url)
+            return {"offset": _offset_from_url(resume.next_url)}
+        return None
 
-    # One session reused across all pages (connection reuse). `tenacity` below is the sole retry
-    # mechanism, so disable urllib3's built-in retries to avoid nested backoff. `redact_values`
-    # masks the bearer token in logs and sample capture.
-    session = make_tracked_session(headers=_get_headers(api_key), retry=Retry(total=0), redact_values=(api_key,))
+    if config.pagination == "metadata" and resume.next_url is not None:
+        _require_sendgrid_url(resume.next_url)
+        return {"next_url": resume.next_url}
 
-    @retry(
-        retry=retry_if_exception_type((SendGridRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> Any:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise SendGridRetryableError(
-                f"SendGrid API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"SendGrid API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    try:
-        while True:
-            data = fetch_page(url)
-            items = _select_items(config, data)
-
-            if items:
-                yield items
-
-            # Offset pagination terminates once a short page comes back.
-            if config.pagination == "offset" and len(items) < config.page_size:
-                break
-
-            next_url = _next_url(config, base_url, base_params, offset, data, logger)
-            if not next_url:
-                break
-
-            # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the primary
-            # key) rather than skipping it.
-            resumable_source_manager.save_state(SendGridResumeConfig(next_url=next_url))
-            if config.pagination == "offset":
-                offset += config.page_size
-            url = next_url
-    finally:
-        session.close()
+    return None
 
 
 def sendgrid_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SendGridResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -218,17 +166,58 @@ def sendgrid_source(
 ) -> SourceResponse:
     config = SENDGRID_ENDPOINTS[endpoint]
 
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": SENDGRID_BASE_URL,
+            # Auth (Bearer) goes through the framework auth config so its value is redacted from logs
+            # and raised errors; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": _build_paginator(config),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # data_key wraps the array for metadata endpoints ("result"); None means the body
+                    # is the array itself (suppression/asm). Fail loud on a shape change instead of
+                    # silently syncing 0 rows.
+                    "data_selector": config.data_key,
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state = _initial_paginator_state(config, resumable_source_manager)
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes) rather than skipping it.
+        if not state:
+            return
+        if state.get("offset") is not None:
+            resumable_source_manager.save_state(SendGridResumeConfig(offset=int(state["offset"])))
+        elif state.get("next_url"):
+            resumable_source_manager.save_state(SendGridResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -242,14 +231,9 @@ def sendgrid_source(
 def get_status_code(api_key: str, path: str) -> Optional[int]:
     """Probe an endpoint to classify the credentials. Returns the HTTP status, or None on a
     transport error."""
-    try:
-        session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
-    except Exception:
-        return None
-    try:
-        response = session.get(f"{SENDGRID_BASE_URL}{path}", params={"limit": 1}, timeout=10)
-        return response.status_code
-    except Exception:
-        return None
-    finally:
-        session.close()
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{SENDGRID_BASE_URL}{path}?limit=1",
+        headers=_get_headers(api_key),
+    )
+    return status

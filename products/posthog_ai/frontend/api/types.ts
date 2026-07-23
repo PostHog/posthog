@@ -8,4 +8,10 @@ export type {
 } from '../types/streamTypes'
 export type { ToolCallMessage } from '../types/toolTypes'
 export type { AttachedContextItem } from '../types/contextTypes'
-export type { ToolStreamEvent, ToolStreamPhase } from '../types/streamTypes'
+export type {
+    ToolStreamEvent,
+    ToolStreamPhase,
+    TurnCompleteEvent,
+    RunLifecycleEvent,
+    RunTerminalStatus,
+} from '../types/streamTypes'
