@@ -1,14 +1,7 @@
 // AUTO-GENERATED from products/experiments/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-import { withUiApp } from '@/resources/ui-apps'
-import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
-import { castStringToInt } from '@/tools/cast-helpers'
-
 import {
     ExperimentHoldoutsCreateBody,
     ExperimentHoldoutsDestroyParams,
@@ -49,6 +42,11 @@ import {
     ExperimentsUnarchiveCreateParams,
     ExperimentsUnfreezeExposureCreateParams,
 } from '@/generated/experiments/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
+import { castStringToInt } from '@/tools/cast-helpers'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
     .extend(ExperimentsArchiveCreateBody.shape)
