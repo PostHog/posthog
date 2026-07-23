@@ -1,5 +1,6 @@
 import uuid
 import decimal
+import hashlib
 import datetime
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, cast
@@ -16,6 +17,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    NULL_NUMERICAL_PARTITION,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -1006,6 +1008,29 @@ def test_append_partition_key_numerical_handles_null_key():
     assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
 
 
+def test_append_partition_key_numerical_handles_non_int_key():
+    # Numerical mode is persisted per source and passed back in on later batches, skipping the
+    # detection guard that requires an integer key column. If the source's key column has since
+    # changed type, the values arrive as strings and used to crash the batch on `str // int`.
+    # Numeric strings must keep their original bucket; non-numeric ones fall into the null bucket.
+    table = pa.table({"id": pa.array(["250", "10", "not-a-number"], type=pa.string())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=100,
+        partition_keys=["id"],
+        partition_mode="numerical",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
+
+
 def _mock_schema(**overrides: Any) -> MagicMock:
     schema = MagicMock()
     schema.partition_count = overrides.get("partition_count")
@@ -1398,3 +1423,37 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
 
     with pytest.raises(SchemaColumnTypeChangedException):
         align_incoming_decimals_to_delta(arrow_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "mode,partition_count,partition_size,partition_format,expected",
+    [
+        # datetime is the reported crash: a persisted `hs_timestamp`/`_creation_time` key that the
+        # source stopped returning fell into `row[key]` and raised a raw KeyError, failing every sync.
+        ("datetime", None, None, "month", "1970-01"),
+        ("numerical", None, 100, None, NULL_NUMERICAL_PARTITION),
+        ("md5", 4, None, None, str(int(hashlib.md5(b"None").hexdigest(), 16) % 4)),
+    ],
+)
+def test_append_partition_key_missing_column_buckets_into_fallback(
+    mode, partition_count, partition_size, partition_format, expected
+):
+    # A persisted partition mode is reused on later batches without re-running detection, so a source
+    # schema drift that drops the partition key column must bucket rows into a catch-all partition
+    # rather than raise a raw KeyError.
+    table = pa.table({"id": pa.array([1, 2, 3], type=pa.int64())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=partition_count,
+        partition_size=partition_size,
+        partition_keys=["dropped_field"],
+        partition_mode=mode,
+        partition_format=partition_format,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, resolved_mode, _, _ = result
+    assert resolved_mode == mode
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]

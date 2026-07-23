@@ -267,6 +267,10 @@ class TestPromptBuilder(BaseTest):
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "scout-emit-signal" in prompt
         assert "scout-scratchpad-search" in prompt
+        # Steering notes are prior context on every channel — the section and its tool
+        # reference must survive in the signal tail.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -353,6 +357,9 @@ class TestPromptBuilder(BaseTest):
         # run-identity emit reference point at emit-report, not emit-signal.
         assert "scout-emit-report" in prompt
         assert "scout-edit-report" in prompt
+        # Steering notes are prior context on the report channel too.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
         # The two highest-leverage nudges the report channel adds: search the inbox
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).

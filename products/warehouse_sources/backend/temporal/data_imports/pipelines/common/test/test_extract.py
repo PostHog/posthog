@@ -167,6 +167,38 @@ class TestRunPreWriteDefensiveCompact:
         mock_capture.assert_called_once()
         logger.aexception.assert_awaited_once()
 
+    @parameterized.expand(
+        [
+            (
+                "credentials_loading",
+                "Operation not supported: an error occurred while loading credentials: dispatch failure: timeout",
+            ),
+            (
+                "credential_provider_not_enabled",
+                "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials",
+            ),
+            (
+                "generic_s3_error",
+                "Generic S3 error: Error getting list response body: operation timed out",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_logs_transient_object_store_error_without_capturing(self, _name: str, error_message: str):
+        # A transient blip talking to our own delta S3 bucket (credential-provider or connectivity
+        # errors from delta-rs) isn't a bug in this function — it shouldn't flood error tracking the
+        # way an actual maintenance bug does (see test_swallows_maintenance_failure above).
+        helper = MagicMock(run_maintenance=AsyncMock(side_effect=OSError(error_message)))
+        logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
+
+        schema = MagicMock(partition_count=5, sync_type_config={})
+        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
+            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
+
+        mock_capture.assert_not_called()
+        logger.awarning.assert_awaited_once()
+        logger.aexception.assert_not_awaited()
+
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
     def _schema(self) -> ExternalDataSchema:

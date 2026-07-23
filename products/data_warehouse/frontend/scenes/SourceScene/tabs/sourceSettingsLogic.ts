@@ -1299,6 +1299,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
             },
+            pausePolling: () => {
+                // Cancel the refresh already scheduled by the last load. Skipping the *reschedule*
+                // isn't enough on its own — without this, one more poll would still fire within
+                // REFRESH_INTERVAL and re-render the table, dismissing anything open over it (e.g. a
+                // row's "more" menu).
+                cache.disposables.dispose('sourceRefreshTimeout')
+            },
             resumePolling: () => {
                 // After the reducer runs we may have dropped to 0 — but no fresh load has been
                 // scheduled (the prior loadSourceSuccess fired while paused and skipped its
