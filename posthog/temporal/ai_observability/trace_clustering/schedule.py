@@ -49,7 +49,10 @@ async def create_trace_clustering_coordinator_schedule(client: Client):
             task_queue=settings.LLMA_TASK_QUEUE,
             execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
+        # Run at 00:15 UTC — offset off midnight so this daily sweep doesn't land on top of
+        # the hourly trace summarization / eval report coordinators and pile onto the shared
+        # offline ClickHouse cluster's per-user concurrency budget.
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1), offset=timedelta(minutes=15))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -96,7 +99,10 @@ async def create_generation_clustering_coordinator_schedule(client: Client):
             task_queue=settings.LLMA_TASK_QUEUE,
             execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
+        # Run at 00:45 UTC — offset off midnight (and off the trace clustering sweep at 00:15)
+        # so the daily clustering coordinators don't collide with each other or with the
+        # hourly summarization / eval report workloads on the shared offline cluster.
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1), offset=timedelta(minutes=45))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 

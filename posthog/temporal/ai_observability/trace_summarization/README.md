@@ -152,7 +152,7 @@ Key constants in `constants.py`:
 | `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s           | Summarize + save activity timeout (per attempt) |
 | `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s            | Heartbeat window for summarize activity         |
 
-Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `FETCH_AND_FORMAT_RETRY_POLICY` (3 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (4 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (2 attempts). All retry policies exclude `ValueError` and `TypeError` from retries.
+Retry policies: `SAMPLE_RETRY_POLICY` (2 attempts with backoff; ClickHouse capacity errors in `CLICKHOUSE_CAPACITY_ERROR_TYPES` are non-retryable so a saturated offline cluster isn't hammered further), `FETCH_AND_FORMAT_RETRY_POLICY` (2 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (2 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (1 attempt). All retry policies exclude `ValueError` and `TypeError` from retries.
 
 ## Redis Intermediate Storage
 
