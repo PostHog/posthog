@@ -330,7 +330,7 @@ the row lists both.
 | lemlist                          | HTTP                        | requests                                                        | ✅                          |
 | lemon_squeezy                    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | less_annoying_crm                | HTTP                        | requests                                                        | ✅                          |
-| lightdash                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
+| lightdash                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lightfield                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lightspeed_retail                | HTTP                        | requests                                                        | ✅                          |
 | linear                           | HTTP                        | requests                                                        | ✅                          |

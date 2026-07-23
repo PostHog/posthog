@@ -84,6 +84,10 @@ def _client_config(base_url: str, api_token: str) -> ClientConfig:
         # The host is customer-controlled (self-hosted Lightdash); refusing redirects closes the
         # redirect-based off-host escape that the host check alone would miss.
         "allow_redirects": False,
+        # Bound every sync request so a host that accepts the connection then stalls can't hold an
+        # import worker indefinitely (the credential probe in validate_credentials is already
+        # bounded separately).
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
