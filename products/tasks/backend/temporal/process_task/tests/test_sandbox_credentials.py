@@ -254,7 +254,7 @@ class TestSharedUserIntegrationRefresh:
             self._as_user_integration_run(stack)
             stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
             resolve = stack.enter_context(patch(f"{MODULE}.resolve_coordinated_user_token", return_value="ghu_fresh"))
-            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
 
             sandbox = MagicMock()
             outcome = GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock())
@@ -290,7 +290,7 @@ class TestSharedUserIntegrationRefresh:
                 patch(f"{MODULE}.resolve_coordinated_user_token", side_effect=ReauthorizationRequired("expired"))
             )
             installation_token = stack.enter_context(patch(f"{MODULE}.get_github_token", return_value="ghs_team"))
-            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
             task = MagicMock()
             task.github_integration_id = 456
 
@@ -331,7 +331,7 @@ class TestSharedUserIntegrationRefresh:
             stack.enter_context(patch(f"{MODULE}.is_caller_token_run", return_value=True))
             resolve = stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task"))
             stack.enter_context(patch(f"{MODULE}.get_sandbox_github_token", return_value="ghu_caller"))
-            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
 
             sandbox = MagicMock()
             sandbox.id = "sb-own"
@@ -340,6 +340,61 @@ class TestSharedUserIntegrationRefresh:
             assert outcome.refreshed is True
             resolve.assert_not_called()
             apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghu_caller")
+
+
+class TestApplyOwnerTokenLocked:
+    def _lock(self, stack, *, acquired):
+        lock = MagicMock()
+        lock.acquire.return_value = acquired
+        get_client = stack.enter_context(patch(f"{MODULE}.get_client"))
+        get_client.return_value.lock.return_value = lock
+        return lock
+
+    def test_applies_while_sandbox_still_bound_to_owner(self):
+        import contextlib
+
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_owner_token_locked
+
+        with contextlib.ExitStack() as stack:
+            self._lock(stack, acquired=True)
+            stack.enter_context(patch(f"{MODULE}.get_sandbox_github_identity_user", return_value=None))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
+            sandbox = MagicMock()
+            sandbox.id = "sb-1"
+
+            assert _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7) is True
+            apply.assert_called_once_with(sandbox, "org/repo", "ghu_x")
+
+    def test_skips_when_a_transition_rebound_the_sandbox_to_another_actor(self):
+        import contextlib
+
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_owner_token_locked
+
+        with contextlib.ExitStack() as stack:
+            self._lock(stack, acquired=True)
+            # Marker moved to actor 99 under the lock — the owner (7) token must not overwrite it.
+            stack.enter_context(patch(f"{MODULE}.get_sandbox_github_identity_user", return_value=99))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            sandbox = MagicMock()
+            sandbox.id = "sb-1"
+
+            assert _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7) is False
+            apply.assert_not_called()
+
+    def test_fails_closed_without_applying_when_the_lock_is_contended(self):
+        import contextlib
+
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_owner_token_locked
+
+        with contextlib.ExitStack() as stack:
+            lock = self._lock(stack, acquired=False)
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            sandbox = MagicMock()
+            sandbox.id = "sb-1"
+
+            assert _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7) is False
+            apply.assert_not_called()
+            lock.release.assert_not_called()
 
 
 class TestLoopOwnerRefreshGate:
@@ -561,7 +616,7 @@ class TestLiveSandboxRegistry:
 
         result = _live_sandboxes_for_user_integration(integration.id)
 
-        assert set(result) == {
+        assert {(r.run_id, r.sandbox_id, r.repository) for r in result} == {
             (str(live_run.id), "sb-live", "org/live"),
             (str(eligible_loop_run.id), "sb-loop", "org/loop"),
         }
@@ -604,4 +659,6 @@ class TestLiveSandboxRegistry:
 
         result = _live_sandboxes_for_user_integration(integration.id)
 
-        assert (result == [(str(run.id), "sb-x", "org/repo")]) is included
+        assert (
+            [(r.run_id, r.sandbox_id, r.repository) for r in result] == [(str(run.id), "sb-x", "org/repo")]
+        ) is included
