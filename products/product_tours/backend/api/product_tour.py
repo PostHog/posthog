@@ -335,7 +335,9 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         team = self.context["get_team"]()
         user = cast(User, request.user)
 
-        before_update = ProductTour.objects.get(pk=instance.pk)
+        # all_objects (not objects) so archived tours resolve — the default manager filters
+        # archived=False, and the viewset fetched this instance via all_objects.
+        before_update = ProductTour.all_objects.get(pk=instance.pk)
 
         creation_context = validated_data.pop("creation_context", "app")
 
@@ -906,7 +908,9 @@ class ProductTourViewSet(
             )
 
         tour_id = kwargs["pk"]
-        tour = ProductTour.objects.filter(id=tour_id, team__project_id=self.project_id).first()
+        # all_objects so AI generation stays available on archived tours, consistent with the
+        # viewset queryset that serves them.
+        tour = ProductTour.all_objects.filter(id=tour_id, team__project_id=self.project_id).first()
         if not tour:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
