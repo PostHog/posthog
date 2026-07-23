@@ -919,7 +919,8 @@ export const getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl = (orga
 }
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsRetrieve = async (
     organizationId: string,
@@ -940,7 +941,8 @@ export const getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl = (organi
 }
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
     organizationId: string,
