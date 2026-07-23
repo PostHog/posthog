@@ -278,17 +278,17 @@ describe('HogFlowManager', () => {
             })
         })
 
-        it('lets the encrypted value win over stale plaintext left in actions (mid-migration)', async () => {
+        it('lets the encrypted value take precedence over plaintext left in actions', async () => {
             const flow = await insertHogFlow(
                 hub.postgres,
                 new FixtureHogFlowBuilder()
-                    .withName('Mid-migration flow')
+                    .withName('Flow with plaintext and encrypted secret')
                     .withTeamId(teamId1)
                     .withStatus('active')
                     .withWorkflow({
                         actions: {
                             trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
-                            // A row part-way through migration: the secret still sits in plaintext here...
+                            // A row not yet re-saved since encryption shipped: the secret still sits in plaintext here...
                             send_webhook: {
                                 type: 'function',
                                 config: {

@@ -204,8 +204,9 @@ export class HogFlowManagerService {
     }
 
     // Decrypts `encrypted_inputs` and folds each action's secret inputs back into
-    // `action.config.inputs` so the executor sees a whole config. Encrypted values win over any
-    // (legacy) plaintext still present in `actions`, so a row mid-migration keeps working either way.
+    // `action.config.inputs` so the executor sees a whole config. `encrypted_inputs` is authoritative:
+    // if a key also appears in plaintext `actions` (a row not yet re-saved since encryption shipped),
+    // the encrypted value takes precedence, so both shapes resolve to the right value.
     private mergeEncryptedInputs(item: HogFlow): void {
         const raw = item.encrypted_inputs as unknown
 
