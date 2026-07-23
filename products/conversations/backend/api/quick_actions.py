@@ -12,6 +12,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from requests.exceptions import RequestException
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -28,7 +29,12 @@ from products.conversations.backend.events import (
 )
 from products.conversations.backend.models import QuickAction, QuickActionVisibility, Ticket
 from products.conversations.backend.models.constants import Priority, Status
-from products.workflows.backend.facade.api import HogFlowNotRunnableError, invoke_hog_flow_now, workflow_is_runnable
+from products.workflows.backend.facade.api import (
+    HogFlowNotRunnableError,
+    invoke_hog_flow_now,
+    user_can_run_workflow,
+    workflow_is_runnable,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -164,6 +170,15 @@ class QuickActionSerializer(serializers.ModelSerializer):
         if workflow_id and not workflow_is_runnable(self.context["team_id"], workflow_id):
             raise serializers.ValidationError({"workflow_id": "That workflow does not exist or is not active."})
 
+        # RBAC: attaching a workflow requires access to that workflow — otherwise a ticket-scoped
+        # user could wire up (and later run) privileged automations by UUID. Only checked when the
+        # reference is being set/changed, so unrelated edits by teammates without workflow access
+        # don't get blocked. The run endpoint re-checks the actual runner at execution time.
+        if attrs.get("workflow_id") and not user_can_run_workflow(
+            self.context["request"].user, self.context["get_team"](), attrs["workflow_id"]
+        ):
+            raise serializers.ValidationError({"workflow_id": "You don't have access to that workflow."})
+
         # Only the creator may turn a shared team quick action personal — otherwise a teammate's
         # edit would make it vanish for everyone else (and the editor), with no way to reach it again.
         if (
@@ -295,6 +310,12 @@ class QuickActionViewSet(
         quick_action = self.get_object()
         if not quick_action.workflow_id:
             raise serializers.ValidationError({"workflow_id": "This quick action does not run a workflow."})
+
+        # RBAC: the runner (not the quick action's creator) must have access to the workflow —
+        # a shared quick action must not let a ticket-scoped user execute a workflow they can't
+        # operate, since workflows run privileged actions with their stored secrets.
+        if not user_can_run_workflow(request.user, self.team, quick_action.workflow_id):  # type: ignore[arg-type]
+            raise PermissionDenied("You don't have access to the workflow this quick action runs.")
 
         request_serializer = QuickActionRunRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
