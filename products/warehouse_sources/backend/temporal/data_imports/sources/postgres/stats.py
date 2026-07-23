@@ -43,30 +43,107 @@ INDEXES_SNAPSHOT_LIMIT = 10_000
 # attribution to filter on — see `_collect_statements`.
 _SCHEMA_PREDICATE = sql.SQL("WHERE s.schemaname = {schema}")
 
-# Settings whose value is, or can embed, a credential. `primary_conninfo` holds a
-# replication connection string including its password, and the archive/restore/
-# passphrase commands are shell strings that routinely carry credentials. A superuser or
-# `pg_read_all_settings` role can read them, and the warehouse table is readable by every
-# project member, so these never leave the customer's server. Everything else is kept:
-# the sensitive set is small and well known, whereas an allowlist would silently drop
-# whatever a future detector needs.
-_SENSITIVE_SETTING_NAMES = ("primary_conninfo",)
-_SENSITIVE_SETTING_PATTERNS = (
-    "%conninfo%",
-    "%password%",
-    "%passphrase%",
-    "%_command",
-    "%keyfile%",
-    "%key_file%",
+# pg_settings is the one catalog collected by allowlist rather than in full. Its *rows*
+# are user-extensible: an application can define custom parameters in any namespace
+# (`pgrst.jwt_secret`, `app.api_token`), and a value set at server or role level shows up
+# here. An unbounded namespace can't be filtered by denylist, and the built-in settings
+# also expose filesystem paths and network topology (`data_directory`, `hba_file`,
+# `listen_addresses`) that this feature has no use for. So name every setting we want.
+# Grouped by what reads it, so it's obvious what a removal would break.
+_COLLECTED_SETTINGS = (
+    # Whether the statistics this feature relies on are being recorded at all. Without
+    # these a detector can't tell "no problem" from "not measured" — `track_io_timing` is
+    # off by default, which pins every block-timing column to zero.
+    "track_counts",
+    "track_io_timing",
+    "track_activities",
+    "track_functions",
+    "shared_preload_libraries",
+    "pg_stat_statements.max",
+    "pg_stat_statements.track",
+    "pg_stat_statements.track_utility",
+    # Version, for gating advice.
+    "server_version",
+    "server_version_num",
+    # Connection saturation: the denominator for pg_stat_activity_summary.
+    "max_connections",
+    "superuser_reserved_connections",
+    "idle_in_transaction_session_timeout",
+    "statement_timeout",
+    "lock_timeout",
+    "deadlock_timeout",
+    # Memory and planner tuning — what turns "this table is scanned sequentially" into a
+    # concrete recommendation. `random_page_cost` left at 4.0 on SSD storage is the
+    # classic finding.
+    "shared_buffers",
+    "work_mem",
+    "maintenance_work_mem",
+    "effective_cache_size",
+    "effective_io_concurrency",
+    "random_page_cost",
+    "seq_page_cost",
+    "cpu_tuple_cost",
+    "cpu_index_tuple_cost",
+    "default_statistics_target",
+    "temp_file_limit",
+    "jit",
+    "jit_above_cost",
+    "max_parallel_workers",
+    "max_parallel_workers_per_gather",
+    "max_worker_processes",
+    # Autovacuum: the dead-tuple and stale-statistics detectors advise by adjusting these.
+    "autovacuum",
+    "autovacuum_max_workers",
+    "autovacuum_naptime",
+    "autovacuum_vacuum_scale_factor",
+    "autovacuum_analyze_scale_factor",
+    "autovacuum_vacuum_threshold",
+    "autovacuum_analyze_threshold",
+    "autovacuum_vacuum_cost_limit",
+    "autovacuum_vacuum_cost_delay",
+    "vacuum_cost_limit",
+    # WAL, checkpoints and replication: CDC prerequisites and WAL-growth analysis.
+    "wal_level",
+    "max_wal_size",
+    "min_wal_size",
+    "checkpoint_timeout",
+    "checkpoint_completion_target",
+    "synchronous_commit",
+    "max_replication_slots",
+    "max_wal_senders",
+    "hot_standby",
+    "wal_keep_size",
+    # Whether slow queries are being logged at all.
+    "log_min_duration_statement",
 )
 
-# Role-management statements are the one place pg_stat_statements stores a literal
-# verbatim: DML literals are normalized to `$1` placeholders, but utility statements are
-# recorded as written, so `ALTER USER … PASSWORD '…'` would land in the warehouse. They
-# carry no performance signal, so drop them. Postgres spells the word boundary `\y`, and
-# anchoring to the statement start keeps ordinary queries against tables like
-# `password_resets` intact.
-_ROLE_STATEMENT_PATTERN = r"^\s*(create|alter)\s+(role|user)\y"
+# pg_settings columns worth keeping. `sourcefile`/`sourceline` are dropped: they carry
+# the on-disk config path, and the `source` column already says where a value came from
+# ("configuration file", "default", "override") without disclosing the filesystem.
+_SETTINGS_COLUMNS: tuple[tuple[str, str, bool], ...] = (
+    ("name", "text", False),
+    ("setting", "text", True),
+    ("unit", "text", True),
+    ("category", "text", True),
+    ("short_desc", "text", True),
+    ("context", "text", True),
+    ("vartype", "text", True),
+    ("source", "text", True),
+    ("min_val", "text", True),
+    ("max_val", "text", True),
+    ("enumvals", "text", True),
+    ("boot_val", "text", True),
+    ("reset_val", "text", True),
+    ("pending_restart", "boolean", True),
+)
+
+# Statements that embed credentials in their text. DML literals are normalized to `$1`
+# placeholders, but utility statements are recorded as written, so `ALTER USER … PASSWORD
+# '…'`, a `CREATE SUBSCRIPTION … CONNECTION 'host=… password=…'`, or a foreign-server
+# user mapping would otherwise land in the warehouse. None carry a performance signal.
+# Postgres spells the word boundary `\y` (`\b` matches nothing), and anchoring to the
+# statement start keeps ordinary queries against tables like `password_resets` intact.
+_CREDENTIAL_STATEMENT_PATTERN = r"^\s*(create|alter|drop)\s+(role|user|group|subscription|server)\y"
 
 
 class _PostgresStatsCollector(Protocol):
@@ -144,13 +221,13 @@ def _collect_statements(
                         """
                         SELECT * FROM {relation}
                         WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-                          AND query !~* {role_statements}
+                          AND query !~* {credential_statements}
                         ORDER BY {order_column} DESC
                         LIMIT {limit}
                         """
                     ).format(
                         relation=relation,
-                        role_statements=sql.Literal(_ROLE_STATEMENT_PATTERN),
+                        credential_statements=sql.Literal(_CREDENTIAL_STATEMENT_PATTERN),
                         order_column=sql.Identifier(order_column),
                         limit=sql.Literal(STATEMENTS_SNAPSHOT_LIMIT),
                     )
@@ -251,19 +328,18 @@ def _collect_settings(
     snapshot_id: str,
     source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Server configuration, minus the settings that can carry credentials.
+    """The tuning and instrumentation settings, by name.
 
-    Cluster-wide by nature — settings aren't per-schema. See `_SENSITIVE_SETTING_NAMES`
-    for what is withheld and why.
+    The one catalog collected by allowlist instead of in full — see `_COLLECTED_SETTINGS`
+    for why, and `_SETTINGS_COLUMNS` for the columns kept. Cluster-wide by nature:
+    settings aren't per-schema.
     """
     with conn.cursor() as cur:
         cur.execute(
-            """
-            SELECT * FROM pg_settings
-            WHERE name <> ALL(%s)
-              AND name NOT LIKE ALL(%s)
-            """,
-            (list(_SENSITIVE_SETTING_NAMES), list(_SENSITIVE_SETTING_PATTERNS)),
+            sql.SQL("SELECT {columns} FROM pg_settings WHERE name = ANY({names})").format(
+                columns=sql.SQL(", ").join(sql.Identifier(name) for name, _, _ in _SETTINGS_COLUMNS),
+                names=sql.Literal(list(_COLLECTED_SETTINGS)),
+            )
         )
         return snapshot_rows(cur, collected_at, snapshot_id)
 
@@ -393,12 +469,14 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
         DatabaseStatsCatalog(
             table_name="pg_settings",
             description=(
-                "Snapshots of pg_settings: the server's configuration parameters and their sources. "
-                "Settings that can carry credentials (primary_conninfo, archive/restore commands, "
-                "passphrase and key-file settings) are never collected."
+                "Snapshots of the server's tuning and instrumentation settings — memory, planner "
+                "costs, autovacuum, WAL and checkpoints, plus which statistics the server is "
+                "recording. Collected by name: settings that can carry credentials, filesystem "
+                "paths or network topology, and application-defined custom parameters, are never "
+                "collected."
             ),
             collector=_collect_settings,
-            catalog_relation="pg_settings",
+            static_columns=_SETTINGS_COLUMNS,
         ),
         DatabaseStatsCatalog(
             table_name="pg_replication_slots",
