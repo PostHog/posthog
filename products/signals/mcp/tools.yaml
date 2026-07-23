@@ -818,6 +818,21 @@ tools:
     signals-report-pr-comments:
         operation: signals_report_pr_comments
         enabled: false
+    signals-report-pr-review-comment-destroy:
+        operation: signals_report_pr_review_comment_destroy
+        enabled: false
+    signals-report-pr-review-comment-reaction-destroy:
+        operation: signals_report_pr_review_comment_reaction_destroy
+        enabled: false
+    signals-report-pr-review-comment-reactions-create:
+        operation: signals_report_pr_review_comment_reactions_create
+        enabled: false
+    signals-report-pr-review-comment-update:
+        operation: signals_report_pr_review_comment_update
+        enabled: false
+    signals-report-pr-review-comments-create:
+        operation: signals_report_pr_review_comments_create
+        enabled: false
     signals-reports-refund-create:
         operation: signals_reports_refund_create
         enabled: false

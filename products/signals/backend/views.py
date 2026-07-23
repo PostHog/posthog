@@ -1,6 +1,6 @@
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, timedelta
 from typing import Any, cast
 
