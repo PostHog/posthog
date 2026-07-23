@@ -999,7 +999,9 @@ class TestUpdateWebhookEvents:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
             return_value=mock_client,
         ):
-            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
+            result = update_webhook_events(
+                "rk_test", None, None, self.WEBHOOK_URL, ["charge.captured", "customer.created"]
+            )
 
         assert result.success
         mock_client.v1.webhook_endpoints.update.assert_called_once()
@@ -1032,7 +1034,9 @@ class TestUpdateWebhookEvents:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
             return_value=mock_client,
         ):
-            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
+            result = update_webhook_events(
+                "rk_test", None, None, self.WEBHOOK_URL, ["charge.captured", "customer.created"]
+            )
 
         assert result.success
         mock_client.v1.webhook_endpoints.update.assert_not_called()
@@ -1047,7 +1051,7 @@ class TestUpdateWebhookEvents:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient",
             return_value=mock_client,
         ):
-            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["customer.created"])
+            result = update_webhook_events("rk_test", None, None, self.WEBHOOK_URL, ["customer.created"])
 
         assert result.success is False
         assert result.error is not None
@@ -1060,7 +1064,7 @@ class TestUpdateWebhookEvents:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.StripeClient"
         ) as mock_client_cls:
-            result = update_webhook_events("rk_test", None, "https://x", [])
+            result = update_webhook_events("rk_test", None, None, "https://x", [])
 
         assert result.success
         mock_client_cls.assert_not_called()

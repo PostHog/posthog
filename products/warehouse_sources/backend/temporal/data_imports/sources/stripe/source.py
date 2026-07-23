@@ -491,7 +491,9 @@ If automatic creation failed due to a permissions error and you're using a restr
     ) -> WebhookSyncResult:
         api_key = self._get_api_key(config, team_id)
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
-        return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
+        return update_webhook_events(
+            api_key, config.stripe_account_id, config.stripe_api_version, webhook_url, desired_events
+        )
 
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None

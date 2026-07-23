@@ -976,7 +976,11 @@ def delete_webhook(
 
 
 def update_webhook_events(
-    api_key: str, stripe_account_id: str | None, webhook_url: str, desired_events: list[str]
+    api_key: str,
+    stripe_account_id: str | None,
+    stripe_api_version: str | None,
+    webhook_url: str,
+    desired_events: list[str],
 ) -> WebhookSyncResult:
     """Add `desired_events` to the matching Stripe endpoint, writing only on drift.
     A 403 (missing webhook write scope) returns a failure result rather than raising, so
@@ -987,10 +991,11 @@ def update_webhook_events(
         return WebhookSyncResult(success=True)
 
     try:
+        version = stripe_api_version or LEGACY_STRIPE_API_VERSION
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version=LEGACY_STRIPE_API_VERSION,
+            stripe_version=version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
