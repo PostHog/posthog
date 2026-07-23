@@ -10,9 +10,10 @@ line per persisted entry is enough.
 
 Local dev is the exception: `otel-collector-config.dev.yaml` only tails docker-compose
 container stdout, and `append_log` runs in the host Django process, so the stdout lines
-never reach Logs there. Setting `TASK_RUN_LOGS_MIRROR_OTLP_URL` + `_TOKEN` additionally
-ships each batch straight to a logs OTLP endpoint — the delivery leg for hosts whose
-stdout no collector tails.
+never reach Logs there. In DEBUG each batch is therefore also shipped straight to the
+logs OTLP endpoint the agent telemetry already uses (`SANDBOX_AGENT_OTEL_LOGS_URL` +
+`_TOKEN`) — DEBUG-only because in production those settings point at the customer-facing
+telemetry project and the collector already delivers pod stdout to the internal project.
 
 Each mirrored line carries the run's uuid as `request_id` (and as the OTLP trace id on
 the direct leg), so a whole run groups as one trace in the Logs UI and can be pulled up
@@ -105,13 +106,18 @@ def mirror_entries(
 
 
 def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> None:
-    """Ship the batch straight to a logs OTLP endpoint when one is configured.
+    """Ship the batch straight to the local logs OTLP endpoint in dev.
 
-    Best-effort: a delivery failure is logged and never raises into the run.
+    DEBUG-only: production delivery is the collector tailing pod stdout, and reusing
+    `SANDBOX_AGENT_OTEL_LOGS_*` there would double-deliver scout bodies into the
+    customer-facing telemetry project. Best-effort: a delivery failure is logged and
+    never raises into the run.
     """
-    url = settings.TASK_RUN_LOGS_MIRROR_OTLP_URL
-    token = settings.TASK_RUN_LOGS_MIRROR_OTLP_TOKEN
-    if not url or not token or not records:
+    if not settings.DEBUG or not records:
+        return
+    url = settings.SANDBOX_AGENT_OTEL_LOGS_URL
+    token = settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN
+    if not url or not token:
         return
 
     # The run uuid without dashes is a valid 16-byte hex trace id, matching the

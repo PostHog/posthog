@@ -112,14 +112,6 @@ TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
     os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout")
 )
 
-# Optional direct OTLP delivery for the mirror above, for hosts whose stdout no collector
-# tails. In production the collector daemonset ships pod stdout so these stay unset; in
-# local dev `append_log` runs in the host Django process, which the dev collector (docker
-# containers only) never sees — point these at the local logs ingest (e.g.
-# http://localhost:8000/i/v1/logs with a project API key) to see mirrored runs in /logs.
-TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
-TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
-
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 
