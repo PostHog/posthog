@@ -39,6 +39,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    SchemaColumnTypeChangedException,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -337,6 +340,13 @@ async def _handle_import_error(
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+
+    # Raised in shared pipeline code when incoming data can't be cast into the stored (narrower)
+    # Delta column type. delta-rs can't change a column's type in place, so this fails identically
+    # on every retry regardless of source — classify it non-retryable by type here rather than
+    # relying on each source listing the message in get_non_retryable_errors.
+    if isinstance(error, SchemaColumnTypeChangedException):
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
 
     non_retryable_errors = source_cls.get_non_retryable_errors()
