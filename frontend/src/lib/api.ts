@@ -5214,14 +5214,14 @@ const api = {
                 .get()
             return Object.entries(response).map(([user_uuid, { name, email }]) => ({ user_uuid, name, email }))
         },
-        // PUT replaces the content of a `suggested_reviewers` artefact (only writable type).
-        // Backend: SignalReportArtefactViewSet.update.
-        async updateArtefact(
+        // PUT the report's full suggested-reviewers list (create-or-replace). Addressed by report so a
+        // report with no reviewers yet (and thus no artefact) can still be assigned one.
+        // Backend: SignalReportViewSet.reviewers.
+        async setReviewers(
             reportId: SignalReport['id'],
-            artefactId: string,
             content: Record<string, any>[]
         ): Promise<SignalReportArtefact> {
-            return await new ApiRequest().signalReportArtefact(reportId, artefactId).put({ data: { content } })
+            return await new ApiRequest().signalReport(reportId).withAction('reviewers').put({ data: { content } })
         },
     },
 

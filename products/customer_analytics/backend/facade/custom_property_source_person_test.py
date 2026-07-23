@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -135,3 +136,118 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         with self.assertRaises(api.CustomPropertySourceValidationError) as ctx:
             self._create(definition_id=self.account_def.id, **overrides)
         assert expected_message in str(ctx.exception)
+
+    @staticmethod
+    def _uac(allowed: bool) -> MagicMock:
+        uac = MagicMock()
+        uac.check_access_level_for_object.return_value = allowed
+        return uac
+
+    def test_create_person_source_requires_warehouse_source_editor(self):
+        # Mapping a warehouse table into person properties drives its billable source, so a caller
+        # without external_data_source editor access is refused even with account-scope editor.
+        with self.assertRaises(api.ResourceForbiddenError):
+            self._create(user_access_control=self._uac(allowed=False))
+        # The allow path still creates the source.
+        view = self._create(user_access_control=self._uac(allowed=True))
+        assert view.external_data_schema == self.schema.id
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_trigger_sync_denied_without_warehouse_source_editor(self, _flag):
+        source = self._create()
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.trigger_person_property_sync(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+            )
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_trigger_backfill_denied_without_warehouse_source_editor(self, _flag):
+        source = self._create()
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.trigger_person_property_backfill(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+            )
+
+    def test_update_columns_requires_warehouse_source_editor(self):
+        # Changing the mapped columns on an enabled person source auto-triggers a warehouse backfill, so
+        # it needs external_data_source editor access, not account-scope editor alone — the gate must
+        # cover column changes, not just re-enabling.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.update_custom_property_source(
+                team_id=self.team.id,
+                source_id=source.id,
+                fields={"key_column": "user_id"},
+                user_access_control=self._uac(allowed=False),
+            )
+
+    def test_delete_person_source_requires_warehouse_source_editor(self):
+        # Deleting a person source permanently stops its billable warehouse-driven updates, so it needs
+        # external_data_source editor access, not account-scope editor alone.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.delete_custom_property_source(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=False)
+            )
+        assert CustomPropertySource.objects.filter(id=source.id).exists()
+        assert api.delete_custom_property_source(
+            team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+        )
+        assert not CustomPropertySource.objects.filter(id=source.id).exists()
+
+    def test_disabling_source_does_not_require_warehouse_source_editor(self):
+        # Disabling never triggers a backfill, so it must not demand warehouse editor access.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"is_enabled": False},
+            user_access_control=self._uac(allowed=False),
+        )
+        assert view is not None and view.is_enabled is False
+
+    def test_source_view_gates_warehouse_metadata_on_viewer_access(self):
+        from datetime import timedelta  # noqa: PLC0415
+
+        self.schema.sync_frequency_interval = timedelta(hours=6)
+        self.schema.save(update_fields=["sync_frequency_interval"])
+        source = self._create(user_access_control=self._uac(allowed=True))
+        # Warehouse-derived sync status, including the raw error text from the backfill/sync activity.
+        CustomPropertySource.objects.filter(id=source.id).update(
+            last_sync_error="boom: internal warehouse detail", consecutive_failures=3
+        )
+
+        denied = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=False))
+        assert denied is not None
+        assert denied.sync_frequency_interval_seconds is None and denied.next_sync_at is None
+        # Status fields must be redacted too, not just the schedule — the raw error can leak warehouse detail.
+        assert denied.last_sync_error is None and denied.consecutive_failures == 0
+
+        allowed = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
+        assert allowed is not None
+        assert allowed.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
+        assert allowed.last_sync_error == "boom: internal warehouse detail" and allowed.consecutive_failures == 3
+
+    def test_list_sync_runs_requires_warehouse_source_viewer(self):
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.list_custom_property_sync_runs(
+                self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=False)
+            )
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_triggers_reject_disabled_source(self, _flag):
+        # A disabled source can't be re-triggered: sync returns False (→ 400) and backfill None (→ 400).
+        source = self._create(is_enabled=False)
+        assert (
+            api.trigger_person_property_sync(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            )
+            is False
+        )
+        assert (
+            api.trigger_person_property_backfill(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            )
+            is None
+        )

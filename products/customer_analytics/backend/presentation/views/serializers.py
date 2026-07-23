@@ -44,6 +44,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertyOption,
     CustomPropertyReference,
     CustomPropertySourceView,
+    CustomPropertySyncRunView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -306,6 +307,71 @@ class CustomPropertyReferenceSerializer(DataclassSerializer):
         fields = ["id", "name", "status", "type"]
 
 
+class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the person-property sync/backfill trigger actions."""
+
+    status = serializers.ChoiceField(
+        choices=[("triggered", "triggered"), ("started", "started"), ("already_running", "already_running")],
+        help_text=(
+            "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or "
+            "'already_running' (a backfill for this table was already in flight, so this was a no-op)."
+        ),
+    )
+    already_running = serializers.BooleanField(
+        required=False,
+        help_text="Backfill only: true when a backfill for this table was already running and this call coalesced.",
+    )
+
+
+class CustomPropertySyncRunSerializer(DataclassSerializer):
+    """One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
+    pipeline, never through the API."""
+
+    id = serializers.UUIDField(read_only=True)
+    trigger = serializers.CharField(
+        read_only=True,
+        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+    )
+    status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")
+    finished_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the run ended, or null while running."
+    )
+    rows_read = serializers.IntegerField(read_only=True, help_text="Warehouse rows scanned this run.")
+    changed = serializers.IntegerField(read_only=True, help_text="Rows whose mapped values changed since the last run.")
+    existing = serializers.IntegerField(
+        read_only=True, help_text="Person profiles updated (changed rows that matched an existing person)."
+    )
+    produced = serializers.IntegerField(
+        read_only=True, help_text="Property-update intents produced to the ingestion pipeline."
+    )
+    skipped_missing_person = serializers.IntegerField(
+        read_only=True, help_text="Changed rows dropped because no existing person matched the distinct id."
+    )
+    error = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error summary if the run failed, else null."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the run row was recorded.")
+
+    class Meta:
+        dataclass = CustomPropertySyncRunView
+        ref_name = "CustomPropertySyncRun"
+        fields = [
+            "id",
+            "trigger",
+            "status",
+            "started_at",
+            "finished_at",
+            "rows_read",
+            "changed",
+            "existing",
+            "produced",
+            "skipped_missing_person",
+            "error",
+            "created_at",
+        ]
+
+
 class CustomPropertySourceSerializer(DataclassSerializer):
     """Binds a materialized data-warehouse view column to a custom property definition; the view's
     values are synced onto matching accounts on each materialization."""
@@ -371,6 +437,27 @@ class CustomPropertySourceSerializer(DataclassSerializer):
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    sync_frequency_interval_seconds = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person sources only: how often the underlying warehouse schema syncs, in seconds. Null "
+            "for account sources or when unavailable."
+        ),
+    )
+    next_sync_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person sources only: approximate time of the next scheduled sync (last synced + interval). "
+            "Approximate — drifts if the schedule was paused. Null for account sources or if never synced."
+        ),
+    )
+    latest_run = CustomPropertySyncRunSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Person sources only: the most recent sync/backfill run, or null if none yet.",
+    )
 
     class Meta:
         dataclass = CustomPropertySourceView
@@ -390,6 +477,9 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "sync_frequency_interval_seconds",
+            "next_sync_at",
+            "latest_run",
         ]
 
 

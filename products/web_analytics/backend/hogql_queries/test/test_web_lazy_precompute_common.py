@@ -31,6 +31,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
+    REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
@@ -50,6 +51,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
 
@@ -493,12 +495,18 @@ class TestStaleRevalidationEnqueue(BaseTest):
 
     def tearDown(self):
         reset_query_tags()
+        # Debounce/budget keys persist in the shared test Redis; scrub so tests
+        # stay order-independent.
+        client = redis.get_client()
+        keys = client.keys(f"web_swr_reval*{self.team.pk}*")
+        if keys:
+            client.delete(*keys)
         super().tearDown()
 
     def _delay_patch(self):
         return mock.patch(
             "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
-            ".revalidate_web_analytics_precompute.delay"
+            ".revalidate_web_analytics_precompute.apply_async"
         )
 
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self):
@@ -512,7 +520,13 @@ class TestStaleRevalidationEnqueue(BaseTest):
                 handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
         assert delay.call_count == 1
-        payload = delay.call_args.kwargs
+        # The warm gets a head start delay so it never contends with the
+        # dashboard burst that enqueued it.
+        assert delay.call_args.kwargs["countdown"] == REVALIDATION_START_DELAY_SECONDS
+        # Expiry is measured from publication, so the head start must not eat
+        # into the queue's pickup window.
+        assert delay.call_args.kwargs["expires"] == REVALIDATION_START_DELAY_SECONDS + REVALIDATION_EXPIRES_SECONDS
+        payload = delay.call_args.kwargs["kwargs"]
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "WebOverviewQuery"
 
@@ -530,6 +544,39 @@ class TestStaleRevalidationEnqueue(BaseTest):
             handle_stale_served(runner=overview_runner, family="web_overview")
             handle_stale_served(runner=stats_runner, family="web_stats")
         assert delay.call_count == 2
+
+    def test_per_team_budget_bounds_distinct_shape_enqueues(self):
+        # Filters/dates are request-controlled, so distinct shapes are unbounded;
+        # the per-team budget must cap total enqueues per window regardless.
+        from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+            REVALIDATION_TEAM_BUDGET_PER_WINDOW,
+        )
+
+        with self._delay_patch() as delay:
+            for i in range(REVALIDATION_TEAM_BUDGET_PER_WINDOW + 10):
+                query = WebOverviewQuery(
+                    dateRange=DateRange(date_from=f"2024-01-{(i % 27) + 1:02d}", date_to="2024-06-01"),
+                    properties=[
+                        EventPropertyFilter(key="$host", value=f"h{i}.example.com", operator=PropertyOperator.EXACT)
+                    ],
+                )
+                runner = WebOverviewQueryRunner(team=self.team, query=query)
+                handle_stale_served(runner=runner, family="web_overview")
+        assert delay.call_count == REVALIDATION_TEAM_BUDGET_PER_WINDOW
+
+        # A budget-rejected shape must not stay debounce-locked: once the budget
+        # window clears, the SAME shape (i=30 above was rejected) gets its warm
+        # on the next request — the rejection must release its debounce claim.
+        redis.get_client().delete(f"web_swr_reval_budget:{self.team.pk}")
+        rejected_query = WebOverviewQuery(
+            dateRange=DateRange(date_from=f"2024-01-{(30 % 27) + 1:02d}", date_to="2024-06-01"),
+            properties=[EventPropertyFilter(key="$host", value="h30.example.com", operator=PropertyOperator.EXACT)],
+        )
+        with self._delay_patch() as delay:
+            handle_stale_served(
+                runner=WebOverviewQueryRunner(team=self.team, query=rejected_query), family="web_overview"
+            )
+        assert delay.call_count == 1
 
     def test_broker_failure_does_not_break_the_stale_read_path(self):
         # handle_stale_served runs inside the families' read try/except before the stale

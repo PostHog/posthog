@@ -8,10 +8,16 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
-from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GitHubAuthenticationError,
+    OAuthTokenError,
+    TaskNotFoundError,
+)
 from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
@@ -221,6 +227,15 @@ def _resolve_sandbox_github_token(
                 repository=repository,
             )
             or ""
+        )
+    except ReauthorizationRequired as e:
+        # Expected user-actionable state — the acting user must re-link GitHub. Non-retryable and
+        # kept out of the raw error stream (CredentialUnavailableError does not capture) so it does
+        # not surface as error-tracking noise. Mirrors the refresh path in sandbox_credentials.py.
+        raise CredentialUnavailableError(
+            "GitHub user integration for this run requires reauthorization",
+            {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+            cause=e,
         )
     except Exception as e:
         raise GitHubAuthenticationError(
@@ -770,6 +785,12 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                         repository=input.repository,
                     )
                     or ""
+                )
+            except ReauthorizationRequired as e:
+                raise CredentialUnavailableError(
+                    "GitHub user integration for this run requires reauthorization",
+                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+                    cause=e,
                 )
             except Exception as e:
                 raise GitHubAuthenticationError(
