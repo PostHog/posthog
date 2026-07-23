@@ -1,3 +1,9 @@
+// This lint suggests `ok_or(VmError::...)` over `ok_or_else(|| VmError::...)` when the error is
+// "trivial" to build. On the interpreter's per-token fetch path that eager construction of the
+// large VmError enum is a measured ~3% end-to-end regression (see perf/LOG.md), so the crate
+// deliberately stays lazy everywhere — matching the hot-path guardrail in perf/FINDINGS.md.
+#![allow(clippy::unnecessary_lazy_evaluations)]
+
 mod context;
 mod error;
 mod memory;

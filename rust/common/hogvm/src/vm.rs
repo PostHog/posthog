@@ -377,7 +377,10 @@ impl<'a> HogVM<'a> {
                 let base = self.current_frame_base();
                 // Usize as a positive offset from the current frame
                 let offset: usize = self.next_usize()?;
-                let ptr = self.hoist(base.checked_add(offset).ok_or_else(|| VmError::IntegerOverflow)?)?;
+                let ptr = self.hoist(
+                    base.checked_add(offset)
+                        .ok_or_else(|| VmError::IntegerOverflow)?,
+                )?;
                 self.push_stack(ptr)?;
             }
             Operation::SetLocal => {
@@ -387,7 +390,8 @@ impl<'a> HogVM<'a> {
                 let offset: usize = self.next_usize()?;
                 let value = self.pop_stack()?;
                 self.set_stack_val(
-                    base.checked_add(offset).ok_or_else(|| VmError::IntegerOverflow)?,
+                    base.checked_add(offset)
+                        .ok_or_else(|| VmError::IntegerOverflow)?,
                     value,
                 )?;
             }
@@ -423,7 +427,8 @@ impl<'a> HogVM<'a> {
                 if !val.deref(&self.heap)?.truthy() {
                     self.ip = ((self.ip as i64)
                         .checked_add(offset as i64)
-                        .ok_or_else(|| VmError::IntegerOverflow)?) as usize;
+                        .ok_or_else(|| VmError::IntegerOverflow)?)
+                        as usize;
                 }
             }
             Operation::JumpIfStackNotNull => {
@@ -564,7 +569,8 @@ impl<'a> HogVM<'a> {
                 // on the same instruction (the compiler's offset already skips the POP_TRY).
                 let catch_ip = (self.ip as i64)
                     .checked_add(catch_offset as i64 - 1)
-                    .ok_or_else(|| VmError::IntegerOverflow)? as usize;
+                    .ok_or_else(|| VmError::IntegerOverflow)?
+                    as usize;
                 let frame = ThrowFrame {
                     catch_ptr: catch_ip,
                     catch_symbol: self.current_symbol.clone(),
@@ -1077,7 +1083,10 @@ impl<'a> HogVM<'a> {
     }
 
     fn clone_stack_item(&self, idx: usize) -> Result<HogValue, VmError> {
-        self.stack.get(idx).cloned().ok_or_else(|| VmError::StackUnderflow)
+        self.stack
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| VmError::StackUnderflow)
     }
 
     fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {

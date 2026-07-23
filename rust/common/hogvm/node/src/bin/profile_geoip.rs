@@ -99,7 +99,10 @@ fn main() {
                     "OUTPUT DRIFT on fixture event {i} — the optimization changed semantics"
                 );
             }
-            println!("correctness check passed ({} fixture events)", outputs.len());
+            println!(
+                "correctness check passed ({} fixture events)",
+                outputs.len()
+            );
         }
         Err(_) => {
             println!("warning: no expected-output fixture at {expected_path}; run with --write-expected to pin one");
