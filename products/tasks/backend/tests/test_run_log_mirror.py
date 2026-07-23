@@ -1,5 +1,3 @@
-import json
-
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -84,10 +82,39 @@ class TestMirrorEntries(SimpleTestCase):
         log_call.assert_called_once()
         self.assertEqual(log_call.call_args.kwargs["body"], expected_body)
 
-    def test_unrecognized_entry_falls_back_to_json_body(self):
-        notification = {"method": "session/request_permission", "params": {"tool": "bash"}}
+    @parameterized.expand(
+        [
+            (
+                "protocol_request",
+                {
+                    "method": "session/new",
+                    "params": {
+                        "mcpServers": [
+                            {
+                                "headers": [
+                                    {"name": "Authorization", "value": "Bearer protocol-secret"},
+                                ]
+                            }
+                        ]
+                    },
+                },
+                "[session/new]",
+            ),
+            (
+                "metadata_session_update",
+                _session_update_entry(
+                    "available_commands_update",
+                    availableCommands=[{"name": "example", "description": "metadata-secret"}],
+                )["notification"],
+                "[available_commands_update]",
+            ),
+        ]
+    )
+    def test_protocol_metadata_omits_payload(self, _name, notification, expected_body):
         mock_logger = _mirror([{"notification": notification}])
-        self.assertEqual(json.loads(mock_logger.info.call_args.kwargs["body"]), notification)
+        body = mock_logger.info.call_args.kwargs["body"]
+        self.assertEqual(body, expected_body)
+        self.assertNotIn("secret", body)
 
     def test_emitted_fields_carry_run_identity(self):
         mock_logger = _mirror([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])

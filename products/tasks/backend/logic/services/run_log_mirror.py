@@ -20,7 +20,6 @@ the direct leg), so a whole run groups as one trace in the Logs UI and can be pu
 with a `task_run_id` attribute filter.
 """
 
-import json
 import time
 from datetime import datetime
 from typing import Any
@@ -45,6 +44,15 @@ MAX_ENTRIES_PER_CALL = 200
 _LOG_METHOD_NAMES = {"info": "info", "warn": "warning", "error": "error"}
 
 _OTLP_SEVERITIES = {"info": ("INFO", 9), "warn": ("WARN", 13), "error": ("ERROR", 17)}
+
+_READABLE_SESSION_UPDATES = {
+    "agent_message",
+    "agent_message_chunk",
+    "agent_thought_chunk",
+    "user_message_chunk",
+}
+
+_TOOL_SESSION_UPDATES = {"tool_call", "tool_call_update"}
 
 _LOG_EVENT_NAME = "task_run_log"
 
@@ -208,14 +216,18 @@ def _body(notification: dict, session_update: str | None) -> str:
     update = _session_update(notification)
 
     body: str | None = None
-    if session_update:
+    if session_update in _READABLE_SESSION_UPDATES:
         text = _extract_text(update.get("content"))
         if text is not None:
             body = f"[{session_update}] {text}"
-        elif session_update in ("tool_call", "tool_call_update"):
-            title = update.get("title") or update.get("toolCallId") or ""
-            status = update.get("status")
-            body = f"[{session_update}] {title}" + (f" ({status})" if status else "")
+        else:
+            body = f"[{session_update}]"
+    elif session_update in _TOOL_SESSION_UPDATES:
+        title = update.get("title") or update.get("toolCallId") or ""
+        status = update.get("status")
+        body = f"[{session_update}] {title}" + (f" ({status})" if status else "")
+    elif session_update:
+        body = f"[{session_update}]"
     elif notification.get("method") in ("_posthog/console", "_posthog/error"):
         message = params.get("message")
         if isinstance(message, str):
@@ -230,7 +242,8 @@ def _body(notification: dict, session_update: str | None) -> str:
             body = f"[turn_end] {stop_reason}"
 
     if body is None:
-        body = json.dumps(notification)
+        method = notification.get("method")
+        body = f"[{method}]" if isinstance(method, str) else "[acp_message]"
     return body[:MAX_BODY_CHARS]
 
 

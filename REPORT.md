@@ -96,6 +96,7 @@ This branch also carries the scout-run log mirror by Andrew Maguire ([#71094](ht
 | Traces      | one APM trace per run (`task_run`/`turn`/`tool_call:*` spans)                              | `request_id` = run uuid becomes the record's trace id, grouping one run as one trace                                   |
 
 The privacy postures are compatible because the scopes differ: scout runs are PostHog-authored agents whose transcripts we already own end to end, so full bodies into the internal project are fine there, while the OTLP path covers customer-driven runs and therefore stays metadata-only.
+The mirror emits readable message, tool, console, error, and sandbox-output bodies, but reduces protocol setup envelopes and other metadata-only updates to type labels so authentication headers and other configuration payloads never enter Logs.
 Mirroring is fire-and-forget — a mirror failure is logged and never breaks the run's S3 log write.
 
 The mirror additionally has a **direct OTLP leg** (added on this branch, on top of #71094): `TASK_RUN_LOGS_MIRROR_OTLP_URL` + `_TOKEN` ship each batch straight to a logs ingest endpoint, arriving as `service.name=task-run-log-mirror` with the run uuid as the trace id and the structlog fields as attributes.
