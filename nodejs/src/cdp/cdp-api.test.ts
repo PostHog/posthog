@@ -1175,6 +1175,64 @@ describe('CDP API', () => {
         })
     })
 
+    describe('manual hogflow invocations', () => {
+        let mockQueueInvocations: jest.Mock
+
+        const activeEventHogFlow = (): Parameters<typeof insertHogFlow>[0] => ({
+            id: new UUIDT().toString(),
+            name: 'test event hog flow',
+            status: 'active',
+            version: 1,
+            exit_condition: 'exit_only_at_end',
+            edges: [],
+            actions: [],
+            trigger: { type: 'event', filters: {} },
+        })
+
+        const globals = {
+            event: { event: '$conversation_quick_action_triggered', properties: { ticket_id: 'abc' } },
+        }
+
+        beforeEach(() => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+        })
+
+        it('runs any active workflow regardless of trigger type', async () => {
+            // Unlike scheduled_invocations, an event-triggered workflow is accepted here.
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('queued')
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('rejects an inactive workflow', async () => {
+            const hogFlow = await insertHogFlow({ ...activeEventHogFlow(), status: 'draft' })
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({ globals })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Workflow must be active')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('errors when the event globals are missing', async () => {
+            const hogFlow = await insertHogFlow(activeEventHogFlow())
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing event')
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+    })
+
     describe('hogflow in-flight count', () => {
         let countHogFlow: HogFlow
         let mockCountInFlightJobs: jest.Mock
