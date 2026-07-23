@@ -427,24 +427,25 @@ An **append-only, attributed, schema-validated log of the work done on a report*
 
 - **status** — the report's current state (`safety_judgment`, `actionability_judgment`, `priority_judgment`, `repo_selection`, `suggested_reviewers`). Each (re)assessment appends a row; the current status is the **latest row of that type** (serializers derive priority/actionability/reviewers via `order_by("-created_at")[:1]`).
 - **log** — discrete work (`code_reference`, `commit`, `task_run`, `note`); these accumulate and are addressable by UUID (PATCH/DELETE).
-- `signal_finding` is in neither set: its identity is `(report, content.signal_id)`, latest per signal wins. `dismissal` entries stack.
+- `signal_finding` is in neither set: its identity is `(report, content.signal_id)`, latest per signal wins. `dismissal` and `feedback` entries stack.
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
-| Type                     | Content                                                                                                                                                         |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video_segment`          | Video segment data from session clustering                                                                                                                      |
-| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                          |
-| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                    |
-| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                              |
-| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                  |
-| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                      |
-| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                  |
-| `dismissal`              | `{"reason"?, "note"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries                                                                 |
-| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end) |
-| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                      |
-| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                     |
-| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                         |
+| Type                     | Content                                                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `video_segment`          | Video segment data from session clustering                                                                                                                                     |
+| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                         |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                   |
+| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                             |
+| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                 |
+| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                     |
+| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                                 |
+| `dismissal`              | `{"reason"?, "note"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries                                                                                |
+| `feedback`               | `{"sentiment": "positive" \| "negative", "note"?}` — stacking reader-feedback entries (no state change); latest surfaces on the report as `feedback_sentiment`/`feedback_note` |
+| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                |
+| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                     |
+| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                    |
+| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                        |
 
 **Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
 

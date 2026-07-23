@@ -703,6 +703,7 @@ class SignalReportArtefact(UUIDModel):
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
         DISMISSAL = "dismissal"
+        FEEDBACK = "feedback"
         CODE_REFERENCE = "code_reference"
         COMMIT = "commit"
         TASK_RUN = "task_run"
@@ -723,6 +724,8 @@ class SignalReportArtefact(UUIDModel):
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
     # a new signal yields a new entry, re-researching an existing signal appends a new version
     # (latest per signal_id wins). It is intentionally in neither set.
+    # `dismissal` and `feedback` are also in neither set: each is its own point-in-time record of
+    # a human verdict, so entries stack over time rather than superseding or logging work.
     STATUS_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.SAFETY_JUDGMENT,
@@ -910,7 +913,7 @@ class SignalReportArtefact(UUIDModel):
         """Append an artefact of any content model, routing to its type's append semantics.
 
         Status types are latest-wins (`append_status`), `signal_finding` is keyed by signal_id,
-        `dismissal` entries stack, log types accumulate (`add_log`), and anything else
+        `dismissal` and `feedback` entries stack, log types accumulate (`add_log`), and anything else
         (`video_segment`) is a plain append. This model-level helper accepts every content model —
         an agent can append a new status version just like the pipeline, and the newest row of a
         status type is the report's canonical status. (The HTTP write API additionally refuses

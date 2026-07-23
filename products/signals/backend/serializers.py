@@ -359,6 +359,18 @@ class SignalReportSerializer(serializers.ModelSerializer):
     dismissal_note = serializers.SerializerMethodField(
         help_text="Free-form note captured alongside the dismissal reason (when present).",
     )
+    feedback_sentiment = serializers.SerializerMethodField(
+        help_text=(
+            "Sentiment (positive/negative) from the latest feedback artefact — a reader's thumbs "
+            "verdict on the report, left without changing its state (when present)."
+        ),
+    )
+    feedback_note = serializers.SerializerMethodField(
+        help_text=(
+            "Free-form note captured alongside the latest feedback sentiment (when present). "
+            "Feedback entries stack over time; the full history is on the report's artefact log."
+        ),
+    )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
@@ -398,6 +410,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "already_addressed",
             "dismissal_reason",
             "dismissal_note",
+            "feedback_sentiment",
+            "feedback_note",
             "is_suggested_reviewer",
             "source_products",
             "scout_name",
@@ -495,6 +509,40 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     def get_dismissal_note(self, obj: SignalReport) -> str | None:
         data = self._get_dismissal_artefact_data(obj)
+        if data is None:
+            return None
+        value = data.get("note")
+        return value if isinstance(value, str) and value else None
+
+    def _get_feedback_artefact_data(self, obj: SignalReport) -> dict | None:
+        prefetched = getattr(obj, "prefetched_feedback_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            # created_by filter mirrors the prefetch: feedback is a human verdict, so
+            # task/system-attributed rows never surface as the report's feedback.
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.FEEDBACK, created_by__isnull=False)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        try:
+            data = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def get_feedback_sentiment(self, obj: SignalReport) -> str | None:
+        data = self._get_feedback_artefact_data(obj)
+        if data is None:
+            return None
+        value = data.get("sentiment")
+        return value if isinstance(value, str) and value else None
+
+    def get_feedback_note(self, obj: SignalReport) -> str | None:
+        data = self._get_feedback_artefact_data(obj)
         if data is None:
             return None
         value = data.get("note")

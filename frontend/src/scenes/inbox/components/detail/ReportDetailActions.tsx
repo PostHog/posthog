@@ -6,7 +6,10 @@ import { IconArchive, IconMessage, IconPullRequest, IconReceipt, IconUndo } from
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { signalsReportArtefactsCreate } from 'products/signals/frontend/generated/api'
 
 import { captureInboxReportAction, captureInboxReportFeedback } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
@@ -64,6 +67,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -154,7 +158,21 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         onClick: () =>
             openFeedbackReportDialog({
                 reportTitle: report.title ?? 'Untitled report',
-                onConfirm: ({ sentiment, note }) => {
+                onConfirm: async ({ sentiment, note }) => {
+                    // Persist on the report (as a `feedback` artefact) so agents can read it and
+                    // learn from it on later runs, not just the analytics event.
+                    try {
+                        if (currentTeamId == null) {
+                            throw new Error('No team in context')
+                        }
+                        await signalsReportArtefactsCreate(String(currentTeamId), report.id, {
+                            artefact_type: 'feedback',
+                            content: { sentiment, ...(note ? { note } : {}) },
+                        })
+                    } catch (error: any) {
+                        lemonToast.error(error?.detail || error?.error || error?.message || 'Failed to send feedback')
+                        throw error // keep the dialog open so the user can retry
+                    }
                     captureInboxReportFeedback({ report, sentiment, note, surface: 'detail_pane' })
                     lemonToast.success('Thanks for the feedback')
                 },
