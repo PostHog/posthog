@@ -230,15 +230,17 @@ describe('exportsLogic', () => {
             expect(lemonToast.dismiss).toHaveBeenCalled()
         })
 
-        it('notifies once with a Download button when a tracked async export finishes', async () => {
+        it('notifies once with a Download button that routes through downloadExport', async () => {
             const pending = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: false })
             const finished = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: true })
             // An unrelated completed export in the list must not trigger a toast of its own.
             const unrelated = asset({ id: 99, export_format: ExporterFormat.CSV, has_content: true })
+            const downloadExportSpy = jest.spyOn(logic.actions, 'downloadExport')
 
             logic.actions.addFresh(pending)
             logic.actions.loadExportsSuccess([finished, unrelated])
             await flush()
+            // A second poll of the same finished export must not re-toast it.
             logic.actions.loadExportsSuccess([finished, unrelated])
             await flush()
 
@@ -251,9 +253,27 @@ describe('exportsLogic', () => {
             // The export keeps its "not downloaded" highlight until the user actually downloads it.
             expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([21])
 
-            await jest.mocked(lemonToast.success).mock.calls[0][1]!.button!.action()
-            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[finished]])
-            expect(logic.values.freshUndownloadedExports).toEqual([])
+            jest.mocked(lemonToast.success).mock.calls[0][1]!.button!.action()
+            expect(downloadExportSpy).toHaveBeenCalledWith(finished)
+        })
+
+        it.each([
+            {
+                label: 'clears the highlight when the download succeeds',
+                downloadOk: true,
+                remainingIds: [] as number[],
+            },
+            { label: 'keeps the highlight when the download fails', downloadOk: false, remainingIds: [41] },
+        ])('downloadExport $label', async ({ downloadOk, remainingIds }) => {
+            const tracked = asset({ id: 41, export_format: ExporterFormat.MP4, has_content: true })
+            logic.actions.addFresh(tracked)
+            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(downloadOk)
+
+            logic.actions.downloadExport(tracked)
+            await flush()
+
+            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[tracked]])
+            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(remainingIds)
         })
 
         it('surfaces the failure and stops tracking when a tracked async export fails', async () => {
@@ -293,22 +313,6 @@ describe('exportsLogic', () => {
             } finally {
                 jest.useRealTimers()
             }
-        })
-
-        it('keeps the undownloaded highlight when the completion download fails', async () => {
-            const pending = asset({ id: 23, export_format: ExporterFormat.MP4, has_content: false })
-            const finished = asset({ id: 23, export_format: ExporterFormat.MP4, has_content: true })
-
-            logic.actions.addFresh(pending)
-            logic.actions.loadExportsSuccess([finished])
-            await flush()
-
-            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(false)
-            await jest.mocked(lemonToast.success).mock.calls[0][1]!.button!.action()
-
-            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[finished]])
-            // A failed download must keep the highlight so the user can retry from the exports panel.
-            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([23])
         })
 
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {

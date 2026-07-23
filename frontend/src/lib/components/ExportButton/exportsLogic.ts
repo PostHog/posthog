@@ -34,8 +34,19 @@ const POLL_DELAY_MS = 10000
 // pending queue is dominated by long-running formats.
 const LONG_RUNNING_POLL_DELAY_MS = 30000
 
+// An export is still rendering while it has neither produced content nor failed.
+const isRendering = (asset: ExportedAssetType): boolean => !asset.has_content && !asset.exception
+
+const fetchExportOrNull = async (id: number): Promise<ExportedAssetType | null> => {
+    try {
+        return await api.exports.get(id)
+    } catch {
+        return null
+    }
+}
+
 export const pickPollDelayMs = (pendingAssets: ExportedAssetType[]): number => {
-    const pending = pendingAssets.filter((asset) => !asset.has_content && !asset.exception)
+    const pending = pendingAssets.filter(isRendering)
     if (pending.length === 0) {
         return POLL_DELAY_MS
     }
@@ -91,6 +102,9 @@ export interface exportsLogicActions {
     ) => {
         name: string
         query: AnyDataNode
+    }
+    downloadExport: (exportedAsset: ExportedAssetType) => {
+        exportedAsset: ExportedAssetType
     }
     loadExports: () => {
         value: true
@@ -172,6 +186,7 @@ export const exportsLogic = kea<exportsLogicType>([
         startExport: (exportData: TriggerExportProps) => ({ exportData }),
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
+        downloadExport: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
         setAssetFormat: (format: ExporterFormat | null) => ({ format }),
         setHasReachedExportFullVideoLimit: (hasReached: boolean) => ({ hasReached }),
@@ -241,43 +256,37 @@ export const exportsLogic = kea<exportsLogicType>([
         createExportSuccess: () => {
             actions.loadExports()
         },
+        downloadExport: async ({ exportedAsset }) => {
+            // Only drop the "not downloaded" highlight once the file actually downloads, so a
+            // failed retrieval leaves the user a retry cue instead of a silent dead end.
+            if (await downloadExportedAsset(exportedAsset)) {
+                actions.removeFresh(exportedAsset)
+            }
+        },
         loadExportsSuccess: async ({ exports: exportsList }, breakpoint) => {
             // Surface async exports we kicked off that have now finished: the render completes long
             // after the kickoff toast, so this poll is the only completion signal the user gets.
             cache.notifiedExportIds ??= new Set<number>()
-            const stillRendering: ExportedAssetType[] = []
+            const pending = exportsList.filter(isRendering)
             for (const fresh of values.freshUndownloadedExports) {
-                // The list can be format-filtered (assetFormat), so fetch directly if the tracked export isn't in it.
-                let latest = exportsList.find((asset) => asset.id === fresh.id)
-                if (!latest) {
-                    try {
-                        latest = await api.exports.get(fresh.id)
-                    } catch {
-                        // Transient fetch failure: keep polling so completion is still surfaced.
-                        stillRendering.push(fresh)
-                        continue
+                // The list can be format-filtered (assetFormat), so fetch directly if it's not in it.
+                const listed = exportsList.find((asset) => asset.id === fresh.id)
+                const latest = listed ?? (await fetchExportOrNull(fresh.id))
+                if (!latest || isRendering(latest)) {
+                    // Still rendering, or a transient fetch miss: keep an out-of-list export polling.
+                    if (!listed) {
+                        pending.push(latest ?? fresh)
                     }
-                }
-                if (!latest.has_content && !latest.exception) {
-                    stillRendering.push(latest)
                     continue
                 }
                 if (cache.notifiedExportIds.has(fresh.id)) {
                     continue
                 }
-                cache.notifiedExportIds.add(fresh.id)
                 if (latest.has_content) {
+                    cache.notifiedExportIds.add(fresh.id)
                     const finished = latest
                     lemonToast.success('Export complete!', {
-                        button: {
-                            label: 'Download',
-                            action: async () => {
-                                // Keep the undownloaded highlight if the download fails.
-                                if (await downloadExportedAsset(finished)) {
-                                    actions.removeFresh(finished)
-                                }
-                            },
-                        },
+                        button: { label: 'Download', action: () => actions.downloadExport(finished) },
                     })
                 } else {
                     actions.removeFresh(fresh)
@@ -285,9 +294,8 @@ export const exportsLogic = kea<exportsLogicType>([
                 }
             }
 
-            // Keep polling while the (possibly filtered) list or any tracked async export is still rendering.
-            if (exportsList.some((asset) => !asset.has_content && !asset.exception) || stillRendering.length > 0) {
-                await breakpoint(pickPollDelayMs([...exportsList, ...stillRendering]))
+            if (pending.length) {
+                await breakpoint(pickPollDelayMs(pending))
                 actions.loadExports()
             }
         },
