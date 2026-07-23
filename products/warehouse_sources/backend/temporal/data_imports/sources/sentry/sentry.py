@@ -289,14 +289,20 @@ def _parse_datetime_value(value: Any) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 
-def _skip_rows_on_stale_issue_404(rows: Iterator[dict[str, Any]], issue_id: str) -> Iterator[dict[str, Any]]:
+def _skip_rows_on_stale_issue_404(
+    rows: Iterator[dict[str, Any]], organization_slug: str, issue_id: str
+) -> Iterator[dict[str, Any]]:
     """Swallow a 404 raised while iterating a warehouse-snapshot issue's sub-resource."""
     try:
         yield from rows
     except HTTPError as exc:
         response = exc.response
         if response is not None and response.status_code == 404:
-            logger.info("sentry_source.stale_warehouse_issue_skipped", issue_id=issue_id)
+            logger.info(
+                "sentry_source.stale_warehouse_issue_skipped",
+                organization_slug=organization_slug,
+                issue_id=issue_id,
+            )
             return
         raise
 
@@ -321,7 +327,12 @@ def _iter_issue_tag_values_rows(
     resume_issue_id: str | None = None
     resume_tag_key: str | None = None
     resume_values_next_url: str | None = None
-    if resumable_source_manager is not None and resumable_source_manager.can_resume():
+    # The issue-level fast-forward relies on stable iteration order across attempts. The
+    # warehouse scan has no order guarantee (fragment order shifts when the parent re-syncs
+    # or compacts between attempts), and fast-forwarding through a drifted order silently
+    # skips issues the first attempt never processed — so warehouse mode ignores the fan-out
+    # checkpoint and reprocesses from the start (merge/upsert dedupes the overlap).
+    if not use_warehouse_parent and resumable_source_manager is not None and resumable_source_manager.can_resume():
         loaded = resumable_source_manager.load_state()
         if loaded is not None and loaded.issue_id and loaded.tag_key and loaded.values_next_url:
             resume_issue_id = loaded.issue_id
@@ -336,20 +347,23 @@ def _iter_issue_tag_values_rows(
         # by the API process for schema discovery) — the reader loads only when syncing.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
             iter_parent_pages_from_warehouse,
+            resolve_parent_table_uri,
         )
 
         # Streamed unordered scan — the reader must never materialize the table. The
         # incremental early-break below becomes a per-row filter in this mode (same issue
-        # set, no ordering requirement); the resume fast-forward tolerates order drift via
-        # its skip-limit fallback. Duplicate rows can't occur: append-mode parents are
-        # refused by the dependency gates before a sync reaches this path.
+        # set, no ordering requirement). Duplicate rows can't occur: append-mode parents
+        # are refused by the dependency gates before a sync reaches this path. lastSeen is
+        # only projected when an incremental cutoff needs it — a parent whose column
+        # selection dropped it can still drive full-refresh children.
+        issues_table_uri = resolve_parent_table_uri(team_id, source_id, "issues")
+        parent_columns = ["id", "lastSeen"] if cutoff_last_seen is not None else ["id"]
         issues = (
             row
             for page in iter_parent_pages_from_warehouse(
-                team_id=team_id,
-                source_id=source_id,
+                table_uri=issues_table_uri,
                 parent_name="issues",
-                columns=["id", "lastSeen"],
+                columns=parent_columns,
                 page_size=100,
             )
             for row in page
@@ -413,7 +427,7 @@ def _iter_issue_tag_values_rows(
             # The warehouse snapshot can contain issues deleted upstream since the issues
             # schema last synced; their tags endpoint 404s. A fresh API parent pull would
             # simply not list them, so skip instead of failing the sync.
-            tags = _skip_rows_on_stale_issue_404(tags, issue_id)
+            tags = _skip_rows_on_stale_issue_404(tags, organization_slug, issue_id)
         for tag in tags:
             tag_key = tag.get("key") or tag.get("id")
             if not isinstance(tag_key, str) or not tag_key:

@@ -124,6 +124,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSourceConfig,
     DocsFetchError,
     ExternalWebhookInfo,
+    FanoutParentDependencyError,
+    FanoutParentState,
     FieldType,
     IntegrationAccountListingError,
     MySQLSource,
@@ -146,6 +148,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_primary_key_columns,
     is_fanout_warehouse_reuse_enabled,
     repair_cdc_source,
+    resolve_fanout_parent_action,
     source_requires_ssl,
     source_type_supports_cdc,
     sql_schema_metadata,
@@ -2327,36 +2330,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for child_name, required_parents in required_parents_by_child.items():
                 for parent_name in required_parents:
                     parent_entry = schema_entries_by_name.get(parent_name)
-                    if parent_entry is None or (
-                        not parent_entry.get("should_sync", False)
-                        and parent_entry.get("sync_type") is None
-                        and new_source_model.supports_scheduled_sync
-                    ):
-                        new_source_model.delete()
-                        return Response(
-                            status=status.HTTP_400_BAD_REQUEST,
-                            data={
-                                "message": (
-                                    f"Schema '{child_name}' syncs using the '{parent_name}' schema's data. "
-                                    f"Enable '{parent_name}' with a sync type, or deselect '{child_name}'."
-                                )
-                            },
+                    parent_state = (
+                        None
+                        if parent_entry is None
+                        else FanoutParentState(
+                            enabled=bool(parent_entry.get("should_sync", False)),
+                            is_append=parent_entry.get("sync_type") == "append",
+                            has_sync_type=parent_entry.get("sync_type") is not None,
                         )
-                    # Append-mode parents accumulate duplicate rows per sync, which would fan the
-                    # child out once per duplicate — the child reads the parent table as-is.
-                    if parent_entry.get("sync_type") == "append":
-                        new_source_model.delete()
-                        return Response(
-                            status=status.HTTP_400_BAD_REQUEST,
-                            data={
-                                "message": (
-                                    f"Schema '{child_name}' syncs using the '{parent_name}' schema's data, "
-                                    f"so '{parent_name}' can't use append sync. "
-                                    f"Choose incremental or full refresh for '{parent_name}'."
-                                )
-                            },
+                    )
+                    try:
+                        parent_action = resolve_fanout_parent_action(
+                            child_name,
+                            parent_name,
+                            parent_state,
+                            requires_sync_type=new_source_model.supports_scheduled_sync,
                         )
-                    parent_entry["should_sync"] = True
+                    except FanoutParentDependencyError as e:
+                        new_source_model.delete()
+                        return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+                    if parent_action == "enable":
+                        assert parent_entry is not None  # "enable" implies the parent entry exists
+                        parent_entry["should_sync"] = True
 
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:

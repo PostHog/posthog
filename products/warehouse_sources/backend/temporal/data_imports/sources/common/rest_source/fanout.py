@@ -127,12 +127,15 @@ def build_dependent_resource(
         # the reader stack loads only when a warehouse-parent fan-out actually runs.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
             iter_parent_pages_from_warehouse,
+            resolve_parent_table_uri,
         )
 
+        # Resolve the parent's table URI now, while we're in sync source-build context — the
+        # iterator itself runs later on executor threads where ad-hoc ORM reads are fragile.
+        parent_table_uri = resolve_parent_table_uri(team_id, source_id, fanout.parent_name)
         parent_columns = list(dict.fromkeys([fanout.resolve_field, *fanout.include_from_parent]))
         parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
-            team_id=team_id,
-            source_id=source_id,
+            table_uri=parent_table_uri,
             parent_name=fanout.parent_name,
             columns=parent_columns,
             page_size=parent_config.page_size,

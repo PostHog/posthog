@@ -141,6 +141,21 @@ async def _ensure_required_parents_synced(
                 f"Parent schema '{parent_name}' must complete an initial sync before '{schema.name}' can sync. "
                 f"This schema will sync automatically on its next schedule once '{parent_name}' has synced."
             )
+        # A full-refresh parent rewrites its table chunk by chunk (overwrite + appends), so a
+        # child reading mid-rewrite would fan out over a partial snapshot and, with replace
+        # disposition, silently shrink its own table. Parent and child schedules fire together,
+        # making this routine, not rare. Deliberately retryable (plain Exception): the parent
+        # finishing resolves it — either a retry attempt or the next schedule succeeds.
+        parent_running = await database_sync_to_async_pool(
+            ExternalDataJob.objects.filter(
+                team_id=team_id, schema_id=parent.id, status=ExternalDataJob.Status.RUNNING
+            ).exists
+        )()
+        if parent_running:
+            raise Exception(
+                f"Parent schema '{parent_name}' is currently syncing; '{schema.name}' reads its table "
+                f"and would see a partial snapshot. This run will retry and the next schedule re-evaluates."
+            )
 
     return True
 

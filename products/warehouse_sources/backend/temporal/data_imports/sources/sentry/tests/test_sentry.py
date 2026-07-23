@@ -1002,9 +1002,13 @@ class TestWarehouseParentReuse:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
+        return_value="s3://bucket/team_123_sentry_x/issues",
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
     )
-    def test_issue_tag_values_reads_issues_from_warehouse(self, mock_reader, mock_get) -> None:
+    def test_issue_tag_values_reads_issues_from_warehouse(self, mock_reader, _mock_resolve, mock_get) -> None:
         mock_reader.return_value = iter([[{"id": "100", "lastSeen": "2026-03-05T12:00:00Z"}]])
 
         def side_effect(url, headers=None, params=None, timeout=None):
@@ -1032,18 +1036,23 @@ class TestWarehouseParentReuse:
         rows = list(cast(Any, resp.items()))
         assert rows == [{"value": "Chrome", "timesSeen": 1, "issue_id": "100", "tag_key": "browser"}]
         mock_reader.assert_called_once_with(
-            team_id=123,
-            source_id="source-1",
+            table_uri="s3://bucket/team_123_sentry_x/issues",
             parent_name="issues",
-            columns=["id", "lastSeen"],
+            columns=["id"],
             page_size=100,
         )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
+        return_value="s3://bucket/team_123_sentry_x/issues",
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
     )
-    def test_issue_tag_values_warehouse_cutoff_filters_instead_of_breaking(self, mock_reader, mock_get) -> None:
+    def test_issue_tag_values_warehouse_cutoff_filters_instead_of_breaking(
+        self, mock_reader, _mock_resolve, mock_get
+    ) -> None:
         cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
         # Unordered warehouse scan: a stale issue arrives BEFORE a fresh one. API mode breaks
         # on the first stale row (sorted input); warehouse mode must filter and keep scanning.
@@ -1086,9 +1095,15 @@ class TestWarehouseParentReuse:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
+        return_value="s3://bucket/team_123_sentry_x/issues",
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
     )
-    def test_issue_tag_values_warehouse_skips_issue_deleted_upstream(self, mock_reader, mock_get) -> None:
+    def test_issue_tag_values_warehouse_skips_issue_deleted_upstream(
+        self, mock_reader, _mock_resolve, mock_get
+    ) -> None:
         mock_reader.return_value = iter([[{"id": "100", "lastSeen": None}, {"id": "200", "lastSeen": None}]])
 
         def side_effect(url, headers=None, params=None, timeout=None):
@@ -1101,6 +1116,47 @@ class TestWarehouseParentReuse:
             return _response([])
 
         mock_get.return_value.get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "200", "tag_key": "browser"}]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
+        return_value="s3://bucket/team_123_sentry_x/issues",
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_issue_tag_values_warehouse_skips_tag_when_values_endpoint_404s(
+        self, mock_get, mock_request, mock_reader, _mock_resolve
+    ) -> None:
+        # An issue deleted upstream between the tags listing and the values fetch 404s only on
+        # the values endpoint — the sync must skip that tag, not fail.
+        mock_reader.return_value = iter([[{"id": "100"}, {"id": "200"}]])
+
+        def request_side_effect(url, headers=None, params=None):
+            if url.endswith("/tags/"):
+                return _response([{"key": "browser"}])
+            if "/issues/100/tags/browser/values/" in url:
+                return _response([], status_code=404)
+            if "/issues/200/tags/browser/values/" in url:
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_request.side_effect = request_side_effect
 
         resp = sentry_source(
             auth_token="token",

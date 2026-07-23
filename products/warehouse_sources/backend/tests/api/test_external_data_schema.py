@@ -3795,3 +3795,59 @@ class TestFanoutParentEnforcement(APIBaseTest):
         assert "can't be deleted while" in response.json()["detail"]
         parent.refresh_from_db()
         assert parent.deleted is not True
+
+    def test_enabling_fanout_child_with_already_enabled_parent_leaves_parent_untouched(self):
+        # Steady-state flow: parent already syncing. Must not error and must not re-enable
+        # (a redundant update_should_sync would churn the parent's Temporal schedule).
+        _, parent, child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL, parent_should_sync=True
+        )
+        parent_updated_at = parent.updated_at
+
+        response = self._patch_schema(child.id, {"should_sync": True})
+
+        assert response.status_code == 200, response.json()
+        parent.refresh_from_db()
+        assert parent.should_sync is True
+        assert parent.updated_at == parent_updated_at
+
+    def test_switching_depended_on_parent_to_append_errors(self):
+        _, parent, _child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            parent_should_sync=True,
+            child_should_sync=True,
+        )
+
+        response = self._patch_schema(
+            parent.id, {"sync_type": "append", "incremental_field": "lastSeen", "incremental_field_type": "datetime"}
+        )
+
+        assert response.status_code == 400
+        assert "can't be switched to append sync" in response.json()["detail"]
+        parent.refresh_from_db()
+        assert parent.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
+    def test_enabling_fanout_child_inert_when_flag_disabled(self):
+        # Rollback guarantee: with the flag off, enabling a child neither errors on an
+        # unconfigured parent nor touches it.
+        _, parent, child = self._create_sentry_fanout_pair(parent_sync_type=None)
+
+        response = self._patch_schema(child.id, {"should_sync": True}, flag_enabled=False)
+
+        assert response.status_code == 200, response.json()
+        parent.refresh_from_db()
+        assert parent.should_sync is False
+
+    def test_deleting_parent_inert_when_flag_disabled(self):
+        _, parent, _child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            parent_should_sync=True,
+            child_should_sync=True,
+        )
+
+        with contextlib.ExitStack() as stack:
+            for p in self._enforcement_patches(flag_enabled=False):
+                stack.enter_context(p)
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
+
+        assert response.status_code == 204

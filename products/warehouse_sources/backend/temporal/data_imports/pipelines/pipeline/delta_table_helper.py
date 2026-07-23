@@ -20,9 +20,9 @@ from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_storage import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_access import (
+    build_delta_table_uri,
     get_delta_storage_options,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
@@ -210,9 +210,8 @@ class DeltaTableHelper:
         return get_delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
-        normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
+        return build_delta_table_uri(folder_path, self._resource_name)
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""

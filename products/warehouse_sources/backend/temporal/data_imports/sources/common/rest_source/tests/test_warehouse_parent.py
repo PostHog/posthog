@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     WarehouseParentTableNotFoundError,
     iter_parent_pages_from_warehouse,
+    resolve_parent_table_uri,
 )
 
 
@@ -28,18 +29,14 @@ def _write_parent_table(tmp_path: Path) -> str:
 
 
 def _patched_reader(uri: str, **kwargs):
-    with (
-        patch.object(warehouse_parent, "_parent_table_uri", return_value=uri),
-        patch.object(warehouse_parent, "get_delta_storage_options", return_value={}),
-    ):
-        return list(
-            iter_parent_pages_from_warehouse(
-                team_id=1,
-                source_id="00000000-0000-0000-0000-000000000000",
-                parent_name="issues",
-                **kwargs,
-            )
-        )
+    with patch.object(warehouse_parent, "get_delta_storage_options", return_value={}):
+        return list(iter_parent_pages_from_warehouse(table_uri=uri, parent_name="issues", **kwargs))
+
+
+def test_resolve_parent_table_uri_raises_when_parent_schema_missing() -> None:
+    with patch.object(warehouse_parent, "get_schema_if_exists", return_value=None):
+        with pytest.raises(WarehouseParentTableNotFoundError, match="does not exist for source"):
+            resolve_parent_table_uri(1, "00000000-0000-0000-0000-000000000000", "issues")
 
 
 def test_reader_pages_and_rekeys_to_api_field_names(tmp_path: Path) -> None:

@@ -2,13 +2,12 @@ import uuid
 from collections.abc import Iterator
 from typing import Any
 
-from django.conf import settings
-
 import deltalake
 
 from products.warehouse_sources.backend.models.external_data_schema import get_schema_if_exists
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_storage import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_access import (
+    build_delta_table_uri,
     get_delta_storage_options,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
@@ -24,20 +23,25 @@ class WarehouseParentTableNotFoundError(Exception):
     """
 
 
-def _parent_table_uri(team_id: int, source_id: str, parent_name: str) -> str:
+def resolve_parent_table_uri(team_id: int, source_id: str, parent_name: str) -> str:
+    """Locate the parent schema row and derive its Delta table URI.
+
+    Does a Django ORM read — call it from sync context at source-build time (e.g. inside
+    `source_for_pipeline`), NOT lazily from the pipeline's iterator executor threads, whose
+    ad-hoc DB connections are exactly the pooler-drop failure mode `ExternalDataSchema.save`
+    documents. The storage leaf honors a pinned `resolved_s3_folder_name` (legacy-migrated
+    rows) before falling back to the normalized schema name, mirroring the writer.
+    """
     parent_schema = get_schema_if_exists(parent_name, team_id, uuid.UUID(source_id))
     if parent_schema is None:
         raise WarehouseParentTableNotFoundError(f"Parent schema '{parent_name}' does not exist for source {source_id}")
-    # Mirrors DeltaTableHelper._get_delta_table_uri: the writer keys the table path on the
-    # parent schema's folder_path + normalized resource name.
-    normalized_name = NamingConvention.normalize_identifier(parent_name)
-    return f"{settings.BUCKET_URL}/{parent_schema.folder_path()}/{normalized_name}"
+    leaf = parent_schema.resolved_s3_folder_name or parent_name
+    return build_delta_table_uri(parent_schema.folder_path(), leaf)
 
 
 def iter_parent_pages_from_warehouse(
     *,
-    team_id: int,
-    source_id: str,
+    table_uri: str,
     parent_name: str,
     columns: list[str],
     page_size: int,
@@ -59,15 +63,14 @@ def iter_parent_pages_from_warehouse(
     before a sync ever reaches this reader. Do not add whole-table materialization here
     (`to_table`, global sorts, seen-sets) — parents can be arbitrarily large.
     """
-    uri = _parent_table_uri(team_id, source_id, parent_name)
     storage_options = get_delta_storage_options()
 
-    if not deltalake.DeltaTable.is_deltatable(uri, storage_options=storage_options):
+    if not deltalake.DeltaTable.is_deltatable(table_uri, storage_options=storage_options):
         raise WarehouseParentTableNotFoundError(
             f"Parent schema '{parent_name}' has no synced table yet — complete its initial sync first"
         )
 
-    delta_table = deltalake.DeltaTable(uri, storage_options=storage_options)
+    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
     physical_schema_names = set(pyarrow_schema_from_arrow_exportable(delta_table.schema()).names)
 
     physical_by_api_name: dict[str, str] = {}

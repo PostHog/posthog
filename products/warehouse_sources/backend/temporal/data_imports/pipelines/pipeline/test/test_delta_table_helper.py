@@ -155,7 +155,7 @@ class TestStorageOptionsCommitSafety:
                 DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME=allow_unsafe,
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.ensure_bucket_exists"
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_access.ensure_bucket_exists"
             ),
         ):
             options = helper.get_storage_options()

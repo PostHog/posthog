@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
     build_dependent_resource,
+    required_parents_from_endpoint_configs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResolvedParam
@@ -380,9 +381,15 @@ _WAREHOUSE_FANOUT = DependentEndpointConfig(
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 @patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
+    return_value="s3://bucket/team_1_x_y/parents",
+)
+@patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
 )
-def test_warehouse_parent_builds_data_iterator_and_404_ignore(mock_reader, mock_rest_api_resources) -> None:
+def test_warehouse_parent_builds_data_iterator_and_404_ignore(
+    mock_reader, mock_resolve, mock_rest_api_resources
+) -> None:
     mock_rest_api_resources.return_value = []
     mock_reader.return_value = iter([[{"id": "p1"}]])
     try:
@@ -401,6 +408,9 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(mock_reader, mock_
     except StopIteration:
         pass
 
+    # The URI is resolved eagerly at build time (sync context), not lazily on iteration.
+    mock_resolve.assert_called_once_with(1, "source-1", "parents")
+
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
     child_resource = config["resources"][1]
@@ -408,7 +418,7 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(mock_reader, mock_
     pages = list(parent_resource["data_iterator"]())
     assert pages == [[{"id": "p1"}]]
     mock_reader.assert_called_once_with(
-        team_id=1, source_id="source-1", parent_name="parents", columns=["id"], page_size=3
+        table_uri="s3://bucket/team_1_x_y/parents", parent_name="parents", columns=["id"], page_size=3
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
@@ -469,9 +479,13 @@ class _FakeChildOnlyClient:
 
 
 @patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
+    return_value="s3://bucket/team_1_x_y/parents",
+)
+@patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
 )
-def test_warehouse_parent_drives_child_without_parent_http(mock_reader) -> None:
+def test_warehouse_parent_drives_child_without_parent_http(mock_reader, _mock_resolve) -> None:
     mock_reader.return_value = iter([[{"id": "p1"}, {"id": "p2"}], [{"id": "p3"}]])
     fake_client = _FakeChildOnlyClient()
 
@@ -512,10 +526,6 @@ class _ConfigWithFanout:
 
 
 def test_required_parents_from_endpoint_configs() -> None:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-        required_parents_from_endpoint_configs,
-    )
-
     configs = {
         "children": _ConfigWithFanout(_WAREHOUSE_FANOUT),
         "api_children": _ConfigWithFanout(

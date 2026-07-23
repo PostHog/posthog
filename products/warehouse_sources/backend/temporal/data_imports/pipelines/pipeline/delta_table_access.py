@@ -1,14 +1,23 @@
 from django.conf import settings
 
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+
+
+def build_delta_table_uri(folder_path: str, resource_name: str) -> str:
+    """Canonical S3 URI of a schema's Delta table.
+
+    The writer (`DeltaTableHelper`) and readers (e.g. the fan-out warehouse parent reader)
+    must agree byte-for-byte on where a table lives; both derive it here.
+    """
+    normalized_name = NamingConvention.normalize_identifier(resource_name)
+    return f"{settings.BUCKET_URL}/{folder_path}/{normalized_name}"
 
 
 def get_delta_storage_options() -> dict[str, str]:
     """delta-rs storage options for the warehouse bucket.
 
-    Kept in a leaf module so both the Delta writer (`DeltaTableHelper`) and readers
-    (e.g. the fan-out warehouse parent reader) share one credentials source without
-    importing the full helper stack.
+    Shared by the Delta writer and readers so S3 credential logic exists once.
     """
     if settings.USE_LOCAL_SETUP:
         if (
