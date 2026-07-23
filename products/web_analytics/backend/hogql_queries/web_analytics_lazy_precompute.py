@@ -15,13 +15,7 @@ from typing import Optional, Protocol, Union
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import (
-    EventPropertyFilter,
-    PropertyOperator,
-    WebOverviewQuery,
-    WebStatsTableQuery,
-    WebVitalsPathBreakdownQuery,
-)
+from posthog.schema import WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -35,7 +29,6 @@ from posthog.models.team import Team
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
     is_precompute_enabled_for_team,
-    is_precompute_unrestricted_for_team,
 )
 
 logger = structlog.get_logger(__name__)
@@ -270,25 +263,11 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
         raise SessionsV2UuidMode()
 
-    # Unrestricted teams accept any filter shape — `user_filter_expr` translates
-    # arbitrary filters via `property_to_expr`, and each distinct filter set
-    # becomes a distinct cache key. Filters the INSERT can't express fail the
-    # job and fall back to the live query automatically.
-    unrestricted = is_precompute_unrestricted_for_team(runner.team)
-    if not unrestricted:
-        properties = query.properties or []
-        if len(properties) > 1:
-            raise TooManyFilters()
-        for prop in properties:
-            if not isinstance(prop, EventPropertyFilter):
-                raise NonEventPropertyFilter()
-            if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-                raise UnsupportedFilterKey(prop.key)
-            if prop.operator != PropertyOperator.EXACT:
-                raise UnsupportedFilterOperator(prop.operator)
-            if not isinstance(prop.value, str) or not prop.value:
-                raise NonStringOrEmptyFilterValue()
-
+    # Any filter shape is accepted: `user_filter_expr` translates the whole list via
+    # `property_to_expr`, and each distinct filter set becomes its own cache key. Filters
+    # the INSERT can't express fail the job and fall back to the live query automatically,
+    # and the per-team distinct-shape ceiling in `web_ensure_precomputed` bounds how many
+    # namespaces a single team can mint.
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
     if date_from is None or date_to is None:
@@ -415,22 +394,10 @@ def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
     if not runner.query.properties:
         return ast.Constant(value=True)
 
-    # Unrestricted teams may pass arbitrary filters — translate the whole list
-    # via the general `property_to_expr`. Each distinct filter set becomes a
-    # distinct cache key.
-    if is_precompute_unrestricted_for_team(runner.team):
-        return property_to_expr(runner.query.properties, team=runner.team)
-
-    # Gate already enforces single EventPropertyFilter with $host exact + string value.
-    host_filter = runner.query.properties[0]
-    assert isinstance(host_filter, EventPropertyFilter)
-    return ast.Call(
-        name="equals",
-        args=[
-            ast.Field(chain=["events", "properties", host_filter.key]),
-            ast.Constant(value=host_filter.value),
-        ],
-    )
+    # Any filter list is translated via the general `property_to_expr`; each distinct
+    # filter set becomes a distinct cache key. Filters the INSERT can't express fail the
+    # job and fall back to the live query automatically.
+    return property_to_expr(runner.query.properties, team=runner.team)
 
 
 def test_account_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:

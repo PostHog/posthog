@@ -80,10 +80,10 @@ The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effecti
 - `query.conversionGoal` is set
 - `query.sampling.enabled` is True
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
-- `query.properties` contains more than one filter
-- The single filter is not `EventPropertyFilter(key="$host", operator="exact", value=<non-empty string>)`
 - Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
 - Either date_from or date_to is None
+
+Any filter shape is accepted: the whole `query.properties` list is translated via `property_to_expr`, and each distinct filter set becomes its own cache key (namespace). Filters the INSERT can't express fail the job and fall back to the live query automatically. Because any filter combination mints a new namespace, `web_ensure_precomputed` enforces a per-team distinct-shape ceiling (`WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM`, default 1000): once a team holds that many live shapes, a build for a _new_ shape drops to a check-only pass and serves live instead, while shapes the team already holds keep serving and refreshing. It is a coarse backstop, not a quota; 0 disables it.
 
 When the gate returns False the runner silently falls through to v2 / raw. **Today there is no telemetry on gate rejections** — operators tuning the rollout have to read the source to know why a team isn't seeing the lazy path. A `web_overview_lazy_gate_rejected_total{reason}` counter would close that gap (open issue).
 
@@ -235,7 +235,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ### Eligibility gate
 
-`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, missing date range, and date range over 90 days. Any property-filter shape is accepted (each distinct set becomes its own cache key, bounded by the per-team shape ceiling — see the web overview eligibility gate above).
 
 ### Observability
 

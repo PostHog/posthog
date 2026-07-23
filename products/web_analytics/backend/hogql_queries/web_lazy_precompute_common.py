@@ -3,9 +3,10 @@
 Both the web overview lazy precompute and the web stats PATHS lazy precompute
 share the same rollout/safety gate (org feature flag + per-query opt-out,
 whole-hour timezone, no conversion goal, no sampling, no v2 UUID sessions,
-at most one `$host` exact filter, bounded date range) and the same TTL /
-session-pad / UTC-day helpers. Keeping a single source of truth avoids
-the two paths drifting apart.
+any filter shape, bounded date range) and the same TTL / session-pad / UTC-day
+helpers. Keeping a single source of truth avoids the two paths drifting apart.
+The per-team distinct-shape ceiling (`try_reserve_precompute_shape`) lives here
+too, bounding how many namespaces the loosened filter gate lets a team mint.
 """
 
 import json
@@ -21,7 +22,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, SessionsV2JoinMode
+from posthog.schema import SessionsV2JoinMode
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -97,6 +98,53 @@ def list_oom_pinned_team_ids() -> list[int]:
     return sorted(team_ids)
 
 
+# Per-team distinct-shape ceiling. With the filter gate loosened, any filter combination
+# becomes its own precompute namespace, so a pathological team could mint unbounded shapes.
+# This is a coarse backstop, not a quota: a team builds shapes freely until it holds this
+# many distinct ones, after which *new* shapes fall back to the live query (existing shapes
+# keep serving and refreshing). Enforced only on build paths and only here, on the
+# web-analytics side of the framework boundary, so the shared lazy_computation framework —
+# and its other consumers (e.g. experiments) — is never capped. The set's TTL is stamped
+# once when its first shape is added, so the whole counter resets periodically rather than
+# accreting cold shapes forever; a still-exploding team simply refills within the window.
+TEAM_SHAPE_SET_REDIS_PREFIX = "preagg:team_shapes:"
+TEAM_SHAPE_SET_TTL_SECONDS = 30 * 24 * 60 * 60  # matches the warmed -30d depth
+
+
+def _team_shape_set_key(team_id: int) -> str:
+    return f"{TEAM_SHAPE_SET_REDIS_PREFIX}{team_id}"
+
+
+def try_reserve_precompute_shape(team_id: int, shape_hash: str) -> bool:
+    """Reserve a build slot for `shape_hash` under the team's distinct-shape ceiling.
+
+    Returns True when the shape may build — it was already counted, the cap is disabled,
+    or there was room (and it's now counted). Returns False only when the team is at the
+    ceiling AND this shape is new: the one case we drop early. Best-effort: any Redis
+    failure returns True (fail open — a backstop must never block a legitimate build).
+
+    The count is approximate under concurrency (sismember/scard/sadd aren't atomic), which
+    is fine for a coarse ceiling: a few concurrent new shapes may overshoot by a handful."""
+    ceiling = settings.WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM
+    if ceiling <= 0:
+        return True
+    try:
+        client = redis.get_client()
+        key = _team_shape_set_key(team_id)
+        if client.sismember(key, shape_hash):
+            return True
+        count = client.scard(key)
+        if count >= ceiling:
+            return False
+        client.sadd(key, shape_hash)
+        if count == 0:
+            client.expire(key, TEAM_SHAPE_SET_TTL_SECONDS)
+        return True
+    except Exception:
+        logger.warning("web_precompute.shape_cap_check_failed", team_id=team_id, exc_info=True)
+        return True
+
+
 # --- Stale-while-revalidate (RFC 5861) -------------------------------------------------
 #
 # The lazy executor's `stale_while_revalidate_seconds` is the *serve* half: user-facing
@@ -141,6 +189,12 @@ STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
 WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
     "web_analytics_lazy_precompute_check_miss_total",
     "User-facing reads that found no covering READY jobs, fell back to the live query, and enqueued a background warm.",
+    labelnames=["family"],
+)
+
+WEB_ANALYTICS_LAZY_PRECOMPUTE_SHAPE_CAPPED = Counter(
+    "web_analytics_lazy_precompute_shape_capped_total",
+    "Precompute builds skipped because the team was at its distinct-shape ceiling; the query served live instead.",
     labelnames=["family"],
 )
 
@@ -287,6 +341,17 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     # must not pay for its own backfill.
     if "run_inserts" not in kwargs:
         kwargs["run_inserts"] = background
+    # Per-team distinct-shape backstop. Only build paths can mint a new namespace, so this
+    # only bites there (a user read is already run_inserts=False). At the ceiling, a *new*
+    # shape drops back to a check-only pass — not ready → the caller serves live — instead
+    # of building; shapes the team already holds are unaffected. Reuses the eligibility hash
+    # so a shape counts the same however it reaches this build path.
+    if kwargs.get("run_inserts") and runner is not None:
+        shape_hash = compute_filters_eligibility_hash(runner.query, team.timezone)
+        if not try_reserve_precompute_shape(team.id, shape_hash):
+            kwargs["run_inserts"] = False
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_SHAPE_CAPPED.labels(family=family or "unknown").inc()
+            logger.info("web_precompute.shape_capped", team_id=team.id, family=family)
     pinned = is_team_oom_pinned(team.id)
     if "ttl_seconds" in kwargs:
         existing = kwargs["ttl_seconds"]
@@ -483,11 +548,13 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
 
 
 def is_precompute_unrestricted_for_team(team: Team) -> bool:
-    """Whether a team may precompute *any* web analytics query.
+    """Whether a team is on the standalone precompute enrollment list.
 
-    Unrestricted teams bypass the single-`$host`-exact filter-shape gate (any
-    property filter becomes a distinct cache key). Driven by the dedicated
-    `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` env-var setting.
+    Membership implies enrollment without needing the org rollout flag or the
+    `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` list (see `is_precompute_enabled_for_team`
+    and the eager warmer). The filter-shape gate no longer varies by this list —
+    every enrolled team accepts arbitrary filters — so it now only governs enrollment.
+    Driven by the `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` env-var setting.
     """
     return team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS
 
@@ -548,8 +615,6 @@ def check_common_eligibility(
     if use_web_analytics_precompute is False:
         raise PerQueryOptedOut()
 
-    unrestricted = is_precompute_unrestricted_for_team(team)
-
     if not is_integer_timezone(team.timezone):
         raise NonIntegerTimezone()
 
@@ -562,23 +627,11 @@ def check_common_eligibility(
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
 
-    # Unrestricted teams accept any filter shape — `host_filter_expr` translates
-    # arbitrary filters via `property_to_expr`, and each distinct filter set
-    # becomes a distinct cache key. Filters the INSERT can't express fail the
-    # job and fall back to the live query automatically.
-    if not unrestricted:
-        if len(properties) > 1:
-            raise TooManyFilters()
-        for prop in properties:
-            if not isinstance(prop, EventPropertyFilter):
-                raise NonEventPropertyFilter()
-            if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-                raise UnsupportedFilterKey(prop.key)
-            if prop.operator != PropertyOperator.EXACT:
-                raise UnsupportedFilterOperator(prop.operator)
-            if not isinstance(prop.value, str) or not prop.value:
-                raise NonStringOrEmptyFilterValue()
-
+    # Any filter shape is accepted: `host_filter_expr` translates the whole list via
+    # `property_to_expr`, and each distinct filter set becomes its own cache key. Filters
+    # the INSERT can't express fail the job and fall back to the live query automatically,
+    # and the per-team distinct-shape ceiling in `web_ensure_precomputed` bounds how many
+    # namespaces a single team can mint.
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:
         raise MissingDateRange()
@@ -629,25 +682,13 @@ def host_filter_expr(properties: list, *, team: Team) -> ast.Expr:
     """Translate the user filter list to an AST expression.
 
     The returned AST is what `ensure_precomputed` hashes into the cache key —
-    different filter values therefore become different precomputed jobs.
-
-    Unrestricted teams may pass arbitrary filters, so their list is translated
-    via the general `property_to_expr`. Restricted teams keep the hand-built
-    single-`$host` `equals` so their existing cache keys don't churn.
+    different filter values therefore become different precomputed jobs. Any filter
+    list is translated via the general `property_to_expr`; filters the INSERT can't
+    express fail the job and fall back to the live query automatically.
     """
     if not properties:
         return ast.Constant(value=True)
-    if is_precompute_unrestricted_for_team(team):
-        return property_to_expr(properties, team=team)
-    host_filter = properties[0]
-    assert isinstance(host_filter, EventPropertyFilter)
-    return ast.Call(
-        name="equals",
-        args=[
-            ast.Field(chain=["events", "properties", host_filter.key]),
-            ast.Constant(value=host_filter.value),
-        ],
-    )
+    return property_to_expr(properties, team=team)
 
 
 def test_account_filter_expr(*, test_account_filters: list, team: Team) -> ast.Expr:
