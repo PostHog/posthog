@@ -1325,6 +1325,16 @@ export interface eventUsageLogicActions {
     reportInsightDateRangeChanged: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
+    reportInsightDraftDiscarded: (draftAgeSeconds: number) => {
+        draftAgeSeconds: number
+    }
+    reportInsightDraftRestored: (
+        surface: 'insight_editor' | 'saved_insights',
+        draftAgeSeconds: number
+    ) => {
+        draftAgeSeconds: number
+        surface: 'insight_editor' | 'saved_insights'
+    }
     reportInsightDragToZoomed: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
@@ -2278,6 +2288,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightType,
             presetKey,
         }),
+        reportInsightDraftRestored: (surface: 'saved_insights' | 'insight_editor', draftAgeSeconds: number) => ({
+            surface,
+            draftAgeSeconds,
+        }),
+        reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -3327,6 +3342,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
+        },
+        reportInsightDraftRestored: ({ surface, draftAgeSeconds }) => {
+            posthog.capture('insight draft restored', { surface, draft_age_seconds: draftAgeSeconds })
+        },
+        reportInsightDraftDiscarded: ({ draftAgeSeconds }) => {
+            posthog.capture('insight draft discarded', { draft_age_seconds: draftAgeSeconds })
         },
         reportSavedInsightNewInsightClicked: ({ insightType, presetKey }) => {
             posthog.capture('saved insights new insight clicked', {

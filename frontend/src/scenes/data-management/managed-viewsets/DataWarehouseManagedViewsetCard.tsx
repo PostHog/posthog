@@ -42,12 +42,18 @@ export function DataWarehouseManagedViewsetCard({
     resourceType,
     displayDocsLink = true,
     displayConfigLink = true,
-}: DataWarehouseManagedViewsetCardProps): JSX.Element {
+}: DataWarehouseManagedViewsetCardProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { toggleViewset } = useActions(dataWarehouseManagedViewsetsLogic({ type }))
     const { togglingViewset, toggleResultLoading } = useValues(dataWarehouseManagedViewsetsLogic({ type }))
 
-    const { title, description, docsUrl, configUrl, icon } = VIEWSET_DESCRIPTIONS[kind]
+    const viewsetInfo = VIEWSET_DESCRIPTIONS[kind]
+
+    if (!viewsetInfo) {
+        return null
+    }
+
+    const { title, description, docsUrl, configUrl, icon } = viewsetInfo
     const isEnabled = !!currentTeam?.managed_viewsets?.[kind]
     const isToggling = togglingViewset === kind && toggleResultLoading
 

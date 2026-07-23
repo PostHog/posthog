@@ -16449,13 +16449,15 @@ export namespace Schemas {
     /**
      * * `account` - account
      * * `person` - person
+     * * `group` - group
      */
-    export type CustomPropertyDefinitionTargetType = typeof CustomPropertyDefinitionTargetType[keyof typeof CustomPropertyDefinitionTargetType];
+    export type CustomPropertyDefinitionTargetTypeEnum = typeof CustomPropertyDefinitionTargetTypeEnum[keyof typeof CustomPropertyDefinitionTargetTypeEnum];
 
 
-    export const CustomPropertyDefinitionTargetType = {
+    export const CustomPropertyDefinitionTargetTypeEnum = {
       Account: 'account',
       Person: 'person',
+      Group: 'group',
     } as const;
 
     /**
@@ -16516,6 +16518,45 @@ export namespace Schemas {
     }
 
     /**
+     * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
+     * pipeline, never through the API.
+     */
+    export interface CustomPropertySyncRun {
+      readonly id: string;
+      /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+      readonly trigger: string;
+      /** Run status: 'running', 'completed', or 'failed'. */
+      readonly status: string;
+      /**
+         * When the run began.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the run ended, or null while running.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /** Warehouse rows scanned this run. */
+      readonly rows_read: number;
+      /** Rows whose mapped values changed since the last run. */
+      readonly changed: number;
+      /** Person profiles updated (changed rows that matched an existing person). */
+      readonly existing: number;
+      /** Property-update intents produced to the ingestion pipeline. */
+      readonly produced: number;
+      /** Changed rows dropped because no existing person matched the distinct id. */
+      readonly skipped_missing_person: number;
+      /**
+         * Error summary if the run failed, else null.
+         * @nullable
+         */
+      readonly error: string | null;
+      /** When the run row was recorded. */
+      readonly created_at: string;
+    }
+
+    /**
      * Binds a materialized data-warehouse view column to a custom property definition; the view's
      * values are synced onto matching accounts on each materialization.
      */
@@ -16565,6 +16606,18 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+      /**
+         * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+         * @nullable
+         */
+      readonly sync_frequency_interval_seconds: number | null;
+      /**
+         * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+         * @nullable
+         */
+      readonly next_sync_at: string | null;
+      /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+      readonly latest_run: CustomPropertySyncRun | null;
     }
 
     /**
@@ -16610,11 +16663,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -16650,6 +16711,34 @@ export namespace Schemas {
       key_column?: string;
       /** Whether the source syncs; re-enabling it resets the failure count. */
       is_enabled?: boolean;
+    }
+
+    /**
+     * * `triggered` - triggered
+     * * `started` - started
+     * * `already_running` - already_running
+     */
+    export type CustomPropertySyncTriggerResponseStatusEnum = typeof CustomPropertySyncTriggerResponseStatusEnum[keyof typeof CustomPropertySyncTriggerResponseStatusEnum];
+
+
+    export const CustomPropertySyncTriggerResponseStatusEnum = {
+      Triggered: 'triggered',
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Response of the person-property sync/backfill trigger actions.
+     */
+    export interface CustomPropertySyncTriggerResponse {
+      /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+       *
+       * * `triggered` - triggered
+       * * `started` - started
+       * * `already_running` - already_running */
+      status: CustomPropertySyncTriggerResponseStatusEnum;
+      /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+      already_running?: boolean;
     }
 
     /**
@@ -25162,6 +25251,7 @@ export namespace Schemas {
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
@@ -25169,6 +25259,7 @@ export namespace Schemas {
 
     export const ScannerModelEnum = {
       Gemini35FlashLite: 'gemini-3.5-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
       Gemini36Flash: 'gemini-3.6-flash',
     } as const;
 
@@ -25198,6 +25289,7 @@ export namespace Schemas {
       /** Proposed model; determines `credits_per_observation` in the response.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
     }
@@ -38130,7 +38222,7 @@ export namespace Schemas {
       type: LoopTriggerTypeEnum;
       /** Whether this trigger is active. Disabling pauses only this trigger. */
       enabled?: boolean;
-      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
       config?: unknown;
     }
 
@@ -40996,6 +41088,15 @@ export namespace Schemas {
       results: CustomPropertySource[];
     }
 
+    export interface PaginatedCustomPropertySyncRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CustomPropertySyncRun[];
+    }
+
     export interface PaginatedCustomerJourneyList {
       count: number;
       /** @nullable */
@@ -42589,6 +42690,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -46999,11 +47101,19 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
-      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+      /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
        *
        * * `account` - account
-       * * `person` - person */
-      target_type?: CustomPropertyDefinitionTargetType;
+       * * `person` - person
+       * * `group` - group */
+      target_type?: CustomPropertyDefinitionTargetTypeEnum;
+      /**
+         * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -51242,6 +51352,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -51698,6 +51809,25 @@ export namespace Schemas {
       summary?: string;
     }
 
+    export interface SignalScoutSlackDestination {
+      /**
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
+         * @minimum 1
+         */
+      integration_id: number;
+      /**
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+         * @maxLength 255
+         * @nullable
+         */
+      channel?: string | null;
+    }
+
+    export interface SignalScoutOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+    }
+
     /**
      * Editable schedule, enablement, and emit posture for one scout config.
      */
@@ -51718,6 +51848,8 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
+      output_destinations?: SignalScoutOutputDestinations;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -61172,7 +61304,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+     * Read shape for a per-(team, skill) scout config.
      *
      * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
      * when it discovers a scout skill; this serializer lets agents tune the row.
@@ -61200,6 +61332,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly run_cron_schedule: string | null;
+      /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+      readonly output_destinations: SignalScoutOutputDestinations;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -61230,6 +61364,8 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -61313,8 +61449,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -61380,8 +61523,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -73209,6 +73359,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CustomPropertySourcesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
@@ -78428,42 +78589,6 @@ export namespace Schemas {
       Pending: 'pending',
     } as const;
 
-    export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat;
-    };
-
-    export type PersonsFunnelRetrieveFormat = typeof PersonsFunnelRetrieveFormat[keyof typeof PersonsFunnelRetrieveFormat];
-
-
-    export const PersonsFunnelRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat;
-    };
-
-    export type PersonsFunnelCreateFormat = typeof PersonsFunnelCreateFormat[keyof typeof PersonsFunnelCreateFormat];
-
-
-    export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat;
-    };
-
-    export type PersonsLifecycleRetrieveFormat = typeof PersonsLifecycleRetrieveFormat[keyof typeof PersonsLifecycleRetrieveFormat];
-
-
-    export const PersonsLifecycleRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
@@ -78500,18 +78625,6 @@ export namespace Schemas {
 
 
     export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat;
-    };
-
-    export type PersonsTrendsRetrieveFormat = typeof PersonsTrendsRetrieveFormat[keyof typeof PersonsTrendsRetrieveFormat];
-
-
-    export const PersonsTrendsRetrieveFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -79007,6 +79120,10 @@ export namespace Schemas {
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
+    /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */
