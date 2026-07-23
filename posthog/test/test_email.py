@@ -39,21 +39,31 @@ from posthog.test.persons import (
 
 
 class TestEmailFooterContext(BaseTest):
-    def test_team_includes_name_and_derives_customer_id_from_org(self):
+    def test_team_derives_org_name_and_customer_id_from_org(self):
         self.organization.customer_id = "cus_123"
         self.organization.save()
-        assert get_email_footer_context(team=self.team) == {"team_name": self.team.name, "customer_id": "cus_123"}
+        assert get_email_footer_context(team=self.team) == {
+            "team_name": self.team.name,
+            "organization_name": self.organization.name,
+            "customer_id": "cus_123",
+        }
 
-    def test_organization_only_yields_customer_id(self):
+    def test_organization_only_yields_org_name_and_customer_id(self):
         self.organization.customer_id = "cus_123"
         self.organization.save()
-        assert get_email_footer_context(organization=self.organization) == {"customer_id": "cus_123"}
+        assert get_email_footer_context(organization=self.organization) == {
+            "organization_name": self.organization.name,
+            "customer_id": "cus_123",
+        }
 
     def test_blank_values_are_omitted_so_footer_renders_only_whats_present(self):
         self.organization.customer_id = None
         self.organization.save()
         assert get_email_footer_context() == {}
-        assert get_email_footer_context(team=self.team) == {"team_name": self.team.name}
+        assert get_email_footer_context(team=self.team) == {
+            "team_name": self.team.name,
+            "organization_name": self.organization.name,
+        }
 
 
 class TestEmail(BaseTest):
