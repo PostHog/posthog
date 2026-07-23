@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/batch_exports/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     BatchExportsCreateBody,
     BatchExportsDestroyParams,
@@ -14,8 +18,6 @@ import {
     FileDownloadBatchExportsCreateBody,
     FileDownloadBatchExportsRetrieveParams,
 } from '@/generated/batch_exports/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const BatchExportCreateSchema = BatchExportsCreateBody
 

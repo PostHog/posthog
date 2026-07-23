@@ -1,8 +1,8 @@
 // AUTO-GENERATED from services/mcp/definitions/query-wrappers.yaml + schema.json — do not edit
 import { z } from 'zod'
 
-import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { ZodObjectAny } from '@/tools/types'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 
 // --- Shared Zod schemas generated from schema.json ---
 

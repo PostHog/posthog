@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/data_warehouse/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     InsightVariablesCreateBody,
     InsightVariablesDestroyParams,
@@ -28,8 +32,6 @@ import {
     WarehouseSavedQueriesRunHistoryRetrieveParams,
     WarehouseTablesRefreshSchemaCreateParams,
 } from '@/generated/data_warehouse/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SavedQueryColumnAnnotationsCreateSchema = SavedQueryColumnAnnotationsCreateBody.extend({
     column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe(

@@ -104,6 +104,17 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     signals into the standard ingestion pipeline.
   - `scratchpad.py` — `remember`, `forget`, and `search_scratchpad` tools backed by
     the `SignalScratchpad` model.
+  - `notes.py` — `list_notes` / `leave_note` / `delete_note` backed by the
+    `SignalScoutNote` model: steering notes humans (or other agents) leave for the
+    fleet over the public MCP surface (`scout-notes-*` tools), the inbound counterpart
+    to the scratchpad. A note targets one scout by `skill_name` or the whole fleet
+    (blank), optionally expiring via `expires_at`; the run prompt's _Notes left for
+    you_ section directs every scout to `scout-notes-list` its own notes in step 1 and
+    treat them as advisory steering. Unlike the scratchpad there is no sandbox-only
+    write gate, but writes still demand skill-authoring-level authorization (keys need
+    `llm_skill:write` on top of `signal_scout:write`, and every writer must clear the
+    `llm_skill` RBAC editor bar) — so a note-writer could already steer the fleet by
+    editing its skills, and notes add no new steering power.
   - `profile.py` — `project_profile_*` tools that read the deterministic
     `SignalProjectProfile` snapshot.
   - `runs.py` — `runs_*` tools that read past `SignalScoutRun` rows for dedupe and
@@ -148,7 +159,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
+  `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`,
+  `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
   `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
@@ -265,7 +277,7 @@ one sandbox session → zero or more emitted signals.
   project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap
   `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
-  `SignalProjectProfile` in `../models.py`.
+  `SignalScoutNote`, `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with
   `SourceType.CROSS_SOURCE_ISSUE`.
 - **Scout fleet** — the `signals-scout-*` skills live at

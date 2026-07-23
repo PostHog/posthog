@@ -1,9 +1,10 @@
 """DRF serializers for the Signals agent harness HTTP surface.
 
 These serializers shape the harness-internal tools (`search_recent_runs`,
-`get_run`, `search_scratchpad`, `remember`, `forget`, `emit_finding`) for MCP
-exposure. They mirror the dataclasses returned by the underlying functions
-in `scout_harness/tools/` so the wire shape and Python shape stay in lockstep.
+`get_run`, `search_scratchpad`, `remember`, `forget`, `emit_finding`,
+`list_notes`, `leave_note`) for MCP exposure. They mirror the dataclasses
+returned by the underlying functions in `scout_harness/tools/` so the wire
+shape and Python shape stay in lockstep.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
+from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
@@ -523,6 +525,120 @@ class ForgetRequestSerializer(serializers.Serializer):
 
 class ForgetResponseSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(help_text="Whether a row was actually removed (false if the key didn't exist).")
+
+
+# --- Scout notes -----------------------------------------------------------
+
+
+class ScoutNoteSerializer(serializers.Serializer):
+    """`SignalScoutNote` projection used by `notes-list` and `notes-create`."""
+
+    id = serializers.CharField(help_text="Note UUID. Pass to `scout-notes-delete` to retire the note.")
+    skill_name = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet."
+        ),
+    )
+    content = serializers.CharField(help_text="The note's prose, read verbatim by scout runs.")
+    created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
+    expires_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 expiry, or null for a note that stays active until deleted.",
+    )
+    # Deliberately no author email here: the list rides the public `signal_scout:read` scope,
+    # and member emails are gated behind the internal-scope roster (`scout-members-list`).
+    created_by_name = serializers.CharField(
+        allow_null=True,
+        help_text="Display name of the user who left the note, or null when unavailable.",
+    )
+
+
+class ScoutNotesQuerySerializer(serializers.Serializer):
+    """Query parameters for `notes-list`."""
+
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Return the notes addressed to this scout (`signals-scout-*`) plus the general "
+            "(blank-target) notes for the whole fleet. Omit to browse every note on the project."
+        ),
+    )
+    include_general = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes "
+            "and return the skill's own notes only."
+        ),
+    )
+    include_expired = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.",
+    )
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `created_at`. Pass the `created_at` of the oldest "
+            "note from the prior page to walk back past the result cap."
+        ),
+    )
+    content_max_chars = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Truncate each note's `content` to the first N characters (a preview). Omit for the "
+            "full body — use this on wide scans so stacked notes can't dominate your context."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_NOTES_LIST_LIMIT,
+        help_text="Max rows to return (default 20, hard cap 500).",
+    )
+
+
+class ScoutNoteCreateRequestSerializer(serializers.Serializer):
+    """Request body for `notes-create`."""
+
+    content = serializers.CharField(
+        max_length=MAX_NOTE_CONTENT_LENGTH,
+        help_text=(
+            "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their "
+            "next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', "
+            "'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text=(
+            "Address the note to one scout by its skill name (`signals-scout-*`, exact match against "
+            "an existing scout skill on the project — check `scout-config-list` for the roster). "
+            "Omit or leave blank for a general note every scout sees."
+        ),
+    )
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional ISO-8601 expiry. After this time the note drops out of the default list view, "
+            "so time-boxed steering ('watch closely this week') retires itself. Omit for a note that "
+            "stays active until deleted."
+        ),
+    )
+
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("expires_at must be in the future")
+        return value
 
 
 # --- Emit -----------------------------------------------------------------
