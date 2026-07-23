@@ -13,10 +13,13 @@ export function AIConsentPopoverContent({
     onApprove,
     onDismiss,
     approvalDisabledReason,
+    hideTrainingDisclaimer,
 }: {
     onApprove: () => void
     onDismiss: () => void
     approvalDisabledReason: string | null
+    /** Omit the "won't be used for training third-party models" line where it doesn't apply. */
+    hideTrainingDisclaimer?: boolean
 }): JSX.Element {
     const focusOnMount = useCallback((el: HTMLButtonElement | null) => {
         el?.focus()
@@ -29,7 +32,7 @@ export function AIConsentPopoverContent({
                 <Tooltip title={getExternalAIProvidersTooltipTitle()}>
                     <dfn>external AI providers</dfn>
                 </Tooltip>
-                . <i>Your data won't be used for training third-party models.</i>
+                .{!hideTrainingDisclaimer && <i> Your data won't be used for training third-party models.</i>}
             </p>
             <div className="flex gap-1.5 self-end">
                 <LemonButton data-attr="ai-consent-cancel" type="secondary" size="xsmall" onClick={onDismiss}>
@@ -86,6 +89,7 @@ export function AIConsentPopoverWrapper({
     ignoreDismissal,
     onApprove,
     onDismiss,
+    hideTrainingDisclaimer,
     ...popoverProps
 }: Pick<PopoverProps, 'placement' | 'fallbackPlacements' | 'middleware' | 'showArrow'> & {
     children: JSX.Element
@@ -94,6 +98,8 @@ export function AIConsentPopoverWrapper({
     ignoreDismissal?: boolean
     onApprove?: () => void
     onDismiss?: () => void
+    /** Passed through to AIConsentPopoverContent. */
+    hideTrainingDisclaimer?: boolean
 }): JSX.Element {
     const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted, dataProcessingDismissed } =
@@ -114,6 +120,7 @@ export function AIConsentPopoverWrapper({
                 isAdminOrOwner ? (
                     <AIConsentPopoverContent
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
+                        hideTrainingDisclaimer={hideTrainingDisclaimer}
                         onApprove={() =>
                             void acceptDataProcessing()
                                 .then(() => onApprove?.())

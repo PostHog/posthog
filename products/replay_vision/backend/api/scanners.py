@@ -461,6 +461,10 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
+        if not team.organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError(
+                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
+            )
         try:
             # last_swept_at is seeded a settle-interval back by the model default (initial_watermark) to avoid a cold start.
             scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)

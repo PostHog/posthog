@@ -456,6 +456,27 @@ class TestCreateObservationActivity:
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
 
+    def test_skips_insert_when_ai_data_processing_not_approved(self) -> None:
+        scanner = _make_scanner()
+        org = scanner.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-no-consent",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-no-consent",
+            )
+        )
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-no-consent").exists()
+
 
 @pytest.mark.django_db(transaction=True)
 class TestObservationStateActivities:
