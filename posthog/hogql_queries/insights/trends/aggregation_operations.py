@@ -107,7 +107,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return parse_expr('count(DISTINCT e."$session_id")')
         elif self.series.math == "unique_group" and self.series.math_group_type_index is not None:
             return parse_expr(f'count(DISTINCT e."$group_{int(self.series.math_group_type_index)}")')
-        elif self.series.math_property is not None:
+        elif self.series.math_property:
             if self.series.math == "avg":
                 return self._math_func("avg")
             elif self.series.math == "sum":

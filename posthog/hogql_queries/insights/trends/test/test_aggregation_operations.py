@@ -38,6 +38,9 @@ from posthog.models.team.team import Team
         [PropertyMathType.P90, "$browser"],
         [PropertyMathType.P95, "$browser"],
         [PropertyMathType.P99, "$browser"],
+        # Blank math_property (e.g. mid-edit in the builder) must degrade to count(), not raise
+        [PropertyMathType.AVG, ""],
+        [PropertyMathType.MEDIAN, ""],
         [CountPerActorMathType.AVG_COUNT_PER_ACTOR, None],
         [CountPerActorMathType.MIN_COUNT_PER_ACTOR, None],
         [CountPerActorMathType.MAX_COUNT_PER_ACTOR, None],
