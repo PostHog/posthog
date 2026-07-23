@@ -13,7 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackThreadTaskMapping, TelegramChatTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
@@ -632,3 +632,41 @@ class TestLivingArtifacts(TestCase):
         mock_integration_for_mapping.assert_not_called()
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
+
+
+class TestLivingArtifactsTelegramRuns(TestCase):
+    """Telegram-mapped runs have no artifact delivery adapter, so creation must be
+    refused up front instead of succeeding and crashing at Slack-only delivery."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="TG Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="TG Team")
+        cls.user = User.objects.create(email="tg@example.com", distinct_id="tg-user")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            title="Telegram task",
+            description="desc",
+            origin_product=Task.OriginProduct.TELEGRAM,
+            created_by=cls.user,
+        )
+        cls.task_run = TaskRun.objects.create(task=cls.task, team=cls.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(team=cls.team, kind="telegram", integration_id="-100555")
+        TelegramChatTaskMapping.objects.for_team(cls.team.id).create(
+            team=cls.team,
+            integration=integration,
+            chat_id="-100555",
+            root_message_id="42",
+            task=cls.task,
+            task_run=cls.task_run,
+            telegram_user_id="777",
+        )
+
+    def test_artifact_creation_refused_for_telegram_mapped_run(self):
+        with self.assertRaises(ValueError):
+            create_living_artifact(
+                run=self.task_run,
+                name="report.md",
+                artifact_type="document",
+                content="# report",
+            )

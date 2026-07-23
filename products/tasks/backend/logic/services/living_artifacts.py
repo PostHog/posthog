@@ -1002,7 +1002,13 @@ def _get_slack_mapping(run: TaskRun, *, raise_if_missing: bool = True):
 
 def _living_artifacts_enabled_for_run(run: TaskRun) -> bool:
     mapping = _get_slack_mapping(run, raise_if_missing=False)
-    return mapping is None or _living_artifacts_enabled_for_mapping(mapping)
+    if mapping is not None:
+        return _living_artifacts_enabled_for_mapping(mapping)
+    # Telegram-mapped runs have no artifact delivery adapter: letting creation
+    # succeed would only crash later at the Slack-only delivery step.
+    from products.slack_app.backend.models import TelegramChatTaskMapping  # noqa: PLC0415
+
+    return not TelegramChatTaskMapping.objects.for_team(run.team_id).filter(task_run=run).exists()
 
 
 def _living_artifacts_enabled_for_mapping(mapping: Any) -> bool:
