@@ -18,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -530,6 +531,40 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    def _enforce_sso_on_domain(self, domain: str) -> None:
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.SSO_ENFORCEMENT},
+            {"key": AvailableFeature.SAML},
+        ]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain=domain,
+            organization=self.organization,
+            sso_enforcement="saml",
+            verified_at=timezone.now(),
+        )
+
+    @parameterized.expand(
+        [
+            ("blocks_unverified_domain", True, "newperson@gmail.com", status.HTTP_400_BAD_REQUEST),
+            ("allows_verified_domain", True, "newperson@hogflix.com", status.HTTP_201_CREATED),
+            ("allows_when_not_enforced", False, "newperson@gmail.com", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_invite_restricted_to_verified_domain_when_sso_enforced(self, _name, enforce, email, expected_status):
+        if enforce:
+            self._enforce_sso_on_domain("hogflix.com")
+
+        response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["code"], "sso_enforced_domain")
+            self.assertFalse(OrganizationInvite.objects.filter(target_email=email).exists())
+        else:
+            self.assertTrue(OrganizationInvite.objects.filter(target_email=email).exists())
 
     # Bulk create invites
 
@@ -1557,6 +1592,25 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
         self.assertIsNotNone(self.user.onboarding_skipped_at)
         self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+
+    def test_delegate_rejects_email_outside_enforced_verified_domain(self):
+        # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.SSO_ENFORCEMENT},
+            {"key": AvailableFeature.SAML},
+        ]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com",
+            organization=self.organization,
+            sso_enforcement="saml",
+            verified_at=timezone.now(),
+        )
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@gmail.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "sso_enforced_domain")
+        self.assertFalse(OrganizationInvite.objects.filter(target_email="engineer@gmail.com").exists())
 
     def test_delegate_requires_target_email(self):
         response = self.client.post(self._delegate_url(), {})

@@ -1207,6 +1207,79 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
+    def _org_enforcing_google_sso(self) -> Organization:
+        org = Organization.objects.create(name="Enforced org")
+        org.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT}
+        ]
+        org.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.posthog.com",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+            organization=org,
+        )
+        Team.objects.create(organization=org, name="Enforced project")
+        return org
+
+    @mock.patch("posthog.models.organization_domain.get_instance_available_sso_providers")
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_login_not_blocked_for_existing_outside_domain_member(
+        self, mock_sso_providers, mock_request, mock_domain_sso_providers
+    ):
+        # The block is join-only: an existing member on a non-verified domain (invited before
+        # enforcement was turned on) must still be able to log in. This is the guarantee that stops
+        # enabling enforcement from locking out the members already in the org.
+        mock_domain_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            org = self._org_enforcing_google_sso()
+            User.objects.create_and_join(
+                organization=org, email="outsider@gmail.com", password=None, first_name="Outsider"
+            )
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, "outsider@gmail.com")
+
+        self.assertRedirects(response, "/")
+        self.assertIn("_auth_user_id", self.client.session)
+
+    @mock.patch("posthog.models.organization_domain.get_instance_available_sso_providers")
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_invite_acceptance_blocked_for_unverified_domain(
+        self, mock_sso_providers, mock_request, mock_domain_sso_providers
+    ):
+        # Accepting an invite is a new join, so an outside-domain invitee into an SSO-enforced org is
+        # refused — this catches invites created before the restriction shipped.
+        mock_domain_sso_providers.return_value = {"google-oauth2": True}
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            org = self._org_enforcing_google_sso()
+            invite = OrganizationInvite.objects.create(organization=org, target_email="outsider@gmail.com")
+
+            begin = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+            self.assertEqual(begin.status_code, status.HTTP_302_FOUND)
+            state = self.client.session["google-oauth2_state"]
+            session = self.client.session
+            session["invite_id"] = str(invite.id)
+            session.save()
+
+            url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+            url += f"?code=2&state={state}"
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": "outsider@gmail.com",
+                "sub": "123",
+            }
+            response = self.client.get(url, follow=True)
+
+        self.assertRedirects(response, "/login?error_code=sso_domain_not_allowed")
+        # The invite is left unconsumed and no account is created.
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+        self.assertFalse(User.objects.filter(email="outsider@gmail.com").exists())
+
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
@@ -2628,6 +2701,28 @@ class TestInviteSignupAPI(APIBaseTest):
         # Verify no user was created and invite was not used
         self.assertFalse(User.objects.filter(email="test+sso@posthog.com").exists())
         self.assertFalse(OrganizationInvite.objects.filter(target_email="test+sso@posthog.com").exists())
+
+    def test_api_signup_with_sso_enforced_blocks_unverified_domain_invite(self):
+        # A pre-existing invite to an outside domain (whose own domain isn't SSO-enforced) must not be
+        # acceptable with a password once the org enforces SSO — otherwise it's a bypass of the boundary.
+        organization = Organization.objects.create(name="Test Org")
+        organization.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT},
+            {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+        ]
+        organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=organization, sso_enforcement="saml", verified_at=timezone.now()
+        )
+        invite = OrganizationInvite.objects.create(target_email="outsider@gmail.com", organization=organization)
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": VALID_TEST_PASSWORD}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "sso_enforced_domain")
+        self.assertFalse(User.objects.filter(email="outsider@gmail.com").exists())
 
     # Social signup (use invite)
 

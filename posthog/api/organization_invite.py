@@ -19,7 +19,7 @@ from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name, validate_message_body
-from posthog.models import OrganizationInvite, OrganizationMembership
+from posthog.models import OrganizationDomain, OrganizationInvite, OrganizationMembership
 from posthog.models.onboarding_delegation import (
     get_existing_pending_delegation_invite,
     schedule_delegation_side_effects,
@@ -134,6 +134,22 @@ class OrganizationInviteManager:
         ).delete()
 
 
+def validate_invite_target_email_domain(organization_id: UUID | str, email: str) -> None:
+    """
+    When an organization enforces SSO on a verified domain, invites may only go to that domain.
+    Raises ValidationError otherwise. No-op for orgs that don't enforce SSO, so ordinary invites
+    are unaffected. Complements the login-time block by stopping the bad invite from ever existing.
+    """
+    organization = Organization.objects.get(id=organization_id)
+    if OrganizationDomain.objects.get_active_sso_enforcement_for_organization(organization) is None:
+        return
+    if not OrganizationDomain.objects.is_domain_verified_for_organization(email, organization):
+        raise exceptions.ValidationError(
+            "This organization enforces SSO, so invites can only be sent to email addresses on a verified domain.",
+            code="sso_enforced_domain",
+        )
+
+
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     send_email = serializers.BooleanField(write_only=True, default=True)
@@ -165,7 +181,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
     def validate_target_email(self, email: str):
-        return EmailNormalizer.normalize(email)
+        email = EmailNormalizer.normalize(email)
+        organization_id = self.context.get("organization_id")
+        if organization_id:
+            validate_invite_target_email_domain(organization_id, email)
+        return email
 
     def validate_first_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -540,6 +560,9 @@ class OrganizationInviteViewSet(
         # has been normalized and the comparison is case-insensitive via the normalizer.
         if bool(user.email) and EmailNormalizer.normalize(user.email) == target_email:
             raise exceptions.ValidationError("You cannot delegate setup to yourself.", code="self_delegation")
+
+        # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.
+        validate_invite_target_email_domain(self.organization_id, target_email)
 
         # Server-side gate: delegation only makes sense while the *target organization* is
         # still in onboarding. `user.team` points at the caller's current_team (which could
