@@ -30,13 +30,17 @@ export interface ChatViewProps {
     unreadCustomerCount?: number
     /** Whether to show delivery status on team messages */
     showDeliveryStatus?: boolean
-    /** Draft content to restore (for tab persistence) */
+    /** Draft content to restore (for tab persistence) — the public reply body */
     draftContent?: JSONContent | null
-    /** Called when draft content changes */
+    /** Called when the public reply draft changes */
     onDraftChange?: (content: JSONContent | null) => void
-    /** Whether the private note checkbox is checked */
+    /** Separate draft body for the private note tab */
+    privateDraftContent?: JSONContent | null
+    /** Called when the private note draft changes */
+    onPrivateDraftChange?: (content: JSONContent | null) => void
+    /** Whether the private-note tab is the active one */
     isPrivate?: boolean
-    /** Called when private checkbox changes */
+    /** Called when the active tab changes */
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
@@ -74,6 +78,8 @@ export function ChatView({
     showDeliveryStatus = false,
     draftContent,
     onDraftChange,
+    privateDraftContent,
+    onPrivateDraftChange,
     isPrivate,
     onPrivateChange,
     extraActions,
@@ -117,6 +123,8 @@ export function ChatView({
                     showPrivateOption={showPrivateOption}
                     draftContent={draftContent}
                     onDraftChange={onDraftChange}
+                    privateDraftContent={privateDraftContent}
+                    onPrivateDraftChange={onPrivateDraftChange}
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}

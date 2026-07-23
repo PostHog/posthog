@@ -75,6 +75,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         unsavedTicketChanges,
         ticketUpdating,
         draftContent,
+        draftPrivateContent,
         draftIsPrivate,
         draftModeEnabled,
         replyRecipientDescription,
@@ -95,6 +96,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         updateTicket,
         loadOlderMessages,
         setDraftContent,
+        setDraftPrivateContent,
         setDraftIsPrivate,
         setDraftModeEnabled,
         dismissKnowledgeGap,
@@ -205,6 +207,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
                         draftContent={draftContent}
                         onDraftChange={setDraftContent}
+                        privateDraftContent={draftPrivateContent}
+                        onPrivateDraftChange={setDraftPrivateContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
                         draftMode={draftModeEnabled}

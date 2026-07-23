@@ -2,7 +2,8 @@ import { JSONContent } from '@tiptap/core'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -22,15 +23,20 @@ export interface MessageInputProps {
     placeholder?: string
     buttonText?: string
     minRows?: number
-    /** Whether to show the "Send as private" checkbox */
+    /** Whether to show the reply / private-note tab switch */
     showPrivateOption?: boolean
-    /** Draft content to restore (from parent logic for tab persistence) */
+    /** Public reply draft content to restore (from parent logic for tab persistence) */
     draftContent?: JSONContent | null
-    /** Called when draft content changes */
+    /** Called when the public reply draft changes */
     onDraftChange?: (content: JSONContent | null) => void
-    /** Whether the private note checkbox is checked (from parent logic for tab persistence) */
+    /** Private-note draft content, kept separate from the public reply so the two
+     *  tabs never overwrite each other. Only used when showPrivateOption is set. */
+    privateDraftContent?: JSONContent | null
+    /** Called when the private-note draft changes */
+    onPrivateDraftChange?: (content: JSONContent | null) => void
+    /** Whether the private-note tab is the active one (from parent logic for tab persistence) */
     isPrivate?: boolean
-    /** Called when private checkbox changes */
+    /** Called when the active tab changes */
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button */
     extraActions?: React.ReactNode
@@ -57,6 +63,8 @@ export function MessageInput({
     showPrivateOption = false,
     draftContent,
     onDraftChange,
+    privateDraftContent,
+    onPrivateDraftChange,
     isPrivate: controlledIsPrivate,
     onPrivateChange,
     extraActions,
@@ -67,20 +75,54 @@ export function MessageInput({
     sendAndSetStatusOptions,
     unsavedTicketChanges,
 }: MessageInputProps): JSX.Element {
-    const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
 
-    useEffect(() => {
-        setIsEmpty(!draftContent)
-    }, [draftContent])
-
-    // Support controlled or uncontrolled isPrivate
+    // Support controlled or uncontrolled active-tab state
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
+    // The editor only ever holds the active tab's body; the other tab's body lives
+    // in the parent (draftContent / privateDraftContent) and is swapped into the
+    // editor on a tab change so the reply and the private note never overwrite
+    // each other.
+    const activeDraftContent = isPrivate ? privateDraftContent : draftContent
+
+    const [isEmpty, setIsEmpty] = useState(!activeDraftContent)
+
+    // Keep isEmpty aligned with the active buffer — covers both external draft
+    // updates and tab switches (which change which buffer is active).
+    useEffect(() => {
+        setIsEmpty(!activeDraftContent)
+    }, [activeDraftContent])
+
     const sendVerb = isPrivate ? 'Attach' : 'Send'
+
+    // Empty doc mirrors SupportEditor's default so setContent clears the editor cleanly.
+    const EMPTY_DOC: JSONContent = { type: 'doc', content: [{ type: 'paragraph' }] }
+
+    const handleTabChange = (nextIsPrivate: boolean): void => {
+        if (nextIsPrivate === isPrivate) {
+            return
+        }
+        const editor = editorRef.current
+        if (editor) {
+            // Stash whatever is in the editor into the outgoing tab's buffer, then
+            // load the incoming tab's buffer (empty doc when it has no draft yet).
+            const current = editor.isEmpty?.() ? null : editor.getJSON()
+            if (isPrivate) {
+                onPrivateDraftChange?.(current)
+            } else {
+                onDraftChange?.(current)
+            }
+            const incoming = nextIsPrivate ? privateDraftContent : draftContent
+            editor.setContent?.(incoming ?? EMPTY_DOC)
+            setIsEmpty(!incoming)
+            editor.focus?.()
+        }
+        setIsPrivate(nextIsPrivate)
+    }
 
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {
         // These guard the Cmd+Enter path, which bypasses the (disabled) button.
@@ -99,13 +141,16 @@ export function MessageInput({
                     richContent,
                     isPrivate,
                     () => {
+                        // Clear only the tab that was just sent; the other tab's draft
+                        // is deliberately preserved so sending a reply never discards an
+                        // in-progress private note (or vice versa), and the active tab
+                        // stays put.
                         editorRef.current?.clear()
                         setIsEmpty(true)
-                        onDraftChange?.(null)
-                        if (onPrivateChange) {
-                            onPrivateChange(false)
+                        if (isPrivate) {
+                            onPrivateDraftChange?.(null)
                         } else {
-                            setLocalIsPrivate(false)
+                            onDraftChange?.(null)
                         }
                     },
                     statusAfterSend
@@ -149,8 +194,15 @@ export function MessageInput({
 
     const handleUpdate = (empty: boolean): void => {
         setIsEmpty(empty)
-        if (onDraftChange && editorRef.current) {
-            onDraftChange(empty ? null : editorRef.current.getJSON())
+        if (!editorRef.current) {
+            return
+        }
+        // Route edits to the active tab's buffer so each tab keeps its own body.
+        const json = empty ? null : editorRef.current.getJSON()
+        if (isPrivate) {
+            onPrivateDraftChange?.(json)
+        } else {
+            onDraftChange?.(json)
         }
     }
 
@@ -163,14 +215,42 @@ export function MessageInput({
                 ? 'Uploading image...'
                 : undefined
 
+    // A dot on the inactive tab flags an in-progress draft there, so the other
+    // buffer stays discoverable. The active tab's content is visible, so no dot.
+    const publicHasDraft = isPrivate ? !!draftContent : !isEmpty
+    const privateHasDraft = isPrivate ? !isEmpty : !!privateDraftContent
+    const draftDot = <span className="w-1.5 h-1.5 rounded-full bg-accent" aria-hidden />
+    const tabOptions: LemonSegmentedButtonOption<'reply' | 'note'>[] = [
+        {
+            value: 'reply',
+            label: (
+                <span className="inline-flex items-center gap-1.5">
+                    Reply
+                    {isPrivate && publicHasDraft ? draftDot : null}
+                </span>
+            ),
+        },
+        {
+            value: 'note',
+            tooltip: 'Private notes are only visible to your team, not to the customer.',
+            label: (
+                <span className="inline-flex items-center gap-1.5">
+                    <IconLock className="text-sm" />
+                    Private note
+                    {!isPrivate && privateHasDraft ? draftDot : null}
+                </span>
+            ),
+        },
+    ]
+
     return (
         <div>
             <SupportEditor
-                initialContent={draftContent}
+                initialContent={activeDraftContent}
                 placeholder={placeholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
-                    if (draftContent) {
+                    if (activeDraftContent) {
                         setIsEmpty(false)
                     }
                 }}
@@ -189,20 +269,12 @@ export function MessageInput({
             />
             <div className="flex justify-between items-center mt-2">
                 {showPrivateOption ? (
-                    <Tooltip title="Private notes are only visible to your team, not to the customer.">
-                        <span>
-                            <LemonCheckbox
-                                checked={isPrivate}
-                                onChange={setIsPrivate}
-                                label={
-                                    <span className="inline-flex items-center gap-1">
-                                        <IconLock className="text-sm" />
-                                        Attach as private note
-                                    </span>
-                                }
-                            />
-                        </span>
-                    </Tooltip>
+                    <LemonSegmentedButton
+                        size="small"
+                        value={isPrivate ? 'note' : 'reply'}
+                        onChange={(value) => handleTabChange(value === 'note')}
+                        options={tabOptions}
+                    />
                 ) : (
                     <div />
                 )}
