@@ -11,7 +11,12 @@ from posthog.models.oauth import OAuthApplication
 
 
 class TestSeedOAuthAppScopes(BaseTest):
-    def _create_app(self, client_id: str = "seed_test_client", scopes: list[str] | None = None) -> OAuthApplication:
+    def _create_app(
+        self,
+        client_id: str = "seed_test_client",
+        scopes: list[str] | None = None,
+        optional_scopes: list[str] | None = None,
+    ) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name="Seed test app",
             client_id=client_id,
@@ -22,6 +27,7 @@ class TestSeedOAuthAppScopes(BaseTest):
             algorithm="RS256",
             organization=self.organization,
             scopes=scopes if scopes is not None else [],
+            optional_scopes=optional_scopes if optional_scopes is not None else [],
         )
 
     def _run(self, **kwargs: str | bool) -> str:
@@ -38,6 +44,26 @@ class TestSeedOAuthAppScopes(BaseTest):
         assert "Seeded Seed test app scopes to ['@default', 'llm_gateway:read']" in output
         assert "privileged in ceiling: ['llm_gateway:read']" in output
         assert "hidden in ceiling:     none" in output
+
+    def test_existing_optional_scopes_block_seed_without_flag(self):
+        app = self._create_app(scopes=["insight:read"], optional_scopes=["dashboard:read"])
+
+        with self.assertRaises(CommandError) as ctx:
+            self._run(client_id="seed_test_client", scopes="@default,llm_gateway:read")
+
+        assert "optional_scopes ['dashboard:read']" in str(ctx.exception)
+        app.refresh_from_db()
+        assert app.scopes == ["insight:read"]
+        assert app.optional_scopes == ["dashboard:read"]
+
+    def test_clear_optional_scopes_flag_clears_and_seeds(self):
+        app = self._create_app(scopes=["insight:read"], optional_scopes=["dashboard:read"])
+        output = self._run(client_id="seed_test_client", scopes="@default,llm_gateway:read", clear_optional_scopes=True)
+
+        app.refresh_from_db()
+        assert app.scopes == ["@default", "llm_gateway:read"]
+        assert app.optional_scopes == []
+        assert "current optional:      ['dashboard:read'] (will clear)" in output
 
     def test_hidden_scope_surfaced_in_output(self):
         app = self._create_app()
