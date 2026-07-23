@@ -1695,7 +1695,7 @@ impl<'de> Visitor<'de> for HogJsonVisitor {
         while let Some((k, HogJson(v))) = map.next_entry::<String, HogJson>()? {
             obj.insert(k, v);
         }
-        Ok(HogLiteral::Object(obj))
+        Ok(HogLiteral::Object(Box::new(obj)))
     }
 }
 
@@ -1748,7 +1748,7 @@ fn json_stringify(
         }
         HogLiteral::Object(map) => {
             let mut parts = Vec::with_capacity(map.len());
-            for (k, v) in map {
+            for (k, v) in map.iter() {
                 parts.push(format!(
                     "{}: {}",
                     escape(k)?,
@@ -2028,7 +2028,7 @@ fn make_hog_interval(vm: &HogVM, args: &[HogValue], unit: &str) -> Result<HogVal
         "unit".to_string(),
         HogLiteral::String(unit.to_string()).into(),
     );
-    Ok(HogLiteral::Object(map).into())
+    Ok(HogLiteral::Object(Box::new(map)).into())
 }
 
 // Add an interval to a DateTime. day/hour/minute/second are absolute durations; month is wall-clock
@@ -2562,7 +2562,7 @@ fn new_hog_error(
             map.insert("payload".to_string(), p.clone());
         }
     }
-    Ok(HogLiteral::Object(map).into())
+    Ok(HogLiteral::Object(Box::new(map)).into())
 }
 
 // Resolve a string arg with the reference's `value || default` falsiness: missing, null, or empty

@@ -75,9 +75,12 @@ pub enum HogLiteral {
     Tuple(Vec<HogValue>),
     // Insertion-ordered (IndexMap, not HashMap) to match the reference VMs: object literals,
     // `keys()`/`values()`, JSON serialization, and `print` all preserve the order keys were added.
-    Object(IndexMap<String, HogValue>),
-    Callable(Callable),
-    Closure(Closure),
+    // Object/Callable/Closure payloads are boxed so the enum stays small (~32 bytes instead of
+    // 120): every stack push/pop, clone, and heap emplacement moves the enum by value, and the
+    // memmove of the large inline payloads was a measured hot spot (see perf/LOG.md).
+    Object(Box<IndexMap<String, HogValue>>),
+    Callable(Box<Callable>),
+    Closure(Box<Closure>),
     Null,
 }
 
@@ -629,13 +632,13 @@ impl From<HashMap<String, HogValue>> for HogLiteral {
     fn from(value: HashMap<String, HogValue>) -> Self {
         // External callers handing us an unordered HashMap get arbitrary key order; internal
         // object construction (Dict op, json_to_hog) builds the IndexMap directly, in order.
-        Self::Object(value.into_iter().collect())
+        Self::Object(Box::new(value.into_iter().collect()))
     }
 }
 
 impl From<IndexMap<String, HogValue>> for HogLiteral {
     fn from(value: IndexMap<String, HogValue>) -> Self {
-        Self::Object(value)
+        Self::Object(Box::new(value))
     }
 }
 
@@ -865,7 +868,7 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
             for (key, value) in obj {
                 map.insert(key, construct_free_standing(value, depth + 1)?);
             }
-            Ok(HogLiteral::Object(map).into())
+            Ok(HogLiteral::Object(Box::new(map)).into())
         }
     }
 }

@@ -359,7 +359,7 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
                 .into_iter()
                 .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
                 .collect();
-            let emplaced_obj = HogLiteral::Object(emplaced_obj?);
+            let emplaced_obj = HogLiteral::Object(Box::new(emplaced_obj?));
 
             if let Some(ptr) = existing_location {
                 // As above, if this was already heap allocated, replace it with the new one

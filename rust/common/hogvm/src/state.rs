@@ -233,7 +233,7 @@ pub fn value_to_json(
         }
         HogLiteral::Object(map) => {
             let mut out = serde_json::Map::with_capacity(map.len());
-            for (k, v) in map {
+            for (k, v) in map.iter() {
                 out.insert(k.clone(), value_to_json(v, heap, registry, header_len)?);
             }
             JsonValue::Object(out)
@@ -336,18 +336,18 @@ fn object_from_json(
     header_len: usize,
 ) -> Result<HogValue, VmError> {
     if map.contains_key("__hogClosure__") {
-        return Ok(HogLiteral::Closure(closure_from_json(
+        return Ok(HogLiteral::Closure(Box::new(closure_from_json(
             &JsonValue::Object(map.clone()),
             cells,
             header_len,
-        )?)
+        )?))
         .into());
     }
     if map.contains_key("__hogCallable__") {
-        return Ok(HogLiteral::Callable(callable_from_json(
+        return Ok(HogLiteral::Callable(Box::new(callable_from_json(
             &JsonValue::Object(map.clone()),
             header_len,
-        )?)
+        )?))
         .into());
     }
     if map.get("__hogTuple__").and_then(|v| v.as_bool()) == Some(true) {
@@ -367,7 +367,7 @@ fn object_from_json(
     for (k, v) in map {
         out.insert(k.clone(), value_from_json(v, heap, cells, header_len)?);
     }
-    Ok(heap.emplace(HogLiteral::Object(out))?.into())
+    Ok(heap.emplace(HogLiteral::Object(Box::new(out)))?.into())
 }
 
 pub fn closure_from_json(

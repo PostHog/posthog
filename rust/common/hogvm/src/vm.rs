@@ -467,7 +467,7 @@ impl<'a> HogVM<'a> {
                 // keys/values were popped in reverse (stack order), so reverse the zip to restore
                 // the source insertion order in the IndexMap.
                 let map: IndexMap<String, HogValue> = keys.into_iter().zip(values).rev().collect();
-                let obj = HogLiteral::Object(map);
+                let obj = HogLiteral::Object(Box::new(map));
                 // For the non-primitive types below (objects, arrays, "tuples"), we /always/ heap allocate them. The reason
                 // is that the pattern for e.g. nestedly setting an array value is to GetLocal followed by GetProperty, followed
                 // by a SetProperty. If the array is "flat", as in, element 3 is a HogLiteral rather than Value, that SetProperty
@@ -630,7 +630,7 @@ impl<'a> HogVM<'a> {
                     symbol: self.current_symbol.clone(), // Cross-module jumps are currently only done via CallGlobal
                 }
                 .into();
-                self.push_stack(HogLiteral::Callable(callable))?;
+                self.push_stack(HogLiteral::Callable(Box::new(callable)))?;
                 self.ip = self
                     .ip
                     .checked_add(body_length)
@@ -674,7 +674,7 @@ impl<'a> HogVM<'a> {
                 }
 
                 let closure = Closure { callable, captures };
-                self.push_stack(HogLiteral::Closure(closure))?;
+                self.push_stack(HogLiteral::Closure(Box::new(closure)))?;
             }
             Operation::CallLocal => {
                 let closure: Closure = self.pop_stack_as()?;
@@ -1074,10 +1074,10 @@ impl<'a> HogVM<'a> {
         }
         let name: &str = chain[0].deref(&self.heap).ok()?.try_as().ok()?;
         if self.context.has_native(name) {
-            return Some(HogLiteral::Closure(Closure {
+            return Some(HogLiteral::Closure(Box::new(Closure {
                 callable: Callable::Stl(name.to_string()),
                 captures: Vec::new(),
-            }));
+            })));
         }
         None
     }
@@ -1177,10 +1177,10 @@ impl<'a> HogVM<'a> {
             }
             JsonValue::Object(obj) => {
                 let mut map = IndexMap::new();
-                for (key, value) in obj {
+                for (key, value) in obj.iter() {
                     map.insert(key.clone(), self.json_to_hog_impl(value, depth + 1)?);
                 }
-                let to_emplace = HogLiteral::Object(map);
+                let to_emplace = HogLiteral::Object(Box::new(map));
                 let ptr = self.heap.emplace(to_emplace)?;
                 Ok(ptr.into())
             }
@@ -1215,7 +1215,7 @@ impl<'a> HogVM<'a> {
             }
             HogLiteral::Object(obj) => {
                 let mut map = serde_json::Map::new();
-                for (key, value) in obj {
+                for (key, value) in obj.iter() {
                     map.insert(key.clone(), self.hog_to_json_impl(value, depth + 1)?);
                 }
                 Ok(JsonValue::Object(map))

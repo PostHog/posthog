@@ -131,7 +131,7 @@ fn format_literal(
                 return Ok(format!("sql({})", HogQLPrinter::new(heap).print_node(obj)?));
             }
             let mut parts = Vec::with_capacity(obj.len());
-            for (key, val) in obj {
+            for (key, val) in obj.iter() {
                 parts.push(format!(
                     "{}: {}",
                     escape_string(key),

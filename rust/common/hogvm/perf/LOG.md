@@ -102,7 +102,7 @@ this file does not yet contain one.
   rustc 1.95).
 - Iteration score: 1 consecutive iteration with no committed improvement (stop
   condition fires at 3).
-- Next iteration candidates, in order: (1) backlog item 3 — box the large
+- Next-iteration candidates, in order: (1) backlog item 3 — box the large
   `HogLiteral`/`HogValue` variants (Object/Array/Closure/Callable) to cut the ~5%
   memmove cost of moving big enums through the stack; small, self-contained, and
   orthogonal to the string question. (2) backlog item 5 — CallGlobal symbol-probe
@@ -111,3 +111,43 @@ this file does not yet contain one.
   SetProperty key path (pop the key as `String` and move it into the IndexMap is what
   we already do — the win would come from interning keys, which only pays off together
   with a shared-str value type per the verdict above).
+
+## 2026-07-23 — iteration 2: shrink `HogLiteral`/`HogValue` by boxing large variants
+
+- Machine: same ephemeral Linux sandbox runner as iteration 1 (x86_64, 4 cores,
+  rustc 1.94.1). HEAD at start: the iteration-1 chore commits (no VM code change since
+  the iteration-1 baseline).
+- Measured sizes on HEAD: `HogLiteral`/`HogValue` = **120 bytes**, `Closure` = 120,
+  `Callable` = 96 (its `LocalCallable` carries a name String + `Option<Symbol>` of two
+  more Strings), `Num` = 16; `Object`'s inline `IndexMap` header is ~72.
+- Hypothesis (backlog item 3): box the `Callable`, `Closure`, and `Object` variant
+  payloads so `HogValue` drops from 120 to ~32 bytes. Every stack push/pop/clone,
+  heap-Vec emplacement, and enum move then copies a quarter of the bytes — targeting
+  the ~5% `memmove` self-time plus part of `step`'s 10.6% and the allocator's Vec-growth
+  traffic. Cost added: one small allocation per object/closure/callable *construction*
+  (objects are heap-emplaced immediately anyway) and one pointer chase per access.
+  Closures/callables are cold in the geoip template; objects are hot but their
+  contents already live behind the heap indirection. Gate at >= 2%; predicted ~3-5%.
+- Baseline (this iteration, median of 3): see measurement below.
+- Baseline measured (median of 3): **274.6 us/op** (282.7 / 274.1 / 274.6) — consistent
+  with iteration 1's baseline, no drift.
+- Diff summary: `Object(Box<IndexMap<..>>)`, `Callable(Box<Callable>)`,
+  `Closure(Box<Closure>)` in `values.rs`; mechanical `Box::new(...)` at construction
+  sites and `.iter()` at a few `for .. in &Box<..>` loops across `vm.rs`/`stl.rs`/
+  `state.rs`/`print.rs`/`context.rs`. No public-API removals (variant payload types
+  changed; cymbal/cohort-core compile untouched). `HogLiteral`/`HogValue`: 120 -> 32
+  bytes.
+- Gates: 77 crate + 19 addon tests green, fixture parity green, cymbal/cohort-core
+  compile, fmt/clippy/shear clean in both workspaces.
+- Measurement (interleaved A/B, 100k iters each):
+  baseline 274.2 / 272.9 / 274.4 (median 274.2) vs candidate 247.1 / 245.2 / 242.6
+  (median 245.2) -> **10.6% improvement** (ratio ~0.89 in every round).
+- Verdict: **COMMITTED** (`perf(hogvm): box large HogLiteral variants (274.2 -> 245.2 us/op)`).
+  Same-machine cumulative ratio so far: 245.2/274.2 = 0.894 (~11% below this machine's
+  branch baseline; target is ~0.83 of branch baseline, stretch ~0.62).
+- Iteration score: committed improvement — consecutive-no-commit counter resets to 0.
+- Next-iteration candidates: (1) backlog item 5 — CallGlobal's per-call `Symbol` probe
+  allocates two Strings; restructure the symbol table for a `(&str, &str)` lookup.
+  (2) re-profile after this change to see whether memmove/allocator shares shifted and
+  whether hoist/GetLocal or the IndexMap key path is now the top lever. (3) the
+  SetProperty size-accounting walk (`HogLiteral::size`, backlog item 7).
