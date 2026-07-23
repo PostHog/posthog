@@ -5976,8 +5976,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         self.assertEqual(
             ai_count(),
-            baseline_count + 6,
-            "one overage, two span replays, one evaluation replay, and one unmatched span stay billable",
+            baseline_count + 7,
+            "one overage, two span replays, three evaluations, and one unmatched span stay billable",
         )
 
     def test_gateway_sponsorship_allowance_is_shared_across_adjacent_periods(self) -> None:
