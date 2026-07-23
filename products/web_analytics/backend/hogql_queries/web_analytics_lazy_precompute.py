@@ -128,12 +128,8 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
     pass
 
 
-class PerQueryOptInNotSet(LazyPrecomputeIneligible):
-    pass
-
-
 class PerQueryOptedOut(LazyPrecomputeIneligible):
-    """Unrestricted team where the user explicitly turned precompute off."""
+    """The user explicitly turned the "Allow precompute" toggle off."""
 
     pass
 
@@ -236,26 +232,21 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     """
     query = runner.query
 
-    # Rollout gate: shared PostHog feature flag AND per-query opt-in.
+    # Rollout gate: shared PostHog feature flag AND per-query opt-out.
     #   - `web-analytics-precompute-toggle` (PostHog feature flag): the same
     #     flag the frontend already uses to show/hide the "Allow precompute"
     #     button in the Web Analytics ScenePanel. The flag is evaluated at the
     #     organization level. The SDK swallows its own exceptions and returns
     #     None (falsy) on failure, so a flag-service outage fails-closed.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
-    #     "Allow precompute" toggle).
+    #     "Allow precompute" toggle): precompute defaults ON for every enrolled
+    #     team — an untouched toggle (`None`) takes the precompute path; only an
+    #     explicit `False` opts a query out.
     if not is_precompute_enabled_for_team(runner.team):
         raise OrgFeatureFlagDisabled()
 
-    unrestricted = is_precompute_unrestricted_for_team(runner.team)
-
-    # Unrestricted teams default to opt-out: only an explicit `False` rejects.
-    # Restricted teams keep the opt-in default (`None`/`False` both reject).
-    if unrestricted:
-        if query.useWebAnalyticsPrecompute is False:
-            raise PerQueryOptedOut()
-    elif query.useWebAnalyticsPrecompute is not True:
-        raise PerQueryOptInNotSet()
+    if query.useWebAnalyticsPrecompute is False:
+        raise PerQueryOptedOut()
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
     # can't be served by UTC hourly buckets without sub-hour precision. Skip them
@@ -283,6 +274,7 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     # arbitrary filters via `property_to_expr`, and each distinct filter set
     # becomes a distinct cache key. Filters the INSERT can't express fail the
     # job and fall back to the live query automatically.
+    unrestricted = is_precompute_unrestricted_for_team(runner.team)
     if not unrestricted:
         properties = query.properties or []
         if len(properties) > 1:
