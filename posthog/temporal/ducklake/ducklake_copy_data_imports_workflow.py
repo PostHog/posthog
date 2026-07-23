@@ -54,6 +54,7 @@ from posthog.temporal.ducklake.metrics import (
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG, is_duckgres_sink_team_member
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -259,7 +260,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                     source_type=source_type,
                 )
                 continue
-        source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
+        source_table_uri = _data_imports_source_table_uri(schema)
         staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
             source_table_uri, team_id=inputs.team_id
         )
@@ -384,6 +385,18 @@ def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingClea
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
     )
+
+
+def _data_imports_source_table_uri(schema: ExternalDataSchema) -> str:
+    """S3 URI of the schema's Delta table, matching the folder the loader actually wrote.
+
+    The loader names the folder after the resolved S3 folder (the resource/table leaf), which
+    diverges from ``normalized_name`` for folder-pinned sources (e.g. Postgres ``public.users``
+    → folder ``users``). Reading ``normalized_name`` here points at a prefix with no ``_delta_log``
+    and surfaces as "No files in log segment".
+    """
+    folder_leaf = NamingConvention.normalize_identifier(schema.resolved_s3_folder_name or schema.name)
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{folder_leaf}"
 
 
 def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str | None:
