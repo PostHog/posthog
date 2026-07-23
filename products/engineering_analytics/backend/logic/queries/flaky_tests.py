@@ -3,9 +3,10 @@
 Groups ``_test_spans.run_evidence()`` (the one definition of the grain and of what a run proves)
 by nodeid, and ranks by blast radius: how many PRs a test broke and how often it broke master.
 
-A test is a ``confirmed_flake`` only where the evidence already carries proof (one commit was
-seen both failing and passing it: a re-run attempt going green, or an in-job retry), and every
-other failure is an honest ``suspected_regression`` rather than a guess dressed up as one.
+A test is a ``confirmed_flake`` only where the evidence already carries proof (one code state was
+seen both failing and passing it in the same lane: a re-run attempt going green, an in-job retry,
+or another run of the identical tree passing it), and every other failure is an honest
+``suspected_regression`` rather than a guess dressed up as one.
 Failing on many distinct PRs proves only that a failure is not one PR's fault, never that the
 test is flaky: real regressions fail across PRs too.
 
