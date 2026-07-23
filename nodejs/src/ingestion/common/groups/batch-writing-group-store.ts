@@ -666,9 +666,14 @@ export class BatchWritingGroupStore implements GroupStore {
     }
 
     /**
-     * Sync the cached entry with the authoritative row returned by the batch
-     * update, preserving any delta accumulated by concurrent batches since the
-     * flush captured this write.
+     * Sync the cached entry with the authoritative row returned by a write,
+     * preserving any delta accumulated by concurrent batches since the flush
+     * captured this write. A row older than the entry's synced state — a
+     * concurrent flush's write landed while this statement was in flight —
+     * is ignored: applying it would regress version and properties and
+     * manufacture optimistic-update conflicts on the next flush. Cached
+     * versions only ever come from authoritative reads and writes, so the
+     * comparison is sound.
      */
     private syncCacheEntryFromRow(
         update: GroupUpdate,
@@ -676,6 +681,9 @@ export class BatchWritingGroupStore implements GroupStore {
     ): void {
         const cached = this.groupCache.get(update.team_id, update.group_type_index, update.group_key)
         const target = cached ?? update
+        if (row.version < target.version) {
+            return
+        }
         target.group_properties = { ...row.group_properties, ...target.properties_to_set }
         target.created_at = DateTime.min(target.created_at, row.created_at)
         target.version = row.version

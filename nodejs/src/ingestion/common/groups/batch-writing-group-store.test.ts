@@ -743,6 +743,9 @@ describe('BatchWritingGroupStore', () => {
             expect(groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
             expect(groupRepository.insertGroup).not.toHaveBeenCalled()
             expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            // The insert's older row (version 1) must not regress the cache
+            // entry the second flush already synced to its newer write.
+            expect(groupStore.getGroupCache().get(teamId, 1, 'new-key')?.version).toBe(2)
         })
     })
 
