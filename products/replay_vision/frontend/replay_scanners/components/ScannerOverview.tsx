@@ -8,8 +8,10 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'
+import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
+import { ScannerOverviewFilters } from './ScannerOverviewFilters'
 
 function OverviewPanel({
     title,
@@ -105,8 +107,8 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
 }
 
 function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
-    const { monitorStats, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
-        replayScannerLogic({ id: scannerId })
+    const { monitorStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
+        scannerOverviewLogic({ scannerId })
     )
     const { yesTotal, noTotal, inconclusiveTotal } = monitorStats
     const total = yesTotal + noTotal + inconclusiveTotal
@@ -114,8 +116,8 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
         return (
             <OverviewPanel title="Verdict mix" fill>
                 <PanelEmpty
-                    loading={observationStatsApiLoading}
-                    message={hasActiveObservationFilters ? 'No verdicts match the current filter.' : 'No verdicts yet.'}
+                    loading={overviewStatsApiLoading}
+                    message={hasActiveOverviewFilters ? 'No verdicts match the current filter.' : 'No verdicts yet.'}
                 />
             </OverviewPanel>
         )
@@ -154,14 +156,11 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
 }
 
 function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const {
-        scanner,
-        classifierTagStats,
-        hasActiveObservationFilters,
-        observationStatsApiLoading,
-        affectedCohortLoading,
-        savingCohortTag,
-    } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, classifierTagStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
+        scannerOverviewLogic({ scannerId })
+    )
+    // Cohort creation is a scanner-level action, independent of the overview's filter set.
+    const { affectedCohortLoading, savingCohortTag } = useValues(replayScannerLogic({ id: scannerId }))
     const { saveAffectedCohort } = useActions(replayScannerLogic({ id: scannerId }))
     const { fixedRanked, freeformRanked } = classifierTagStats
     // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
@@ -170,16 +169,16 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
         return null
     }
     const freeformAllowed = !!scanner.scanner_config.allow_freeform_tags
-    const fixedEmpty = hasActiveObservationFilters
+    const fixedEmpty = hasActiveOverviewFilters
         ? 'No fixed-vocabulary tags match the current filter.'
         : 'No fixed-vocabulary tags emitted yet.'
-    const freeformEmpty = hasActiveObservationFilters
+    const freeformEmpty = hasActiveOverviewFilters
         ? 'No freeform tags match the current filter.'
         : 'No freeform tags emitted yet.'
 
     const renderRanked = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
         if (ranked.length === 0) {
-            return <PanelEmpty loading={observationStatsApiLoading} message={emptyMessage} />
+            return <PanelEmpty loading={overviewStatsApiLoading} message={emptyMessage} />
         }
         // Cap at the 5 most common so the panels stay compact.
         const top = ranked.slice(0, 5)
@@ -243,8 +242,8 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 }
 
 function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scorerSummary, scorerHistogram, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
-        replayScannerLogic({ id: scannerId })
+    const { scorerSummary, scorerHistogram, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
+        scannerOverviewLogic({ scannerId })
     )
     const theme = useChartTheme()
     const config = useChartConfig(() => ({ showGrid: false }), [])
@@ -252,9 +251,9 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
         return (
             <OverviewPanel title="Score distribution">
                 <PanelEmpty
-                    loading={observationStatsApiLoading}
+                    loading={overviewStatsApiLoading}
                     message={
-                        hasActiveObservationFilters
+                        hasActiveOverviewFilters
                             ? 'No scored observations match the current filter.'
                             : 'No scored observations yet.'
                     }
@@ -301,9 +300,11 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     if (!showChart && !typeOverview) {
         return null
     }
+
     // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.
+    let body: JSX.Element
     if (scannerType === 'scorer') {
-        return (
+        body = (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
                 <div className="min-w-0">
@@ -313,25 +314,32 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
                 <div className="min-w-0">{typeOverview}</div>
             </div>
         )
-    }
-    // Impact only exists for monitors; other types keep their overview at full width.
-    if (scannerType !== 'monitor') {
-        return (
+    } else if (scannerType !== 'monitor') {
+        // Impact only exists for monitors; other types keep their overview at full width.
+        body = (
             <div className="space-y-4">
                 {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
                 {typeOverview}
             </div>
         )
-    }
-    return (
-        <div className="space-y-4">
-            {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {typeOverview && <div className="min-w-0">{typeOverview}</div>}
-                <div className="min-w-0">
-                    <ImpactOverview scannerId={scannerId} />
+    } else {
+        body = (
+            <div className="space-y-4">
+                {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {typeOverview && <div className="min-w-0">{typeOverview}</div>}
+                    <div className="min-w-0">
+                        <ImpactOverview scannerId={scannerId} />
+                    </div>
                 </div>
             </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-4">
+            <ScannerOverviewFilters scannerId={scannerId} />
+            {body}
         </div>
     )
 }
