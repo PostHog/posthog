@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai import (
     CastAiResumeConfig,
+    _client_config,
     _default_lookback_start,
     _format_time_value,
     _now,
@@ -120,6 +121,12 @@ class TestCastAiValidateCredentials:
         call = mock_session.return_value.get.call_args
         assert call.args[0] == "https://api.cast.ai/v1/kubernetes/external-clusters"
         assert call.kwargs["headers"]["X-API-Key"] == "key"
+        # The X-API-Key header survives cross-origin redirects, so the probe must not follow them.
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+
+    def test_client_config_disables_redirects(self) -> None:
+        # Same guard for the sync path: RESTClient reads allow_redirects from the client config.
+        assert _client_config(api_key="key")["allow_redirects"] is False
 
 
 class TestCastAiSourceTopLevel:
