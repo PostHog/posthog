@@ -9,6 +9,8 @@ from .models import (
     SignalReport,
     SignalReportArtefact,
     SignalScoutConfig,
+    SignalScoutNote,
+    SignalScoutNoteDelivery,
     SignalScoutRun,
     SignalScratchpad,
     SignalTeamConfig,
@@ -162,6 +164,48 @@ class SignalScratchpadAdmin(admin.ModelAdmin):
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[scratchpad.team.pk]),
             scratchpad.team.name,
+        )
+
+
+@admin.register(SignalScoutNote)
+class SignalScoutNoteAdmin(admin.ModelAdmin):
+    list_display = ("id", "team_link", "skill_name", "created_by", "created_at")
+    list_display_links = ("id",)
+    list_filter = ("skill_name",)
+    search_fields = ("id", "team__name", "team__organization__name", "skill_name", "content")
+    raw_id_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+    readonly_fields = ("id", "created_at")
+    list_select_related = ("team", "team__organization", "created_by")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, note: SignalScoutNote):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[note.team.pk]),
+            note.team.name,
+        )
+
+
+@admin.register(SignalScoutNoteDelivery)
+class SignalScoutNoteDeliveryAdmin(admin.ModelAdmin):
+    list_display = ("id", "team_link", "skill_name", "note", "scout_run", "delivered_at")
+    list_display_links = ("id",)
+    list_filter = ("skill_name",)
+    search_fields = ("id", "team__name", "team__organization__name", "skill_name", "note__content")
+    raw_id_fields = ("team", "note", "scout_run")
+    ordering = ("-delivered_at",)
+    readonly_fields = ("id", "delivered_at")
+    list_select_related = ("team", "team__organization", "note", "scout_run")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, delivery: SignalScoutNoteDelivery):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[delivery.team.pk]),
+            delivery.team.name,
         )
 
 

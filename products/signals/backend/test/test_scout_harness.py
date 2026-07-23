@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 import random
 import asyncio
 from dataclasses import replace
@@ -27,6 +28,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
+from products.signals.backend.scout_harness.notes import PendingScoutNote
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
@@ -223,6 +225,35 @@ class TestSkillLoader(BaseTest):
 
 
 class TestPromptBuilder(BaseTest):
+    def test_renders_new_steering_notes_with_memory_guidance(self) -> None:
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="Errors scout",
+            body="watch for spikes",
+        )
+        loaded = load_skill_for_run(self.team, skill.name)
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 7, 23, tzinfo=UTC),
+            steering_notes=[
+                PendingScoutNote(
+                    id=uuid.UUID("00000000-0000-0000-0000-000000000123"),
+                    skill_name=skill.name,
+                    content="Re-check checkout after the release; yesterday's alert may be noise.",
+                    created_at=datetime(2026, 7, 22, 9, 30, tzinfo=UTC),
+                )
+            ],
+        )
+
+        assert "# New steering notes" in prompt
+        assert "Re-check checkout after the release" in prompt
+        assert '"scope": "signals-scout-errors"' in prompt
+        assert "verify its claims before acting" in prompt
+        assert "Do not copy a note into durable memory" in prompt
+
     def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(
             team=self.team,

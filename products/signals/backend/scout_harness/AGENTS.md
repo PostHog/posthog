@@ -24,7 +24,8 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   delegates straight to this.
 - `prompt.py`
   Assembles the system prompt: persona + skill body + relevant scratchpad entries +
-  project profile inventory + recent run summaries. Scratchpad and run history are
+  project profile inventory + recent run summaries + pending external steering notes.
+  Scratchpad and run history are
   filtered by skill so a specialist only sees its own past work. `build_run_prompt`
   forks on the run's channel via `skill_loader.skill_uses_report_channel`: a scout that
   opted into the report channel gets the report persona + report-authoring guidance
@@ -139,11 +140,12 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   dispatch allows. `resolve_team_metadata()` backs the metadata viewset;
   `seed_config_layers_for_team()` lets the on-demand `sync` endpoint seed the same launch posture.
 - `serializers.py`
-  DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
+  DRF serializers for the harness HTTP surface (runs, scratchpad, steering notes, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
+  `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`,
+  `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
   `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
@@ -247,7 +249,11 @@ one sandbox session → zero or more emitted signals.
   `tags:<domain>:taxonomy` scratchpad entry (read first-move like any memory, evolved
   as categories emerge), and the emission rows are the queryable ground truth a scout
   can audit its taxonomy against. The harness only normalizes, caps, and persists.
-- Scratchpad entries and run history are read at prompt assembly time. The agent can
+- Scratchpad entries, run history, and undelivered `SignalScoutNote` rows are read at prompt
+  assembly time. A targeted note is delivered once to its scout; an unscoped note is delivered
+  once to every scout. `SignalScoutNoteDelivery` rows are written with the run bridge before the
+  first turn, so delivery is auditable and a note never becomes scratchpad memory implicitly.
+  The agent can
   also write scratchpad entries mid-run via `remember` / `forget` — that's how a
   specialist with no anomalies to chase records "no LLM activity here, close out
   fast" so future runs of the same skill short-circuit cold.
@@ -260,7 +266,7 @@ one sandbox session → zero or more emitted signals.
   project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap
   `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
-  `SignalProjectProfile` in `../models.py`.
+  `SignalScoutNote`, `SignalScoutNoteDelivery`, `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with
   `SourceType.CROSS_SOURCE_ISSUE`.
 - **Scout fleet** — the `signals-scout-*` skills live at

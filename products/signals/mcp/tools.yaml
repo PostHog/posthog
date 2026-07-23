@@ -515,6 +515,53 @@ tools:
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: false
+    scout-notes-create:
+        operation: signals_scout_notes_create
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Leave a steering note for scouts
+        description: >
+            Leave external steering for one scout or the whole fleet. Pass a `skill_name` to target one
+            `signals-scout-*` skill; omit it to queue the note once for every scout. Notes are immutable, auditable
+            inputs rather than durable scout memory: each matching scout receives a note once, verifies it before
+            acting, and may write any durable learning it derives to the scratchpad in its own words. Use this for
+            feedback, pointers, hypotheses, or a temporary nudge when changing the scout skill itself would be too
+            heavy-handed.
+    scout-notes-delete:
+        operation: signals_scout_notes_destroy
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete a scout steering note
+        description: >
+            Delete a note by ID. This prevents any scouts that have not received it yet from seeing it, but does not
+            undo delivery to runs already listed in the note's `deliveries`. Notes are immutable; delete and create a
+            replacement when steering needs correction.
+    scout-notes-list:
+        operation: signals_scout_notes_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List scout steering notes
+        description: >
+            List steering notes newest first, including the creator's user UUID and per-scout delivery history. Pass
+            `skill_name` to return the notes relevant to one scout (targeted notes plus fleet-wide notes), or
+            `general_only=true` for fleet-wide notes only. Use `date_from` / `date_to` to bound creation time and
+            `date_to` as a cursor past the 200-row cap.
     scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true

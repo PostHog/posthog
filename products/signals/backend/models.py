@@ -1063,7 +1063,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
-# Three tables back the v1 Signals scout:
+# The core Signals scout tables:
 #   - SignalScoutConfig: per-team binding (one row per team).
 #   - SignalScoutRun:    bridge from a `tasks.TaskRun` to its scout-domain context.
 #                        Mirrors `SignalReportTask` (1:1 to TaskRun instead of N:1
@@ -1071,6 +1071,8 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 #                        Status, timing, error, chat-log all live on `TaskRun`;
 #                        findings live on emitted `Signal`/`SignalReport` rows.
 #   - SignalScratchpad:  working notes the scout reads in future runs.
+#   - SignalScoutNote:   human/agent steering queued for one scout or the fleet.
+#   - SignalScoutNoteDelivery: which run received a note (once per scout).
 
 
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
@@ -1377,6 +1379,86 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
+        ]
+
+
+class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
+    """External steering queued for one scout or the whole fleet.
+
+    Notes are intentionally separate from `SignalScratchpad`: a note is an immutable
+    user/agent-authored input the scout must evaluate, while a scratchpad entry is a
+    scout-authored durable learning. A null `skill_name` makes the note fleet-wide.
+    """
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_notes",
+    )
+    skill_name = models.CharField(max_length=200, null=True, blank=True)
+    content = models.TextField()
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout note"
+        verbose_name_plural = "Signal scout notes"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "skill_name", "created_at"], name="signal_scout_note_target_idx"),
+        ]
+
+
+class SignalScoutNoteDelivery(TeamScopedRootMixin, UUIDModel):
+    """Audit row recording the run that received a note.
+
+    `skill_name` is denormalized so the uniqueness constraint works for fleet-wide
+    notes: one general note can be delivered once to every scout, but never twice
+    to the same scout.
+    """
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_note_deliveries",
+    )
+    note = models.ForeignKey(
+        SignalScoutNote,
+        on_delete=models.CASCADE,
+        related_name="deliveries",
+    )
+    scout_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="note_deliveries",
+    )
+    skill_name = models.CharField(max_length=200)
+    delivered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout note delivery"
+        verbose_name_plural = "Signal scout note deliveries"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["note", "skill_name"],
+                name="signal_scout_note_unique_delivery",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "skill_name"], name="signal_scout_note_delivery_idx"),
         ]
 
 

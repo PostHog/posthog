@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import time
+import uuid
 import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
 from django.utils import timezone
 
 import posthoganalytics
@@ -21,6 +23,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
+from products.signals.backend.scout_harness.notes import get_pending_scout_notes, record_scout_note_deliveries
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
@@ -456,8 +459,16 @@ async def _spawn_and_run(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
     )
+    pending_notes = await database_sync_to_async(get_pending_scout_notes, thread_sensitive=False)(
+        team_id=team.parent_team_id or team.id, skill_name=skill.name
+    )
     prompt = build_run_prompt(
-        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_prompt_guidance
+        skill,
+        run_id=str(run_id),
+        team_id=team.id,
+        started_at=started_at,
+        github_read_access=github_prompt_guidance,
+        steering_notes=pending_notes,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -486,6 +497,7 @@ async def _spawn_and_run(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            note_ids=[note.id for note in pending_notes],
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -671,6 +683,7 @@ def _create_run_row(
     model: str | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    note_ids: list[uuid.UUID] | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
@@ -684,15 +697,23 @@ def _create_run_row(
         )
         if value is not None
     }
-    return SignalScoutRun.objects.unscoped().create(
-        id=run_id,
-        task_run=task_run,
-        team=team,
-        scout_config=config,
-        skill_name=skill.name,
-        skill_version=skill.version,
-        metadata=metadata,
-    )
+    with transaction.atomic():
+        scout_run = SignalScoutRun.objects.unscoped().create(
+            id=run_id,
+            task_run=task_run,
+            team=team,
+            scout_config=config,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            metadata=metadata,
+        )
+        record_scout_note_deliveries(
+            team_id=scout_run.team_id,
+            skill_name=skill.name,
+            scout_run=scout_run,
+            note_ids=note_ids or [],
+        )
+    return scout_run
 
 
 def _run_row_exists(run_id: Any, team_id: int) -> bool:

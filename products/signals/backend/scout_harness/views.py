@@ -1,10 +1,8 @@
 """DRF viewsets exposing the Signals scout surface over HTTP for MCP consumption.
 
-These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
-(and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
-tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
-`memory-create`, `memory-delete`, `project-profile-get`, and `members-list` — over
-the standard PostHog MCP plumbing.
+These expose run history, internal scratchpad memory, external steering notes,
+project profile, report emission, and reviewer routing through the standard
+PostHog MCP plumbing.
 
 Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
 via the personal-API-key picker (so a team can introspect runs/scratchpad from
@@ -14,7 +12,10 @@ sandbox gets it only via `INTERNAL_SCOPES` when its OAuth token is minted.
 This blocks the prompt-injection vector where a user could mint a PAK,
 write to the durable scratchpad, and have the scout read it back verbatim
 on its next run. Every read filters on `team_id` first; the scout's MCP
-token is already pinned to the team.
+token is already pinned to the team. `SignalScoutNoteViewSet` is the deliberate
+exception: `signal_scout:write` callers may leave external steering, but it is
+stored separately from trusted scratchpad memory, delivered once, and rendered
+with explicit verify-before-use guidance.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -54,6 +56,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutNote,
     SignalScoutRun,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
@@ -66,6 +69,7 @@ from products.signals.backend.scout_harness.config_registry import (
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.serializers import (
+    CreateScoutNoteSerializer,
     EditReportRequestSerializer,
     EditReportResponseSerializer,
     EmitFindingRequestSerializer,
@@ -85,6 +89,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutMemberSerializer,
     ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
+    ScoutNotesQuerySerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
@@ -94,6 +99,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
     SignalScoutEmissionSerializer,
     SignalScoutManualRunSerializer,
+    SignalScoutNoteSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
@@ -1072,6 +1078,101 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         removed = forget(team_id=_canonical_team_id(self), key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
+
+
+class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """External steering notes for one scout or the whole fleet."""
+
+    serializer_class = SignalScoutNoteSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout"
+    queryset = SignalScoutNote.objects.unscoped()
+    lookup_field = "id"
+    pagination_class = None
+
+    @validated_request(
+        query_serializer=ScoutNotesQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutNoteSerializer(many=True),
+                description="Matching scout steering notes, newest first.",
+            ),
+        },
+        summary="List scout steering notes",
+        description=(
+            "List external steering notes and their delivery history. Pass `skill_name` to return notes relevant "
+            "to that scout (targeted plus fleet-wide), or `general_only=true` for fleet-wide notes only."
+        ),
+        operation_id="signals_scout_notes_list",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        data = getattr(request, "validated_query_data", {}) or {}
+        queryset = SignalScoutNote.objects.unscoped().filter(team_id=team_id)
+        if data.get("general_only"):
+            queryset = queryset.filter(skill_name__isnull=True)
+        elif skill_name := data.get("skill_name"):
+            queryset = queryset.filter(Q(skill_name=skill_name) | Q(skill_name__isnull=True))
+        if date_from := data.get("date_from"):
+            queryset = queryset.filter(created_at__gte=date_from)
+        if date_to := data.get("date_to"):
+            queryset = queryset.filter(created_at__lt=date_to)
+        notes = list(
+            queryset.select_related("created_by")
+            .prefetch_related("deliveries")
+            .order_by("-created_at")[: data.get("limit") or 50]
+        )
+        return Response(SignalScoutNoteSerializer(notes, many=True).data)
+
+    @validated_request(
+        request_serializer=CreateScoutNoteSerializer,
+        responses={
+            201: OpenApiResponse(response=SignalScoutNoteSerializer, description="Steering note created."),
+            400: OpenApiResponse(description="Invalid content or target scout."),
+        },
+        summary="Leave a steering note for scouts",
+        description=(
+            "Create an immutable steering note. Set `skill_name` to target one scout, or omit it to queue the note "
+            "once for every scout. A scout verifies the note before acting and decides whether any learning belongs "
+            "in durable scratchpad memory."
+        ),
+        operation_id="signals_scout_notes_create",
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        data = request.validated_data
+        skill_name = data.get("skill_name")
+        if (
+            skill_name is not None
+            and not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists()
+        ):
+            raise exceptions.ValidationError(
+                {"skill_name": "No active scout skill with this name exists on this project."}
+            )
+        note = SignalScoutNote.objects.for_team(team_id).create(
+            team_id=team_id,
+            skill_name=skill_name,
+            content=data["content"],
+            created_by=request.user,
+        )
+        return Response(SignalScoutNoteSerializer(note).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=None,
+        responses={204: OpenApiResponse(description="Steering note deleted.")},
+        summary="Delete a scout steering note",
+        description=(
+            "Delete a note by ID. This prevents future delivery but does not undo runs that already received it."
+        ),
+        operation_id="signals_scout_notes_destroy",
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        note_id = _parse_run_id_or_404(kwargs)
+        deleted, _ = SignalScoutNote.objects.unscoped().filter(team_id=_canonical_team_id(self), id=note_id).delete()
+        if not deleted:
+            raise exceptions.NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

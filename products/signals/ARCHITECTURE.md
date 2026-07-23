@@ -580,6 +580,19 @@ Narrow per-team scratchpad surface the scout fleet writes during runs and reads 
 
 `authority`, `tags`, and `expires_at` (with their backing GIN / expiry indexes) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`, and every entry is durable per-team scratchpad.
 
+### `SignalScoutNote` and `SignalScoutNoteDelivery`
+
+External steering is a separate input channel from scratchpad memory. `SignalScoutNote` stores immutable Markdown left
+by a person or MCP agent. `skill_name = null` targets the whole fleet; otherwise the note targets one
+`signals-scout-*` skill. `SignalScoutNoteDelivery` records the run whose opening prompt received the note, with a unique
+constraint on `(note, skill_name)`. A targeted note therefore reaches its scout once, while a fleet-wide note reaches
+each scout once. Its run FK is `SET_NULL`, so normal run-history retention does not make an old note pending again.
+
+Runs fetch up to 20 pending notes FIFO while the sandbox is being prepared, render them in a clearly delimited
+`New steering notes` prompt section, and write the delivery rows atomically with the run bridge row before the first
+turn. The prompt tells the scout to verify a note before acting and to copy only derived, durable learning — in its own
+words — into `SignalScratchpad`. This keeps external steering auditable without silently treating it as trusted memory.
+
 ### `SignalProjectProfile`
 
 Deterministic snapshot of "what's true about this project" — the agent's orientation surface. Time-series so future phases can diff a new profile against the previous row to populate `payload.deltas`. Computed by `scout_harness/profile/builders.py` from authoritative tables; v1 writes 10 inventory sections (events, properties, cohorts, feature flags, experiments, surveys, dashboards, insights, data warehouse sources, integrations).
@@ -823,10 +836,12 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
 
 #### Signals Agent endpoints (`backend/scout_harness/views.py`)
 
-The harness exposes three viewsets routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`. They are surfaced to MCP callers as `scout-*` tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; writes (scratchpad remember / forget, signal emit) require the matching MCP scope.
+The harness viewsets are routed under project-scoped `signals/scout/*` paths and surfaced to MCP callers as `scout-*`
+tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; each write requires its matching MCP scope.
 
 - **`SignalScoutRunViewSet`** — list / retrieve scout run rows; nested action `runs/{id}/emit-signal/` for the harness to push findings during a run.
 - **`SignalScratchpadViewSet`** — search / remember / forget `SignalScratchpad` rows for the team. The `scout-scratchpad-search` tool is the agent's primary "what do I already know" read at prompt-assembly time.
+- **`SignalScoutNoteViewSet`** — list / create / delete immutable external steering notes, including per-scout delivery history.
 - **`SignalProjectProfileViewSet`** — `GET .../current/` returns the freshest non-expired `SignalProjectProfile` row for the team (recomputes if the cache is stale).
 
 Generated MCP tool names:
@@ -839,6 +854,9 @@ Generated MCP tool names:
 | `scout-scratchpad-search`   | Search durable scratchpad entries for the team                                 |
 | `scout-scratchpad-remember` | Create or update a scratchpad entry                                            |
 | `scout-scratchpad-forget`   | Remove a scratchpad entry                                                      |
+| `scout-notes-list`          | List steering notes and delivery history                                      |
+| `scout-notes-create`        | Leave a targeted or fleet-wide steering note                                  |
+| `scout-notes-delete`        | Delete a note before any remaining scouts receive it                          |
 | `scout-project-profile-get` | Read the current `SignalProjectProfile` snapshot                               |
 
 ### Serializers (`backend/serializers.py`)

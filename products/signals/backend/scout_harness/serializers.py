@@ -18,7 +18,13 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.models import (
+    SignalScoutConfig,
+    SignalScoutEmission,
+    SignalScoutNote,
+    SignalScoutNoteDelivery,
+)
+from products.signals.backend.scout_harness.notes import MAX_SCOUT_NOTE_CONTENT_LENGTH
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -479,6 +485,103 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max rows to return (default 20, hard cap 1000).",
     )
+
+
+# --- External steering notes ----------------------------------------------
+
+
+class ScoutNoteDeliverySerializer(serializers.ModelSerializer):
+    run_id = serializers.UUIDField(
+        source="scout_run_id",
+        read_only=True,
+        allow_null=True,
+        help_text="Run whose opening prompt received this note, or null if run history was purged.",
+    )
+
+    class Meta:
+        model = SignalScoutNoteDelivery
+        fields = ["run_id", "skill_name", "delivered_at"]
+        read_only_fields = fields
+
+
+class SignalScoutNoteSerializer(serializers.ModelSerializer):
+    created_by_user_uuid = serializers.UUIDField(
+        source="created_by.uuid",
+        allow_null=True,
+        read_only=True,
+        help_text="UUID of the PostHog user who left the note, or null when that user has since been removed.",
+    )
+    deliveries = ScoutNoteDeliverySerializer(
+        many=True,
+        read_only=True,
+        help_text="Runs that have received this note, one row per scout.",
+    )
+
+    class Meta:
+        model = SignalScoutNote
+        fields = ["id", "skill_name", "content", "created_by_user_uuid", "created_at", "deliveries"]
+        read_only_fields = fields
+
+
+class CreateScoutNoteSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        max_length=MAX_SCOUT_NOTE_CONTENT_LENGTH,
+        trim_whitespace=True,
+        help_text=(
+            "Markdown steering for the scout to evaluate. It will verify the note before acting and may promote "
+            "durable learnings into its scratchpad."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=200,
+        help_text=("Target `signals-scout-*` skill name. Omit or pass null to deliver the note once to every scout."),
+    )
+
+    def validate_content(self, value: str) -> str:
+        if not value:
+            raise serializers.ValidationError("Note content must not be blank.")
+        return value
+
+    def validate_skill_name(self, value: str | None) -> str | None:
+        if value is not None and not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
+            raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
+        return value
+
+
+class ScoutNotesQuerySerializer(serializers.Serializer):
+    skill_name = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Return notes relevant to this scout: notes targeted to the exact skill plus fleet-wide notes. "
+            "Omit to list notes for every scope."
+        ),
+    )
+    general_only = serializers.BooleanField(
+        required=False,
+        help_text="Return only fleet-wide notes (`skill_name = null`). Cannot be combined with `skill_name`.",
+    )
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on note creation time.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 exclusive upper bound on note creation time.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=200,
+        help_text="Max rows to return (default 50, hard cap 200).",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("general_only") and attrs.get("skill_name"):
+            raise serializers.ValidationError("general_only cannot be combined with skill_name.")
+        return attrs
 
 
 class RememberRequestSerializer(serializers.Serializer):

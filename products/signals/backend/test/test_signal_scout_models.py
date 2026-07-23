@@ -12,7 +12,14 @@ from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import (
+    SignalScoutConfig,
+    SignalScoutNote,
+    SignalScoutNoteDelivery,
+    SignalScoutRun,
+    SignalScratchpad,
+)
+from products.signals.backend.scout_harness.notes import get_pending_scout_notes, record_scout_note_deliveries
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -176,6 +183,90 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         SignalScratchpad.objects.create(team=self.team, key="dup", content="first")
         with pytest.raises(IntegrityError):
             SignalScratchpad.objects.create(team=self.team, key="dup", content="second")
+
+    def test_signal_scout_note_and_delivery_round_trip(self) -> None:
+        note = SignalScoutNote.objects.create(
+            team=self.team,
+            skill_name=None,
+            content="Check whether the release changed checkout.",
+            created_by=self.user,
+        )
+        run = SignalScoutRun.objects.create(
+            task_run=self._make_task_run(),
+            team=self.team,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+        )
+        delivery = SignalScoutNoteDelivery.objects.create(
+            team=self.team,
+            note=note,
+            scout_run=run,
+            skill_name=run.skill_name,
+        )
+
+        assert delivery.note_id == note.id
+        assert delivery.scout_run_id == run.id
+        assert delivery.skill_name == "signals-scout-errors"
+        assert delivery.delivered_at is not None
+
+    def test_signal_scout_note_delivered_once_per_scout(self) -> None:
+        note = SignalScoutNote.objects.create(team=self.team, content="Check checkout.")
+        first_run = SignalScoutRun.objects.create(
+            task_run=self._make_task_run(),
+            team=self.team,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+        )
+        second_run = SignalScoutRun.objects.create(
+            task_run=self._make_task_run(),
+            team=self.team,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+        )
+        SignalScoutNoteDelivery.objects.create(
+            team=self.team,
+            note=note,
+            scout_run=first_run,
+            skill_name="signals-scout-errors",
+        )
+
+        with pytest.raises(IntegrityError):
+            SignalScoutNoteDelivery.objects.create(
+                team=self.team,
+                note=note,
+                scout_run=second_run,
+                skill_name="signals-scout-errors",
+            )
+
+    def test_general_note_is_pending_once_for_each_scout(self) -> None:
+        general = SignalScoutNote.objects.create(team=self.team, content="Check checkout.")
+        targeted = SignalScoutNote.objects.create(
+            team=self.team,
+            skill_name="signals-scout-errors",
+            content="Inspect the 500s.",
+        )
+        errors_run = SignalScoutRun.objects.create(
+            task_run=self._make_task_run(),
+            team=self.team,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+        )
+
+        pending_errors = get_pending_scout_notes(team_id=self.team.id, skill_name="signals-scout-errors")
+        assert [note.id for note in pending_errors] == [general.id, targeted.id]
+        record_scout_note_deliveries(
+            team_id=self.team.id,
+            skill_name="signals-scout-errors",
+            scout_run=errors_run,
+            note_ids=[note.id for note in pending_errors],
+        )
+
+        assert get_pending_scout_notes(team_id=self.team.id, skill_name="signals-scout-errors") == []
+        errors_run.delete()
+        # Run-history retention must not make already-consumed notes pending again.
+        assert get_pending_scout_notes(team_id=self.team.id, skill_name="signals-scout-errors") == []
+        pending_logs = get_pending_scout_notes(team_id=self.team.id, skill_name="signals-scout-logs")
+        assert [note.id for note in pending_logs] == [general.id]
 
 
 @pytest.mark.django_db

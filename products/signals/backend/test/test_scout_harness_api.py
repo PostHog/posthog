@@ -32,6 +32,8 @@ from products.signals.backend.models import (
     SignalReport,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutNote,
+    SignalScoutNoteDelivery,
     SignalScoutRun,
     SignalScratchpad,
 )
@@ -831,6 +833,116 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestScoutHarnessNotesAPI(APIBaseTest):
+    def _list_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/notes/"
+
+    def _detail_url(self, note_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/notes/{note_id}/"
+
+    def _make_skill(self, name: str = "signals-scout-general") -> LLMSkill:
+        return LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description="test scout",
+            body="# test scout",
+        )
+
+    def test_create_general_note(self) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "Look again at checkout after yesterday's release."},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert body["skill_name"] is None
+        assert body["content"] == "Look again at checkout after yesterday's release."
+        assert body["created_by_user_uuid"] == str(self.user.uuid)
+        assert body["deliveries"] == []
+
+    def test_create_targeted_note_requires_active_scout_skill(self) -> None:
+        missing = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-missing", "content": "Try a different window."},
+            format="json",
+        )
+        assert missing.status_code == status.HTTP_400_BAD_REQUEST
+
+        self._make_skill("signals-scout-errors")
+        created = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-errors", "content": "Try a different window."},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.json()["skill_name"] == "signals-scout-errors"
+
+    def test_list_for_skill_includes_targeted_and_general_notes(self) -> None:
+        SignalScoutNote.objects.create(team=self.team, content="everyone")
+        SignalScoutNote.objects.create(
+            team=self.team,
+            skill_name="signals-scout-errors",
+            content="errors only",
+        )
+        SignalScoutNote.objects.create(
+            team=self.team,
+            skill_name="signals-scout-logs",
+            content="logs only",
+        )
+
+        response = self.client.get(f"{self._list_url()}?skill_name=signals-scout-errors")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {note["content"] for note in response.json()} == {"everyone", "errors only"}
+
+    def test_list_does_not_leak_notes_from_another_team(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        SignalScoutNote.objects.create(team=other, content="theirs")
+        SignalScoutNote.objects.create(team=self.team, content="ours")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [note["content"] for note in response.json()] == ["ours"]
+
+    def test_list_includes_delivery_history(self) -> None:
+        note = SignalScoutNote.objects.create(team=self.team, content="check checkout")
+        run = _make_run(self.team)
+        SignalScoutNoteDelivery.objects.create(
+            team=self.team,
+            note=note,
+            scout_run=run,
+            skill_name=run.skill_name,
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["deliveries"] == [
+            {
+                "run_id": str(run.id),
+                "skill_name": "signals-scout-general",
+                "delivered_at": response.json()[0]["deliveries"][0]["delivered_at"],
+            }
+        ]
+
+    def test_delete_note_is_team_scoped(self) -> None:
+        own = SignalScoutNote.objects.create(team=self.team, content="remove me")
+        other = Team.objects.create(organization=self.organization, name="Other")
+        theirs = SignalScoutNote.objects.create(team=other, content="keep me")
+
+        response = self.client.delete(self._detail_url(str(own.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not SignalScoutNote.objects.filter(team=self.team, id=own.id).exists()
+        assert SignalScoutNote.all_teams.filter(team=other, id=theirs.id).exists()
+
+        cross_team = self.client.delete(self._detail_url(str(theirs.id)))
+        assert cross_team.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
