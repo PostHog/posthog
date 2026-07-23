@@ -1,0 +1,56 @@
+diff --git a/lib/index.cjs.js b/lib/index.cjs.js
+index 917e1c5..efa136e 100644
+--- a/lib/index.cjs.js
++++ b/lib/index.cjs.js
+@@ -612,9 +612,22 @@ var isPaused = function isPaused() {
+ var getStoreState$1 = function getStoreState() {
+   return getContext().store.getState();
+ };
++var lastSelectableStoreState;
+ function useSelector(selector) {
+   return shim$1.exports.useSyncExternalStore(getContext().store.subscribe, function () {
+-    return selector(getStoreState$1());
++    // PostHog patch: redux getState() throws while a dispatch is running, and React can pull
++    // a render snapshot in that window (seen on Firefox). The pre-dispatch state is the correct
++    // snapshot, and the store notifies again once the dispatch commits.
++    var storeState;
++    try {
++      storeState = lastSelectableStoreState = getStoreState$1();
++    } catch (error) {
++      if (lastSelectableStoreState === undefined) {
++        throw error;
++      }
++      storeState = lastSelectableStoreState;
++    }
++    return selector(storeState);
+   });
+ }
+ function useValues(logic) {
+diff --git a/lib/index.esm.js b/lib/index.esm.js
+index 8116790..1a8932d 100644
+--- a/lib/index.esm.js
++++ b/lib/index.esm.js
+@@ -586,9 +586,22 @@ var isPaused = function isPaused() {
+ var getStoreState$1 = function getStoreState() {
+   return getContext().store.getState();
+ };
++var lastSelectableStoreState;
+ function useSelector(selector) {
+   return shim$1.exports.useSyncExternalStore(getContext().store.subscribe, function () {
+-    return selector(getStoreState$1());
++    // PostHog patch: redux getState() throws while a dispatch is running, and React can pull
++    // a render snapshot in that window (seen on Firefox). The pre-dispatch state is the correct
++    // snapshot, and the store notifies again once the dispatch commits.
++    var storeState;
++    try {
++      storeState = lastSelectableStoreState = getStoreState$1();
++    } catch (error) {
++      if (lastSelectableStoreState === undefined) {
++        throw error;
++      }
++      storeState = lastSelectableStoreState;
++    }
++    return selector(storeState);
+   });
+ }
+ function useValues(logic) {
