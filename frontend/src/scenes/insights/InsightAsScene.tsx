@@ -93,30 +93,30 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 <InsightRetentionBanner insightProps={insightProps} />
 
                 {/* PROTOTYPE (throwaway): SQL insight filter overrides — dev only, needs ?variant=A|B|C */}
-                <SqlFilterOverridesPrototype query={query} />
-
-                {isDataVisualizationNode(query) && insightLoading ? (
-                    // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
-                    <LemonSkeleton className="h-100 w-full" />
-                ) : (
-                    <Query
-                        attachTo={attachTo}
-                        query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                        setQuery={setQuery}
-                        readOnly={insightMode !== ItemMode.Edit}
-                        editMode={insightMode === ItemMode.Edit}
-                        context={{
-                            showOpenEditorButton: false,
-                            showQueryEditor: actuallyShowQueryEditor,
-                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
-                            insightProps,
-                            // Flag-gated inside the charts' shared useDateRangeZoom hook.
-                            onDateRangeZoom: zoomDateRange,
-                        }}
-                        filtersOverride={filtersOverride}
-                        variablesOverride={variablesOverride}
-                    />
-                )}
+                <SqlFilterOverridesPrototype query={query}>
+                    {isDataVisualizationNode(query) && insightLoading ? (
+                        // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
+                        <LemonSkeleton className="h-100 w-full" />
+                    ) : (
+                        <Query
+                            attachTo={attachTo}
+                            query={isInsightVizNode(query) ? { ...query, full: true } : query}
+                            setQuery={setQuery}
+                            readOnly={insightMode !== ItemMode.Edit}
+                            editMode={insightMode === ItemMode.Edit}
+                            context={{
+                                showOpenEditorButton: false,
+                                showQueryEditor: actuallyShowQueryEditor,
+                                showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                                insightProps,
+                                // Flag-gated inside the charts' shared useDateRangeZoom hook.
+                                onDateRangeZoom: zoomDateRange,
+                            }}
+                            filtersOverride={filtersOverride}
+                            variablesOverride={variablesOverride}
+                        />
+                    )}
+                </SqlFilterOverridesPrototype>
             </SceneContent>
         </BindLogic>
     )

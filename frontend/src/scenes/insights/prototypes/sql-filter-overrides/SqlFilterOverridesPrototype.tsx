@@ -7,7 +7,8 @@ import { router } from 'kea-router'
  * What should view-time filter overrides look like?
  *
  * Three variants on the existing insight view route, gated by `?variant=A|B|C` (dev only):
- *   A — Filter bar: persistent dashboard-style toolbar, immediate apply
+ *   A — Classic insight card: bordered card like a trends insight, date range in the top row
+ *       inside the border, results attached below, immediate apply
  *   B — Overrides panel: staged panel comparing saved filters vs overrides, explicit apply
  *   C — Editable summary: prose line whose segments edit in place
  *
@@ -32,7 +33,7 @@ import { AnyPropertyFilter, ItemMode } from '~/types'
 const VARIANT_KEYS = ['A', 'B', 'C'] as const
 type VariantKey = (typeof VARIANT_KEYS)[number]
 const VARIANT_NAMES: Record<VariantKey, string> = {
-    A: 'Filter bar',
+    A: 'Classic insight card',
     B: 'Overrides panel',
     C: 'Editable summary',
 }
@@ -97,41 +98,51 @@ interface VariantProps {
     saved: HogQLFilters
 }
 
-/** Variant A — dashboard-style toolbar above the results, immediate apply. */
-function VariantFilterBar({ overrides, saved }: VariantProps): JSX.Element {
+/**
+ * Variant A — looks like a classic insight: one bordered card whose top row (inside the border)
+ * holds the date range and filters, with the results attached below. Immediate apply.
+ */
+function VariantClassicCard({ overrides, saved, children }: VariantProps & { children: React.ReactNode }): JSX.Element {
     const savedDateLabel = dateFilterToText(saved.dateRange?.date_from, saved.dateRange?.date_to, 'all time')
     return (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-surface-primary p-2">
-            <LemonTag type="highlight">View filters</LemonTag>
-            <DateFilter
-                size="small"
-                dateFrom={overrides.date_from ?? null}
-                dateTo={overrides.date_to ?? null}
-                placeholder={`Saved: ${savedDateLabel}`}
-                onChange={(date_from, date_to) => setOverrides({ ...overrides, date_from, date_to })}
-                makeLabel={(key) => (
-                    <>
-                        <IconCalendar />
-                        <span> {key}</span>
-                    </>
-                )}
-            />
-            <PropertyFilters
-                pageKey="sql-overrides-prototype-a"
-                buttonSize="small"
-                propertyFilters={overrides.properties ?? []}
-                onChange={(properties) => setOverrides({ ...overrides, properties })}
-                taxonomicGroupTypes={TAXONOMIC_GROUPS}
-                addText="Add filter"
-            />
-            {!isOverrideEmpty(overrides) && (
-                <LemonButton size="small" type="secondary" status="danger" onClick={() => setOverrides(null)}>
-                    Reset
-                </LemonButton>
-            )}
-            <span className="ml-auto text-xs text-secondary">
-                Applies to this view only — the saved insight is unchanged
-            </span>
+        <div className="rounded border bg-surface-primary">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b p-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                    <span className="flex items-center gap-x-2 text-sm">
+                        <span>Date range</span>
+                        <DateFilter
+                            size="small"
+                            dateFrom={overrides.date_from ?? null}
+                            dateTo={overrides.date_to ?? null}
+                            placeholder={savedDateLabel ?? 'all time'}
+                            onChange={(date_from, date_to) => setOverrides({ ...overrides, date_from, date_to })}
+                            makeLabel={(key) => (
+                                <>
+                                    <IconCalendar />
+                                    <span> {key}</span>
+                                </>
+                            )}
+                        />
+                    </span>
+                    <PropertyFilters
+                        pageKey="sql-overrides-prototype-a"
+                        buttonSize="small"
+                        propertyFilters={overrides.properties ?? []}
+                        onChange={(properties) => setOverrides({ ...overrides, properties })}
+                        taxonomicGroupTypes={TAXONOMIC_GROUPS}
+                        addText="Add filter"
+                    />
+                </div>
+                <div className="flex items-center gap-x-2">
+                    {!isOverrideEmpty(overrides) && (
+                        <LemonButton size="xsmall" type="tertiary" onClick={() => setOverrides(null)}>
+                            Reset to saved
+                        </LemonButton>
+                    )}
+                    <span className="text-xs text-secondary">View only — not saved</span>
+                </div>
+            </div>
+            <div className="flex flex-col p-2">{children}</div>
         </div>
     )
 }
@@ -349,20 +360,30 @@ function PrototypeSwitcher({ variant, overrides }: { variant: VariantKey; overri
     )
 }
 
-export function SqlFilterOverridesPrototype({ query }: { query: Node | null }): JSX.Element | null {
+export function SqlFilterOverridesPrototype({
+    query,
+    children,
+}: {
+    query: Node | null
+    children: React.ReactNode
+}): JSX.Element {
     const { insightId, insightMode, filtersOverride } = useValues(insightSceneLogic)
     const { searchParams } = useValues(router)
 
-    if (process.env.NODE_ENV === 'production') {
-        return null
-    }
     const variantParam = searchParams['variant']
     const variant =
         typeof variantParam === 'string' && VARIANT_KEYS.includes(variantParam.toUpperCase() as VariantKey)
             ? (variantParam.toUpperCase() as VariantKey)
             : null
-    if (!variant || insightMode !== ItemMode.View || !insightId || insightId === 'new' || !containsHogQLQuery(query)) {
-        return null
+    if (
+        process.env.NODE_ENV === 'production' ||
+        !variant ||
+        insightMode !== ItemMode.View ||
+        !insightId ||
+        insightId === 'new' ||
+        !containsHogQLQuery(query)
+    ) {
+        return <>{children}</>
     }
 
     const overrides: DashboardFilter = filtersOverride ?? {}
@@ -370,9 +391,17 @@ export function SqlFilterOverridesPrototype({ query }: { query: Node | null }): 
 
     return (
         <>
-            {variant === 'A' && <VariantFilterBar overrides={overrides} saved={saved} />}
-            {variant === 'B' && <VariantOverridesPanel overrides={overrides} saved={saved} />}
-            {variant === 'C' && <VariantEditableSummary overrides={overrides} saved={saved} />}
+            {variant === 'A' ? (
+                <VariantClassicCard overrides={overrides} saved={saved}>
+                    {children}
+                </VariantClassicCard>
+            ) : (
+                <>
+                    {variant === 'B' && <VariantOverridesPanel overrides={overrides} saved={saved} />}
+                    {variant === 'C' && <VariantEditableSummary overrides={overrides} saved={saved} />}
+                    {children}
+                </>
+            )}
             <PrototypeSwitcher variant={variant} overrides={overrides} />
         </>
     )
