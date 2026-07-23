@@ -43,6 +43,31 @@ INDEXES_SNAPSHOT_LIMIT = 10_000
 # attribution to filter on — see `_collect_statements`.
 _SCHEMA_PREDICATE = sql.SQL("WHERE s.schemaname = {schema}")
 
+# Settings whose value is, or can embed, a credential. `primary_conninfo` holds a
+# replication connection string including its password, and the archive/restore/
+# passphrase commands are shell strings that routinely carry credentials. A superuser or
+# `pg_read_all_settings` role can read them, and the warehouse table is readable by every
+# project member, so these never leave the customer's server. Everything else is kept:
+# the sensitive set is small and well known, whereas an allowlist would silently drop
+# whatever a future detector needs.
+_SENSITIVE_SETTING_NAMES = ("primary_conninfo",)
+_SENSITIVE_SETTING_PATTERNS = (
+    "%conninfo%",
+    "%password%",
+    "%passphrase%",
+    "%_command",
+    "%keyfile%",
+    "%key_file%",
+)
+
+# Role-management statements are the one place pg_stat_statements stores a literal
+# verbatim: DML literals are normalized to `$1` placeholders, but utility statements are
+# recorded as written, so `ALTER USER … PASSWORD '…'` would land in the warehouse. They
+# carry no performance signal, so drop them. Postgres spells the word boundary `\y`, and
+# anchoring to the statement start keeps ordinary queries against tables like
+# `password_resets` intact.
+_ROLE_STATEMENT_PATTERN = r"^\s*(create|alter)\s+(role|user)\y"
+
 
 class _PostgresStatsCollector(Protocol):
     """A Postgres collector: the generic contract plus this engine's schema scope."""
@@ -101,6 +126,8 @@ def _collect_statements(
     server's `search_path`. Omitting unattributable rows would empty the table rather
     than scope it, so on a schema-restricted source the normalized text here can mention
     objects in other schemas of the same database.
+
+    Role-management statements are excluded — see `_ROLE_STATEMENT_PATTERN`.
     """
     with conn.cursor() as cur:
         relation = _pg_stat_statements_relation(cur)
@@ -117,11 +144,13 @@ def _collect_statements(
                         """
                         SELECT * FROM {relation}
                         WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                          AND query !~* {role_statements}
                         ORDER BY {order_column} DESC
                         LIMIT {limit}
                         """
                     ).format(
                         relation=relation,
+                        role_statements=sql.Literal(_ROLE_STATEMENT_PATTERN),
                         order_column=sql.Identifier(order_column),
                         limit=sql.Literal(STATEMENTS_SNAPSHOT_LIMIT),
                     )
@@ -222,9 +251,20 @@ def _collect_settings(
     snapshot_id: str,
     source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Server configuration. Cluster-wide by nature — settings aren't per-schema."""
+    """Server configuration, minus the settings that can carry credentials.
+
+    Cluster-wide by nature — settings aren't per-schema. See `_SENSITIVE_SETTING_NAMES`
+    for what is withheld and why.
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT * FROM pg_settings")
+        cur.execute(
+            """
+            SELECT * FROM pg_settings
+            WHERE name <> ALL(%s)
+              AND name NOT LIKE ALL(%s)
+            """,
+            (list(_SENSITIVE_SETTING_NAMES), list(_SENSITIVE_SETTING_PATTERNS)),
+        )
         return snapshot_rows(cur, collected_at, snapshot_id)
 
 
@@ -273,22 +313,27 @@ def _collect_activity_summary(
     snapshot_id: str,
     source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Backend counts by state — deliberately an aggregate, not a mirror.
+    """Backend counts by state for this database — deliberately an aggregate, not a mirror.
 
     Raw `pg_stat_activity` is a point-in-time list of live sessions carrying client
     addresses, usernames and (for the connecting role's own backends) query text. The
     signal wanted here is connection saturation, which a count answers, so this stays
-    aggregated. Cluster-wide on purpose: `max_connections` is a cluster-wide limit, so
-    only a cluster-wide count answers "how close is this server to saturation?", and
-    counts by state reveal nothing about what other databases are running.
+    aggregated.
+
+    The per-state breakdown covers this database only, so snapshots can't be used to
+    watch a neighbouring database's activity pattern. `cluster_backends_total` is the one
+    cross-database number kept, because `max_connections` is a cluster-wide limit and
+    saturation is meaningless without the cluster-wide numerator — it's a single scalar
+    with no breakdown behind it.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT coalesce(state, 'unknown') AS state,
                    count(*)::bigint AS backends,
-                   count(*) FILTER (WHERE datname = current_database())::bigint AS backends_current_database
+                   (SELECT count(*) FROM pg_stat_activity)::bigint AS cluster_backends_total
             FROM pg_stat_activity
+            WHERE datname = current_database()
             GROUP BY 1
             """
         )
@@ -347,7 +392,11 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
         ),
         DatabaseStatsCatalog(
             table_name="pg_settings",
-            description="Snapshots of pg_settings: the server's configuration parameters and their sources.",
+            description=(
+                "Snapshots of pg_settings: the server's configuration parameters and their sources. "
+                "Settings that can carry credentials (primary_conninfo, archive/restore commands, "
+                "passphrase and key-file settings) are never collected."
+            ),
             collector=_collect_settings,
             catalog_relation="pg_settings",
         ),
@@ -364,14 +413,15 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
         DatabaseStatsCatalog(
             table_name="pg_stat_activity_summary",
             description=(
-                "Backend counts by state, cluster-wide and for this database. An aggregate of "
-                "pg_stat_activity rather than a copy, so no session details are collected."
+                "Backend counts by state for this database, plus the cluster-wide total that "
+                "max_connections is measured against. An aggregate of pg_stat_activity rather "
+                "than a copy, so no session details are collected."
             ),
             collector=_collect_activity_summary,
             static_columns=(
                 ("state", "text", True),
                 ("backends", "bigint", True),
-                ("backends_current_database", "bigint", True),
+                ("cluster_backends_total", "bigint", True),
             ),
         ),
     )

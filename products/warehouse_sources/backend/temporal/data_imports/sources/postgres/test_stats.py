@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.stats import (
+    _ROLE_STATEMENT_PATTERN,
     POSTGRES_STATS_CATALOGS,
     _collect_statements,
     fetch_postgres_stats_columns,
@@ -132,6 +133,41 @@ class TestPostgresStatsCollectors:
         )
         assert {r["snapshot_id"] for r in rows} == {snapshot_id}
         assert {r["collected_at"] for r in rows} == {collected_at}
+
+    @pytest.mark.django_db
+    def test_settings_snapshot_withholds_credential_bearing_settings(self, autocommit_pg_connection):
+        # A superuser or pg_read_all_settings role can read these, and the warehouse table
+        # is readable by every project member — primary_conninfo alone can carry a
+        # replication password.
+        rows = POSTGRES_STATS_CATALOGS["pg_settings"].collector(autocommit_pg_connection, logger, *_snapshot_base())
+        collected = {row["name"] for row in rows}
+
+        assert not collected & {
+            "primary_conninfo",
+            "archive_command",
+            "restore_command",
+            "archive_cleanup_command",
+            "recovery_end_command",
+            "ssl_passphrase_command",
+            "ssl_key_file",
+            "krb_server_keyfile",
+        }
+        # Everything else is still collected — the point of snapshotting the catalog.
+        assert {"max_connections", "shared_buffers", "work_mem", "autovacuum"} <= collected
+
+    @pytest.mark.django_db
+    def test_activity_summary_is_scoped_to_this_database(self, autocommit_pg_connection):
+        rows = POSTGRES_STATS_CATALOGS["pg_stat_activity_summary"].collector(
+            autocommit_pg_connection, logger, *_snapshot_base()
+        )
+
+        # Per-state counts cover this database only, so snapshots can't be diffed to watch
+        # a neighbouring database; only the cluster total (the max_connections
+        # denominator) is cross-database.
+        assert sum(row["backends"] for row in rows) <= rows[0]["cluster_backends_total"]
+        with autocommit_pg_connection.cursor() as cur:
+            cur.execute("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()")
+            assert sum(row["backends"] for row in rows) == cur.fetchone()[0]
 
     @pytest.mark.django_db
     def test_replication_slots_snapshot_is_scoped_and_lag_aware(self, autocommit_pg_connection):
@@ -270,6 +306,36 @@ class TestCollectStatementsScripted:
             ]
         )
         assert _collect_statements(cast(Any, conn), logger, *_snapshot_base()) == []
+
+    def test_role_management_statements_are_excluded(self):
+        # DML literals are normalized to placeholders, but utility statements are recorded
+        # verbatim, so `ALTER USER … PASSWORD '…'` would otherwise land in the warehouse.
+        conn = _ScriptedConnection([self._EXTENSION, ("total_exec_time", self._MODERN_ROWS)])
+        _collect_statements(cast(Any, conn), logger, *_snapshot_base())
+
+        statements_query = next(q for q in conn.executed if "pg_stat_statements" in q and "ORDER BY" in q)
+        assert "query !~*" in statements_query
+
+    @pytest.mark.django_db
+    def test_role_statement_pattern_matches_only_role_management(self, autocommit_pg_connection):
+        # Postgres spells the word boundary `\y`; `\b` would silently match nothing, so
+        # pin the behaviour against a real server.
+        with autocommit_pg_connection.cursor() as cur:
+            cur.execute(
+                "SELECT s, s ~* %s FROM unnest(%s::text[]) AS s",
+                (
+                    _ROLE_STATEMENT_PATTERN,
+                    [
+                        "ALTER USER bob PASSWORD 'hunter2'",
+                        "  create role app_ro LOGIN PASSWORD 'x'",
+                        "SELECT * FROM password_resets WHERE id = $1",
+                        "ALTER TABLE users ADD COLUMN x int",
+                    ],
+                ),
+            )
+            excluded = dict(cur)
+
+        assert list(excluded.values()) == [True, True, False, False]
 
     def test_statements_are_scoped_to_the_connected_database(self):
         # pg_stat_statements is cluster-wide; without the dbid filter another database's
