@@ -27,7 +27,7 @@ const counterTestLogic = kea<counterTestLogicType>([
 
 function Count(): JSX.Element {
     const { count } = useValues(counterTestLogic)
-    return <span data-attr="count">{count}</span>
+    return <span>count is {count}</span>
 }
 
 // Guards patches/kea@4.0.0-pre.6.patch: React can read a render snapshot while a redux
@@ -40,7 +40,7 @@ describe('kea useSelector mid-dispatch snapshot guard', () => {
 
     it('survives getState throwing mid-dispatch and recovers on the next read', () => {
         render(<Count />)
-        expect(screen.getByTestId('count')).toHaveTextContent('0')
+        expect(screen.getByText('count is 0')).toBeInTheDocument()
 
         const store = getContext().store
         const realGetState = store.getState
@@ -67,6 +67,6 @@ describe('kea useSelector mid-dispatch snapshot guard', () => {
         act(() => {
             counterTestLogic.actions.increment()
         })
-        expect(screen.getByTestId('count')).toHaveTextContent('2')
+        expect(screen.getByText('count is 2')).toBeInTheDocument()
     })
 })
