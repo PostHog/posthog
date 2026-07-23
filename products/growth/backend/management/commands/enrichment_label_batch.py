@@ -116,7 +116,8 @@ class Command(BaseCommand):
                 if limit is not None and counts["attempted"] >= limit:
                     return
                 if _result_exists(fetch):
-                    counts["skipped_existing"] += 1
+                    with counts_lock:
+                        counts["skipped_existing"] += 1
                     continue
                 counts["attempted"] += 1
                 yield fetch
