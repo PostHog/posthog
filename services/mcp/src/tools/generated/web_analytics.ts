@@ -11,6 +11,7 @@ import {
     SavedPartialUpdateParams,
     SavedRegenerateCreateParams,
     SavedRetrieveParams,
+    WebAnalyticsPathCleaningSuggestionsApplyParams,
     WebAnalyticsWeeklyDigestQueryParams,
 } from '@/generated/web_analytics/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -212,6 +213,45 @@ const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schem
     },
 })
 
+const WebAnalyticsPathCleaningSuggestionsApplySchema = WebAnalyticsPathCleaningSuggestionsApplyParams.omit({
+    project_id: true,
+})
+
+const webAnalyticsPathCleaningSuggestionsApply = (): ToolBase<
+    typeof WebAnalyticsPathCleaningSuggestionsApplySchema,
+    Schemas.ApplyPathCleaningSuggestionResponse
+> => ({
+    name: 'web-analytics-path-cleaning-suggestions-apply',
+    schema: WebAnalyticsPathCleaningSuggestionsApplySchema,
+    handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsApplySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ApplyPathCleaningSuggestionResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_path_cleaning_suggestions/${encodeURIComponent(String(params.id))}/apply/`,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsPathCleaningSuggestionsGenerateSchema = z.object({})
+
+const webAnalyticsPathCleaningSuggestionsGenerate = (): ToolBase<
+    typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema,
+    Schemas.GeneratePathCleaningSuggestionResponse
+> => ({
+    name: 'web-analytics-path-cleaning-suggestions-generate',
+    schema: WebAnalyticsPathCleaningSuggestionsGenerateSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.GeneratePathCleaningSuggestionResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_path_cleaning_suggestions/generate/`,
+        })
+        return result
+    },
+})
+
 const WebAnalyticsWeeklyDigestSchema = WebAnalyticsWeeklyDigestQueryParams
 
 const webAnalyticsWeeklyDigest = (): ToolBase<typeof WebAnalyticsWeeklyDigestSchema, Schemas.WeeklyDigestResponse> => ({
@@ -239,5 +279,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
     'heatmaps-saved-update': heatmapsSavedUpdate,
+    'web-analytics-path-cleaning-suggestions-apply': webAnalyticsPathCleaningSuggestionsApply,
+    'web-analytics-path-cleaning-suggestions-generate': webAnalyticsPathCleaningSuggestionsGenerate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,
 }
