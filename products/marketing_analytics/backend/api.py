@@ -188,7 +188,12 @@ class ConversionGoal(PydanticRootModel):
 
 @extend_schema_field(ConversionGoal)  # type: ignore[arg-type]
 class ConversionGoalField(serializers.JSONField):
-    pass
+    def to_internal_value(self, data: object) -> dict:
+        value = super().to_internal_value(data)
+        # JSONField accepts any JSON value; a non-object goal would 500 at the dict() call downstream
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("goal must be a JSON object.")
+        return value
 
 
 @extend_schema_field(ConversionGoalWrittenList)  # type: ignore[arg-type]
