@@ -3,7 +3,7 @@ import uuid
 import builtins
 import dataclasses
 from datetime import UTC, datetime
-from typing import Any, Optional, TypeVar, Union, cast  # noqa: UP035
+from typing import Any, Optional, Union, cast  # noqa: UP035
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -46,9 +46,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
-from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_event_deletion,
@@ -1190,51 +1188,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _run_legacy_actors_query(
-        self,
-        source: Any,
-        filter: Filter,
-        *,
-        aggregation_group_type_index: Optional[int],
-    ) -> tuple[builtins.list, int]:
-        """Run an ActorsQuery (the HogQL actor path used by the modern /query route) and reshape the
-        results into the legacy SerializedPerson/SerializedGroup envelope this endpoint has always
-        returned. `source` is an InsightActorsQuery.
-        """
-        from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation  # noqa: PLC0415
-
-        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
-        from posthog.queries.actor_base_query import get_groups  # noqa: PLC0415
-
-        # Raw id-only select — we hydrate actors ourselves below, matching the legacy
-        # SerializedPerson shape rather than the ActorsQuery strategy dict.
-        actors_query = ActorsQuery(
-            source=source,
-            select=["actor_id"],
-            limit=filter.limit,
-            offset=filter.offset,
-        )
-        # Inline cohort definitions instead of reading precomputed membership — the legacy actor queries
-        # expanded cohorts inline, so a cohort breakdown/filter works without a prior cohort calculation.
-        # The modifiers must live on the inner insight query: ActorsQueryRunner inherits its modifiers from
-        # the source query runner, which derives them from `source.source.modifiers`.
-        source.source.modifiers = (source.source.modifiers or HogQLQueryModifiers()).model_copy(
-            update={"inlineCohortCalculation": InlineCohortCalculation.ALWAYS}
-        )
-        runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        results = list(runner.calculate().results)
-        raw_count = len(results)
-
-        actor_ids = [str(row[0]) for row in results]
-
-        serialized_actors: list[Any]
-        if aggregation_group_type_index is not None:
-            _, serialized_actors = get_groups(self.team.pk, aggregation_group_type_index, actor_ids, None)
-        else:
-            serialized_actors = get_serialized_people(self.team, actor_ids, None)
-
-        return serialized_actors, raw_count
-
     @action(methods=["GET"], detail=True)
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
@@ -1317,9 +1270,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        from posthog.schema import InsightActorsQuery, LifecycleQuery  # noqa: PLC0415
+        from posthog.schema import (  # noqa: PLC0415
+            HogQLQueryModifiers,
+            InlineCohortCalculation,
+            InsightActorsQuery,
+            LifecycleQuery,
+        )
 
+        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
+        from posthog.queries.actor_base_query import get_groups  # noqa: PLC0415
 
         filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
         filter = prepare_actor_query_filter(filter)
@@ -1327,13 +1287,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         lifecycle_query = cast(LifecycleQuery, filter_to_query({**filter.to_dict(), "insight": "LIFECYCLE"}))
         source = InsightActorsQuery(source=lifecycle_query, day=target_date, status=lifecycle_type)
 
+        # Run the ActorsQuery (the HogQL actor path used by the modern /query route) with a raw
+        # id-only select, then hydrate the actors ourselves to keep the legacy
+        # SerializedPerson/SerializedGroup envelope this endpoint has always returned.
+        actors_query = ActorsQuery(source=source, select=["actor_id"], limit=filter.limit, offset=filter.offset)
+        # Inline cohort definitions instead of reading precomputed membership — the legacy actor queries
+        # expanded cohorts inline, so a cohort breakdown/filter works without a prior cohort calculation.
+        # The modifiers must live on the inner insight query: ActorsQueryRunner inherits its modifiers from
+        # the source query runner, which derives them from `source.source.modifiers`.
+        source.source.modifiers = (source.source.modifiers or HogQLQueryModifiers()).model_copy(
+            update={"inlineCohortCalculation": InlineCohortCalculation.ALWAYS}
+        )
         with personhog_caller_tag("persons/lifecycle"):
-            people, raw_count = self._run_legacy_actors_query(
-                source,
-                filter,
-                aggregation_group_type_index=lifecycle_query.aggregation_group_type_index,
-            )
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
+            results = list(ActorsQueryRunner(team=self.team, query=actors_query).calculate().results)
+            actor_ids = [str(row[0]) for row in results]
+
+            people: list[Any]
+            if lifecycle_query.aggregation_group_type_index is not None:
+                _, people = get_groups(self.team.pk, lifecycle_query.aggregation_group_type_index, actor_ids, None)
+            else:
+                people = get_serialized_people(self.team, actor_ids, None)
+
+        next_url = format_paginated_url(request, filter.offset, filter.limit) if len(results) >= filter.limit else None
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
     @extend_schema(
@@ -1606,19 +1581,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
 
-def paginated_result(
-    request: request.Request,
-    count: int,
-    offset: int = 0,
-    limit: int = DEFAULT_PAGE_LIMIT,
-) -> Optional[str]:
-    return format_paginated_url(request, offset, limit) if count >= limit else None
-
-
-T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter)
-
-
-def prepare_actor_query_filter(filter: T) -> T:
+def prepare_actor_query_filter(filter: LifecycleFilter) -> LifecycleFilter:
     if not filter.limit:
         filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
