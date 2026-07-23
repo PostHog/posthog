@@ -115,12 +115,16 @@ class WidgetMessageView(APIView):
                 # client-side event is blocked (ad blockers, network drops). Field names and
                 # value lengths only — never message content. An over-long auto-captured
                 # session_context value (e.g. current_url) is a known rejection cause.
-                session_context = request.data.get("session_context")
-                session_context_field_lengths = (
-                    {k: len(v) for k, v in session_context.items() if isinstance(k, str) and isinstance(v, str)}
-                    if isinstance(session_context, dict)
-                    else {}
-                )
+                # This endpoint is public and unauthenticated, so session_context is
+                # attacker-controlled: bound both the number of fields and the key length we
+                # record so a request stuffed with many keys can't inflate the event payload.
+                raw_session_context = request.data.get("session_context")
+                session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
+                session_context_field_lengths = {}
+                if isinstance(raw_session_context, dict):
+                    for key, value in list(raw_session_context.items())[:20]:
+                        if isinstance(key, str) and isinstance(value, str):
+                            session_context_field_lengths[key[:100]] = len(value)
                 report_team_action(
                     team,
                     "support ticket send failed",
@@ -128,6 +132,7 @@ class WidgetMessageView(APIView):
                         "channel_source": "widget",
                         "reason": "validation_error",
                         "error_fields": sorted(serializer.errors.keys()),
+                        "session_context_field_count": session_context_field_count,
                         "session_context_field_lengths": session_context_field_lengths,
                     },
                 )
