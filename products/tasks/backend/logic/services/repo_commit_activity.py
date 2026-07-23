@@ -31,6 +31,10 @@ _FIELD_SEP = "\x1f"
 
 _CLONE_TIMEOUT_SECONDS = 10 * 60
 _LOG_TIMEOUT_SECONDS = 3 * 60
+# Hard byte cap on git log output: sandbox.execute reads all stdout into the worker, and
+# --max-count bounds commits, not paths — one pathological tree-wide commit could otherwise
+# balloon the transfer. ~3x a very active monorepo's real 90-day output (~20MB).
+_MAX_LOG_BYTES = 64 * 1024 * 1024
 
 DEFAULT_SINCE_DAYS = 90
 # Runaway backstop only — sized well above a very active monorepo's 90-day non-merge count
@@ -125,7 +129,7 @@ def _read_log(
     target_path = sandbox_repo_path(repository)
     # %cd (committer date): the same axis --since filters on, and when the change landed.
     pretty = f"{_RECORD_SEP}%H{_FIELD_SEP}%an{_FIELD_SEP}%ae{_FIELD_SEP}%cd"
-    command = (
+    log_command = (
         f"git -C {shlex.quote(target_path)} log "
         # --no-renames: inexact rename detection compares blob contents, which a blobless
         # clone fetches over the network per candidate pair; a rename crediting both the
@@ -133,10 +137,18 @@ def _read_log(
         f"--since={shlex.quote(f'{since_days} days')} --no-merges --no-renames --max-count={max_commits} "
         f"--date=iso-strict --pretty=format:{shlex.quote(pretty)} --name-only"
     )
+    # Stage to a file and ship at most _MAX_LOG_BYTES+1 back: the worker reads all stdout
+    # into memory, so the byte cap is enforced sandbox-side. The sentinel extra byte
+    # distinguishes "exactly at the limit" from "truncated"; && preserves git's exit code.
+    command = f"{log_command} > /tmp/repo-activity.log && head -c {_MAX_LOG_BYTES + 1} /tmp/repo-activity.log"
     result = sandbox.execute(command, timeout_seconds=_LOG_TIMEOUT_SECONDS)
     if result.exit_code != 0:
         raise RepositoryCommitActivityError(
             f"git log of {repository} failed with exit code {result.exit_code}: {result.stderr[:300]}"
+        )
+    if len(result.stdout.encode()) > _MAX_LOG_BYTES:
+        raise RepositoryCommitActivityError(
+            f"git log of {repository} exceeded {_MAX_LOG_BYTES} bytes; refusing to build a truncated map"
         )
     return _parse_log(result.stdout)
 
