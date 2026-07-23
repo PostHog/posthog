@@ -71,8 +71,9 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a "
             "window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run "
-            "attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed "
-            "jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when it fails while "
+            "attempt. A test is a 'confirmed_flake' when one code state both failed and passed it in the same "
+            "matrix leg (a 'Re-run failed jobs' attempt went green, an in-job retry recovered it, or another "
+            "run of the identical tree passed it); 'quarantined' when it fails while "
             "masked as xfail; otherwise 'suspected_regression'. It qualifies on any same-commit recovery, any "
             "master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. "
             + FLAKY_TEST_SIGNAL_CAVEAT

@@ -65,7 +65,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         description=(
             "Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as "
-            "flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was "
+            "flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one code state was "
             "seen both failing and passing in the window, regression_test_count is owned tests that failed "
             "with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
             "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "

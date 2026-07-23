@@ -30,16 +30,17 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
             },
             "classification": {
-                "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
-                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it "
-                "fails while masked as xfail. suspected_regression: only failures were recorded, which is "
-                "absence of proof, not proof that it is a real break.",
+                "help_text": "confirmed_flake: one code state both failed and passed the test in the same matrix "
+                "leg (a re-run attempt went green, an in-job retry recovered it, or another run of the identical "
+                "tree passed it), so it is provably nondeterministic. quarantined: it fails while masked as "
+                "xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof "
+                "that it is a real break.",
             },
             "same_commit_recovery_run_count": {
-                "help_text": "Runs where one commit both failed and passed the test: a 'Re-run failed jobs' "
-                "attempt went green on the same commit, or an in-job pytest retry (tests hand-marked "
-                "@pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit "
-                "and never counts.",
+                "help_text": "Runs where one code state both failed and passed the test: a 'Re-run failed jobs' "
+                "attempt went green on the same commit, an in-job pytest retry (tests hand-marked "
+                "@pytest.mark.flaky(reruns=N)) recovered it, or another run testing the identical tree (same "
+                "merge commit) passed it. A pass at a different commit never counts.",
             },
             "failed_run_count": {
                 "help_text": "Distinct CI runs whose recorded outcome was failed or error. A run counts once "
