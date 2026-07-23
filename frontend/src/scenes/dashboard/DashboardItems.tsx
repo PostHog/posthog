@@ -245,7 +245,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
                       dashboardWidgetsEnabled,
-                      showAddInsightToDashboardModal,
+                      onAddInsight: showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
                       onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),

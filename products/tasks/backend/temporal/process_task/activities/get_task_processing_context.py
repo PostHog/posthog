@@ -11,6 +11,7 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
@@ -18,9 +19,12 @@ from products.tasks.backend.constants import (
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-    vm_sandbox_allowed_origins,
+    get_vm_sandbox_flag_payload,
+    vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -80,6 +84,9 @@ class TaskProcessingContext:
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
+    # Captured at workflow start so telemetry env injection (and the run-log mirror,
+    # which reads the same state stamp) is deterministic for the full run.
+    agent_otel_telemetry_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
     # Burstable by default; the per-run state can opt out to pin a fixed-size box
@@ -360,6 +367,33 @@ def _is_sandbox_event_ingest_enabled(
     return enabled
 
 
+def _is_agent_otel_telemetry_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    # DEBUG first: local dev disables the analytics SDK, so the dispatch capture always
+    # stamps False there - honoring the stamp would disable telemetry locally even with
+    # the SANDBOX_AGENT_OTEL_* settings (the local opt-in, which gate emission themselves)
+    # set. Matches agent_otel_telemetry_enabled_for_state, which the mirror reads.
+    if settings.DEBUG:
+        return True
+
+    state_override = (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY)
+    if isinstance(state_override, bool):
+        return state_override
+
+    enabled = is_agent_otel_telemetry_enabled(distinct_id=distinct_id, organization_id=organization_id)
+    log_with_activity_context(
+        "agent_otel_telemetry_flag_checked",
+        run_id=run_id,
+        agent_otel_telemetry_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_modal_vm_sandbox_enabled(
     *,
     distinct_id: str,
@@ -378,7 +412,38 @@ def _is_modal_vm_sandbox_enabled(
         )
         return False
 
-    if origin_product != Task.OriginProduct.IMAGE_BUILDER and not custom_image_available:
+    # A trusted, server-set per-run override (image builders) forces the runtime
+    # decision without consulting the flag; any non-bool value is ignored.
+    raw_state_override = (state or {}).get("use_modal_vm_sandbox")
+    state_override: bool | None = raw_state_override if isinstance(raw_state_override, bool) else None
+
+    # Resolve the flag payload once and derive both allowlists from it, skipping the
+    # fetch entirely when a bool state override is present (so image-builder runs never
+    # depend on the flag service):
+    #   - allowed_origins: origins permitted on the VM runtime (custom images are VM-only).
+    #   - default_base_origins: origins that may run on the bare VM *base* image even
+    #     without a custom image — makes the VM runtime the default for standard runs.
+    allowed_origins: set[str] = set()
+    default_base_origins: set[str] = set()
+    if state_override is None:
+        try:
+            payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+        except Exception as e:
+            log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+            return False
+        allowed_origins = vm_sandbox_allowed_origin_products(payload)
+        default_base_origins = vm_sandbox_default_base_origin_products(payload)
+
+    origin_allows_default_base = origin_product in default_base_origins
+
+    # Custom images are VM-only, so VM historically required one. image_builder always
+    # runs on VM (it builds images on that base); origins in the default-base allowlist
+    # may run on the bare VM base image with no custom image at all.
+    if (
+        origin_product != Task.OriginProduct.IMAGE_BUILDER
+        and not custom_image_available
+        and not origin_allows_default_base
+    ):
         log_with_activity_context(
             "modal_vm_sandbox_skipped_without_custom_image",
             run_id=run_id,
@@ -386,8 +451,7 @@ def _is_modal_vm_sandbox_enabled(
         )
         return False
 
-    state_override = (state or {}).get("use_modal_vm_sandbox")
-    if isinstance(state_override, bool):
+    if state_override is not None:
         log_with_activity_context(
             "modal_vm_sandbox_state_override",
             run_id=run_id,
@@ -395,20 +459,14 @@ def _is_modal_vm_sandbox_enabled(
         )
         return state_override
 
-    try:
-        allowed_origins = vm_sandbox_allowed_origins(distinct_id=distinct_id, organization_id=organization_id)
-    except Exception as e:
-        log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    origin_allowed = origin_product in allowed_origins
-    result = origin_allowed
+    result = origin_product in allowed_origins or origin_allows_default_base
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
+        default_base_origin_products=sorted(default_base_origins),
         custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
@@ -734,6 +792,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
     )
+    agent_otel_telemetry_enabled = _is_agent_otel_telemetry_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
     use_modal_vm_sandbox = _is_modal_vm_sandbox_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -860,6 +924,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
         use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,

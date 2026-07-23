@@ -13,6 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -982,6 +983,69 @@ describe('dashboardLogic', () => {
                     logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
             })
+        })
+
+        describe('openAddInsightModal action', () => {
+            let confirmSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            })
+
+            afterEach(() => {
+                confirmSpy.mockRestore()
+            })
+
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            it('opens the modal without confirming when there are no unsaved layout changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.openAddInsightModal()
+                }).toFinishAllListeners()
+
+                expect(confirmSpy).not.toHaveBeenCalled()
+                expect(addInsightToDashboardLogic.values.addInsightToDashboardModalVisible).toBe(true)
+            })
+
+            it.each([
+                { accepted: true, expectedVisible: true, expectedUnsaved: false },
+                { accepted: false, expectedVisible: false, expectedUnsaved: true },
+            ])(
+                'gates the add-insight modal on the browser confirm (accepted=$accepted)',
+                async ({ accepted, expectedVisible, expectedUnsaved }) => {
+                    confirmSpy.mockReturnValue(accepted)
+                    await expectLogic(logic).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, moveFirstTile)
+                        .toFinishAllListeners()
+                        .toMatchValues({ hasUnsavedLayoutChanges: true })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.openAddInsightModal()
+                    }).toFinishAllListeners()
+
+                    expect(confirmSpy).toHaveBeenCalledTimes(1)
+                    expect(addInsightToDashboardLogic.values.addInsightToDashboardModalVisible).toBe(expectedVisible)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(expectedUnsaved)
+                }
+            )
         })
     })
 

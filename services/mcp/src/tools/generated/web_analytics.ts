@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/web_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     HeatmapsEventsRetrieveQueryParams,
     HeatmapsListQueryParams,
@@ -13,8 +17,6 @@ import {
     SavedRetrieveParams,
     WebAnalyticsWeeklyDigestQueryParams,
 } from '@/generated/web_analytics/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const HeatmapsEventsSchema = HeatmapsEventsRetrieveQueryParams
 

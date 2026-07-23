@@ -1,9 +1,11 @@
 // AUTO-GENERATED from services/mcp/definitions/docs.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import { DocsSearchBody } from '@/generated/docs/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+import type { Schemas } from '@/api/generated'
+
+import { DocsSearchBody } from '@/generated/docs/api'
 
 const DocsSearchSchema = DocsSearchBody
 

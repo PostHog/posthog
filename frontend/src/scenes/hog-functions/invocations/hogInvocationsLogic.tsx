@@ -10,7 +10,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
-import { LogEntryLevel, PersonType } from '~/types'
+import { HogFunctionTypeType, LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
@@ -30,6 +30,18 @@ export type RunRowKind = 'hog_function' | 'hog_flow' | 'hog_function_rerun' | 'h
 
 export const isRerunWrapperKind = (kind: RunRowKind): boolean =>
     kind === 'hog_function_rerun' || kind === 'hog_flow_rerun'
+
+/**
+ * Hog function types a cyclotron worker executes, so a re-run (which re-enqueues onto the
+ * cyclotron hog queue) can actually run. Other types run elsewhere — source webhooks inline
+ * in the cdp-api HTTP handler, transformations during ingestion, site_* as client-side JS —
+ * so a re-enqueued invocation would never drain and wedges the partition. Mirror of the
+ * backend `TYPES_THAT_CAN_RERUN` allowlist; the API rejects a re-run of a non-rerunnable type.
+ */
+export const RERUNNABLE_HOG_FUNCTION_TYPES: HogFunctionTypeType[] = ['destination', 'internal_destination']
+
+export const isRerunnableHogFunctionType = (type?: HogFunctionTypeType | null): boolean =>
+    !!type && RERUNNABLE_HOG_FUNCTION_TYPES.includes(type)
 
 const rerunWrapperKindFor = (kind: HogInvocationsFunctionKind): RunRowKind =>
     kind === 'hog_flow' ? 'hog_flow_rerun' : 'hog_function_rerun'
