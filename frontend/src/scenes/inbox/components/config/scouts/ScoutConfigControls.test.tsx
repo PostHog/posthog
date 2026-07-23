@@ -1,5 +1,6 @@
 import { fireEvent, render } from '@testing-library/react'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
@@ -15,16 +16,23 @@ const config: SignalScoutConfigApi = {
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: '0 9 * * *',
+    output_destinations: {},
     last_run_at: null,
     created_at: '2026-07-21T12:00:00Z',
 }
 
 describe('ScoutConfigForm', () => {
+    useMocks({
+        get: {
+            '/api/environments/:team_id/integrations/': () => [200, { results: [] }],
+        },
+    })
+
     beforeEach(() => initKeaTests())
 
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
         const onUpdate = jest.fn()
-        const { container } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
+        const { container, unmount } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
         const input = container.querySelector<HTMLInputElement>('input[type="time"]')
 
         expect(input).not.toBeNull()
@@ -40,15 +48,17 @@ describe('ScoutConfigForm', () => {
         fireEvent.change(input!, { target: { value: '' } })
         fireEvent.blur(input!)
         expect(onUpdate).toHaveBeenCalledTimes(1)
+        unmount()
     })
 
     it('shows an unexpressible cron as a read-only custom mode without a time picker', () => {
         const onUpdate = jest.fn()
-        const { container, getByText } = render(
+        const { container, getByText, unmount } = render(
             <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 * * 1-5' }} onUpdate={onUpdate} />
         )
 
         expect(container.querySelector('input[type="time"]')).toBeNull()
         expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
+        unmount()
     })
 })
