@@ -1,5 +1,6 @@
 """Serializers for Conversations API."""
 
+from typing import Any
 from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
@@ -70,15 +71,37 @@ class WidgetAuthSerializer(serializers.Serializer):
         return data
 
 
+TRAITS_MAX_COUNT = 50
+TRAIT_KEY_MAX_LENGTH = 200
+TRAIT_VALUE_MAX_LENGTH = 500
+SESSION_CONTEXT_MAX_FIELDS = 20
+SESSION_CONTEXT_KEY_MAX_LENGTH = 100
+SESSION_CONTEXT_VALUE_MAX_LENGTH = 8192
+
+
+def _truncate_long_value(value: str, max_length: int) -> str:
+    """URL fragments carry encoded UI state and are where oversized values come from in
+    practice — drop the fragment first so the stored value stays a clean, working link."""
+    if value.startswith(("http://", "https://")) and "#" in value:
+        value = value.split("#", 1)[0]
+    return value[:max_length]
+
+
 class WidgetMessageSerializer(WidgetAuthSerializer):
     """Serializer for incoming widget messages."""
 
     distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
     message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
-    traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
+    traits = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Customer traits. Oversized or malformed entries are sanitized, never rejected",
+    )
     session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
     session_context = serializers.DictField(
-        required=False, default=dict, help_text="Session context (replay URL, current URL, etc.)"
+        required=False,
+        default=dict,
+        help_text="Session context (replay URL, current URL, etc.). Oversized values are truncated, never rejected",
     )
 
     def validate(self, data):
@@ -97,58 +120,59 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
             raise serializers.ValidationError("Message content is required")
         return value.strip()
 
-    def validate_traits(self, value):
+    def validate_traits(self, value: dict[str, Any]) -> dict[str, str | None]:
+        """Traits are attached automatically by the widget, so oversized or malformed
+        entries are sanitized rather than rejected — they must never block submission."""
         if not isinstance(value, dict):
-            raise serializers.ValidationError("traits must be a dictionary")
+            return {}
 
-        if len(value) > 50:
-            raise serializers.ValidationError(f"Too many traits: {len(value)} (max 50)")
-
-        validated = {}
+        validated: dict[str, str | None] = {}
         for key, val in value.items():
-            # Validate key is a string with reasonable length
-            if not isinstance(key, str):
+            if len(validated) >= TRAITS_MAX_COUNT:
+                break
+            if not isinstance(key, str) or len(key) > TRAIT_KEY_MAX_LENGTH:
                 continue
-            if len(key) > 200:
-                raise serializers.ValidationError(f"Trait key too long: '{key[:50]}...' (max 200 chars)")
 
             # Only allow simple types for MVP
             if not isinstance(val, str | int | float | bool | type(None)):
                 continue
 
-            # Convert to string and validate length
             str_value = str(val) if val is not None else None
-            if str_value and len(str_value) > 500:
-                raise serializers.ValidationError(f"Trait value too long for '{key}' (max 500 chars)")
+            if str_value is not None:
+                str_value = str_value[:TRAIT_VALUE_MAX_LENGTH]
 
             validated[key] = str_value
 
         return validated
 
-    def validate_session_context(self, value):
+    def validate_session_context(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Session context is attached automatically by the widget (current URL, replay URL,
+        ...), so it is sanitized rather than rejected: the customer can't shorten the page URL
+        they're on, and context must never block submission. Truncated values get a
+        `<key>_truncated: true` marker so consumers know the stored value is partial."""
         if not isinstance(value, dict):
-            raise serializers.ValidationError("session_context must be a dictionary")
+            return {}
 
-        if len(value) > 20:
-            raise serializers.ValidationError(f"Too many session context fields: {len(value)} (max 20)")
-
-        validated = {}
+        validated: dict[str, Any] = {}
+        truncated_keys: list[str] = []
         for key, val in value.items():
-            # Validate key
-            if not isinstance(key, str):
+            if len(validated) >= SESSION_CONTEXT_MAX_FIELDS:
+                break
+            if not isinstance(key, str) or len(key) > SESSION_CONTEXT_KEY_MAX_LENGTH:
                 continue
-            if len(key) > 100:
-                raise serializers.ValidationError(f"Session context key too long: '{key[:50]}...' (max 100 chars)")
 
-            # Allow simple types and validate length
+            # Allow simple types only
             if not isinstance(val, str | int | float | bool | type(None)):
                 continue
 
-            # Validate string length for string values
-            if isinstance(val, str) and len(val) > 2000:  # URLs can be long
-                raise serializers.ValidationError(f"Session context value too long for '{key}' (max 2000 chars)")
+            if isinstance(val, str) and len(val) > SESSION_CONTEXT_VALUE_MAX_LENGTH:
+                val = _truncate_long_value(val, SESSION_CONTEXT_VALUE_MAX_LENGTH)
+                truncated_keys.append(key)
 
             validated[key] = val
+
+        for key in truncated_keys:
+            validated[f"{key}_truncated"] = True
 
         return validated
 

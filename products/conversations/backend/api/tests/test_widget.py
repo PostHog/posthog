@@ -3,11 +3,23 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.api.serializers import (
+    SESSION_CONTEXT_KEY_MAX_LENGTH,
+    SESSION_CONTEXT_MAX_FIELDS,
+    SESSION_CONTEXT_VALUE_MAX_LENGTH,
+    TRAIT_KEY_MAX_LENGTH,
+    TRAIT_VALUE_MAX_LENGTH,
+    TRAITS_MAX_COUNT,
+    WidgetMessageSerializer,
+)
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
@@ -542,6 +554,29 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_oversized_session_context_truncated_not_rejected(self):
+        long_url = (
+            "https://app.example.com/person/abc?sessionRecordingId=rec-123#state="
+            + "x" * SESSION_CONTEXT_VALUE_MAX_LENGTH
+        )
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hello",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "session_context": {"current_url": long_url},
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(
+            ticket.session_context["current_url"],
+            "https://app.example.com/person/abc?sessionRecordingId=rec-123",
+        )
+        self.assertIs(ticket.session_context["current_url_truncated"], True)
+
 
 class TestWidgetCacheInvalidation(BaseTest):
     """Test that widget message creation invalidates unread count cache."""
@@ -877,3 +912,75 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestWidgetMessageSanitization(SimpleTestCase):
+    def _validated(self, **overrides):
+        data = {
+            "widget_session_id": str(uuid.uuid4()),
+            "distinct_id": "user-123",
+            "message": "Hello",
+            **overrides,
+        }
+        serializer = WidgetMessageSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        return serializer.validated_data
+
+    @parameterized.expand(
+        [
+            (
+                "url_fragment_dropped",
+                "https://us.posthog.com/person/abc?sessionRecordingId=rec#" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH,
+                "https://us.posthog.com/person/abc?sessionRecordingId=rec",
+            ),
+            (
+                "url_without_fragment_hard_truncated",
+                "https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH,
+                ("https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH)[
+                    :SESSION_CONTEXT_VALUE_MAX_LENGTH
+                ],
+            ),
+            (
+                "url_still_oversized_after_fragment_drop",
+                "https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH + "#frag",
+                ("https://us.posthog.com/?q=" + "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH)[
+                    :SESSION_CONTEXT_VALUE_MAX_LENGTH
+                ],
+            ),
+            (
+                "non_url_hard_truncated",
+                "s" * (SESSION_CONTEXT_VALUE_MAX_LENGTH + 100),
+                "s" * SESSION_CONTEXT_VALUE_MAX_LENGTH,
+            ),
+        ]
+    )
+    def test_oversized_session_context_value_truncated(self, _name, raw, expected):
+        context = self._validated(session_context={"current_url": raw})["session_context"]
+        self.assertEqual(context["current_url"], expected)
+        self.assertIs(context["current_url_truncated"], True)
+
+    def test_session_context_under_caps_untouched(self):
+        context = self._validated(session_context={"current_url": "https://example.com/page#state", "count": 3})[
+            "session_context"
+        ]
+        self.assertEqual(context["current_url"], "https://example.com/page#state")
+        self.assertEqual(context["count"], 3)
+        self.assertNotIn("current_url_truncated", context)
+
+    def test_session_context_excess_fields_and_long_keys_dropped(self):
+        long_key = "k" * (SESSION_CONTEXT_KEY_MAX_LENGTH + 1)
+        payload = {long_key: "dropped"}
+        payload.update({f"key_{i}": "v" for i in range(SESSION_CONTEXT_MAX_FIELDS + 5)})
+        context = self._validated(session_context=payload)["session_context"]
+        self.assertEqual(len(context), SESSION_CONTEXT_MAX_FIELDS)
+        self.assertNotIn(long_key, context)
+
+    def test_traits_sanitized_not_rejected(self):
+        long_key = "t" * (TRAIT_KEY_MAX_LENGTH + 1)
+        traits = {long_key: "dropped", "email": "a" * (TRAIT_VALUE_MAX_LENGTH + 100), "count": 3}
+        traits.update({f"trait_{i}": "v" for i in range(TRAITS_MAX_COUNT)})
+        validated = self._validated(traits=traits)["traits"]
+        self.assertEqual(validated["email"], "a" * TRAIT_VALUE_MAX_LENGTH)
+        self.assertEqual(validated["count"], "3")
+        self.assertNotIn(long_key, validated)
+        self.assertEqual(len(validated), TRAITS_MAX_COUNT)
