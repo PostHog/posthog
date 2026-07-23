@@ -374,14 +374,16 @@ def _is_agent_otel_telemetry_enabled(
     run_id: str,
     state: dict | None = None,
 ) -> bool:
+    # DEBUG first: local dev disables the analytics SDK, so the dispatch capture always
+    # stamps False there - honoring the stamp would disable telemetry locally even with
+    # the SANDBOX_AGENT_OTEL_* settings (the local opt-in, which gate emission themselves)
+    # set. Matches agent_otel_telemetry_enabled_for_state, which the mirror reads.
+    if settings.DEBUG:
+        return True
+
     state_override = (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY)
     if isinstance(state_override, bool):
         return state_override
-
-    # Local dev disables the analytics SDK, so the flag below would always read False;
-    # the SANDBOX_AGENT_OTEL_* settings are the local opt-in and gate emission themselves.
-    if settings.DEBUG:
-        return True
 
     enabled = is_agent_otel_telemetry_enabled(distinct_id=distinct_id, organization_id=organization_id)
     log_with_activity_context(

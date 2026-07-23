@@ -263,6 +263,9 @@ class TestAgentOtelTelemetryStateGate(SimpleTestCase):
 
 @override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout"])
 class TestAppendLogMirroring(TestCase):
+    organization: Organization
+    team: Team
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
