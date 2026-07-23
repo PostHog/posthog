@@ -16,6 +16,7 @@ from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCode
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.ai.slack_app.posthog_slack_inbox_onboarding import PostHogSlackInboxOnboardingWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
+from posthog.temporal.ai.telegram_app import TELEGRAM_APP_ACTIVITIES, TELEGRAM_APP_WORKFLOWS
 
 from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesInputs,
@@ -46,6 +47,10 @@ POSTHOG_CODE_SLACK_ACTIVITIES = [
     *SLACK_APP_ACTIVITIES,
     process_posthog_code_terminate_task_activity,
 ]
+
+# The Telegram bot's workflow shares TASKS_TASK_QUEUE with the Slack ones above.
+POSTHOG_CODE_TELEGRAM_WORKFLOWS = TELEGRAM_APP_WORKFLOWS
+POSTHOG_CODE_TELEGRAM_ACTIVITIES = TELEGRAM_APP_ACTIVITIES
 
 AI_WORKFLOWS = [
     SyncVectorsWorkflow,

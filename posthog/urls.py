@@ -73,6 +73,7 @@ from products.slack_app.backend.views import (
     slack_user_link_authorize,
     slack_user_link_callback,
     telegram_connect_start,
+    telegram_event_handler,
     telegram_link_start,
 )
 from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
@@ -676,6 +677,7 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
+    opt_slash_path("telegram/event-callback", telegram_event_handler),
     # Generic successor to the Slack-scoped claims route above; used by cross-region
     # probes for any chat provider. `path` (not `opt_slash_path`) because the route
     # needs the <provider> converter; the sender always uses the trailing slash.
