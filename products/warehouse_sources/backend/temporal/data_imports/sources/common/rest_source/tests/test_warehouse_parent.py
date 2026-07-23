@@ -29,7 +29,7 @@ def _write_parent_table(tmp_path: Path) -> str:
 
 
 def _patched_reader(uri: str, **kwargs):
-    with patch.object(warehouse_parent, "get_delta_storage_options", return_value={}):
+    with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
         return list(iter_parent_pages_from_warehouse(table_uri=uri, parent_name="issues", **kwargs))
 
 

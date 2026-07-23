@@ -14,11 +14,11 @@ def build_delta_table_uri(folder_path: str, resource_name: str) -> str:
     return f"{settings.BUCKET_URL}/{folder_path}/{normalized_name}"
 
 
-def get_delta_storage_options() -> dict[str, str]:
-    """delta-rs storage options for the warehouse bucket.
-
-    Shared by the Delta writer and readers so S3 credential logic exists once.
-    """
+def delta_storage_options() -> dict[str, str]:
+    """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
+    read path (e.g. the person-property backfill, the fan-out warehouse parent reader) can open a
+    Delta table without constructing a full ``DeltaTableHelper`` (which carries caching, first-sync
+    mutation, and corruption-repair)."""
     if settings.USE_LOCAL_SETUP:
         if (
             not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY

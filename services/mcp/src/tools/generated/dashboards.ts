@@ -1,7 +1,18 @@
 // AUTO-GENERATED from products/dashboards/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withInformationalResponse,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { castStringToInt } from '@/tools/cast-helpers'
+
 import {
     DashboardTemplatesListQueryParams,
     DashboardTemplatesRetrieveParams,
@@ -35,15 +46,6 @@ import {
     DashboardsWidgetsBatchCreateBody,
     DashboardsWidgetsBatchCreateParams,
 } from '@/generated/dashboards/api'
-import { castStringToInt } from '@/tools/cast-helpers'
-import {
-    withPostHogUrl,
-    omitResponseFields,
-    withInformationalResponse,
-    type WithPostHogUrl,
-    type WithInformationalResponse,
-} from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
 

@@ -5,6 +5,9 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    SchemaColumnTypeChangedException,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -100,7 +103,7 @@ async def test_non_retryable_setup_error_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
 
 
 @pytest.mark.asyncio
@@ -130,7 +133,7 @@ async def test_unparseable_config_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
     source.source_for_pipeline.assert_not_called()
 
 
@@ -183,7 +186,42 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_schema_column_type_changed_routes_through_handler_without_source_opt_in():
+    # SchemaColumnTypeChangedException is raised in shared pipeline code when incoming data can't be
+    # cast into the stored Delta column type — a deterministic failure that only a reset and re-sync
+    # fixes. It must be non-retryable by type for every source, not just the SQL sources that list
+    # "Source column type changed" in get_non_retryable_errors, so non-SQL sources stop retrying it.
+    error = SchemaColumnTypeChangedException(
+        "Source column type changed: 'val' has values that no longer fit its stored type int32 "
+        "(incoming data is now string). Reset and fully re-sync this table to adopt the new type."
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
+    # positional args (as this branch once had) fails here instead of only at runtime.
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
     logger.aexception.assert_not_awaited()
 
 

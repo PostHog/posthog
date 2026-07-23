@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.models.external_data_schema import get_s
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_access import (
     build_delta_table_uri,
-    get_delta_storage_options,
+    delta_storage_options,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     pyarrow_schema_from_arrow_exportable,
@@ -63,7 +63,7 @@ def iter_parent_pages_from_warehouse(
     before a sync ever reaches this reader. Do not add whole-table materialization here
     (`to_table`, global sorts, seen-sets) — parents can be arbitrarily large.
     """
-    storage_options = get_delta_storage_options()
+    storage_options = delta_storage_options()
 
     if not deltalake.DeltaTable.is_deltatable(table_uri, storage_options=storage_options):
         raise WarehouseParentTableNotFoundError(

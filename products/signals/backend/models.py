@@ -1063,7 +1063,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
-# Three tables back the v1 Signals scout:
+# Core tables backing the Signals scout:
 #   - SignalScoutConfig: per-team binding (one row per team).
 #   - SignalScoutRun:    bridge from a `tasks.TaskRun` to its scout-domain context.
 #                        Mirrors `SignalReportTask` (1:1 to TaskRun instead of N:1
@@ -1071,6 +1071,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 #                        Status, timing, error, chat-log all live on `TaskRun`;
 #                        findings live on emitted `Signal`/`SignalReport` rows.
 #   - SignalScratchpad:  working notes the scout reads in future runs.
+#   - SignalScoutNote:   steering notes humans/agents leave for scouts to read.
 
 
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
@@ -1122,6 +1123,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
+    # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
+    # the API boundary so adding another destination does not require another pair of nullable
+    # config columns. A Slack destination is active only when both its integration and channel
+    # are present; the UI may persist the integration first while the user chooses a channel.
+    output_destinations = models.JSONField(default=dict, db_default={})
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1249,6 +1255,14 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # Scout-owned per-run context stamped once at run creation — the native home for run
+    # dimensions that matter operationally but don't each warrant a dedicated column. Known keys
+    # today: `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on
+    # when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default;
+    # empty for default-model runs. Write-once at creation, not a mutable grab-bag — new keys
+    # (e.g. a future config-level model) should also be stamped by the runner at run start.
+    # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
+    metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1372,6 +1386,66 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
+    """Steering notes humans (or other agents) leave for the scout fleet — read at run time.
+
+    The inbound complement to `SignalScratchpad`: scratchpad is what the fleet *learned*
+    (agent-authored, sandbox-write-only); a note is what the team wants the fleet to *know*
+    (authored via the user-grantable `signal_scout:write` scope). Notes are the lightweight
+    steering channel for feedback and pointers that don't warrant editing a scout's skill
+    body — "look into X", "stop flagging Y", "we shipped Z on Tuesday". A note targets one
+    scout (`skill_name`) or the whole fleet (blank `skill_name`); each run lists the notes
+    addressed to it as prior context and weighs them like any other input.
+
+    Trust model: scouts read note content verbatim while holding privileged sandbox tools,
+    so writing a note is gated to skill-authoring-level authorization — API keys need
+    `llm_skill:write` on top of `signal_scout:write`, and every writer must clear the
+    `llm_skill` RBAC editor bar (see `SignalScoutNoteViewSet`). A caller who can leave a
+    note could therefore already steer the fleet by editing its skills; notes add a cheaper
+    channel, not new power. The run prompt additionally frames note content as advisory
+    steering that never overrides the harness ground rules.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating
+    # this table takes no lock on those parents (app-level enforcement only).
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="signal_scout_notes",
+    )
+    # Target scout's skill name (`signals-scout-*`). Blank = a general note addressed to the
+    # whole fleet — every scout's run sees it alongside its own skill-scoped notes.
+    skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")
+    # Prose the scout reads verbatim. Bounded by the create serializer, not the column.
+    content = models.TextField()
+    # Who left the note. SET_NULL so removing a user keeps the note (its content still steers).
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+    )
+    # Optional TTL — expired notes drop out of the default list view, so time-boxed steering
+    # ("watch checkout closely this week") retires itself without a delete.
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout note"
+        verbose_name_plural = "Signal scout notes"
+        default_manager_name = "all_teams"
+        indexes = [
+            # The run-time read is "recent notes for this team (optionally one skill)" — newest first.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_note_recent_idx"),
+        ]
+
+
 class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
     """Deterministic snapshot of "what's true about this project" — agent orientation surface.
 
@@ -1418,4 +1492,40 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
             # `get_project_profile` reads the newest non-expired row for a team — supports the
             # ORDER BY computed_at DESC LIMIT 1 lookup pattern.
             models.Index(fields=["team", "-computed_at"], name="signal_proj_profile_recent_idx"),
+        ]
+
+
+class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
+    """Cached recent-contributor map for one (repository, area) pair.
+
+    Backs recency-aware reviewer suggestion (`report_generation/repo_activity.py`). An
+    *area* is a path prefix (see `area_for_path`); `""` means the repository root. Rows are
+    created on demand, refreshed lazily when stale, and kept warm by the weekly
+    `refresh_signal_repository_activity` task — which only re-fetches rows read recently
+    (`last_used_at`), so abandoned areas age out of the warm set.
+    """
+
+    # db_constraint=False: creating an FK constraint locks the hot posthog_team table and
+    # has blocked deploys — app-level enforcement only (same as SignalReportRefund).
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_repo_area_activities",
+        db_constraint=False,
+    )
+    # Normalized "owner/repo", lowercase.
+    repository = models.CharField(max_length=400)
+    area = models.CharField(max_length=400, blank=True)
+    # [{login, name, commit_count, last_commit_at, last_commit_sha, last_commit_url}]
+    contributors = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Null until the first successful GitHub fetch.
+    refreshed_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name = "Signal repository area activity"
+        verbose_name_plural = "Signal repository area activities"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "repository", "area"], name="signal_repo_area_activity_uniq"),
         ]

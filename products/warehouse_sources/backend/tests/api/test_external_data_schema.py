@@ -2955,16 +2955,45 @@ class TestCancelExternalDataSchema(APIBaseTest):
         assert job.status == ExternalDataJob.Status.RUNNING
         assert job.latest_error is None
 
+    @parameterized.expand([("v1", "v1-dlt-sync"), ("legacy_null_version", None)])
     @mock.patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
     )
-    def test_cancel_legacy_pipeline_returns_400_when_workflow_missing(self, mock_cancel):
+    def test_cancel_legacy_pipeline_recovers_when_workflow_already_gone(self, _case, pipeline_version, mock_cancel):
+        # A workflow that was terminated (not cancelled) never runs the cleanup that writes the
+        # terminal status, so the cancel RPC comes back NOT_FOUND. Without recovery the job and
+        # schema would stay stuck on Running forever and the schema could never be synced again.
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=pipeline_version)
+        mock_cancel.side_effect = RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == "Sync cancelled by user"
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
+    def test_cancel_legacy_pipeline_returns_400_on_transient_rpc_error(self, mock_cancel):
+        # A transient RPC failure against a possibly-live workflow must not mark the job Failed -
+        # the workflow still owns the terminal status, so leave it Running and surface the error.
         from temporalio.service import RPCError, RPCStatusCode
 
         from products.warehouse_sources.backend.facade.models import ExternalDataJob
 
         schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V1)
-        mock_cancel.side_effect = RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+        mock_cancel.side_effect = RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b"")
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",

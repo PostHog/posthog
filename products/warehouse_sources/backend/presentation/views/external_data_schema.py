@@ -1635,16 +1635,30 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if latest_running_job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
-            # v1/v2: the workflow itself owns the job's terminal status, so keep the legacy
-            # behavior where the cancel RPC is the whole operation and a missing workflow
-            # is an error.
+            # v1/v2: normally the workflow handles the cancellation and writes the job's
+            # terminal status itself, so the cancel RPC is the whole operation.
             try:
                 cancel_external_data_workflow(latest_running_job.workflow_id)
             except temporalio.service.RPCError as e:
-                logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
+                if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+                    # Transient RPC failure against a possibly-live workflow. The workflow still
+                    # owns the terminal status, so leave the job Running and surface the failure.
+                    logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"detail": "Could not cancel the running sync. Please try again."},
+                    )
+                # The workflow is already gone (e.g. it was terminated rather than cancelled), so it
+                # will never run the cleanup that writes the terminal status - the job and schema
+                # would stay stuck on Running forever. Write the Failed status ourselves so the
+                # schema unsticks and can be synced again.
+                logger.info("cancel_sync_v2_workflow_already_gone", schema_id=str(instance.id))
+                update_external_job_status(
+                    job_id=str(latest_running_job.id),
+                    team_id=instance.team_id,
+                    status=ExternalDataJob.Status.FAILED,
+                    logger=logger,
+                    latest_error="Sync cancelled by user",
                 )
             return Response(status=status.HTTP_200_OK)
 
