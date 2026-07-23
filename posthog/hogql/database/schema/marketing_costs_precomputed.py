@@ -15,8 +15,13 @@ _RAW_FIELDS = MarketingCostsPreaggregatedTable().fields  # reuse the raw column 
 _INTERNAL = {"job_id", "computed_at"}  # folded away by the dedup, not exposed
 # argMax(…, computed_at) columns; expires_at rides along so `expires_at > today()` sees the freshest row.
 _LATEST = {"cost", "clicks", "impressions", "reported_conversions", "reported_conversion_value", "expires_at"}
+# match_key is a join key re-derived per job from the team's campaign_field_preferences (campaign_name or
+# campaign_id), not cell identity — keeping it in the GROUP BY duplicates every cell when the preference
+# flips, so the latest job's value wins instead.
+_LATEST_LABELS = {"match_key"}
+_ARGMAX = _LATEST | _LATEST_LABELS
 # Full cell identity — always GROUP BY all of it so each cell collapses independently.
-_DIMENSIONS = [c for c in _RAW_FIELDS if c not in _INTERNAL | _LATEST | {"timestamp"}]
+_DIMENSIONS = [c for c in _RAW_FIELDS if c not in _INTERNAL | _ARGMAX | {"timestamp"}]
 
 
 class MarketingCostsPrecomputedTable(LazyTable):
@@ -42,7 +47,7 @@ class MarketingCostsPrecomputedTable(LazyTable):
 
         select_fields: list[ast.Expr] = []
         for name in requested:
-            if name in _LATEST:
+            if name in _ARGMAX:
                 expr: ast.Expr = ast.Call(name="argMax", args=[raw(name), raw("computed_at")])
             elif name == "timestamp":
                 expr = ast.Call(name="toDateTime", args=[raw("cost_date")])
