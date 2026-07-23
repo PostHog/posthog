@@ -610,7 +610,9 @@ def append_partition_key_to_table(
             mode = "md5"
 
         # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
-        is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+        is_partition_key_int = normalized_partition_keys[0] in table.column_names and pa.types.is_integer(
+            table.field(normalized_partition_keys[0]).type
+        )
         are_incrementing_ints = False
         if is_partition_key_int:
             partition_column = table.column(normalized_partition_keys[0])
@@ -646,6 +648,18 @@ def append_partition_key_to_table(
         else:
             logger.debug(f"append_partition_key_to_table: partitioning mode {mode} selected")
 
+    # A persisted partition mode skips the detection block above, so the partition key column may be
+    # absent from this batch — e.g. the source's schema drifted and stopped returning the field we
+    # previously partitioned on. Reading a missing key per-row would raise a raw KeyError and fail
+    # every sync; instead those rows fall back to a catch-all bucket (via `row.get`). When the missing
+    # field is also the incremental field, the downstream incremental-value check surfaces an
+    # actionable, non-retryable error.
+    missing_partition_keys = [key for key in normalized_partition_keys if key not in table.column_names]
+    if missing_partition_keys:
+        logger.warning(
+            f"append_partition_key_to_table: partition key(s) missing from incoming table, bucketing into fallback: {missing_partition_keys}"
+        )
+
     partition_array: list[str] = []
 
     for batch in table.to_batches():
@@ -653,7 +667,7 @@ def append_partition_key_to_table(
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
 
-                primary_key_values = [str(row[key]) for key in normalized_partition_keys]
+                primary_key_values = [str(row.get(key)) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
 
                 # this hash has no security impact
@@ -666,7 +680,7 @@ def append_partition_key_to_table(
                 assert partition_size is not None, "append_partition_key_to_table: partition_size is None"
 
                 key = normalized_partition_keys[0]
-                key_value = row[key]
+                key_value = row.get(key)
 
                 if key_value is None:
                     partition_array.append(NULL_NUMERICAL_PARTITION)
@@ -685,7 +699,7 @@ def append_partition_key_to_table(
                         partition_array.append(str(coerced_key_value // partition_size))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
-                date = row[key]
+                date = row.get(key)
 
                 if partition_format is None:
                     partition_format = "week"
