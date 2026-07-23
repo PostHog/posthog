@@ -9,6 +9,8 @@ at import time. The hot loop uses orjson for JSON parsing and avoids
 """
 
 import inspect
+import logging
+import dataclasses
 from typing import Any, get_type_hints
 
 import orjson
@@ -19,10 +21,20 @@ from posthog.hogql.errors import (
     SyntaxError as HogQLSyntaxError,
 )
 
+logger = logging.getLogger(__name__)
+
 NODE_MAP: dict[str, type[ast.AST]] = {
     cls.__name__: cls
     for _, cls in inspect.getmembers(ast, inspect.isclass)
     if issubclass(cls, ast.AST) and cls is not ast.AST
+}
+
+# Per-class set of declared dataclass field names, built once at import. Used to
+# drop JSON keys the running Python AST doesn't know about yet, so a compiled
+# parser that's briefly a version ahead during a rolling deploy degrades
+# gracefully instead of raising `TypeError` from the dataclass constructor.
+_FIELD_NAMES: dict[type[ast.AST], frozenset[str]] = {
+    cls: frozenset(f.name for f in dataclasses.fields(cls)) for cls in NODE_MAP.values()
 }
 
 # Fields whose JSON values are dicts of {key: child_node} rather than child
@@ -184,5 +196,21 @@ def _deserialize_node(data: Any) -> Any:
                     pass
 
         kwargs[key] = deserialized
+
+    # Drop any keys the running Python AST class doesn't declare. The compiled
+    # parser ships as a separately-versioned wheel, so during a rolling deploy
+    # it can briefly emit a field added to `ast.py` in a not-yet-deployed
+    # revision. Forwarding it straight into the constructor would raise
+    # `TypeError`; filtering keeps startup alive until the deploy converges.
+    valid_fields = _FIELD_NAMES.get(ast_class)
+    if valid_fields is not None:
+        unknown_keys = kwargs.keys() - valid_fields
+        if unknown_keys:
+            logger.warning(
+                "Dropping unknown field(s) %s for AST node %s — the HogQL parser is likely ahead of the Python AST",
+                sorted(unknown_keys),
+                node_type,
+            )
+            kwargs = {key: value for key, value in kwargs.items() if key in valid_fields}
 
     return ast_class(**kwargs)
