@@ -232,6 +232,35 @@ describe('Toolbar flag loading', () => {
         expect(document.body.firstElementChild).toBe(container)
     })
 
+    it('dedupes overlapping ph_load_toolbar calls onto a single mount', async () => {
+        // posthog-js can fire ph_load_toolbar calls that overlap (e.g. two SPA route changes in
+        // quick succession). The mounted-state flag is only set at the end of the async mount, so
+        // without an in-flight guard the second call races past the mounted check and mounts a
+        // second toolbar. Here the flags preload provides the async gap the race needs.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            toolbarFlagsKey: 'test-key-123',
+        }
+        // Resolve every fetch (flags preload + uiHost reachability check) so the mount completes.
+        mockFetch.mockResolvedValue({ ok: true, json: async () => ({ featureFlags: {} }) })
+
+        const childCountBeforeLoad = document.body.childElementCount
+
+        // Fire the second call before awaiting the first, so it arrives mid-mount.
+        const first = (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const second = (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        await Promise.all([first, second])
+
+        // Exactly one container was appended: the two calls shared a single mount.
+        expect(document.body.childElementCount - childCountBeforeLoad).toBe(1)
+    })
+
     it('should still load toolbar even if flag fetching fails', async () => {
         // The failed flags fetch is reported through toolbarLogger's console.warn by design
         const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()

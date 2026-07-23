@@ -92,6 +92,11 @@ win['posthogToolbarController'] = posthogToolbarController
 // Re-exported for the loader script (loader.ts), which forwards its controller stub here.
 export { posthogToolbarController }
 
+// Tracks an in-flight mount. The mounted-state flag isn't set until the very end of the async
+// mount, so without this two overlapping ph_load_toolbar calls would both pass the guard below
+// and mount twice. Concurrent calls dedupe onto this promise instead.
+let loadPromise: Promise<void> | null = null
+
 export async function loadToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Promise<void> {
     // ph_load_toolbar is not called once per page — posthog-js re-invokes it during a page's
     // lifetime, most notably on SPA client-side route changes. Mounting is destructive
@@ -101,12 +106,24 @@ export async function loadToolbar(toolbarParams: ToolbarParams, posthog?: PostHo
     if (isToolbarMounted()) {
         return
     }
+    // A mount is already in flight. Calls can overlap before the first finishes its async setup
+    // and records itself as mounted, so join the existing mount rather than starting a second.
+    if (loadPromise) {
+        return loadPromise
+    }
     // Flagged as loaded but the container was detached (the host page removed our node): tear the
     // stale React root / Kea context down before mounting a fresh one so we don't leak or stack.
     if (posthogToolbarController.isLoaded) {
         posthogToolbarController.destroy()
     }
 
+    loadPromise = mountToolbar(toolbarParams, posthog).finally(() => {
+        loadPromise = null
+    })
+    return loadPromise
+}
+
+async function mountToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Promise<void> {
     // Store the start time so we can measure total load duration in initInstrumentation.
     // The loader script already stamps this before fetching the app module, so the measured
     // duration includes the chunk fetch — keep the earliest timestamp.
