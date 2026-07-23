@@ -87,6 +87,9 @@ describe('alertNotificationLogic', () => {
         logic.actions.loadIntegrationsFailure('Network error')
         await expectLogic(logic).toMatchValues({ integrationsFailed: true })
 
+        logic.actions.loadIntegrations()
+        await expectLogic(logic).toMatchValues({ integrationsFailed: false })
+
         logic.actions.loadIntegrationsSuccess([])
         await expectLogic(logic).toMatchValues({ integrationsFailed: false })
     })

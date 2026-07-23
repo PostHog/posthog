@@ -54,5 +54,15 @@ describe('AlertNotificationDestinationEditor', () => {
 
         expect(screen.getByText("Couldn't load Slack workspaces.")).toBeTruthy()
         expect(screen.queryByText(/Slack is not yet configured/)).toBeNull()
+
+        rerender(
+            <AlertNotificationDestinationEditor
+                {...props}
+                slack={{ ...props.slack, integrationsLoading: true, integrationsFailed: true }}
+            />
+        )
+
+        expect(screen.getByText('Loading integrations')).toBeTruthy()
+        expect(screen.queryByText("Couldn't load Slack workspaces.")).toBeNull()
     })
 })

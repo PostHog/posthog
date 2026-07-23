@@ -230,7 +230,9 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
 
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {
-        if (slack.integrationsFailed) {
+        if (slack.integrationsLoading || slack.integrations === undefined) {
+            slackDestinationInput = <LemonSkeleton className="h-10" />
+        } else if (slack.integrationsFailed) {
             slackDestinationInput = (
                 <LemonBanner
                     type="error"
@@ -242,8 +244,6 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                     Couldn't load Slack workspaces.
                 </LemonBanner>
             )
-        } else if (slack.integrationsLoading || slack.integrations === undefined) {
-            slackDestinationInput = <LemonSkeleton className="h-10" />
         } else if (slack.integration) {
             slackDestinationInput = (
                 <div className="space-y-3">

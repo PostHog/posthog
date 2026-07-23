@@ -272,6 +272,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         integrationsFailed: [
             false,
             {
+                loadIntegrations: () => false,
                 loadIntegrationsFailure: () => true,
                 loadIntegrationsSuccess: () => false,
             },
