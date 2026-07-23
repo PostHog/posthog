@@ -73,7 +73,15 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     if is_dev_mode():
         return None
 
+    from django.db import close_old_connections
+
     from posthog.ducklake.models import DuckgresServerTeam
+
+    # Called from the poll loop via a bare sync_to_async (not the connection-safe
+    # database_sync_to_async wrapper), so a connection killed by the DB/proxy since
+    # the last refresh is never detected and closed before reuse — surfacing as
+    # "the connection is closed" OperationalErrors.
+    close_old_connections()
 
     enabled: list[int] = []
     team_org_budgets: list[tuple[int, str, int]] = []
