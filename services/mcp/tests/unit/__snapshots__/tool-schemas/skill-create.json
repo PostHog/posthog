@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Create serializer — accepts bundled files and owners as write-only input on POST.",
+    "description": "Create serializer — accepts bundled files as write-only input on POST.",
     "properties": {
         "allowed_tools": {
             "description": "List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
@@ -65,14 +65,6 @@
             "description": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
             "maxLength": 64,
             "type": "string"
-        },
-        "owners": {
-            "description": "User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners.",
-            "items": {
-                "type": "string"
-            },
-            "maxItems": 25,
-            "type": "array"
         }
     },
     "required": ["name", "description", "body"],
