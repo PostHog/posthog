@@ -20,6 +20,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models import PropertyDefinition, Team
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
@@ -873,6 +874,70 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(len(response.results[0].events), 1)
+
+    def test_deduplicates_ai_events_rows_for_the_same_generation(self):
+        trace_id = str(uuid.uuid4())
+        generation_uuid = str(uuid.uuid4())
+        timestamp = datetime(2024, 12, 1, 0, 0, tzinfo=UTC)
+        generation_properties = {
+            "$ai_trace_id": trace_id,
+            "$ai_parent_id": trace_id,
+            "$ai_latency": 3.9,
+            "$ai_input_tokens": 582,
+            "$ai_output_tokens": 353,
+            "$ai_input_cost_usd": 0.4,
+            "$ai_output_cost_usd": 0.6,
+            "$ai_total_cost_usd": 1.0,
+        }
+
+        # At-least-once delivery lands one logical generation twice. The events table absorbs
+        # this (uuid is in its sorting key), but ai_events is a plain MergeTree that never
+        # dedupes, and the deliveries differ in the heavy columns — so arrayDistinct cannot
+        # collapse them either.
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_trace",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": timestamp,
+                    "properties": {"$ai_trace_id": trace_id, "$ai_trace_name": "runnable"},
+                },
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": timestamp,
+                    "event_uuid": generation_uuid,
+                    "properties": {**generation_properties, "$ai_input": [{"role": "user", "content": "Foo"}]},
+                },
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": timestamp,
+                    "event_uuid": generation_uuid,
+                    "properties": generation_properties,
+                },
+            ]
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+        self.assertEqual(len(trace.events), 1)
+        self.assertEqual(trace.inputTokens, 582)
+        self.assertEqual(trace.outputTokens, 353)
+        self.assertEqual(trace.totalCost, 1.0)
+        self.assertEqual(trace.totalLatency, 3.9)
+        self.assertEqual(trace.events[0].properties.get("$ai_input"), [{"role": "user", "content": "Foo"}])
 
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
