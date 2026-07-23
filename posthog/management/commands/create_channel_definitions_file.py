@@ -297,7 +297,11 @@ class Command(BaseCommand):
             "giga.chat",
             "sarvam.ai",
         ):
-            entries[(ai_source, EntryKind.source)] = SourceEntry("AI", None, "AI")
+            # keep is_reverse_dns when reclassifying an existing entry (e.g. the ai.perplexity.app bundle id)
+            existing = entries.get((ai_source, EntryKind.source))
+            entries[(ai_source, EntryKind.source)] = SourceEntry(
+                "AI", None, "AI", is_reverse_dns=existing.is_reverse_dns if existing else False
+            )
 
         for email_domain in (
             "outlook.live.com",
