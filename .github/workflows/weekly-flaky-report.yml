@@ -1,0 +1,69 @@
+name: Weekly flaky test report
+
+# Posts the week's top flaky tests to #flakey-tests every Monday morning. PULL
+# model, sibling of eng-analytics-weekly-digest.yml: the script reads the
+# engineering_analytics product's flaky_tests endpoint and relays one table to
+# Slack via the DevEx bot — it does not re-derive the flake signal. Owner
+# attribution runs in the script through the tools/owners resolver, which is why
+# the sparse checkout includes the ownership files.
+#
+# Requires (no-ops with a warning until set, so it never spams failures):
+#   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project with the GitHub data
+#     warehouse source connected.
+#   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY — a personal API key scoped to
+#     engineering_analytics:read for that project.
+#   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot.
+
+on:
+    schedule:
+        - cron: '10 13 * * 1' # Mondays 13:10 UTC, staggered after the CI digest
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print the report blocks instead of posting to Slack'
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+
+jobs:
+    report:
+        runs-on: ubuntu-latest
+        # Worst case mirrors the digest: 3 endpoint attempts x 150s abort plus 2 x 30s
+        # backoffs (~8.5min), plus checkout and owner resolution.
+        timeout-minutes: 12
+        # Never run from forks (no secret access anyway), only the canonical repo.
+        # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/weekly-flaky-report.mjs
+                      .nvmrc
+                      tools/owners
+                      owners.yaml
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Install owners resolver dependency
+              run: python3 -m pip install --quiet pyyaml
+
+            - name: Build and post weekly flaky report
+              # POSTHOG_HOST and SLACK_CHANNEL (#flakey-tests) ride the script's defaults.
+              env:
+                  POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
+                  POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
+                  # Optional: pin a specific GitHub source if the project has more than one.
+                  ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+              run: node .github/scripts/weekly-flaky-report.mjs
