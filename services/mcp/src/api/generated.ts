@@ -61297,6 +61297,11 @@ export namespace Schemas {
     }
 
     /**
+     * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+     */
+    export type SignalScoutRunDetailMetadata = {[key: string]: string};
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
      * today; kept distinct so future detail-only extensions (linked Signal rows,
      * LLMA token-cost join) can land here without bloating the list response.
@@ -61354,7 +61359,14 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
+      /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+      metadata: SignalScoutRunDetailMetadata;
     }
+
+    /**
+     * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+     */
+    export type SignalScoutRunSummaryMetadata = {[key: string]: string};
 
     /**
      * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
@@ -61414,6 +61426,8 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
+      /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+      metadata: SignalScoutRunSummaryMetadata;
     }
 
     export interface SignalUserAutonomyConfig {
