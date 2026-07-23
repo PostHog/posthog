@@ -2079,6 +2079,126 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "custom-property-sources-backfill": {
+        "description": "Person-property sources only: start a backfill that reads the whole warehouse table and populates person properties for its historical rows. Backfill is per table — one call refreshes every enabled person property mapped from that table — and it coalesces if one is already running for the table (the response's `already_running` is then true). Returns 400 for a source that is not an enabled person-property source.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Backfill a warehouse person-property source",
+        "title": "Backfill a warehouse person-property source",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-person-properties"
+    },
+    "custom-property-sources-create": {
+        "description": "Bind a custom property definition to a data source. Account sources read a materialized view (`saved_query` + `source_column`); person sources read a synced warehouse table (`external_data_schema` + `column_property_map` mapping warehouse columns to person properties, plus `key_column` = the person's distinct_id column). One source per definition.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create custom property source",
+        "title": "Create custom property source",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-sources-destroy": {
+        "description": "Delete a custom property source by id, stopping its sync. Values already written stay on the accounts/people but stop updating. The definition itself is not deleted.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete custom property source",
+        "title": "Delete custom property source",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-sources-list": {
+        "description": "List custom property sources for the project, newest first. Each source binds a definition to a data source and reports its sync status (`last_synced_at`, `last_sync_error`) and, for person sources, the schedule (`next_sync_at`, `sync_frequency_interval_seconds`) and the most recent run (`latest_run`).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List custom property sources",
+        "title": "List custom property sources",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-sources-partial-update": {
+        "description": "Update the editable fields of a custom property source (`key_column`, `is_enabled`). Re-enabling a disabled source resets its failure count. The definition binding, warehouse schema, and column map are create-only and cannot be changed here.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update custom property source",
+        "title": "Update custom property source",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-sources-retrieve": {
+        "description": "Fetch a single custom property source by id, including its binding, sync status, and (for person sources) schedule and latest run.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get custom property source",
+        "title": "Get custom property source",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-sources-runs-list": {
+        "description": "Person-property sources only: the source's sync/backfill run history, newest first. Each run reports `trigger` (scheduled/manual/backfill), `status` (running/completed/failed), the funnel counts (`rows_read`, `changed`, `existing` = person profiles affected, `produced`, `skipped_missing_person`), `error`, and timestamps.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List person-property source runs",
+        "title": "List person-property source runs",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-person-properties"
+    },
+    "custom-property-sources-sync": {
+        "description": "Person-property sources only: trigger the underlying warehouse schema's sync now. This re-runs a real (billable) warehouse sync, and the incremental person-property update rides off it. It does not reset the schema's recurring sync schedule. Returns 400 for a source that is not an enabled person-property source.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Sync a warehouse person-property source now",
+        "title": "Sync a warehouse person-property source now",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-person-properties"
+    },
     "dashboard-create": {
         "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",
@@ -10472,7 +10592,7 @@
         }
     },
     "workflows-test-run": {
-        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this before workflows-publish.",
+        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this before workflows-publish. use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Test-run workflow",

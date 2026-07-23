@@ -4,7 +4,6 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconBrackets,
     IconBug,
     IconCircleDashed,
     IconClock,
@@ -21,11 +20,9 @@ import {
     IconFlask,
     IconFolder,
     IconFolderOpen,
-    IconFunnels,
     IconGear,
     IconGraph,
     IconHome,
-    IconLifecycle,
     IconList,
     IconListCheck,
     IconListTree,
@@ -46,7 +43,6 @@ import {
     IconPlug,
     IconPullRequest,
     IconReceipt,
-    IconRetention,
     IconRewindPlay,
     IconRocket,
     IconScatter,
@@ -54,18 +50,24 @@ import {
     IconServer,
     IconSpotlight,
     IconStethoscope,
-    IconStickiness,
     IconSupport,
     IconToggle,
     IconToggleOff,
     IconToolbar,
-    IconTrends,
     IconUser,
-    IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
 
-import { IconStamphog } from 'lib/lemon-ui/icons'
+import {
+    IconBracketsChart,
+    IconInsightFunnels,
+    IconInsightLifecycle,
+    IconInsightRetention,
+    IconInsightStickiness,
+    IconInsightTrends,
+    IconInsightUserPaths,
+    IconStamphog,
+} from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import {
@@ -257,31 +259,31 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPeople />,
     },
     'insight/funnels': {
-        icon: <IconFunnels />,
+        icon: <IconInsightFunnels />,
         iconColor: ['var(--color-insight-funnel-light)'],
     },
     'insight/trends': {
-        icon: <IconTrends />,
+        icon: <IconInsightTrends />,
         iconColor: ['var(--color-insight-trends-light)'],
     },
     'insight/retention': {
-        icon: <IconRetention />,
+        icon: <IconInsightRetention />,
         iconColor: ['var(--color-insight-retention-light)'],
     },
     'insight/paths': {
-        icon: <IconUserPaths />,
+        icon: <IconInsightUserPaths />,
         iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
     },
     'insight/lifecycle': {
-        icon: <IconLifecycle />,
+        icon: <IconInsightLifecycle />,
         iconColor: ['var(--color-insight-lifecycle-light)'],
     },
     'insight/stickiness': {
-        icon: <IconStickiness />,
+        icon: <IconInsightStickiness />,
         iconColor: ['var(--color-insight-stickiness-light)'],
     },
     'insight/hog': {
-        icon: <IconBrackets />,
+        icon: <IconBracketsChart />,
         iconColor: ['var(--color-insight-sql-light)'],
     },
     team_activity: {
