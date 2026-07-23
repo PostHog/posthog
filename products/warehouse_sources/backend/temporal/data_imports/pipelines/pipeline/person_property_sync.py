@@ -32,6 +32,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import PropertyDefinition, Team
+from posthog.models.group.util import get_groups_by_identifiers
+from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
@@ -51,6 +53,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "customer_analytics_person_property_sync"
+
+# target_type value for group sources (kept as a literal so this module doesn't import the
+# customer_analytics config models, matching the isolation the hooks already preserve).
+_GROUP_TARGET = "group"
 
 
 @dataclasses.dataclass
@@ -280,29 +286,67 @@ def _get_schema(team_id: int, schema_id: str) -> ExternalDataSchema | None:
     )
 
 
-def _filter_existing_persons(team_id: int, distinct_ids: list[str]) -> set[str]:
-    if not distinct_ids:
+def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: list[str]) -> set[str]:
+    """The subset of ``ids`` that resolve to an existing person (or group, for group targets). We only
+    enrich entities that already exist — the same rule for both, just a different lookup."""
+    if not ids:
         return set()
-    return set(get_persons_mapped_by_distinct_id(team_id, distinct_ids).keys())
+    if source.target == _GROUP_TARGET:
+        if source.group_type_index is None:
+            return set()
+        return {group.group_key for group in get_groups_by_identifiers(team_id, source.group_type_index, ids)}
+    return set(get_persons_mapped_by_distinct_id(team_id, ids).keys())
 
 
-def _produce_intents(team_id: int, token: str, items: list[tuple[str, dict]]) -> int:
-    """Produce one $set intent per person to Kafka, keyed by team:distinct_id so the consumer can
-    throttle per team and preserve per-person ordering. Returns the count produced."""
+def _group_type_name(team_id: int, group_type_index: int) -> str | None:
+    # $groupidentify carries the group-type *name*; the config stores the index, so resolve it.
+    for group_type in get_group_types_for_team(team_id):
+        if group_type.get("group_type_index") == group_type_index:
+            return group_type.get("group_type")
+    return None
+
+
+def _produce_intents(
+    team_id: int,
+    token: str,
+    source: PersonPropertySyncSource,
+    items: list[tuple[str, dict]],
+    *,
+    team_uuid: str,
+    group_type_name: str | None,
+) -> int:
+    """Produce one property-update intent per entity to Kafka. Person intents map to a `$set` keyed
+    by team:distinct_id; group intents map to a `$groupidentify` keyed by team:group_type:group_key so
+    per-group ordering is preserved. The consumer branches on ``kind``. Returns the count produced."""
+    is_group = source.target == _GROUP_TARGET
     produced = 0
     with producer_scope(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES) as producer:
-        for distinct_id, bundle in items:
-            producer.produce(
-                topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
-                data={
+        for key, bundle in items:
+            if is_group:
+                data = {
                     "team_id": team_id,
                     "token": token,
-                    "distinct_id": distinct_id,
+                    "kind": "group",
+                    # $groupidentify isn't tied to a person; capture uses the team uuid as distinct_id.
+                    "distinct_id": team_uuid,
+                    "group_type": group_type_name,
+                    "group_type_index": source.group_type_index,
+                    "group_key": key,
                     "properties": bundle,
                     "event_source": EVENT_SOURCE,
-                },
-                key=f"{team_id}:{distinct_id}",
-            )
+                }
+                kafka_key = f"{team_id}:{source.group_type_index}:{key}"
+            else:
+                data = {
+                    "team_id": team_id,
+                    "token": token,
+                    "kind": "person",
+                    "distinct_id": key,
+                    "properties": bundle,
+                    "event_source": EVENT_SOURCE,
+                }
+                kafka_key = f"{team_id}:{key}"
+            producer.produce(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES, data=data, key=kafka_key)
             produced += 1
     return produced
 
@@ -310,17 +354,21 @@ def _produce_intents(team_id: int, token: str, items: list[tuple[str, dict]]) ->
 def _stamp_provenance(
     team_id: int, schema_id: str, source: PersonPropertySyncSource, property_names: list[str]
 ) -> None:
-    # UPDATE-only on purpose: definitions are created by ingestion's propdef upsert when the $set
-    # lands, so a brand-new property may not have a row yet on the first sync — the next sync's
-    # stamp catches it. Never inserting means this can't race that upsert.
+    # UPDATE-only on purpose: definitions are created by ingestion's propdef upsert when the $set /
+    # $groupidentify lands, so a brand-new property may not have a row yet on the first sync — the next
+    # sync's stamp catches it. Never inserting means this can't race that upsert.
     origin = {
         "source_id": str(source.definition_id),
         "schema_id": str(schema_id),
         "custom_property_source_id": str(source.source_id),
     }
-    PropertyDefinition.objects.filter(
-        team_id=team_id, type=PropertyDefinition.Type.PERSON, name__in=property_names
-    ).update(warehouse_origin=origin)
+    query = PropertyDefinition.objects.filter(team_id=team_id, name__in=property_names)
+    if source.target == _GROUP_TARGET:
+        # Group propdefs are keyed per group type, so the index predicate is mandatory.
+        query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)
+    else:
+        query = query.filter(type=PropertyDefinition.Type.PERSON)
+    query.update(warehouse_origin=origin)
 
 
 # --- orchestration -----------------------------------------------------------------------
@@ -331,14 +379,16 @@ async def _process_source_bundles(
     team_id: int,
     schema_id: str,
     team_api_token: str,
+    team_uuid: str,
     source: PersonPropertySyncSource,
     bundles: list[tuple[str, dict]],
     rows_read: int,
     run_token: str,
 ) -> PerSourceResult:
-    """Diff one source's bundles against its snapshot, drop non-existing persons, produce $set intents,
-    stamp provenance, and advance the snapshot. Shared by the incremental sync and the backfill — they
-    differ only in how ``bundles`` are sourced (staged rows vs a full Delta read)."""
+    """Diff one source's bundles against its snapshot, drop entities that don't exist, produce update
+    intents (person `$set` or group `$groupidentify`), stamp provenance, and advance the snapshot.
+    Shared by the incremental sync and the backfill — they differ only in how ``bundles`` are sourced
+    (staged rows vs a full Delta read)."""
     ps = PerSourceResult(source_id=str(source.source_id), rows_read=rows_read)
     prior = await _read_snapshot_hashes(team_id, schema_id, str(source.source_id))
     changed, new_hashes = select_changed(bundles, prior)
@@ -346,23 +396,42 @@ async def _process_source_bundles(
     if not changed:
         return ps
 
-    existing = await database_sync_to_async(_filter_existing_persons, thread_sensitive=False)(
-        team_id, [distinct_id for distinct_id, _ in changed]
+    existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
+        team_id, source, [key for key, _ in changed]
     )
-    to_send = [(distinct_id, bundle) for distinct_id, bundle in changed if distinct_id in existing]
+    to_send = [(key, bundle) for key, bundle in changed if key in existing]
     ps.existing = len(to_send)
     ps.skipped_missing_person = len(changed) - len(to_send)
     if not to_send:
         logger.info(
-            "person-property sync: no existing persons among changed rows for source",
+            "person-property sync: no existing entities among changed rows for source",
             team_id=team_id,
             schema_id=schema_id,
             source_id=str(source.source_id),
+            target=source.target,
             changed=len(changed),
         )
         return ps
 
-    produced = await asyncio.to_thread(_produce_intents, team_id, team_api_token, to_send)
+    group_type_name = None
+    if source.target == _GROUP_TARGET and source.group_type_index is not None:
+        group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
+            team_id, source.group_type_index
+        )
+        if group_type_name is None:
+            # Without the group-type name the consumer can't build a valid $groupidentify and would
+            # DLQ every message — skip the source instead of producing intents doomed to fail.
+            logger.warning(
+                "person-property sync: group type not found, skipping source",
+                team_id=team_id,
+                schema_id=schema_id,
+                source_id=str(source.source_id),
+                group_type_index=source.group_type_index,
+            )
+            return ps
+    produced = await asyncio.to_thread(
+        _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
+    )
     ps.produced = produced
 
     # Stamp provenance before advancing the snapshot: the snapshot is the checkpoint that makes
@@ -429,6 +498,7 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
             team_id=team_id,
             schema_id=str(schema_id),
             team_api_token=team.api_token,
+            team_uuid=str(team.uuid),
             source=source,
             bundles=bundles,
             rows_read=len(rows),
@@ -549,6 +619,7 @@ async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger:
             team_id=team_id,
             schema_id=str(schema_id),
             team_api_token=team.api_token,
+            team_uuid=str(team.uuid),
             source=source,
             bundles=bundles,
             rows_read=rows_read,
