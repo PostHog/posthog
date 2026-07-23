@@ -418,6 +418,17 @@ async def _process_source_bundles(
         group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
             team_id, source.group_type_index
         )
+        if group_type_name is None:
+            # Without the group-type name the consumer can't build a valid $groupidentify and would
+            # DLQ every message — skip the source instead of producing intents doomed to fail.
+            logger.warning(
+                "person-property sync: group type not found, skipping source",
+                team_id=team_id,
+                schema_id=schema_id,
+                source_id=str(source.source_id),
+                group_type_index=source.group_type_index,
+            )
+            return ps
     produced = await asyncio.to_thread(
         _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
     )

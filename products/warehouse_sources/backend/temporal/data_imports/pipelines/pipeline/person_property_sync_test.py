@@ -349,3 +349,29 @@ class TestGroupTarget:
             result = pps._filter_existing_ids(9, self._group_source(), ["acme", "ghost"])
         lookup.assert_called_once_with(9, 0, ["acme", "ghost"])
         assert result == {"acme"}  # ghost dropped: no existing group
+
+    @pytest.mark.asyncio
+    async def test_unresolved_group_type_skips_producing(self):
+        # If the group type can't be resolved (deleted/misconfigured), the consumer would DLQ every
+        # $groupidentify missing a group_type — so the source must be skipped, not produced.
+        team = MagicMock(api_token="tok", uuid="team-uuid")
+        rows = [{"group_key": "acme", "plan": "pro"}]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
+            patch(f"{_MODULE}._group_type_name", return_value=None),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
+            patch(f"{_MODULE}._stamp_provenance") as stamp,
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+
+        produce.assert_not_called()
+        stamp.assert_not_called()
+        write_snapshot.assert_not_awaited()
+        assert result.produced == 0

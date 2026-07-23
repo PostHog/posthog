@@ -15,8 +15,10 @@ from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import (
@@ -2099,6 +2101,81 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+
+class TestCustomPropertyGroupScope(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.definitions_endpoint = f"/api/projects/{self.team.id}/custom_property_definitions/"
+        self.sources_endpoint = f"/api/projects/{self.team.id}/custom_property_sources/"
+
+    def _token(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return value
+
+    @parameterized.expand(
+        [
+            ("account_only", ["account:write", "group:read"], status.HTTP_403_FORBIDDEN),
+            ("with_group_write", ["account:write", "group:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_create_requires_group_write_scope(self, _name, scopes, expected, _flag):
+        # Group-target definitions write group properties, so an account-scoped token must also carry
+        # group:write — a regression that drops this guard would let an account-only key configure the
+        # group-writing pipeline.
+        token = self._token(scopes)
+        response = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == expected, response.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_source_mutation_requires_group_write_scope(self, _flag):
+        # An account-only token must not be able to enable/mutate a source feeding a group definition.
+        # The group def + source are set up as an admin session, which the scope check exempts.
+        definition = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.sources_endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+
+        token = self._token(["account:write", "group:read"])
+        patched = self.client.patch(
+            f"{self.sources_endpoint}{source_id}/",
+            {"is_enabled": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert patched.status_code == status.HTTP_403_FORBIDDEN, patched.content
 
 
 class TestAccountNotesViewSet(APIBaseTest):

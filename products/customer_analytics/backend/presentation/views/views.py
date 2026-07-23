@@ -145,6 +145,28 @@ def _object_required_level(request: Request, write: bool) -> str | None:
     return _OBJECT_WRITE_LEVEL if write else _OBJECT_READ_LEVEL
 
 
+_GROUP_TARGET_TYPE = "group"
+
+
+def _assert_group_scope(request: Request, *, write: bool) -> None:
+    """Group-target custom properties modify group properties (via ``$groupidentify``) — a write to
+    the ``group`` resource. These viewsets are scoped to ``account``, so without this check an
+    ``account``-scoped token could configure or trigger the group-writing pipeline without holding
+    ``group`` authorization. Require the matching ``group`` API scope from token/OAuth callers,
+    mirroring what the group API itself enforces. Session callers are governed by project membership
+    (same as the group API), and service auth is exempt."""
+    if is_service_auth(request):
+        return
+    token_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if token_scopes is None:
+        return  # session / non-token auth — same footing as the group API
+    if "*" in token_scopes or "group:write" in token_scopes:
+        return
+    if not write and "group:read" in token_scopes:
+        return
+    raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
+
+
 class CustomerProfileConfigViewSet(
     TeamAndOrgViewSetMixin,
     _FacadePaginationMixin,
@@ -300,6 +322,8 @@ class CustomPropertyDefinitionViewSet(
         # Person and group targets are both gated behind the warehouse-person-properties rollout flag.
         if data.target_type in ("person", "group") and not api.person_properties_flag_enabled(self.team_id):
             raise ValidationError({"target_type": "Person/group properties from warehouse data are not enabled yet."})
+        if data.target_type == _GROUP_TARGET_TYPE:
+            _assert_group_scope(request, write=True)
         try:
             definition = api.create_custom_property_definition(
                 team_id=self.team_id,
@@ -320,7 +344,16 @@ class CustomPropertyDefinitionViewSet(
             raise ValidationError({"options": str(e)})
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
 
+    def _guard_group_definition(self, request: Request, definition_id) -> None:
+        # Group-target definitions gate the group-writing pipeline, so mutating one needs group scope.
+        definition = api.get_custom_property_definition(
+            self.team_id, definition_id, user_access_control=self.user_access_control
+        )
+        if definition is not None and definition.target_type == _GROUP_TARGET_TYPE:
+            _assert_group_scope(request, write=True)
+
     def update(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_definition(request, self.kwargs["pk"])
         partial = kwargs.pop("partial", False)
         serializer = CustomPropertyDefinitionSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
@@ -347,6 +380,7 @@ class CustomPropertyDefinitionViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_definition(request, self.kwargs["pk"])
         deleted = api.delete_custom_property_definition(
             team_id=self.team_id,
             definition_id=self.kwargs["pk"],
@@ -489,10 +523,27 @@ class CustomPropertySourceViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
 
+    def _definition_is_group(self, definition_id) -> bool:
+        if definition_id is None:
+            return False
+        definition = api.get_custom_property_definition(
+            self.team_id, str(definition_id), user_access_control=self.user_access_control
+        )
+        return definition is not None and definition.target_type == _GROUP_TARGET_TYPE
+
+    def _guard_group_source(self, request: Request, source_id) -> None:
+        # A source feeding a group definition activates/triggers the group-writing pipeline, so any
+        # mutation of it needs group scope — an account-only token must not touch group properties.
+        source = api.get_custom_property_source(self.team_id, source_id)
+        if source is not None and self._definition_is_group(source.definition):
+            _assert_group_scope(request, write=True)
+
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CustomPropertySourceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if self._definition_is_group(data.definition):
+            _assert_group_scope(request, write=True)
         try:
             source = api.create_custom_property_source(
                 team_id=self.team_id,
@@ -514,6 +565,7 @@ class CustomPropertySourceViewSet(
 
     @extend_schema(request=CustomPropertySourceUpdateSerializer)
     def update(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_source(request, self.kwargs["pk"])
         write = CustomPropertySourceUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
         write.is_valid(raise_exception=True)
         try:
@@ -535,6 +587,7 @@ class CustomPropertySourceViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_source(request, self.kwargs["pk"])
         try:
             deleted = api.delete_custom_property_source(
                 team_id=self.team_id,
@@ -556,6 +609,7 @@ class CustomPropertySourceViewSet(
     def sync(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
         real (billable) warehouse sync; the incremental person-property update runs off it."""
+        self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
                 team_id=self.team_id, source_id=self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
@@ -577,6 +631,7 @@ class CustomPropertySourceViewSet(
     def backfill(self, request: Request, *args, **kwargs) -> Response:
         """Person sources only: start a backfill that reads the whole warehouse table and populates
         person properties for historical rows. Coalesces if one is already running for the table."""
+        self._guard_group_source(request, self.kwargs["pk"])
         try:
             started = api.trigger_person_property_backfill(
                 team_id=self.team_id,
