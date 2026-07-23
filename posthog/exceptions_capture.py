@@ -4,17 +4,17 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from posthoganalytics import Posthog
+    from posthoganalytics.client import Client
 
 # Dedicated client for exceptions raised on self-hosted deployments. When set (from
 # PostHogConfig.ready()), capture_exception routes through it — sending to the "hobby experience"
 # project instead of the default client's PostHog-internal product analytics project, which nobody
 # monitors for self-hosted environment errors. None means "use the default client".
-_hobby_experience_client: Optional["Posthog"] = None
+_hobby_experience_client: Optional["Client"] = None
 _hobby_experience_distinct_id: Optional[str] = None
 
 
-def use_hobby_experience_exceptions_client(client: "Posthog", distinct_id: str) -> None:
+def use_hobby_experience_exceptions_client(client: "Client", distinct_id: str) -> None:
     global _hobby_experience_client, _hobby_experience_distinct_id
     _hobby_experience_client = client
     _hobby_experience_distinct_id = distinct_id
