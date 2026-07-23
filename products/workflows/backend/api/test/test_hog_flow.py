@@ -13,6 +13,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.event_usage import EventSource
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
@@ -124,6 +125,21 @@ class TestHogFlowAPI(APIBaseTest):
         assert web_response.status_code == 200, web_response.json()
         assert "actions" in web_response.json()["results"][0]
         assert secret in web_response.content.decode()
+
+    def test_invalid_action_input_error_carries_the_field_message(self):
+        # A programmatic caller sending a broken function input must get back the validator's
+        # actual message (what is wrong with which field), not a bare code: agents retry blind
+        # on "invalid_input" and thrash. Locks the whole pipeline serializer -> exception
+        # handler envelope.
+        hog_flow, _ = self._create_hog_flow_with_action({"template_id": "template-webhook", "inputs": {}})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert "url" in (body["attr"] or ""), body
+        assert "required" in body["detail"].lower(), body
 
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
@@ -3109,6 +3125,21 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 3
         assert HogFlow.objects.filter(id__in=ids).count() == 0
+        assert ActivityLog.objects.filter(scope="HogFlow", activity="deleted", item_id__in=ids).count() == 3
+
+    @patch("products.workflows.backend.api.hog_flow.report_user_action")
+    def test_delete_writes_deleted_activity_and_usage_event(self, mock_report):
+        flow_id = self._create_flow(name="Doomed")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert response.status_code == 204, response.content
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "deleted"
+        deleted_events = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_deleted"]
+        assert len(deleted_events) == 1
+        assert deleted_events[0].args[2]["workflow_id"] == flow_id
 
     @parameterized.expand(
         [
