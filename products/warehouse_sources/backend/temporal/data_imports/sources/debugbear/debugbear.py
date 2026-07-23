@@ -28,8 +28,10 @@ def _auth_headers(api_key: str) -> dict[str, str]:
 
 def _session(api_key: str) -> Session:
     # The API key rides in a custom `x-api-key` header the tracked transport's denylist
-    # scrubber wouldn't otherwise recognize, so redact it explicitly.
-    return make_tracked_session(redact_values=(api_key,))
+    # scrubber wouldn't otherwise recognize, so redact it explicitly. `requests` replays
+    # custom headers across cross-origin redirects, so a 3xx from the upstream could forward
+    # the key to another host — disable redirects to keep it pinned to the validated origin.
+    return make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
 
 def _get_json(session: Session, path: str, headers: dict[str, str], params: dict[str, Any] | None = None) -> Any:

@@ -124,6 +124,19 @@ class TestValidateCredentials:
         assert "boom" in str(error)
 
 
+class TestSessionFactory:
+    def test_session_disables_redirects_so_api_key_is_not_replayed(self) -> None:
+        # The API key rides in a custom `x-api-key` header, which `requests` would replay
+        # across a cross-origin redirect — so the tracked session must never follow redirects.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
+        ) as mock_make_session:
+            mock_make_session.return_value.get.return_value = _response([])
+            validate_credentials("test-key")
+
+        mock_make_session.assert_called_once_with(redact_values=("test-key",), allow_redirects=False)
+
+
 class TestIterProjects:
     def test_filters_non_dict_entries(self) -> None:
         session = MagicMock()
