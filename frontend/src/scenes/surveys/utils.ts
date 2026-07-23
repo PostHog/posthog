@@ -551,6 +551,32 @@ export function doesSurveyRepeatOnEveryEvent(survey: Pick<Survey, 'conditions'>)
     return !!(survey.conditions?.events?.repeatedActivation && (survey.conditions?.events?.values?.length ?? 0) > 0)
 }
 
+export interface RecurringSurveyScheduleInfo {
+    /** Total number of days the survey runs from its launch date before auto-closing. */
+    totalDurationDays: number
+    /** The date the survey will automatically close, or null if it hasn't been launched yet. */
+    autoCloseDate: dayjs.Dayjs | null
+}
+
+/**
+ * A recurring survey ("Repeat on a schedule") auto-closes once its final iteration window has passed.
+ * The last iteration starts on `start_date + (count - 1) * frequency` days and lasts `frequency` more days,
+ * so the survey runs for `count * frequency` days total and closes at the end of that span.
+ * Mirrors the backend logic in posthog/tasks/update_survey_iteration.py.
+ */
+export function getRecurringSurveyScheduleInfo(
+    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date'>
+): RecurringSurveyScheduleInfo | null {
+    const count = survey.iteration_count
+    const frequency = survey.iteration_frequency_days
+    if (!count || !frequency || count < 1 || frequency < 1) {
+        return null
+    }
+    const totalDurationDays = count * frequency
+    const autoCloseDate = survey.start_date ? dayjs(survey.start_date).add(totalDurationDays, 'day') : null
+    return { totalDurationDays, autoCloseDate }
+}
+
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
     const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
     if (!conditions) {

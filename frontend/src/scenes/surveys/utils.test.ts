@@ -26,6 +26,7 @@ import {
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
     getSurveyNotificationFilters,
+    getRecurringSurveyScheduleInfo,
     getResolvedSurveyDateRange,
     getSurveyAudienceSummaryValue,
     getSurveyDisplayConditionsSummary,
@@ -1463,5 +1464,37 @@ describe('doesSurveyRepeatOnEveryEvent', () => {
     ])('%s -> %s', (_name, expected, events) => {
         const survey = { conditions: events ? { events } : null } as Pick<Survey, 'conditions'>
         expect(doesSurveyRepeatOnEveryEvent(survey)).toBe(expected)
+    })
+})
+
+describe('getRecurringSurveyScheduleInfo', () => {
+    it('computes the total run duration as count * frequency days', () => {
+        const info = getRecurringSurveyScheduleInfo({
+            iteration_count: 2,
+            iteration_frequency_days: 30,
+            start_date: null,
+        })
+        expect(info).not.toBeNull()
+        expect(info?.totalDurationDays).toBe(60)
+        expect(info?.autoCloseDate).toBeNull()
+    })
+
+    it('computes the auto-close date from the start date', () => {
+        const info = getRecurringSurveyScheduleInfo({
+            iteration_count: 2,
+            iteration_frequency_days: 30,
+            start_date: '2026-01-01T00:00:00Z',
+        })
+        // 2 iterations of 30 days -> closes 60 days after launch
+        expect(info?.autoCloseDate?.format('YYYY-MM-DD')).toBe('2026-03-02')
+    })
+
+    it.each([
+        ['zero count', { iteration_count: 0, iteration_frequency_days: 30, start_date: null }],
+        ['zero frequency', { iteration_count: 2, iteration_frequency_days: 0, start_date: null }],
+        ['null count', { iteration_count: null, iteration_frequency_days: 30, start_date: null }],
+        ['null frequency', { iteration_count: 2, iteration_frequency_days: null, start_date: null }],
+    ])('returns null for %s', (_name, survey) => {
+        expect(getRecurringSurveyScheduleInfo(survey)).toBeNull()
     })
 })

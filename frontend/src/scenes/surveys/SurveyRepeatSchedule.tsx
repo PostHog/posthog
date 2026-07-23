@@ -10,7 +10,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils/strings'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 import { SURVEY_FORM_INPUT_IDS } from 'scenes/surveys/constants'
-import { doesSurveyRepeatOnEveryEvent } from 'scenes/surveys/utils'
+import { doesSurveyRepeatOnEveryEvent, getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -85,6 +85,36 @@ function AlwaysScheduleBanner({
                 <Link onClick={handleWaitPeriodClick}>adding a wait period</Link>
                 &nbsp;or changing its frequency.
             </p>
+        </LemonBanner>
+    )
+}
+
+function SurveyAutoCloseHelper({
+    survey,
+}: {
+    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date'>
+}): JSX.Element | null {
+    const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+
+    if (!scheduleInfo) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="info" className="text-xs">
+            {scheduleInfo.autoCloseDate ? (
+                <span>
+                    This survey will automatically close on{' '}
+                    <span className="font-semibold">{scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}</span>, after
+                    its last repeat.
+                </span>
+            ) : (
+                <span>
+                    Once launched, this survey will run for{' '}
+                    <span className="font-semibold">{pluralize(scheduleInfo.totalDurationDays, 'day')}</span> before it
+                    automatically closes.
+                </span>
+            )}
         </LemonBanner>
     )
 }
@@ -179,6 +209,7 @@ function SurveyIterationOptions(): JSX.Element {
                                                 : `This survey runs for ${survey.iteration_count} iterations of ${pluralize(survey.iteration_frequency_days, 'day')} each, counted from the launch date. Each user can respond once per iteration.`}
                                         </div>
                                     )}
+                                    <SurveyAutoCloseHelper survey={survey} />
                                 </div>
                             ) : undefined,
                         },
