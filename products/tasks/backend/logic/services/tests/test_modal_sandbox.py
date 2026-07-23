@@ -300,12 +300,14 @@ class TestAttachLocalPackageMounts:
         (source_path / "package.json").write_text(
             json.dumps(
                 {
+                    "name": "@posthog/agent",
+                    "bin": {"agent-server": "./dist/server/bin.js"},
                     "dependencies": {
                         "@openai/codex": "0.140.0",
                         "custom-runtime": "github:example/custom-runtime#v1.2.3",
                         "@posthog/shared": "workspace:*",
                         "zod": "^4.2.0",
-                    }
+                    },
                 }
             )
         )
@@ -326,11 +328,13 @@ class TestAttachLocalPackageMounts:
         base_image = MagicMock()
         system_dependency_image = MagicMock()
         dependency_image = MagicMock()
+        linked_image = MagicMock()
         mounted_image = MagicMock()
         final_image = MagicMock()
         base_image.apt_install.return_value = system_dependency_image
         system_dependency_image.run_commands.return_value = dependency_image
-        dependency_image.add_local_dir.return_value = mounted_image
+        dependency_image.run_commands.return_value = linked_image
+        linked_image.add_local_dir.return_value = mounted_image
         mounted_image.add_local_dir.return_value = final_image
 
         with patch(
@@ -353,7 +357,10 @@ class TestAttachLocalPackageMounts:
         assert "@openai/codex@0.140.0" not in command
         assert "custom-runtime@github:" not in command
         assert "@posthog/shared" not in command
-        dependency_image.add_local_dir.assert_called_once_with(
+        dependency_image.run_commands.assert_called_once_with(
+            "ln -sfn ../@posthog/agent/dist/server/bin.js /scripts/node_modules/.bin/agent-server"
+        )
+        linked_image.add_local_dir.assert_called_once_with(
             str(build_output_path),
             "/scripts/node_modules/@posthog/agent/dist",
             copy=False,
