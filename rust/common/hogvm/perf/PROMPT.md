@@ -1,8 +1,24 @@
 # Optimization loop: Rust HogVM geoip execution
 
-You are running an iterative performance-optimization loop on the Rust HogVM
-(`rust/common/hogvm`, plus its napi addon in `rust/common/hogvm/node`). Work only within
-these two crates unless an iteration's plan explicitly says otherwise.
+You are running an iterative performance-optimization loop on the Rust HogVM.
+
+## Context: repo, branch, and what you are optimizing
+
+- Repository: `PostHog/posthog` (github.com/PostHog/posthog — public monorepo).
+- Working branch: `jose-sequeira/rust-vm-geoip-loop`, branched from `master`.
+  Do all work on this branch; commit each accepted iteration to it and push to `origin`.
+  Do not open a PR and do not merge — a human reviews the branch when the loop ends.
+- The code under optimization: the Rust HogVM crate at `rust/common/hogvm`
+  (part of the `rust/` cargo workspace) and its napi addon at `rust/common/hogvm/node`
+  (its own standalone cargo workspace — build/test it from that directory).
+  Work only within these two crates unless an iteration's plan explicitly says otherwise.
+- Why: PostHog ingestion runs "transformations" (user-defined Hog programs) on every event.
+  The highest-volume one is the geoip template.
+  It currently executes ~4x slower on this VM than the legacy native-JS plugin it replaces,
+  and profiling shows the interpreter's per-step allocation churn — not the geoip lookup — is the cost.
+- This branch already contains: the pre-decoded token stream + hot-path error-allocation fixes
+  in the crate, a program registry in the addon, and the `perf/` pack you are reading
+  (findings, benchmarking recipes, fixtures, and this prompt).
 
 ## Goal
 
@@ -12,7 +28,9 @@ canonical harness, without changing observable semantics.
 - Metric: `us/op` from `cargo run --release --features noop --bin profile_geoip`
   (run from `rust/common/hogvm/node`; median of 3 runs).
 - Baseline at branch creation: 96.6 us/op.
-- Target: below 60 us/op. Stretch: below 40 us/op.
+- Target: below 80 us/op. Stretch: below 60 us/op.
+- Reaching the target does not end the loop early — keep iterating until a stop condition
+  in the loop protocol fires; the target is the bar for calling the loop a success.
 
 ## Read first
 
@@ -51,9 +69,9 @@ canonical harness, without changing observable semantics.
 7. Log the iteration in `rust/common/hogvm/perf/LOG.md` (create on first iteration): date,
    hypothesis, diff summary, measurement, verdict. Negative results are valuable — record
    them so later iterations don't repeat them.
-8. Stop conditions: target reached, or 3 consecutive iterations with no committed
-   improvement — then write a closing summary in LOG.md proposing what a bigger refactor
-   would need.
+8. Stop conditions: the stretch goal (60 us/op) is reached, or 3 consecutive iterations end
+   with no committed improvement — then write a closing summary in LOG.md with the final
+   numbers and, if the target was not reached, what a bigger refactor would need.
 
 ## Ranked starting backlog (from the profile in FINDINGS.md)
 
