@@ -71,7 +71,7 @@ function setup(
     const repository = {
         fetchOneForUpdate: jest.fn().mockResolvedValue(row),
         updateAfterRefresh: jest.fn().mockResolvedValue(opts.updatePersisted ?? true),
-        markRefreshFailed: jest.fn().mockResolvedValue(undefined),
+        recordRefreshFailure: jest.fn().mockResolvedValue(true),
     } as unknown as jest.Mocked<IntegrationRepository>
     const lockResult = opts.lockResult === undefined ? 'OK' : opts.lockResult
     const client = { set: jest.fn().mockResolvedValue(lockResult), del: jest.fn().mockResolvedValue(1) }
@@ -148,7 +148,7 @@ describe('RefreshManager', () => {
     it('discards the refresh when the compare-and-swap loses the race (concurrent reconnect)', async () => {
         mockTokenResponse(200, { access_token: 'new-access', expires_in: 1800, refresh_token: 'new-refresh' })
         // updateAfterRefresh matches 0 rows: the row was rotated (e.g. a user reconnect) since we read it.
-        const { manager, repository, encryptedFields } = setup({ updatePersisted: false })
+        const { manager, repository, encryptedFields, row } = setup({ updatePersisted: false })
         const reconnected: IntegrationRow = {
             id: 1,
             team_id: 2,
@@ -156,25 +156,16 @@ describe('RefreshManager', () => {
             config: { refreshed_at: nowSecs(), expires_in: 3600 },
             sensitive_config: { access_token: encryptedFields.encrypt('reconnected-access') },
         }
-        // First call = pre-refresh read; second call = the post-CAS-miss re-read of the winner's row.
-        ;(repository.fetchOneForUpdate as jest.Mock)
-            .mockResolvedValueOnce({
-                id: 1,
-                team_id: 2,
-                kind: 'hubspot',
-                config: { refreshed_at: nowSecs() - 3000, expires_in: 3600 },
-                sensitive_config: {
-                    access_token: encryptedFields.encrypt('old-access'),
-                    refresh_token: encryptedFields.encrypt('old-refresh'),
-                },
-            })
-            .mockResolvedValueOnce(reconnected)
+        // The under-lock re-read returns our (expired) row; after the CAS miss, the second re-read
+        // returns the winner's freshly-reconnected row.
+        ;(repository.fetchOneForUpdate as jest.Mock).mockResolvedValueOnce(row).mockResolvedValueOnce(reconnected)
 
-        const result = await manager.refresh(reconnected)
+        // `row` is expired, so refresh proceeds into the locked path and attempts the CAS.
+        const result = await manager.refresh(row)
 
-        // We serve the winner's row, not our now-stale refresh, and never mark it failed.
+        // We serve the winner's row, not our now-stale refresh, and never record a failure.
         expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('reconnected-access')
-        expect(repository.markRefreshFailed).not.toHaveBeenCalled()
+        expect(repository.recordRefreshFailure).not.toHaveBeenCalled()
     })
 
     it('does nothing when the token is still fresh (no HTTP call, no write)', async () => {
@@ -195,18 +186,63 @@ describe('RefreshManager', () => {
         expect(repository.updateAfterRefresh).not.toHaveBeenCalled()
     })
 
-    it('marks the integration failed and serves the old token when the provider errors', async () => {
+    it('records a backed-off failure and serves the old token when the provider errors', async () => {
         mockTokenResponse(400, { error: 'invalid_grant' })
         const { manager, repository, encryptedFields, client, row } = setup()
         const result = await manager.refresh(row)
-        expect(repository.markRefreshFailed).toHaveBeenCalledWith(1)
+        // Failure is persisted with backoff state (config carries the schedule), errors set, and the
+        // reason classified as invalid_grant (a dead grant).
+        expect(repository.recordRefreshFailure).toHaveBeenCalledTimes(1)
+        const [id, failedConfig] = repository.recordRefreshFailure.mock.calls[0]
+        expect(id).toBe(1)
+        expect(failedConfig.refresh_failure_count).toBe(1)
+        expect(failedConfig.refresh_invalid_grant_count).toBe(1)
+        expect(failedConfig.refresh_next_attempt_at).toBeGreaterThan(nowSecs())
         expect(repository.updateAfterRefresh).not.toHaveBeenCalled()
         expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('old-access')
-        // The lock is deliberately NOT released on failure; its TTL is the per-integration cooldown.
-        expect(client.del).not.toHaveBeenCalled()
+        // Lock is always released now (backoff in config is the per-integration cooldown).
+        expect(client.del).toHaveBeenCalled()
     })
 
-    it('skips (without marking failed) when the integration has no stored refresh_token', async () => {
+    it('does not go terminal on a transient 5xx (grant streak stays reset)', async () => {
+        mockTokenResponse(503, { error: 'server_error' })
+        const { manager, repository, row } = setup()
+        await manager.refresh(row)
+        const [, failedConfig] = repository.recordRefreshFailure.mock.calls[0]
+        expect(failedConfig.refresh_failure_count).toBe(1)
+        expect(failedConfig.refresh_invalid_grant_count).toBeUndefined()
+        expect(failedConfig.refresh_terminal).toBeUndefined()
+    })
+
+    it('skips (without recording failure) when the integration is inside its backoff window', async () => {
+        const { manager, repository, client, row } = setup({
+            rowOverrides: {
+                config: {
+                    refreshed_at: nowSecs() - 3000,
+                    expires_in: 3600,
+                    refresh_next_attempt_at: nowSecs() + 300,
+                },
+            },
+        })
+        await manager.refresh(row)
+        expect(mockFetch).not.toHaveBeenCalled()
+        expect(repository.recordRefreshFailure).not.toHaveBeenCalled()
+        // Never even reached the lock.
+        expect(client.set).not.toHaveBeenCalled()
+    })
+
+    it('skips a terminal integration entirely', async () => {
+        const { manager, repository, row } = setup({
+            rowOverrides: {
+                config: { refreshed_at: nowSecs() - 3000, expires_in: 3600, refresh_terminal: true },
+            },
+        })
+        await manager.refresh(row)
+        expect(mockFetch).not.toHaveBeenCalled()
+        expect(repository.recordRefreshFailure).not.toHaveBeenCalled()
+    })
+
+    it('skips (without recording failure) when the integration has no stored refresh_token', async () => {
         const seed = new EncryptedFields(SALT)
         const { manager, repository, client, row } = setup({
             rowOverrides: { sensitive_config: { access_token: seed.encrypt('old-access') } },
@@ -215,7 +251,7 @@ describe('RefreshManager', () => {
         // No refresh_token => nothing to refresh; mirror Django by skipping, not marking failed.
         expect(result).toBe(row)
         expect(mockFetch).not.toHaveBeenCalled()
-        expect(repository.markRefreshFailed).not.toHaveBeenCalled()
+        expect(repository.recordRefreshFailure).not.toHaveBeenCalled()
         expect(client.set).not.toHaveBeenCalled()
     })
 

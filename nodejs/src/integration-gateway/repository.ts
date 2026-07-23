@@ -67,13 +67,25 @@ export class IntegrationRepository {
         return (response.rowCount ?? 0) > 0
     }
 
-    /** Record a failed refresh so the app surfaces "reconnect this integration" (same sentinel Django sets). */
-    async markRefreshFailed(id: number): Promise<void> {
-        await this.postgres.query(
+    /**
+     * Record a failed refresh: persist the updated backoff `config` and set the `TOKEN_REFRESH_FAILED`
+     * sentinel (same one Django sets, surfaced as "reconnect this integration"). Compare-and-swap
+     * guarded on the encrypted `refresh_token` read under the lock, so a concurrent reconnect — which
+     * resets the backoff and clears errors — is never clobbered by our stale failure state. Returns
+     * true iff the row was updated.
+     */
+    async recordRefreshFailure(
+        id: number,
+        config: Record<string, any>,
+        expectedRefreshToken: string
+    ): Promise<boolean> {
+        const response = await this.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_integration SET errors = $1 WHERE id = $2`,
-            [ERROR_TOKEN_REFRESH_FAILED, id],
-            'integrationGatewayMarkRefreshFailed'
+            `UPDATE posthog_integration SET config = $1, errors = $2
+             WHERE id = $3 AND sensitive_config->>'refresh_token' = $4`,
+            [JSON.stringify(config), ERROR_TOKEN_REFRESH_FAILED, id, expectedRefreshToken],
+            'integrationGatewayRecordRefreshFailure'
         )
+        return (response.rowCount ?? 0) > 0
     }
 }

@@ -8,7 +8,7 @@ const fetchTotal = new Counter({
 
 const refreshTotal = new Counter({
     name: 'integration_gateway_refresh_total',
-    help: 'Token-refresh outcomes. result: refreshed | failed | locked | skipped. kind = integration kind.',
+    help: 'Token-refresh outcomes. result: refreshed | failed | locked | skipped | backoff | superseded. kind = integration kind.',
     labelNames: ['kind', 'result'],
 })
 
@@ -16,6 +16,9 @@ export function recordFetch(caller: string, result: 'ok' | 'error'): void {
     fetchTotal.inc({ caller, result })
 }
 
-export function recordRefresh(kind: string, result: 'refreshed' | 'failed' | 'locked' | 'skipped'): void {
+export function recordRefresh(
+    kind: string,
+    result: 'refreshed' | 'failed' | 'locked' | 'skipped' | 'backoff' | 'superseded'
+): void {
     refreshTotal.inc({ kind, result })
 }
