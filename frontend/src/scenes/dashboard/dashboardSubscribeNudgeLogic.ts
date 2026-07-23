@@ -224,7 +224,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                         limit: 1,
                     })
                     breakpoint?.()
-                    return (response.count ?? 0) > 0
+                    return (response?.count ?? 0) > 0
                 },
             },
         ],
@@ -235,7 +235,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) => {
                     const response = await subscriptionsList(String(getCurrentTeamId()), { limit: 1 })
                     breakpoint?.()
-                    return response.count ?? 0
+                    return response?.count ?? 0
                 },
             },
         ],
