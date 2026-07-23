@@ -1,0 +1,60 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_API_DOCS = "https://guides.rubygems.org/rubygems-org-api/"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "gems": {
+        "description": "Current metadata and cumulative download count for each configured gem, one row per gem.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "name": "Gem name, as registered on RubyGems.org.",
+            "downloads": "Total cumulative downloads of the gem across all versions and platforms.",
+            "version": "Latest published version number.",
+            "version_created_at": "Timestamp the latest version was published.",
+            "version_downloads": "Cumulative downloads of the latest version.",
+            "platform": "Platform of the latest version (e.g. ruby, java).",
+            "authors": "Comma-separated list of gem authors.",
+            "info": "Gem description/summary text.",
+            "licenses": "List of licenses declared by the gem.",
+            "metadata": "Free-form metadata map declared in the gemspec (changelog/source/docs URIs, etc.).",
+            "yanked": "Whether the latest version has been yanked.",
+            "sha": "SHA-256 checksum of the latest version's `.gem` file.",
+            "project_uri": "Canonical RubyGems.org page for the gem.",
+            "gem_uri": "Direct download URL for the latest version's `.gem` file.",
+            "homepage_uri": "Project homepage URL, if declared.",
+            "wiki_uri": "Project wiki URL, if declared.",
+            "documentation_uri": "Hosted documentation URL, if declared.",
+            "mailing_list_uri": "Mailing list URL, if declared.",
+            "source_code_uri": "Source code repository URL, if declared.",
+            "bug_tracker_uri": "Issue tracker URL, if declared.",
+            "changelog_uri": "Changelog URL, if declared.",
+            "funding_uri": "Funding/sponsorship URL, if declared.",
+            "dependencies": "Runtime and development dependencies of the latest version.",
+        },
+    },
+    "versions": {
+        "description": "Every published version of each configured gem, including per-version download counts.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "gem_name": "Gem the version belongs to (injected by the connector).",
+            "number": "Version number (e.g. 1.2.3).",
+            "platform": "Build platform this version was published for (e.g. ruby, java, x86_64-linux).",
+            "created_at": "Timestamp the version was published; used as the partition key.",
+            "built_at": "Timestamp the version's gemspec reports as its build time.",
+            "summary": "Short one-line summary of the gem at this version.",
+            "description": "Long description of the gem at this version.",
+            "authors": "Comma-separated list of authors at this version.",
+            "licenses": "List of licenses declared at this version.",
+            "downloads_count": "Cumulative downloads of this specific version.",
+            "metadata": "Free-form metadata map declared in the gemspec at this version.",
+            "ruby_version": "Ruby version requirement declared at this version, if any.",
+            "rubygems_version": "RubyGems version requirement declared at this version, if any.",
+            "prerelease": "Whether this version is a prerelease.",
+            "requirements": "Native extension build requirements, if any.",
+            "sha": "SHA-256 checksum of this version's `.gem` file.",
+            "spec_sha": "SHA-256 checksum of this version's gemspec.",
+        },
+    },
+}
