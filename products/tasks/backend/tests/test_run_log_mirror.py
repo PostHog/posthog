@@ -1,3 +1,5 @@
+import json
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -6,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
-from products.tasks.backend.logic.services.run_log_mirror import MAX_BODY_CHARS, MAX_ENTRIES_PER_CALL, mirror_entries
+from products.tasks.backend.logic.services.run_log_mirror import (
+    MAX_BODY_CHARS,
+    MAX_ENTRIES_PER_CALL,
+    MAX_IDENTIFIER_CHARS,
+    mirror_entries,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 RUN_ID = "0b166f65-9e52-4d1b-b3c4-1a9e3f6d3c21"
@@ -134,6 +141,20 @@ class TestMirrorEntries(SimpleTestCase):
         mock_logger = _mirror([entry])
         self.assertEqual(len(mock_logger.info.call_args.kwargs["body"]), MAX_BODY_CHARS)
 
+    def test_oversized_identifier_fields_are_capped(self):
+        entry = {"timestamp": "9" * 100_000, "notification": {"method": "m" * 100_000}}
+        mock_logger = _mirror([entry])
+        fields = mock_logger.info.call_args.kwargs
+        self.assertEqual(len(fields["acp_method"]), MAX_IDENTIFIER_CHARS)
+        self.assertEqual(len(fields["entry_timestamp"]), MAX_IDENTIFIER_CHARS)
+
+    def test_deeply_nested_content_returns_type_only_body(self):
+        content: list = ["bottom"]
+        for _ in range(2_000):
+            content = [content]
+        mock_logger = _mirror([_session_update_entry("agent_message", content=content)])
+        self.assertEqual(mock_logger.info.call_args.kwargs["body"], "[agent_message]")
+
     def test_oversized_batch_is_capped(self):
         entries = [
             _session_update_entry("agent_message", content={"type": "text", "text": f"line {i}"})
@@ -182,6 +203,29 @@ class TestMirrorOtlpDelivery(SimpleTestCase):
         assert attributes["task_run_id"] == {"stringValue": RUN_ID}
         # OTLP JSON encodes 64-bit ints as strings.
         assert attributes["team_id"] == {"intValue": "2"}
+
+    @override_settings(
+        TASK_RUN_LOGS_MIRROR_OTLP_URL="https://us.i.posthog.com/i/v1/logs",
+        TASK_RUN_LOGS_MIRROR_OTLP_TOKEN="phc_internal",
+    )
+    def test_protocol_payloads_never_reach_the_otlp_payload(self):
+        entry = {
+            "notification": {
+                "method": "session/new",
+                "params": {"mcpServers": [{"headers": [{"name": "Authorization", "value": "Bearer protocol-secret"}]}]},
+            }
+        }
+        with patch("products.tasks.backend.logic.services.run_log_mirror.internal_requests") as mock_requests:
+            _mirror([entry])
+
+        payload = mock_requests.post.call_args.kwargs["json"]
+        self.assertNotIn("protocol-secret", json.dumps(payload))
+        records = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+        # The attribute set is closed: run identity plus entry type, never raw params.
+        self.assertEqual(
+            {a["key"] for a in records[0]["attributes"]},
+            {"event", "request_id", "task_run_id", "task_id", "team_id", "origin_product", "acp_method"},
+        )
 
     @parameterized.expand(
         [

@@ -1089,3 +1089,21 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
         assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
         assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
         assert env["POSTHOG_AGENT_OTEL_TRACES_URL"] == "https://us.i.posthog.com/i/v1/traces"
+
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_omits_otel_config_without_logs_pair(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN=None,
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1)
+
+        assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)

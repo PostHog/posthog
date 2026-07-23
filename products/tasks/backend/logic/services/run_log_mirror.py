@@ -58,7 +58,19 @@ _LOG_EVENT_NAME = "task_run_log"
 
 _OTLP_SERVICE_NAME = "task-run-log-mirror"
 
-_OTLP_TIMEOUT_SECONDS = 3
+# (connect, read) — a scalar timeout applies to each stage independently, so a slow
+# connect followed by a stalled read would block append_log for the sum. The mirror
+# runs synchronously on that hot path; keep the worst case tightly bounded.
+_OTLP_TIMEOUT = (1, 3)
+
+# Identifier-shaped fields (method names, timestamps) come from the same semi-trusted
+# request as the entries; cap them so an oversized value can't push the stdout line
+# past the collector's 100 KB drop threshold or bloat OTLP attributes.
+MAX_IDENTIFIER_CHARS = 200
+
+# ACP content blocks nest at most a few levels; an adversarially deep list must not
+# RecursionError and abort the whole batch.
+_MAX_CONTENT_DEPTH = 10
 
 
 def mirroring_enabled(origin_product: str) -> bool:
@@ -102,12 +114,12 @@ def mirror_entries(
         }
         method = notification.get("method")
         if isinstance(method, str):
-            fields["acp_method"] = method
+            fields["acp_method"] = method[:MAX_IDENTIFIER_CHARS]
         if session_update:
-            fields["acp_session_update"] = session_update
+            fields["acp_session_update"] = session_update[:MAX_IDENTIFIER_CHARS]
         entry_timestamp = entry.get("timestamp")
         if isinstance(entry_timestamp, str):
-            fields["entry_timestamp"] = entry_timestamp
+            fields["entry_timestamp"] = entry_timestamp[:MAX_IDENTIFIER_CHARS]
 
         getattr(logger, _LOG_METHOD_NAMES[severity])(_LOG_EVENT_NAME, **fields)
         records.append((severity, fields))
@@ -163,7 +175,7 @@ def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> Non
             url,
             json=payload,
             headers={"Authorization": f"Bearer {token}"},
-            timeout=_OTLP_TIMEOUT_SECONDS,
+            timeout=_OTLP_TIMEOUT,
         )
         response.raise_for_status()
     except Exception as e:
@@ -247,12 +259,14 @@ def _body(notification: dict, session_update: str | None) -> str:
     return body[:MAX_BODY_CHARS]
 
 
-def _extract_text(content: Any) -> str | None:
+def _extract_text(content: Any, depth: int = 0) -> str | None:
     """Pull plain text out of an ACP content block (single block or list of blocks)."""
+    if depth > _MAX_CONTENT_DEPTH:
+        return None
     if isinstance(content, dict):
         text = content.get("text")
         return text if isinstance(text, str) else None
     if isinstance(content, list):
-        parts = [t for t in (_extract_text(block) for block in content) if t]
+        parts = [t for t in (_extract_text(block, depth + 1) for block in content) if t]
         return "\n".join(parts) if parts else None
     return None
