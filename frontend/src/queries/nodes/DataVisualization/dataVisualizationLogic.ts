@@ -231,7 +231,7 @@ export const convertTableValue = (
     return value
 }
 
-const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
+export const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
     if (!type) {
         return 'UNKNOWN'
     }
@@ -267,7 +267,7 @@ const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar =>
     return type as ColumnScalar
 }
 
-const isNumericalType = (type: ColumnScalar): boolean => {
+export const isNumericalType = (type: ColumnScalar): boolean => {
     if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
         return true
     }
