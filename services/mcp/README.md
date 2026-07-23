@@ -319,7 +319,7 @@ Only latest, active, uncategorized skills are exposed through `learn`; category-
 Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
 Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
-`consumer=plugin` omits `learn` because the plugin already supplies its own skill context, regardless of the feature flag.
+`consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
 
 Other clients keep the full inline command reference.
 

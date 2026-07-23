@@ -100,7 +100,7 @@ Project discovery includes only latest, active, uncategorized skills and require
 Skill reads include a file manifest, and references that exceed the output budget return a heading outline.
 Use `learn <source>:<skill> <path> -s <query>` for scoped full-text search or `learn <source>:<skill> <path> --lines <start>:<end>` for a bounded inclusive range.
 Script paths are searchable and their contents are readable directly or by line range, but script contents are not part of the full-text index.
-The plugin consumer does not receive `learn`, because it already supplies PostHog skills directly.
+The plugin and posthog-code consumers do not receive `learn`, because both already supply PostHog skills directly.
 
 Do not remove information from endpoint serializers or generated tool schemas to meet this budget.
 Those descriptions remain the source of truth for `info` and `schema` discovery.

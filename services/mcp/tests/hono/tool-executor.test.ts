@@ -193,7 +193,7 @@ describe('ToolExecutor', () => {
                 label: 'Claude web/desktop with flag off',
                 isClaudeChatHost: true,
                 skillsEnabled: false,
-                pluginConsumer: false,
+                consumer: undefined,
                 expectGuides: true,
                 expectSkills: false,
             },
@@ -201,7 +201,7 @@ describe('ToolExecutor', () => {
                 label: 'Claude web/desktop with flag on',
                 isClaudeChatHost: true,
                 skillsEnabled: true,
-                pluginConsumer: false,
+                consumer: undefined,
                 expectGuides: true,
                 expectSkills: true,
             },
@@ -209,7 +209,7 @@ describe('ToolExecutor', () => {
                 label: 'Claude Code with flag off',
                 isClaudeChatHost: false,
                 skillsEnabled: false,
-                pluginConsumer: false,
+                consumer: undefined,
                 expectGuides: false,
                 expectSkills: false,
             },
@@ -217,7 +217,7 @@ describe('ToolExecutor', () => {
                 label: 'Claude Code with flag on',
                 isClaudeChatHost: false,
                 skillsEnabled: true,
-                pluginConsumer: false,
+                consumer: undefined,
                 expectGuides: false,
                 expectSkills: true,
             },
@@ -225,13 +225,21 @@ describe('ToolExecutor', () => {
                 label: 'plugin consumer with flag on',
                 isClaudeChatHost: true,
                 skillsEnabled: true,
-                pluginConsumer: true,
+                consumer: 'plugin',
+                expectGuides: false,
+                expectSkills: false,
+            },
+            {
+                label: 'posthog-code consumer with flag on',
+                isClaudeChatHost: false,
+                skillsEnabled: true,
+                consumer: 'posthog-code',
                 expectGuides: false,
                 expectSkills: false,
             },
         ])(
             'advertises and serves the expected learn capabilities for $label',
-            async ({ isClaudeChatHost, skillsEnabled, pluginConsumer, expectGuides, expectSkills }) => {
+            async ({ isClaudeChatHost, skillsEnabled, consumer, expectGuides, expectSkills }) => {
                 const skills = new SkillCatalog([
                     {
                         name: 'sample-skill',
@@ -260,13 +268,13 @@ describe('ToolExecutor', () => {
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                     } as any,
-                    ...(pluginConsumer
+                    ...(consumer
                         ? {
                               sessionContext: {
                                   mcpClientName: 'claude-ai',
                                   mcpClientVersion: '1.0',
                                   mcpProtocolVersion: '2025-03-26',
-                                  mcpConsumer: 'plugin',
+                                  mcpConsumer: consumer,
                                   mcpVendorClient: undefined,
                               },
                           }

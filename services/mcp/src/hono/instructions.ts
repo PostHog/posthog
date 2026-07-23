@@ -2,6 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
+import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
@@ -194,7 +195,9 @@ export class InstructionsBuilder {
 
     private getExecLearnCapabilities(state: ResolvedState): { guidesEnabled: boolean; skillsEnabled: boolean } {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
-        if (clientContext.mcpConsumer === 'plugin') {
+        // The plugin and PostHog Code sandboxes bundle their own skill context, so
+        // learn stays off for them regardless of the feature flag.
+        if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }
         return {
