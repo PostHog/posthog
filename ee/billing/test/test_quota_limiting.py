@@ -1267,7 +1267,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now(),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             quota_limited_orgs, _quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
             org_id = str(self.organization.id)
