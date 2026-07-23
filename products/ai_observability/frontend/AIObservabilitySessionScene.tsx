@@ -428,9 +428,7 @@ function SessionTurnView({
             </div>
             <div className="pb-4">
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
-                    {isComplete && summary && (
-                        <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />
-                    )}
+                    {isComplete && summary && <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />}
 
                     <TurnBody
                         turn={turn}
