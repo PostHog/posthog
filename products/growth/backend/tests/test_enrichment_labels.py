@@ -11,6 +11,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+# Admin registration is import-time, and under settings.TEST there is no autodiscover —
+# without this the admin POSTs below 404 in catch_all_view and pass vacuously.
+import products.growth.backend.admin  # noqa: F401
 from products.growth.backend.enrichment.labels import UNKNOWN, classify_payload
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -289,11 +292,12 @@ class TestEnrichmentLabelDryRun(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-        self.client.post(
+        resp = self.client.post(
             "/admin/growth/enrichmentpromptconfig/",
             {"action": "delete_selected", "_selected_action": [str(config.pk)], "post": "yes"},
         )
 
+        assert resp.status_code == 403
         assert EnrichmentPromptConfig.objects.filter(pk=config.pk).exists()
 
     def test_admin_dry_run_action_renders_verdicts_and_persists_nothing(self):
