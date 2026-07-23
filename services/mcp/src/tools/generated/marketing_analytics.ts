@@ -1,10 +1,7 @@
 // AUTO-GENERATED from products/marketing_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     MarketingAnalyticsDataSourcesRetrieveQueryParams,
     MarketingAnalyticsDiagnoseRetrieveQueryParams,
@@ -13,6 +10,7 @@ import {
     MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams,
     MarketingAnalyticsUtmAuditRetrieveQueryParams,
 } from '@/generated/marketing_analytics/api'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const MarketingAnalyticsConversionGoalsSchema = z.object({})
 
