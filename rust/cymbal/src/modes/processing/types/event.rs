@@ -72,6 +72,7 @@ impl TryFrom<ClickHouseEvent> for AnyEvent {
 mod test {
     use crate::types::exception_event::{
         ExceptionEvent, Parsed, MAX_EXCEPTION_TYPE_LENGTH, MAX_EXCEPTION_VALUE_LENGTH,
+        MAX_ISSUE_NAME_LENGTH,
     };
 
     use super::*;
@@ -127,8 +128,11 @@ mod test {
         let any_event = AnyEvent::try_from(event).unwrap();
         let exc_props = ExceptionEvent::<Parsed>::try_from(any_event).unwrap();
 
-        let expected = format!("{}...", "x".repeat(MAX_EXCEPTION_VALUE_LENGTH));
-        assert_eq!(exc_props.exception_list()[0].exception_message, expected);
+        let value = &exc_props.exception_list()[0].exception_message;
+        let expected = format!("{}...", "x".repeat(MAX_EXCEPTION_VALUE_LENGTH - 3));
+        assert_eq!(*value, expected);
+        // The ellipsis must not push the result past the cap.
+        assert!(value.len() <= MAX_EXCEPTION_VALUE_LENGTH);
     }
 
     #[test]
@@ -140,7 +144,28 @@ mod test {
         let any_event = AnyEvent::try_from(event).unwrap();
         let exc_props = ExceptionEvent::<Parsed>::try_from(any_event).unwrap();
 
-        let expected = format!("{}...", "T".repeat(MAX_EXCEPTION_TYPE_LENGTH));
-        assert_eq!(exc_props.exception_list()[0].exception_type, expected);
+        let ty = &exc_props.exception_list()[0].exception_type;
+        let expected = format!("{}...", "T".repeat(MAX_EXCEPTION_TYPE_LENGTH - 3));
+        assert_eq!(*ty, expected);
+        assert!(ty.len() <= MAX_EXCEPTION_TYPE_LENGTH);
+    }
+
+    #[test]
+    fn test_proposed_issue_name_truncation() {
+        // $issue_name is sender-controlled and reaches the notification Kafka payload untruncated,
+        // so an oversized name must be bounded at parse time.
+        let long_name = "N".repeat(MAX_ISSUE_NAME_LENGTH + 100);
+        let props = serde_json::json!({
+            "$issue_name": long_name,
+            "$exception_list": [{ "type": "Error", "value": "boom" }],
+        });
+        let mut event = make_exception_event("boom");
+        event.properties = Some(props.to_string());
+        let any_event = AnyEvent::try_from(event).unwrap();
+        let exc_props = ExceptionEvent::<Parsed>::try_from(any_event).unwrap();
+
+        let name = exc_props.proposed_issue_name().unwrap();
+        assert_eq!(name, format!("{}...", "N".repeat(MAX_ISSUE_NAME_LENGTH - 3)));
+        assert!(name.len() <= MAX_ISSUE_NAME_LENGTH);
     }
 }

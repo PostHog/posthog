@@ -23,16 +23,23 @@ pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 // bound it tightly: an unbounded type bloats $exception_list / $exception_types and every
 // downstream Kafka payload past message.max.bytes.
 pub const MAX_EXCEPTION_TYPE_LENGTH: usize = 255;
+// $issue_name / $issue_description are sender-controlled and flow untruncated into both the
+// ClickHouse properties and the error-tracking notification Kafka payload, so bound them the
+// same way the persisted issue is bounded.
+pub const MAX_ISSUE_NAME_LENGTH: usize = 255;
+pub const MAX_ISSUE_DESCRIPTION_LENGTH: usize = 255;
 
-/// Truncate `value` in place to at most `max_bytes`, on a UTF-8 char boundary, appending an
-/// ellipsis when anything was dropped.
+/// Truncate `value` in place to at most `max_bytes` (including the ellipsis), on a UTF-8 char
+/// boundary, appending an ellipsis when anything was dropped.
 fn truncate_with_ellipsis(value: &mut String, max_bytes: usize) {
     if value.len() <= max_bytes {
         return;
     }
+    // Reserve room for the "..." suffix so the result never exceeds max_bytes.
+    let limit = max_bytes.saturating_sub(3);
     let truncate_at = value
         .char_indices()
-        .take_while(|(index, _)| *index < max_bytes)
+        .take_while(|(index, _)| *index < limit)
         .last()
         .map(|(index, character)| index + character.len_utf8())
         .unwrap_or(0);
@@ -547,6 +554,13 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             truncate_with_ellipsis(&mut exception.exception_message, MAX_EXCEPTION_VALUE_LENGTH);
             truncate_with_ellipsis(&mut exception.exception_type, MAX_EXCEPTION_TYPE_LENGTH);
             exception.exception_id = Some(Uuid::now_v7().to_string());
+        }
+
+        if let Some(name) = raw.issue_name.as_mut() {
+            truncate_with_ellipsis(name, MAX_ISSUE_NAME_LENGTH);
+        }
+        if let Some(description) = raw.issue_description.as_mut() {
+            truncate_with_ellipsis(description, MAX_ISSUE_DESCRIPTION_LENGTH);
         }
 
         for key in [
