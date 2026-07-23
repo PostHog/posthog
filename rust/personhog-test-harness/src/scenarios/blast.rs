@@ -3,8 +3,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
+use metrics::{counter, histogram};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
+use serde_json::{json, Value};
+use tokio::time::{interval, sleep, MissedTickBehavior};
+use uuid::Uuid;
 
 use crate::cli::BlastArgs;
 use crate::client::HarnessClient;
@@ -93,9 +97,9 @@ pub async fn run_traffic(
             let mut counter: u64 = 0;
             let mut rng = rand::rngs::StdRng::from_entropy();
             let mut pacer = worker_tick.map(|tick| {
-                let mut interval = tokio::time::interval(tick);
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                interval
+                let mut ticker = interval(tick);
+                ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                ticker
             });
 
             while Instant::now() < deadline {
@@ -106,19 +110,18 @@ pub async fn run_traffic(
                 counter += 1;
 
                 let key = format!("{prefix}{worker_id}_{counter}");
-                let value = uuid::Uuid::new_v4().to_string();
-                let props = serde_json::json!({ &key: &value });
+                let value = Uuid::new_v4().to_string();
+                let props = json!({ &key: &value });
 
                 let start = Instant::now();
                 match client
-                    .update_properties(team_id, person_id, props, serde_json::json!({}), vec![])
+                    .update_properties(team_id, person_id, props, json!({}), vec![])
                     .await
                 {
                     Ok(resp) => {
                         collector.writes.record_success(start.elapsed());
-                        metrics::counter!("personhog_traffic_writes_total", "outcome" => "ok")
-                            .increment(1);
-                        metrics::histogram!("personhog_traffic_write_seconds")
+                        counter!("personhog_traffic_writes_total", "outcome" => "ok").increment(1);
+                        histogram!("personhog_traffic_write_seconds")
                             .record(start.elapsed().as_secs_f64());
                         let mut written = HashMap::new();
                         written.insert(key, serde_json::Value::String(value));
@@ -131,7 +134,7 @@ pub async fn run_traffic(
                     }
                     Err(e) => {
                         collector.writes.record_failure();
-                        metrics::counter!("personhog_traffic_writes_total", "outcome" => "failed")
+                        counter!("personhog_traffic_writes_total", "outcome" => "failed")
                             .increment(1);
                         // `{:#}` prints the full anyhow chain — the outer
                         // context alone hides the gRPC status underneath.
@@ -176,7 +179,7 @@ pub async fn verify_strong(
             .get_person(team_id, person_id, ConsistencyLevel::Strong)
             .await;
         if result.is_err() {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            sleep(Duration::from_secs(2)).await;
             result = client
                 .get_person(team_id, person_id, ConsistencyLevel::Strong)
                 .await;
@@ -185,8 +188,8 @@ pub async fn verify_strong(
         match result {
             Ok(Some(person)) => {
                 collector.reads.record_success(start.elapsed());
-                let props: serde_json::Value = if person.properties.is_empty() {
-                    serde_json::json!({})
+                let props: Value = if person.properties.is_empty() {
+                    json!({})
                 } else {
                     serde_json::from_slice(&person.properties)?
                 };
@@ -198,8 +201,8 @@ pub async fn verify_strong(
                 all_violations.push(ConsistencyViolation {
                     person_id,
                     key: "__missing_person".to_string(),
-                    expected: serde_json::json!("person with acked writes exists"),
-                    actual: serde_json::Value::Null,
+                    expected: json!("person with acked writes exists"),
+                    actual: Value::Null,
                 });
             }
             Err(e) => {
@@ -207,8 +210,8 @@ pub async fn verify_strong(
                 all_violations.push(ConsistencyViolation {
                     person_id,
                     key: "__strong_read_failed".to_string(),
-                    expected: serde_json::json!("readable"),
-                    actual: serde_json::json!(e.to_string()),
+                    expected: json!("readable"),
+                    actual: json!(e.to_string()),
                 });
             }
         }

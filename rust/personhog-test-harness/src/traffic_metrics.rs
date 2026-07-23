@@ -7,9 +7,12 @@
 //! that a consistency violation becomes a page-shaped signal rather than
 //! a process exit code.
 
+use std::process;
+
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
+use metrics::counter;
 
 use crate::report::ConsistencyViolation;
 
@@ -24,7 +27,7 @@ pub fn spawn_server(port: u16) -> Result<()> {
             // process so the deployment restarts it and the absence alarm
             // has something unambiguous to see.
             tracing::error!(error = %e, "metrics server failed");
-            std::process::exit(1);
+            process::exit(1);
         }
     });
     Ok(())
@@ -49,7 +52,7 @@ pub fn violation_kind(violation: &ConsistencyViolation) -> &'static str {
 pub fn record_violations(epoch: u64, violations: &[ConsistencyViolation]) {
     for violation in violations {
         let kind = violation_kind(violation);
-        metrics::counter!("personhog_traffic_violations_total", "kind" => kind).increment(1);
+        counter!("personhog_traffic_violations_total", "kind" => kind).increment(1);
         tracing::error!(
             epoch,
             kind,
@@ -64,14 +67,16 @@ pub fn record_violations(epoch: u64, violations: &[ConsistencyViolation]) {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{json, Value};
+
     use super::*;
 
     fn violation(key: &str) -> ConsistencyViolation {
         ConsistencyViolation {
             person_id: 1,
             key: key.to_string(),
-            expected: serde_json::json!("x"),
-            actual: serde_json::Value::Null,
+            expected: json!("x"),
+            actual: Value::Null,
         }
     }
 

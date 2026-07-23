@@ -5,8 +5,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use serde_json::{json, Value};
 use sqlx::postgres::PgPool;
 use sqlx::Row;
+use tokio::time::sleep;
 
 use crate::report::ConsistencyViolation;
 use crate::state::{verify_properties, ExpectedPerson};
@@ -53,7 +55,7 @@ pub async fn verify_postgres(
                 .map(serde_json::from_str)
                 .transpose()
                 .context("parsing properties JSON")?
-                .unwrap_or_else(|| serde_json::json!({}));
+                .unwrap_or_else(|| json!({}));
             by_id.insert(id, (props, version.unwrap_or(0)));
         }
 
@@ -76,8 +78,8 @@ pub async fn verify_postgres(
                         violations.push(ConsistencyViolation {
                             person_id: *person_id,
                             key: "__version".to_string(),
-                            expected: serde_json::json!(format!(">= {}", expected.last_version)),
-                            actual: serde_json::json!(version),
+                            expected: json!(format!(">= {}", expected.last_version)),
+                            actual: json!(version),
                         });
                     }
                 }
@@ -85,8 +87,8 @@ pub async fn verify_postgres(
                     violations.push(ConsistencyViolation {
                         person_id: *person_id,
                         key: "__row".to_string(),
-                        expected: serde_json::json!("present"),
-                        actual: serde_json::Value::Null,
+                        expected: json!("present"),
+                        actual: Value::Null,
                     });
                 }
             }
@@ -102,6 +104,6 @@ pub async fn verify_postgres(
             );
             return Ok(violations);
         }
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(500)).await;
     }
 }

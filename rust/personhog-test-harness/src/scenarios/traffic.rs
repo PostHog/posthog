@@ -17,13 +17,19 @@
 //! expected behavior legitimately differs across stack versions as
 //! admission hardening lands.
 
+use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
+use metrics::{counter, gauge};
 use rand::{Rng, SeedableRng};
+use serde_json::{json, Value};
 use sqlx::postgres::PgPool;
+#[cfg(unix)]
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::time::{interval, MissedTickBehavior};
 
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
@@ -40,7 +46,7 @@ use crate::verify::verify_postgres;
 pub const ENV_GUARD_VAR: &str = "PERSONHOG_TRAFFIC_ENV";
 
 pub async fn run(args: TrafficArgs) -> Result<()> {
-    check_env_guard(std::env::var(ENV_GUARD_VAR).ok().as_deref())?;
+    check_env_guard(env::var(ENV_GUARD_VAR).ok().as_deref())?;
     if args.rate_min <= 0.0 || args.rate_max < args.rate_min {
         bail!(
             "invalid rate range: {}..{} (need 0 < min <= max)",
@@ -51,7 +57,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     seed::validate_table_name(&args.pg_target_table)?;
 
     traffic_metrics::spawn_server(args.metrics_port)?;
-    metrics::gauge!("personhog_traffic_enabled").set(if args.enabled { 1.0 } else { 0.0 });
+    gauge!("personhog_traffic_enabled").set(if args.enabled { 1.0 } else { 0.0 });
     if !args.enabled {
         // Deployed but switched off: stay alive and observable so the
         // absence alarm keeps meaning "dead", never "disabled".
@@ -99,8 +105,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     loop {
         epoch += 1;
         let rate = rng.gen_range(args.rate_min..=args.rate_max);
-        metrics::counter!("personhog_traffic_epochs_total").increment(1);
-        metrics::gauge!("personhog_traffic_epoch_target_rps").set(rate);
+        counter!("personhog_traffic_epochs_total").increment(1);
+        gauge!("personhog_traffic_epoch_target_rps").set(rate);
         tracing::info!(epoch, rate = format!("{rate:.0}"), "epoch starting");
 
         let person_ids = Arc::new(seed::seed_persons(&pool, args.team_id, args.pool_size).await?);
@@ -171,9 +177,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         traffic_metrics::record_violations(epoch, &violations);
 
         let writes = collector.writes.snapshot();
-        metrics::gauge!("personhog_traffic_last_epoch_completed_timestamp_seconds").set(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+        gauge!("personhog_traffic_last_epoch_completed_timestamp_seconds").set(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs_f64(),
         );
@@ -221,19 +227,19 @@ async fn run_hostile(
         return;
     }
     let deadline = Instant::now() + duration;
-    let mut interval = tokio::time::interval(Duration::from_secs_f64(1.0 / rate_per_sec));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut ticker = interval(Duration::from_secs_f64(1.0 / rate_per_sec));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut rng = rand::rngs::StdRng::from_entropy();
     let mut counter: u64 = 0;
 
     while Instant::now() < deadline {
-        interval.tick().await;
+        ticker.tick().await;
         counter += 1;
         let person_id = person_ids[rng.gen_range(0..person_ids.len())];
         let (payload_kind, props) = hostile_payload(counter);
 
         let outcome = match client
-            .update_properties(team_id, person_id, props, serde_json::json!({}), vec![])
+            .update_properties(team_id, person_id, props, json!({}), vec![])
             .await
         {
             Ok(_) => "acked",
@@ -246,7 +252,7 @@ async fn run_hostile(
                 }
             }
         };
-        metrics::counter!(
+        counter!(
             "personhog_traffic_hostile_total",
             "payload" => payload_kind,
             "outcome" => outcome
@@ -257,21 +263,21 @@ async fn run_hostile(
 
 /// Rotates through the hostile payload shapes. The `unset` cycle keeps the
 /// hostile documents from growing without bound across epochs.
-fn hostile_payload(counter: u64) -> (&'static str, serde_json::Value) {
+fn hostile_payload(counter: u64) -> (&'static str, Value) {
     match counter % 4 {
         0 => (
             "nul",
-            serde_json::json!({ "hostile_nul": format!("x\u{0000}y_{counter}") }),
+            json!({ "hostile_nul": format!("x\u{0000}y_{counter}") }),
         ),
         1 => (
             "oversized_trimmable",
-            serde_json::json!({ "hostile_blob": "x".repeat(700_000) }),
+            json!({ "hostile_blob": "x".repeat(700_000) }),
         ),
         2 => (
             "oversized_protected",
-            serde_json::json!({ "email": "x".repeat(700_000) }),
+            json!({ "email": "x".repeat(700_000) }),
         ),
-        _ => ("reset", serde_json::json!({ "hostile_nul": "clean" })),
+        _ => ("reset", json!({ "hostile_nul": "clean" })),
     }
 }
 
@@ -294,8 +300,7 @@ async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     {
-        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("installing SIGTERM handler");
+        let mut sigterm = signal(SignalKind::terminate()).expect("installing SIGTERM handler");
         tokio::select! {
             _ = ctrl_c => {}
             _ = sigterm.recv() => {}

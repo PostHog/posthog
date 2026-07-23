@@ -143,7 +143,7 @@ axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
 base64 = "0.22.0"
 bytes = "1"
-clap = { version = "4", features = ["derive", "env"] }
+clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4.44", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
 dashmap = "6.1"
