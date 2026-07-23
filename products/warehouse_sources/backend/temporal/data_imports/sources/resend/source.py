@@ -88,6 +88,7 @@ Grant the key **full access** or a read-enabled access token so the following re
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Resend's API does not expose server-side filters on created_at; sync as
         # full-refresh only. Within-sync resumption is handled by ResumableSource.
@@ -101,7 +102,11 @@ Grant the key **full access** or a read-enabled access token so the following re
         return schemas
 
     def validate_credentials(
-        self, config: ResendSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ResendSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_resend_credentials(config.api_key):
             return True, None

@@ -595,6 +595,11 @@ class TaskWriteSerializer(serializers.Serializer):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
             raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
+        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
+            # Experiments tasks are team-readable, so letting API callers pick this origin
+            # would let them expose an arbitrary task to the whole team. The experiments
+            # flow creates its tasks server-side through the facade, never through here.
+            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
         return value
 
     def validate_repository(self, value):
@@ -1972,13 +1977,6 @@ class TaskRunBootstrapCreateRequestSerializer(
             "Whether rtk command-output compression is enabled for this run. Omitted or null "
             "follows the server-side default (enabled); false opts this run out."
         ),
-    )
-    home_quick_action = serializers.CharField(
-        required=False,
-        default=None,
-        allow_blank=False,
-        max_length=120,
-        help_text="Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.",
     )
 
     def validate(self, attrs):

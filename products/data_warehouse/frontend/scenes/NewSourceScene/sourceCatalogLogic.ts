@@ -23,6 +23,12 @@ import { HogFunctionTemplateStatus } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ManualLinkSourceType, UserType } from '../../../../../frontend/src/types'
 import { availableSourcesLogic } from './availableSourcesLogic'
+import {
+    FILE_UPLOAD_FORMATS,
+    FILE_UPLOAD_SOURCE_CONFIG,
+    FILE_UPLOAD_SOURCE_NAME,
+    fileUploadSourceUrl,
+} from './fileUploadSource'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 // Helps kea-typegen reference the Fuse type without a bad `import { Fuse } from 'fuse.js'`.
@@ -1480,7 +1486,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             ): CatalogItem[] => {
                 const managed = Object.values(availableSources ?? {})
                     .filter((c) => !allowedSources || allowedSources.includes(c.name))
-                    .map((connector: SourceConfig): CatalogItem => {
+                    .flatMap((connector: SourceConfig): CatalogItem[] => {
                         // Mirror nonHogFunctionTemplatesLogic: a declared-but-absent flag reads as
                         // off (featureFlagLogic only exposes truthy flags), so flag-gated sources
                         // render as coming-soon ("Notify me") until the user is in the rollout.
@@ -1494,19 +1500,21 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                                 ? connector.releaseStatus
                                 : undefined
 
-                        return {
-                            name: connector.name,
-                            label: connector.label ?? connector.name,
-                            iconType: connector.name,
-                            iconClassName: connector.iconClassName,
-                            category: connector.category ?? MANUAL_SOURCE_CATEGORY,
-                            keywords: connector.keywords ?? [],
-                            status,
-                            releaseStatus,
-                            url: urls.dataWarehouseSourceNew(connector.name),
-                            disabledReason: connector.disabledReason,
-                            existingSource: connector.existingSource,
-                        }
+                        return [
+                            {
+                                iconType: connector.name,
+                                iconClassName: connector.iconClassName,
+                                category: connector.category ?? MANUAL_SOURCE_CATEGORY,
+                                status,
+                                releaseStatus,
+                                disabledReason: connector.disabledReason,
+                                existingSource: connector.existingSource,
+                                name: connector.name,
+                                label: connector.label ?? connector.name,
+                                keywords: connector.keywords ?? [],
+                                url: urls.dataWarehouseSourceNew(connector.name),
+                            },
+                        ]
                     })
 
                 const selfManaged = manualConnectors.map(
@@ -1522,7 +1530,24 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                return [...managed, ...selfManaged]
+                // File upload is self-managed too — the uploaded file becomes an in-place table — but
+                // it isn't a `manualConnector` (those link a user's own bucket). It's one entry with
+                // three tiles, one per format, since users search for "CSV" rather than "File upload".
+                const fileUpload = FILE_UPLOAD_FORMATS.map(
+                    ({ format, label, keywords }): CatalogItem => ({
+                        name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
+                        label,
+                        iconType: FILE_UPLOAD_SOURCE_NAME,
+                        category: MANUAL_SOURCE_CATEGORY,
+                        keywords,
+                        status: 'stable',
+                        releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
+                        url: fileUploadSourceUrl(format),
+                        selfManaged: true,
+                    })
+                )
+
+                return [...managed, ...selfManaged, ...fileUpload]
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse

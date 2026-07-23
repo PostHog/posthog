@@ -169,6 +169,7 @@ the row lists both.
 | customer_io                      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | customerly                       | HTTP                        | requests                                                        | ✅                          |
 | dagster_cloud                    | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| databricks                       | DB protocol                 | databricks-sql-connector                                        | ➖                          |
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
 | dataforseo                       | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
@@ -373,6 +374,7 @@ the row lists both.
 | mysql                            | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                              | HTTP                        | requests                                                        | ✅                          |
 | nebius_ai                        | HTTP                        | requests                                                        | ✅                          |
+| neon                             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | netlify                          | HTTP                        | requests                                                        | ✅                          |
 | new_relic                        | HTTP (GraphQL/NerdGraph)    | requests                                                        | ✅                          |
 | new_york_times                   | HTTP                        | requests                                                        | ✅                          |
@@ -842,7 +844,6 @@ doesn't conflict with concurrent PRs.
 - cube_cloud
 - curve
 - d2l_brightspace
-- databricks
 - datascope
 - datorama
 - dayforce
@@ -1103,7 +1104,6 @@ doesn't conflict with concurrent PRs.
 - nager_date
 - nasa
 - navan
-- neon
 - neon_crm
 - netsuite
 - news_api

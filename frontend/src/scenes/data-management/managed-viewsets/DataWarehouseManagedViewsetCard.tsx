@@ -48,7 +48,7 @@ export function DataWarehouseManagedViewsetCard({
     const { togglingViewset, toggleResultLoading } = useValues(dataWarehouseManagedViewsetsLogic({ type }))
 
     const { title, description, docsUrl, configUrl, icon } = VIEWSET_DESCRIPTIONS[kind]
-    const isEnabled = currentTeam!.managed_viewsets![kind]
+    const isEnabled = !!currentTeam?.managed_viewsets?.[kind]
     const isToggling = togglingViewset === kind && toggleResultLoading
 
     return (
