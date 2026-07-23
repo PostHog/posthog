@@ -141,7 +141,12 @@ def start_apply_scanner_workflow(
             release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
             return workflow_id, WorkflowStartOutcome.FAILED
         logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
-        # Keep the claim: decaying it could cut short a racing caller's live claim for the same id.
+        # A persisted row already counts this run, so our claim is a resurrected duplicate — drop
+        # it. Without a row the running workflow is still in the enqueue gap: keep the claim.
+        if ReplayObservation.objects.filter(scanner_id=scanner.id, session_id=session_id).exists():
+            release_enqueue_claim(
+                team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id, immediately=True
+            )
         return workflow_id, WorkflowStartOutcome.ALREADY_RUNNING
     except Exception:
         logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)

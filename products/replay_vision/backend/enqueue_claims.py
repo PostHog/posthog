@@ -97,13 +97,18 @@ def try_claim_enqueue_slot(
         return True
 
 
-def release_enqueue_claim(*, team_id: int, scanner_id: UUID, workflow_id: str) -> None:
-    """Decay a claim once its observation row exists (or the start failed); unreleased claims self-expire."""
+def release_enqueue_claim(*, team_id: int, scanner_id: UUID, workflow_id: str, immediately: bool = False) -> None:
+    """Decay a claim once its observation row exists (or the start failed); unreleased claims
+    self-expire. `immediately` removes it outright, for claims that never covered anything."""
     expiry = time.time() + _RELEASE_GRACE_SECONDS
     try:
         pipeline = redis.get_client().pipeline()
-        pipeline.zadd(_team_key(team_id), {workflow_id: expiry}, xx=True)
-        pipeline.zadd(_scanner_key(scanner_id), {workflow_id: expiry}, xx=True)
+        if immediately:
+            pipeline.zrem(_team_key(team_id), workflow_id)
+            pipeline.zrem(_scanner_key(scanner_id), workflow_id)
+        else:
+            pipeline.zadd(_team_key(team_id), {workflow_id: expiry}, xx=True)
+            pipeline.zadd(_scanner_key(scanner_id), {workflow_id: expiry}, xx=True)
         pipeline.execute()
     except Exception:
         logger.warning("replay_vision.enqueue_claim.release_failed", team_id=team_id, exc_info=True)

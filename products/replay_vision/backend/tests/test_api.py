@@ -12,11 +12,13 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
+from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
+from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -1475,9 +1477,51 @@ class TestObserveAction(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.scanner = self._create_scanner()
+        # Claims from earlier tests' mocked starts are never released by an activity.
+        get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
 
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
+
+    @parameterized.expand(
+        [
+            ("row_persisted_drops_duplicate_claim", True, 0),
+            ("row_not_yet_persisted_keeps_claim", False, 1),
+        ]
+    )
+    def test_already_running_claim_follows_row_existence(
+        self,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+        _name: str,
+        row_exists: bool,
+        expected_claims: int,
+    ) -> None:
+        # Resubmitting an active session must not mint a phantom claim on top of its persisted row,
+        # but a claim for a run still inside the enqueue gap has to survive.
+        session_id = "sess-running"
+        if row_exists:
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                session_id=session_id,
+                scanner_snapshot=_snapshot_for(self.scanner),
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                status=ObservationStatus.PENDING,
+            )
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id=build_apply_scanner_workflow_id(self.scanner.id, session_id),
+                workflow_type=APPLY_SCANNER_WORKFLOW_NAME,
+            )
+        )
+
+        _, outcome = start_apply_scanner_workflow(
+            self.scanner, session_id, triggered_by_user_id=self.user.id, trigger=ObservationTrigger.ON_DEMAND
+        )
+
+        assert outcome is WorkflowStartOutcome.ALREADY_RUNNING
+        assert pending_enqueue_claims_for_team(self.team.id) == expected_claims
 
     def test_stale_row_snapshot_self_corrects_after_claim(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
