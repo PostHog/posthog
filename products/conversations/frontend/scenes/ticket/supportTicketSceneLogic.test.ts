@@ -387,11 +387,9 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         initKeaTests()
         // Person carries a customer-controlled properties.email distinct from the ticket's email_from,
         // so the assertions prove the match uses email_from (when verified) and never properties.email.
-        personsListMock
-            .mockReset()
-            .mockResolvedValue({
-                results: [{ id: 'p1', distinct_ids: ['user-1'], properties: { email: 'analytics@example.com' } }],
-            })
+        personsListMock.mockReset().mockResolvedValue({
+            results: [{ id: 'p1', distinct_ids: ['user-1'], properties: { email: 'analytics@example.com' } }],
+        })
         ticketsListMock.mockReset().mockResolvedValue({ results: [] })
         ticketGetMock.mockReset()
     })
