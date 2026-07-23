@@ -75,13 +75,17 @@ export class ImageBatcher {
                 this.buffer.push(image)
                 this.bufferBytes += image.bytes.length
             }
+            // Advance offsets per completed chunk (even all-skipped ones, or skipped messages
+            // replay forever). They are only ever *stored* by a flush, after the buffer — which
+            // holds exactly these chunks' images — is durably written. A mid-batch flush thereby
+            // records the progress it persisted: a later failure in this batch replays only from
+            // the flush, instead of re-writing another copy of the flushed shard per replay.
+            for (const offset of findOffsetsToCommit(chunk)) {
+                this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
+            }
             if (this.overCapacity()) {
                 await this.flushOrThrow(nowMs)
             }
-        }
-        // Advance offsets even for all-skipped batches, or skipped messages replay forever.
-        for (const offset of findOffsetsToCommit(messages)) {
-            this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
         }
         if (this.shouldFlush(nowMs)) {
             await this.flushOrThrow(nowMs)

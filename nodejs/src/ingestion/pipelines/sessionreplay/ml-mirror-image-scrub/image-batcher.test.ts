@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { hashImageBytes, imageRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
@@ -34,8 +34,10 @@ class FakeStore {
 
 class FakeOffsets implements OffsetStore {
     public stored = 0
-    offsetsStore(): void {
+    public received: TopicPartitionOffset[][] = []
+    offsetsStore(offsets: TopicPartitionOffset[]): void {
         this.stored += 1
+        this.received.push(offsets)
     }
 }
 
@@ -92,6 +94,35 @@ describe('ImageBatcher', () => {
         expect(offsets.stored).toBe(0)
     })
 
+    it('stores offsets with each mid-batch flush, so a later failure replays only from the flush', async () => {
+        // A flush persists a randomly named shard; if the batch then fails (e.g. the scrub deadline)
+        // without having stored the flushed messages' offsets, Kafka replays them and every replay
+        // writes another duplicate shard — unbounded write amplification an attacker can induce.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        let scrubs = 0
+        const failsAfterFirstChunk = {
+            scrub: () => {
+                scrubs += 1
+                return scrubs <= 2 ? Promise.resolve(Buffer.alloc(16)) : Promise.reject(new Error('sidecar down'))
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            failsAfterFirstChunk,
+            { ...options, maxBytes: 32, scrubConcurrency: 2 },
+            0
+        )
+
+        const messages = Array.from({ length: 4 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        await expect(batcher.handleBatch(messages, 1)).rejects.toThrow('sidecar down')
+
+        expect(store.writes).toHaveLength(1)
+        // The flushed chunk's messages (offsets 0-1) are recorded, so only 2-3 replay.
+        expect(offsets.received).toEqual([[{ topic: 'session_replay_image_scrub', partition: 0, offset: 2 }]])
+    })
+
     it('flushes mid-batch when scrubbed bytes cross the byte bound instead of holding the whole batch', async () => {
         // Scrubbed outputs can be far larger than their inputs (full-resolution PNG re-encode), so
         // the byte bound must apply while a poll batch is still scrubbing — a reverted batcher that
@@ -112,7 +143,7 @@ describe('ImageBatcher', () => {
 
         expect(store.writes.length).toBeGreaterThan(1)
         expect(store.writes.flat()).toHaveLength(6)
-        expect(offsets.stored).toBe(1)
+        expect(offsets.stored).toBe(store.writes.length)
     })
 
     it('does not count mid-batch flush time against the scrub deadline', async () => {
@@ -137,7 +168,7 @@ describe('ImageBatcher', () => {
         await batcher.handleBatch(messages, 1)
 
         expect(slowStore.writes.flat()).toHaveLength(6)
-        expect(offsets.stored).toBe(1)
+        expect(offsets.stored).toBe(slowStore.writes.length)
     })
 
     test.each([[0], [NaN], [-1]])('rejects scrubConcurrency %p at construction', (scrubConcurrency) => {
