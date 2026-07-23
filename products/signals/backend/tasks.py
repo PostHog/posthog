@@ -25,6 +25,7 @@ from products.signals.backend.report_generation.repo_activity import (
     repository_activity_needs_rebuild,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
+from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -305,9 +306,14 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         return
     try:
         rebuild_repository_activity(team_id, repository)
-    except (RepositoryCommitActivityError, GitHubRateLimitError, GitHubEgressBudgetExhausted) as exc:
-        # Expected deferrals (integration gone, rate limit, shed by the egress limiter) —
-        # the map stays stale and the next enqueue retries.
+    except (
+        RepositoryCommitActivityError,
+        GitHubRateLimitError,
+        GitHubEgressBudgetExhausted,
+        SandboxProvisionError,
+    ) as exc:
+        # Expected deferrals (integration gone, rate limit, shed by the egress limiter, sandbox
+        # provisioning unavailable) — the map stays stale and the next enqueue retries.
         logger.warning(
             "signals repository activity rebuild deferred",
             team_id=team_id,

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import Organization, Team
 from posthog.models.github_integration_base import GitHubCommitAttribution
 from posthog.models.scoping import team_scope
@@ -20,8 +21,9 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
-from products.signals.backend.tasks import refresh_signal_repository_activity
-from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity
+from products.signals.backend.tasks import rebuild_signal_repository_activity, refresh_signal_repository_activity
+from products.tasks.backend.facade.exceptions import SandboxProvisionError
+from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity, RepositoryCommitActivityError
 
 _COLLECT_PATCH_TARGET = "products.signals.backend.report_generation.repo_activity.collect_repository_commit_activity"
 
@@ -242,3 +244,36 @@ class TestWeeklyRefreshTask:
         assert enqueued == {(team.id, "acme/app"), (team.id, "acme/other")}
         with team_scope(team.id, canonical=True):
             assert not SignalRepositoryAreaActivity.objects.filter(id=idle.id).exists()
+
+
+@pytest.mark.django_db
+class TestRebuildTaskErrorHandling:
+    _REBUILD_PATCH_TARGET = "products.signals.backend.tasks.rebuild_repository_activity"
+    _CAPTURE_PATCH_TARGET = "products.signals.backend.tasks.capture_exception"
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            RepositoryCommitActivityError("integration gone"),
+            GitHubRateLimitError("rate limited"),
+            GitHubEgressBudgetExhausted("shed by egress limiter"),
+            # The production symptom: missing Modal credentials surface as this transient error
+            # and must be treated as a deferral, not paged to error tracking.
+            SandboxProvisionError("Token missing", {}, None),
+        ],
+    )
+    def test_expected_failures_defer_without_paging_error_tracking(self, team, exc):
+        with (
+            patch(self._REBUILD_PATCH_TARGET, side_effect=exc),
+            patch(self._CAPTURE_PATCH_TARGET) as capture,
+        ):
+            rebuild_signal_repository_activity(team_id=team.id, repository="acme/app", force=True)
+        capture.assert_not_called()
+
+    def test_unexpected_failure_is_captured(self, team):
+        with (
+            patch(self._REBUILD_PATCH_TARGET, side_effect=RuntimeError("boom")),
+            patch(self._CAPTURE_PATCH_TARGET) as capture,
+        ):
+            rebuild_signal_repository_activity(team_id=team.id, repository="acme/app", force=True)
+        capture.assert_called_once()
