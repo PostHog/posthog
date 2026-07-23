@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.types import OpenApiTypes
@@ -30,8 +30,9 @@ from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
-from posthog.permissions import is_service_auth
+from posthog.permissions import get_authenticator_scopes, is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
@@ -59,6 +60,46 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 # reads need "viewer", writes need "editor".
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
+
+
+class _WarehouseScopeGatedAccessControl:
+    """Wraps ``UserAccessControl`` so object-level ``external_data_source`` access additionally
+    requires the request token to carry the matching ``external_data_source`` scope (``read`` for
+    viewer, ``write`` for editor). Person-property sources gate all warehouse read/write through
+    ``check_access_level_for_object`` on the linked ``external_data_source``, so folding the token
+    scope in here enforces the cross-resource scope on every path without threading it through the
+    facade. Session auth (no token scopes) and ``*`` tokens are unaffected — API scopes never gate
+    session requests, which stay RBAC-only. Everything else delegates to the wrapped instance."""
+
+    def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
+        self._inner = inner
+        self._token_scopes = token_scopes
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
+        if self._token_lacks_scope_for(obj, required_level):
+            return False
+        return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
+
+    def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
+        scopes = self._token_scopes
+        if "*" in scopes or model_to_resource(obj) != "external_data_source":
+            return False
+        if "external_data_source:write" in scopes:
+            return False  # write implies read, so it satisfies both viewer and editor
+        return not (required_level == "viewer" and "external_data_source:read" in scopes)
+
+
+def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
+    """The view's ``UserAccessControl``, additionally gating ``external_data_source`` object access on
+    the request token's warehouse scope. A no-op for session/other non-token auth (no token scopes)."""
+    scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
+    if scopes is None:
+        return view.user_access_control
+    return cast(UserAccessControl, _WarehouseScopeGatedAccessControl(view.user_access_control, scopes))
+
 
 # drf-spectacular auto-describes the pk path param for a model-backed viewset as
 # "A UUID string identifying this <model>.". These viewsets reach the model through the
@@ -211,14 +252,14 @@ class CustomPropertyDefinitionViewSet(
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_custom_property_definitions(
-                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+                self.team_id, offset=offset, limit=limit, user_access_control=_warehouse_scoped_uac(self)
             ),
             CustomPropertyDefinitionSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         definition = api.get_custom_property_definition(
-            self.team_id, self.kwargs["pk"], user_access_control=self.user_access_control
+            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
         )
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -288,7 +329,7 @@ class CustomPropertyDefinitionViewSet(
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
-                user_access_control=self.user_access_control,
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -432,14 +473,14 @@ class CustomPropertySourceViewSet(
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_custom_property_sources(
-                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+                self.team_id, offset=offset, limit=limit, user_access_control=_warehouse_scoped_uac(self)
             ),
             CustomPropertySourceSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         source = api.get_custom_property_source(
-            self.team_id, self.kwargs["pk"], user_access_control=self.user_access_control
+            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
         )
         if source is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -460,7 +501,7 @@ class CustomPropertySourceViewSet(
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
-                user_access_control=self.user_access_control,
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.CustomPropertySourceValidationError as e:
             raise ValidationError(str(e))
@@ -477,7 +518,7 @@ class CustomPropertySourceViewSet(
                 team_id=self.team_id,
                 source_id=self.kwargs["pk"],
                 fields=write.validated_data,
-                user_access_control=self.user_access_control,
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -503,7 +544,7 @@ class CustomPropertySourceViewSet(
         real (billable) warehouse sync; the incremental person-property update runs off it."""
         try:
             triggered = api.trigger_person_property_sync(
-                team_id=self.team_id, source_id=self.kwargs["pk"], user_access_control=self.user_access_control
+                team_id=self.team_id, source_id=self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -523,7 +564,7 @@ class CustomPropertySourceViewSet(
                 team_id=self.team_id,
                 source_id=self.kwargs["pk"],
                 trigger="manual",
-                user_access_control=self.user_access_control,
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -547,7 +588,7 @@ class CustomPropertySourceViewSet(
                     self.kwargs["pk"],
                     offset=offset,
                     limit=limit,
-                    user_access_control=self.user_access_control,
+                    user_access_control=_warehouse_scoped_uac(self),
                 ),
                 CustomPropertySyncRunSerializer,
             )
