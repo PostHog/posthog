@@ -325,7 +325,7 @@ function buildBlocks(now, rows) {
             elements: [
                 {
                     type: 'mrkdwn',
-                    text: 'Fix: `/fixing-flaky-tests` · Park 14 days: `hogli test:quarantine add <test id>`',
+                    text: 'Fix: `/fixing-flaky-tests` · Park 14 days: ready-made quarantine commands in the thread',
                 },
             ],
         },
@@ -338,7 +338,24 @@ function buildBlocks(now, rows) {
     return blocks
 }
 
-async function postToSlack(blocks) {
+// Full selectors are too wide for the table, so the copy-paste quarantine commands
+// ride a thread reply. A cluster row's selector is its file path, which the
+// quarantine selector grammar accepts as a prefix.
+function quarantineCommands(items, ownerFor) {
+    const commands = items.map((item) => {
+        const { owner } = ownerFor(item)
+        const ownerArg = owner === 'unowned' ? '<owner>' : owner
+        return `hogli test:quarantine add '${item.selector}' --reason "flaky: ${item.failed_run_count} CI fails last week" --owner ${ownerArg}`
+    })
+    return [
+        {
+            type: 'section',
+            text: { type: 'mrkdwn', text: 'To park one for 14 days:\n```' + commands.join('\n') + '```' },
+        },
+    ]
+}
+
+async function postToSlack(blocks, threadTs) {
     const res = await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
@@ -347,12 +364,14 @@ async function postToSlack(blocks) {
             blocks,
             text: 'Weekly flaky test report', // notification fallback
             unfurl_links: false,
+            ...(threadTs ? { thread_ts: threadTs } : {}),
         }),
     })
     const data = await res.json()
     if (!data.ok) {
         throw new Error(`Slack chat.postMessage failed: ${data.error}`)
     }
+    return data.ts
 }
 
 async function main() {
@@ -373,14 +392,16 @@ async function main() {
     }
     const ownerFor = resolveOwners(flaky)
     const blocks = buildBlocks(now, tableRows(flaky, ownerFor, extrasFor))
+    const threadBlocks = quarantineCommands(flaky, ownerFor)
     if (DRY_RUN) {
-        console.info(JSON.stringify(blocks, null, 2))
+        console.info(JSON.stringify({ blocks, threadBlocks }, null, 2))
         return
     }
     if (!SLACK_BOT_TOKEN) {
         throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
-    await postToSlack(blocks)
+    const ts = await postToSlack(blocks)
+    await postToSlack(threadBlocks, ts)
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
 }
 
