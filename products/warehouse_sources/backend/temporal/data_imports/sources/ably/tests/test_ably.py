@@ -194,6 +194,69 @@ class TestAblySourceResumeBehavior:
         manager.load_state.assert_not_called()
 
 
+def _make_redirect_response(location: str, status_code: int = 302) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.headers["Location"] = location
+    resp._content = b""
+    return resp
+
+
+class TestAblyHostPinningAndRedirects:
+    """`allowed_hosts=[]` + `allow_redirects=False` keep the Basic-auth credential from
+    following a spoofed ``Link: rel="next"`` target or a cross-origin redirect off Ably's host."""
+
+    def _drive(self, sent_urls: list[str], responses: list[Response]) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        response_iter = iter(responses)
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent_urls.append(request.url)
+            return next(response_iter)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = ably_source(
+                api_key="app.key:secret",
+                unit="hour",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+            )
+            list(resource)
+
+    def test_off_origin_next_link_is_rejected_before_sending(self) -> None:
+        # A spoofed `Link: rel="next"` pointing off Ably's host must be refused before the
+        # request (carrying the Basic-auth key) leaves the process.
+        evil_url = "https://evil.example.com/stats?start=abc"
+        sent_urls: list[str] = []
+        responses = [_make_http_response([{"intervalId": "2024-01-15:14", "unit": "hour"}], next_url=evil_url)]
+
+        with pytest.raises(ValueError, match="disallowed host"):
+            self._drive(sent_urls, responses)
+
+        # Only the legitimate first page was ever sent; the off-origin URL was never contacted.
+        assert sent_urls == ["https://main.realtime.ably.net/stats"]
+
+    def test_cross_origin_redirect_is_not_followed(self) -> None:
+        sent_urls: list[str] = []
+        responses = [_make_redirect_response("https://evil.example.com/stats")]
+
+        with pytest.raises(ValueError, match="[Rr]edirect"):
+            self._drive(sent_urls, responses)
+
+        # The redirect target was never fetched: send ran once for the base host and stopped.
+        assert sent_urls == ["https://main.realtime.ably.net/stats"]
+
+
 class TestValidateCredentials:
     def test_malformed_key_fails_without_a_request(self) -> None:
         with patch(

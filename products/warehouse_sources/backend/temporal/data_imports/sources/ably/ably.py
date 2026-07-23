@@ -119,6 +119,12 @@ def ably_source(
                 "username": username,
                 "password": password,
             },
+            # Pin every request to BASE_URL's host and refuse redirects: the Basic auth header
+            # carries the Ably key, so a spoofed `Link: rel="next"` target or a cross-origin 3xx
+            # must not carry that credential off-host (SSRF). `allowed_hosts=[]` means "same host
+            # as base_url only" and also pins paginator and resume URLs.
+            "allowed_hosts": [],
+            "allow_redirects": False,
             "paginator": "header_link",
         },
         "resource_defaults": {
