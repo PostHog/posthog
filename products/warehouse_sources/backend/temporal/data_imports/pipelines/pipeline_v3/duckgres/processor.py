@@ -673,7 +673,9 @@ def _probe_table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duc
     concurrent snapshot commits); the former `information_schema.tables` check
     re-materialized the whole catalog (~48s under load on a large catalog).
     duckgres reports a missing table as a generic XX000 carrying DuckDB's stable
-    "... does not exist" message; anything else is a real error and propagates.
+    "Table with name X does not exist" catalog message. Match that specifically —
+    a bare "does not exist" would also swallow a missing schema/catalog/secret,
+    wrongly routing a real failure to the create path. Anything else propagates.
     """
     try:
         conn.execute(
@@ -683,7 +685,8 @@ def _probe_table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duc
         )
         return True
     except psycopg.Error as err:
-        if "does not exist" in str(err).lower():
+        message = str(err).lower()
+        if "table with name" in message and "does not exist" in message:
             return False
         raise
 

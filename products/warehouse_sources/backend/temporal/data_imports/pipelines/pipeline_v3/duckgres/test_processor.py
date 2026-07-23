@@ -759,9 +759,20 @@ class TestTableExistsProbeAndCache:
 
     def test_other_error_propagates_not_treated_as_absent(self):
         # A transient failure must NOT be read as "table absent" (that would pick
-        # the create path); only DuckDB's "does not exist" means absent.
+        # the create path); only DuckDB's table-missing message means absent.
         conn = MagicMock()
         conn.execute.side_effect = psycopg.errors.InternalError_("flight execute: rpc error: Unavailable")
+        with pytest.raises(psycopg.Error):
+            _table_exists(conn, "s", "t")
+
+    def test_missing_schema_error_propagates_not_treated_as_table_absent(self):
+        # A bare "does not exist" match would swallow a missing schema/catalog/
+        # secret and wrongly pick the create path; only "Table with name ..." is
+        # absent. (Greptile P1.)
+        conn = MagicMock()
+        conn.execute.side_effect = psycopg.errors.InternalError_(
+            "flight execute: ... Catalog Error: Schema with name s does not exist!"
+        )
         with pytest.raises(psycopg.Error):
             _table_exists(conn, "s", "t")
 
