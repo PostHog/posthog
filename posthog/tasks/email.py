@@ -2332,7 +2332,7 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
             "requester_email": requester.email or "",
             "organization_name": org_name,
             "posthog_ai_url": posthog_ai_url,
-            **get_email_footer_context(team=team, organization=organization),
+            **get_email_footer_context(organization=organization),
         },
         reply_to=requester.email or "",
     )
