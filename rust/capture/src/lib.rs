@@ -5,6 +5,7 @@ pub mod config;
 pub mod event_restrictions;
 pub mod events;
 pub mod extractors;
+pub mod gateway_provenance;
 pub mod global_rate_limiter;
 pub mod log_util;
 pub mod metrics_middleware;

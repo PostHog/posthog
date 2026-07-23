@@ -1424,27 +1424,29 @@ def get_teams_with_ai_event_count_in_period(
         sponsored_counts = sync_execute(
             f"""
             SELECT
-                relays.team_id,
-                sum(least(relays.relay_count, sponsors.generation_count * %(allowance)s)) AS sponsored_count
+                team_id,
+                countIf(relay_rank <= generation_count * %(allowance)s AND timestamp >= %(begin)s AND timestamp < %(end)s) AS sponsored_count
             FROM (
                 SELECT
                     team_id,
                     trace_id,
-                    uniqExact(tuple(event, span_id)) AS relay_count
+                    timestamp,
+                    row_number() OVER (PARTITION BY team_id, trace_id ORDER BY timestamp, event, span_id) AS relay_rank
                 FROM (
                     SELECT
                         team_id,
                         event,
+                        min(timestamp) AS timestamp,
                         {verified_expr} IN ('true', '1') AS verified,
                         {relay_expr} IN ('true', '1') AS relay,
                         if(verified AND relay, {trace_id_expr}, '') AS trace_id,
                         if(verified AND relay, {span_id_expr}, '') AS span_id
                     FROM {events_read_table(use_new)}
                     WHERE team_id IN %(relayed_team_ids)s
-                      AND event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+                      AND event IN %(ai_events)s AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
+                    GROUP BY team_id, event, verified, relay, trace_id, span_id
                 )
                 WHERE verified AND relay AND trace_id != '' AND span_id != ''
-                GROUP BY team_id, trace_id
             ) AS relays
             INNER JOIN (
                 SELECT
@@ -1466,7 +1468,7 @@ def get_teams_with_ai_event_count_in_period(
                 WHERE verified AND NOT relay AND trace_id != '' AND request_id != ''
                 GROUP BY team_id, trace_id
             ) AS sponsors USING (team_id, trace_id)
-            GROUP BY relays.team_id
+            GROUP BY team_id
             """,
             {
                 "allowance": GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,

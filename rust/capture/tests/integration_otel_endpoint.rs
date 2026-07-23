@@ -1086,6 +1086,41 @@ async fn test_verified_gateway_batch_bypasses_scoped_llm_quota() {
 }
 
 #[tokio::test]
+async fn test_invalid_gateway_signature_does_not_bypass_scoped_llm_quota() {
+    const SECRET: &str = "test-signing-secret";
+
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()]));
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = make_single_span_request().encode_to_vec();
+    let response = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .header("PostHog-Ai-Gateway-Signature", "00")
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .body(body)
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 400);
+    assert!(sink.get_events().await.is_empty());
+}
+
+#[tokio::test]
 async fn test_verified_gateway_batch_respects_global_event_quota() {
     const SECRET: &str = "test-signing-secret";
 

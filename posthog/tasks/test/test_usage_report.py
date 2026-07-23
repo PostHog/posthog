@@ -1567,8 +1567,8 @@ class TestQueryUsageReportSQL:
         sponsor_query = mock_sync_execute.call_args_list[1].args[0]
         sponsor_params = mock_sync_execute.call_args_list[1].args[1]
         assert "max(relay) AS has_verified_relay" in base_query
-        assert "uniqExact(tuple(event, span_id))" in sponsor_query
-        assert "sponsors.generation_count * %(allowance)s" in sponsor_query
+        assert "row_number() OVER (PARTITION BY team_id, trace_id ORDER BY timestamp, event, span_id)" in sponsor_query
+        assert "countIf(relay_rank <= generation_count * %(allowance)s AND timestamp >= %(begin)s" in sponsor_query
         assert sponsor_query.count("team_id IN %(relayed_team_ids)s") == 2
         assert sponsor_params["allowance"] == GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION
         assert sponsor_params["relayed_team_ids"] == [1]
@@ -5946,6 +5946,56 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             ai_count(),
             baseline_count + 4,
             "one overage, two replay copies, and one unmatched span stay billable",
+        )
+
+    def test_gateway_sponsorship_allowance_is_shared_across_adjacent_periods(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        previous_begin = self.begin - relativedelta(days=1)
+
+        def ai_count(begin: datetime, end: datetime) -> int:
+            return dict(get_teams_with_ai_event_count_in_period(begin, end)).get(self.team.id, 0)
+
+        previous_baseline = ai_count(previous_begin, self.begin)
+        current_baseline = ai_count(self.begin, self.end)
+        trace_id = "cross-period-sponsored-trace"
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin - relativedelta(hours=2),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "cross-period-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        for index in range(GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION):
+            for timestamp in (
+                self.begin - relativedelta(hours=1),
+                self.begin + relativedelta(hours=1),
+            ):
+                _create_event(
+                    event="$ai_span",
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=timestamp,
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{timestamp.isoformat()}-{index}",
+                    },
+                )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(previous_begin, self.begin), previous_baseline)
+        self.assertEqual(
+            ai_count(self.begin, self.end),
+            current_baseline + GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
         )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:

@@ -1,29 +1,19 @@
 use axum::http::HeaderMap;
-use chrono::{DateTime, Duration, Utc};
-use hmac::{Hmac, Mac};
+use chrono::{DateTime, Utc};
 use metrics::counter;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::gateway_provenance as shared;
+
 use super::fan_out::SpanEvent;
 
-type HmacSha256 = Hmac<Sha256>;
-
-const SIGNATURE_HEADER: &str = "PostHog-Ai-Gateway-Signature";
-const SIGNED_AT_HEADER: &str = "PostHog-Ai-Gateway-Signed-At";
 const SIGNATURE_SCOPE: &str = "otel-v1";
 const GATEWAY_PREFIX: &str = "$ai_gateway";
 const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 const RELAY_PROPERTY: &str = "$ai_gateway_relay";
 const PROVENANCE_METRIC: &str = "capture_ai_otel_gateway_provenance";
-const FRESHNESS_WINDOW_SECS: i64 = 5 * 60;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Provenance {
-    Verified,
-    Stale,
-    Invalid,
-}
+pub use crate::gateway_provenance::Provenance;
 
 pub fn verify(
     headers: &HeaderMap,
@@ -37,15 +27,15 @@ pub fn verify(
     let Some(secret) = secret.filter(|value| !value.is_empty()) else {
         return Provenance::Invalid;
     };
-    let Some(signature) = header_str(headers, SIGNATURE_HEADER) else {
+    let Some(signature) = shared::header_str(headers, shared::SIGNATURE_HEADER) else {
         return Provenance::Invalid;
     };
-    let Some(signed_at) = header_str(headers, SIGNED_AT_HEADER) else {
+    let Some(signed_at) = shared::header_str(headers, shared::SIGNED_AT_HEADER) else {
         return Provenance::Invalid;
     };
 
     let body_digest = hex::encode(Sha256::digest(body));
-    let message = canonical(&[
+    let message = shared::canonical(&[
         token,
         SIGNATURE_SCOPE,
         content_type,
@@ -53,14 +43,7 @@ pub fn verify(
         &body_digest,
         &signed_at,
     ]);
-    if !verify_hmac(secret.as_bytes(), &message, &signature) {
-        return Provenance::Invalid;
-    }
-    if is_fresh(&signed_at, now) {
-        Provenance::Verified
-    } else {
-        Provenance::Stale
-    }
+    shared::verify(secret.as_bytes(), &message, &signature, &signed_at, now)
 }
 
 pub fn apply(span_events: &mut [SpanEvent], provenance: Provenance) {
@@ -84,38 +67,6 @@ pub fn apply(span_events: &mut [SpanEvent], provenance: Provenance) {
     counter!(PROVENANCE_METRIC, "reason" => reason).increment(1);
 }
 
-fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers.get(name)?.to_str().ok().map(str::to_owned)
-}
-
-fn canonical(fields: &[&str]) -> Vec<u8> {
-    let mut buffer = Vec::with_capacity(fields.iter().map(|field| field.len() + 4).sum());
-    for field in fields {
-        buffer.extend_from_slice(&(field.len() as u32).to_be_bytes());
-        buffer.extend_from_slice(field.as_bytes());
-    }
-    buffer
-}
-
-fn verify_hmac(secret: &[u8], message: &[u8], signature_hex: &str) -> bool {
-    let Ok(expected) = hex::decode(signature_hex) else {
-        return false;
-    };
-    let Ok(mut mac) = HmacSha256::new_from_slice(secret) else {
-        return false;
-    };
-    mac.update(message);
-    mac.verify_slice(&expected).is_ok()
-}
-
-fn is_fresh(signed_at: &str, now: DateTime<Utc>) -> bool {
-    let Ok(signed_at) = DateTime::parse_from_rfc3339(signed_at) else {
-        return false;
-    };
-    let skew = now.signed_duration_since(signed_at.with_timezone(&Utc));
-    skew.abs() <= Duration::seconds(FRESHNESS_WINDOW_SECS)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,8 +86,8 @@ mod tests {
 
     fn signed_headers() -> HeaderMap {
         let mut headers = HeaderMap::new();
-        headers.insert(SIGNATURE_HEADER, SIGNATURE.parse().unwrap());
-        headers.insert(SIGNED_AT_HEADER, SIGNED_AT.parse().unwrap());
+        headers.insert(shared::SIGNATURE_HEADER, SIGNATURE.parse().unwrap());
+        headers.insert(shared::SIGNED_AT_HEADER, SIGNED_AT.parse().unwrap());
         headers
     }
 
@@ -182,7 +133,7 @@ mod tests {
                 "application/x-protobuf",
                 "gzip",
                 BODY,
-                now() + Duration::seconds(FRESHNESS_WINDOW_SECS + 1),
+                now() + chrono::Duration::seconds(shared::FRESHNESS_WINDOW_SECS + 1),
             ),
             Provenance::Stale
         );
