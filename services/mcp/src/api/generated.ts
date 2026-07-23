@@ -73168,6 +73168,10 @@ export namespace Schemas {
      */
     distinct_ids?: string;
     /**
+     * Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).
+     */
+    emails?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;

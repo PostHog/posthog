@@ -536,9 +536,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return []
                     }
 
+                    // Match related tickets by the person's merged distinct_ids OR their email, so
+                    // tickets from the same email that were never merged into this person still surface.
+                    const emails = new Set<string>()
+                    if (person.properties?.email) {
+                        emails.add(person.properties.email)
+                    }
+                    if (values.ticket?.email_from) {
+                        emails.add(values.ticket.email_from)
+                    }
+
                     try {
                         const response = await api.conversationsTickets.list({
                             distinct_ids: person.distinct_ids.join(','),
+                            ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
                         })
                         const allTickets = response.results || []
 
