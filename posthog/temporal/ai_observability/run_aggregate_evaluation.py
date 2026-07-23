@@ -1,11 +1,14 @@
 """Aggregate evaluation workflow: a settling phase in front of the shared trace-evaluation body.
 
-Successor to `run-trace-evaluation`. The scheduler signal-with-starts this workflow for every
-condition-matching generation of an (evaluation, trace) pair: the first one creates it, later
-ones deliver an `activity-seen` signal. Under the fixed_window strategy signals are ignored,
-matching the old workflow's behavior exactly; under inactivity each signal re-arms a
-quiet-period timer bounded by a hard max age. Workflow id scheme and dedup policies are
-unchanged, so a trace is still evaluated at most once per evaluation.
+Successor to `run-trace-evaluation`. The scheduler starts this workflow once per
+(evaluation, trace) pair on the first condition-matching generation. Under the fixed_window
+strategy the workflow just sleeps for the configured window, matching the old workflow's
+behavior exactly. Under inactivity it sleeps one quiet period, then polls
+`check_trace_settled_activity` — the activity itself raises a retryable error until the trace
+has gone quiet, so the activity's retry schedule *is* the poll loop — with the remaining
+max-age budget as the schedule-to-close timeout, which doubles as the hard cap on how long
+polling can run. Workflow id scheme and dedup policies are unchanged, so a trace is still
+evaluated at most once per evaluation.
 
 The old workflow stays registered until its in-flight runs drain (bounded by the 2h max
 window), then gets removed in a follow-up.
@@ -184,52 +187,61 @@ class RunAggregateEvaluationInputs:
         }
 
 
+def _is_schedule_to_close_timeout(error: temporalio.exceptions.ActivityError) -> bool:
+    cause = error.cause
+    return (
+        isinstance(cause, temporalio.exceptions.TimeoutError)
+        and cause.type == temporalio.exceptions.TimeoutType.SCHEDULE_TO_CLOSE
+    )
+
+
+def _is_still_not_settled(error: temporalio.exceptions.ActivityError) -> bool:
+    # Temporal delivers the last attempt's own failure once retries run out of
+    # schedule-to-close budget rather than synthesizing a timeout — the first probe
+    # fires immediately, so there's always a prior `trace_not_settled` failure to
+    # report by the time the budget is exhausted.
+    cause = error.cause
+    return isinstance(cause, ApplicationError) and cause.type == "trace_not_settled"
+
+
 @temporalio.workflow.defn(name="run-aggregate-evaluation")
 class RunAggregateEvaluationWorkflow(PostHogWorkflow):
-    def __init__(self) -> None:
-        self._last_activity_at: datetime | None = None
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunAggregateEvaluationInputs:
         return RunAggregateEvaluationInputs(**json.loads(inputs[0]))
-
-    @temporalio.workflow.signal(name="activity-seen")
-    def activity_seen(self, payload: dict[str, Any] | None = None) -> None:
-        self._last_activity_at = temporalio.workflow.now()
-
-    async def _settle(self, strategy: str, primary_seconds: int, max_age_seconds: int, window_start: datetime) -> None:
-        if strategy != "inactivity":
-            if primary_seconds:
-                await asyncio.sleep(primary_seconds)
-            return
-
-        hard_deadline = window_start + timedelta(seconds=max_age_seconds)
-        last_activity = window_start
-        while True:
-            deadline = min(last_activity + timedelta(seconds=primary_seconds), hard_deadline)
-            now = temporalio.workflow.now()
-            if deadline <= now:
-                return
-
-            def has_newer_activity(since: datetime = last_activity) -> bool:
-                return self._last_activity_at is not None and self._last_activity_at > since
-
-            try:
-                await temporalio.workflow.wait_condition(
-                    has_newer_activity,
-                    timeout=(deadline - now).total_seconds(),
-                )
-            except TimeoutError:
-                return
-            if self._last_activity_at is not None:
-                last_activity = self._last_activity_at
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         window_start = temporalio.workflow.now()
 
         strategy, primary_seconds, max_age_seconds = resolve_settle_plan(inputs.settle)
-        await self._settle(strategy, primary_seconds, max_age_seconds, window_start)
+        if strategy == "inactivity":
+            await asyncio.sleep(primary_seconds)
+            poll_budget_seconds = max_age_seconds - primary_seconds
+            if poll_budget_seconds > 0:
+                poll_interval = max(primary_seconds // 4, 10)
+                try:
+                    await temporalio.workflow.execute_activity(
+                        check_trace_settled_activity,
+                        CheckTraceSettledInputs(
+                            team_id=inputs.team_id,
+                            trace_id=inputs.trace_id,
+                            quiet_period_seconds=primary_seconds,
+                        ),
+                        start_to_close_timeout=timedelta(seconds=30),
+                        schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=poll_interval),
+                            backoff_coefficient=1.0,
+                            maximum_attempts=0,
+                        ),
+                    )
+                except temporalio.exceptions.ActivityError as e:
+                    # Schedule-to-close expiring IS the max-age cap: evaluate what we have.
+                    if not (_is_schedule_to_close_timeout(e) or _is_still_not_settled(e)):
+                        raise
+        elif primary_seconds:
+            await asyncio.sleep(primary_seconds)
 
         eval_start = temporalio.workflow.now()
 

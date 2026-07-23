@@ -154,109 +154,122 @@ class TestRunAggregateEvaluationWorkflow:
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
                 start = await env.get_current_time()
-                handle = await env.client.start_workflow(
+                result = await env.client.execute_workflow(
                     RunAggregateEvaluationWorkflow.run,
                     _workflow_inputs({"strategy": "fixed_window", "window_seconds": 600}),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
-                    start_signal="activity-seen",
-                    start_signal_args=[{"event_uuid": "first-generation"}],
                 )
-                await env.sleep(200)
-                await handle.signal("activity-seen", {"event_uuid": "mid-window"})
-                result = await handle.result()
                 elapsed = (await env.get_current_time()) - start
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert result["verdict"] is True
-        # fixed_window ignores both the start-time and mid-window signals: window stays [600, 900).
         assert elapsed >= timedelta(seconds=600)
         assert elapsed < timedelta(seconds=900)
 
     @pytest.mark.asyncio
     async def test_inactivity_settles_after_one_quiet_period_when_silent(self):
         calls: list[str] = []
+
+        @activity.defn(name="check_trace_settled_activity")
+        async def mock_settles_immediately(inputs: CheckTraceSettledInputs) -> str:
+            return "2026-07-23T00:00:00+00:00"
+
         task_queue = str(uuid.uuid4())
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
                 task_queue=task_queue,
                 workflows=[RunAggregateEvaluationWorkflow],
-                activities=_mock_activities(calls),
+                activities=[*_mock_activities(calls), mock_settles_immediately],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                start = await env.get_current_time()
-                await env.client.execute_workflow(
+                handle = await env.client.start_workflow(
                     RunAggregateEvaluationWorkflow.run,
                     _workflow_inputs({"strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 7200}),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
-                    start_signal="activity-seen",
-                    start_signal_args=[{"event_uuid": "first-generation"}],
                 )
-                elapsed = (await env.get_current_time()) - start
+                await handle.result()
+                # env.get_current_time() after an execute_activity call with a schedule-to-close
+                # timeout can skew forward to that timeout even once the activity has already
+                # succeeded; the server-recorded execution window doesn't have that problem.
+                description = await handle.describe()
+                elapsed = description.close_time - description.start_time
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert elapsed >= timedelta(seconds=300)
         assert elapsed < timedelta(seconds=600)
 
     @pytest.mark.asyncio
-    async def test_inactivity_signal_rearms_quiet_period(self):
+    async def test_inactivity_settles_after_failed_polls(self):
         calls: list[str] = []
+        poll_attempts = {"n": 0}
+
+        @activity.defn(name="check_trace_settled_activity")
+        async def mock_check_settled(inputs: CheckTraceSettledInputs) -> str:
+            poll_attempts["n"] += 1
+            if poll_attempts["n"] <= 2:
+                raise ApplicationError("still active", type="trace_not_settled")
+            return "2026-07-23T00:00:00+00:00"
+
         task_queue = str(uuid.uuid4())
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
                 task_queue=task_queue,
                 workflows=[RunAggregateEvaluationWorkflow],
-                activities=_mock_activities(calls),
+                activities=[*_mock_activities(calls), mock_check_settled],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                start = await env.get_current_time()
                 handle = await env.client.start_workflow(
                     RunAggregateEvaluationWorkflow.run,
                     _workflow_inputs({"strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 7200}),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
-                    start_signal="activity-seen",
-                    start_signal_args=[{"event_uuid": "first-generation"}],
                 )
-                await env.sleep(120)
-                await handle.signal("activity-seen", {"event_uuid": "later-generation"})
-                await handle.result()
-                elapsed = (await env.get_current_time()) - start
+                result = await handle.result()
+                # env.get_current_time() after a retried activity leaves a stale schedule-to-close
+                # timer that skews a second read; the server-recorded execution window doesn't.
+                description = await handle.describe()
+                elapsed = description.close_time - description.start_time
+        assert poll_attempts["n"] == 3
         assert calls == ["fetch", "execute", "emit", "telemetry"]
-        # Signal at ~120s re-arms the 300s quiet timer: settles at ~420s, not 300s.
-        assert elapsed >= timedelta(seconds=420)
-        assert elapsed < timedelta(seconds=720)
+        assert result["verdict"] is True
+        # quiet sleep (300) + two retry intervals (2 x 75); generous upper bound for task latency
+        assert elapsed >= timedelta(seconds=450)
+        assert elapsed < timedelta(seconds=750)
 
     @pytest.mark.asyncio
-    async def test_inactivity_max_age_caps_a_chatty_trace(self):
+    async def test_inactivity_max_age_cap_evaluates_despite_never_settling(self):
         calls: list[str] = []
+
+        @activity.defn(name="check_trace_settled_activity")
+        async def mock_never_settled(inputs: CheckTraceSettledInputs) -> str:
+            raise ApplicationError("still active", type="trace_not_settled")
+
         task_queue = str(uuid.uuid4())
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
                 task_queue=task_queue,
                 workflows=[RunAggregateEvaluationWorkflow],
-                activities=_mock_activities(calls),
+                activities=[*_mock_activities(calls), mock_never_settled],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                start = await env.get_current_time()
                 handle = await env.client.start_workflow(
                     RunAggregateEvaluationWorkflow.run,
-                    _workflow_inputs({"strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 400}),
+                    _workflow_inputs({"strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 600}),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
-                    start_signal="activity-seen",
-                    start_signal_args=[{"event_uuid": "first-generation"}],
                 )
-                await env.sleep(250)
-                await handle.signal("activity-seen", {"event_uuid": "still-going"})
-                await handle.result()
-                elapsed = (await env.get_current_time()) - start
+                result = await handle.result()
+                description = await handle.describe()
+                elapsed = description.close_time - description.start_time
         assert calls == ["fetch", "execute", "emit", "telemetry"]
-        # Signal at ~250s would re-arm to ~550s, but max_age 400s wins.
-        assert elapsed >= timedelta(seconds=400)
-        assert elapsed < timedelta(seconds=550)
+        assert result["verdict"] is True
+        # The poll gives up once the next retry would cross the budget rather than waiting
+        # out the remainder: quiet (300) + last failed attempt before the 300s budget (225).
+        assert elapsed >= timedelta(seconds=500)
+        assert elapsed < timedelta(seconds=600)
 
 
 class TestCheckTraceSettledActivity:
