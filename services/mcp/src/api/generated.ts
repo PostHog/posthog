@@ -78550,18 +78550,6 @@ export namespace Schemas {
       Pending: 'pending',
     } as const;
 
-    export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat;
-    };
-
-    export type PersonsLifecycleRetrieveFormat = typeof PersonsLifecycleRetrieveFormat[keyof typeof PersonsLifecycleRetrieveFormat];
-
-
-    export const PersonsLifecycleRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
