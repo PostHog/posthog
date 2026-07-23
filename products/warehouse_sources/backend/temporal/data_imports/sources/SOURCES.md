@@ -562,6 +562,7 @@ the row lists both.
 | tmdb                             | HTTP                        | requests                                                        | ✅                          |
 | todoist                          | HTTP                        | requests                                                        | ✅                          |
 | together_ai                      | HTTP                        | requests                                                        | ✅                          |
+| torii                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | travis_ci                        | HTTP                        | requests                                                        | ✅                          |
 | trello                           | HTTP                        | requests                                                        | ✅                          |
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
@@ -1329,7 +1330,6 @@ doesn't conflict with concurrent PRs.
 - tipalti
 - toast
 - toggl
-- torii
 - track_pms
 - transistor
 - tremendous
