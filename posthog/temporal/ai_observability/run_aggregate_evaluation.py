@@ -14,12 +14,19 @@ window), then gets removed in a follow-up.
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import temporalio
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
+from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
 from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RETRY_POLICY
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
@@ -28,13 +35,14 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
-from posthog.temporal.ai_observability.metrics import increment_errors
+from posthog.temporal.ai_observability.metrics import increment_errors, increment_settle_poll
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
 from posthog.temporal.ai_observability.run_trace_evaluation import (
+    TRACE_EVENTS_LOOKBACK,
     EmitTraceEvaluationEventInputs,
     ExecuteTraceEvaluationInputs,
     emit_trace_evaluation_event_activity,
@@ -42,6 +50,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_llm_judge_activity,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
     TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
@@ -54,6 +63,69 @@ from products.ai_observability.backend.models.evaluation_configs import (
     TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
 )
+
+INGESTION_LAG_MARGIN_SECONDS = 15
+
+# Structural trace activity only: $ai_evaluation / $ai_feedback / $ai_metric are post-hoc
+# annotations — another eval's verdict or late user feedback must not defer settling.
+_LIVENESS_EVENTS = ("$ai_generation", "$ai_span", "$ai_embedding", "$ai_trace")
+
+# ai_events only, never the events fallback: every AI event is double-written there for all
+# teams, and the fallback's events-table scan is orders of magnitude more expensive.
+_SETTLE_POLL_SQL = """
+SELECT maxOrNull(_timestamp) AS last_seen
+FROM posthog.ai_events AS ai_events
+WHERE event IN {liveness_events}
+  AND trace_id = {trace_id}
+  AND timestamp >= {date_from}
+"""
+
+
+@dataclass
+class CheckTraceSettledInputs:
+    team_id: int
+    trace_id: str
+    quiet_period_seconds: int
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "trace_id": self.trace_id}
+
+
+@temporalio.activity.defn
+@close_db_connections
+def check_trace_settled_activity(inputs: CheckTraceSettledInputs) -> str:
+    """One settle probe. Raises the retryable `trace_not_settled` error until the trace has
+    had no structural activity for quiet_period + margin; the activity's retry schedule is
+    the poll loop, so this function never sleeps."""
+    team = Team.objects.get(id=inputs.team_id)
+    result = query_ai_events(
+        query=parse_select(_SETTLE_POLL_SQL),
+        placeholders={
+            "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
+            "trace_id": ast.Constant(value=inputs.trace_id),
+            "date_from": ast.Constant(value=datetime.now(UTC) - TRACE_EVENTS_LOOKBACK),
+        },
+        team=team,
+        query_type="TraceSettlePoll",
+        fall_back_to_events=False,
+        workload=Workload.OFFLINE,
+    )
+    last_seen = result.results[0][0] if result.results else None
+    if last_seen is None:
+        # Nothing visible yet (ingestion lag, replica flap, or a trace that never reached
+        # ClickHouse): keep polling — the max-age cap is the backstop. Settling on NULL
+        # would manufacture a trace_not_found verdict out of a lag spike.
+        increment_settle_poll("not_visible")
+        raise ApplicationError("no trace activity visible yet", type="trace_not_settled")
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=UTC)
+    quiet_for = (datetime.now(UTC) - last_seen).total_seconds()
+    if quiet_for < inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS:
+        increment_settle_poll("not_settled")
+        raise ApplicationError(f"trace active {int(quiet_for)}s ago", type="trace_not_settled")
+    increment_settle_poll("settled")
+    return last_seen.isoformat()
 
 
 def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:

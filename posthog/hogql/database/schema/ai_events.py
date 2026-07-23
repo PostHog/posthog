@@ -27,6 +27,12 @@ class AiEventsTable(Table):
         "timestamp": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="When the event occurred (UTC)."
         ),
+        "_timestamp": DateTimeDatabaseField(
+            name="_timestamp",
+            nullable=False,
+            description="When this row was written to ClickHouse (Kafka consumer processing time, UTC). "
+            "Unlike `timestamp`, this is not client-set, so it's safe to use for ingestion-lag-aware checks.",
+        ),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "distinct_id": StringDatabaseField(
             name="distinct_id",

@@ -1,24 +1,70 @@
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    CheckTraceSettledInputs,
     RunAggregateEvaluationInputs,
     RunAggregateEvaluationWorkflow,
+    check_trace_settled_activity,
     resolve_settle_plan,
 )
 from posthog.temporal.ai_observability.run_trace_evaluation import (
     EmitTraceEvaluationEventInputs,
     ExecuteTraceEvaluationInputs,
 )
+
+
+@pytest.fixture
+def setup_data():
+    organization = Organization.objects.create(name="Test Org")
+    team = Team.objects.create(organization=organization, name="Test Team")
+    return {"organization": organization, "team": team}
+
+
+def _insert_ai_event(*, team: Team, event: str, trace_id: str, arrival: datetime) -> None:
+    """Insert a minimal ai_events row with `_timestamp` (arrival) set independently of
+    `timestamp` — the settle-poll activity judges liveness on `_timestamp`, not `timestamp`.
+
+    `bulk_create_ai_events` (posthog/models/ai_events/test_util.py) can't do this: it derives
+    `_timestamp` from the same `timestamp` value it inserts, so tests that need to simulate
+    ingestion lag write directly against the columns AI_EVENTS_TABLE_BASE_SQL leaves without
+    a default.
+    """
+    sync_execute(
+        """
+        INSERT INTO sharded_ai_events (
+            uuid, event, timestamp, team_id, distinct_id, person_id, properties,
+            trace_id, is_error, _timestamp, _offset, _partition
+        ) VALUES (
+            %(uuid)s, %(event)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(person_id)s, %(properties)s,
+            %(trace_id)s, 0, %(_timestamp)s, 0, 0
+        )
+        """,
+        {
+            "uuid": str(uuid.uuid4()),
+            "event": event,
+            "timestamp": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "team_id": team.id,
+            "distinct_id": "test-user",
+            "person_id": str(uuid.uuid4()),
+            "properties": "{}",
+            "trace_id": trace_id,
+            "_timestamp": arrival.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+        flush=False,
+    )
 
 
 class TestResolveSettlePlan:
@@ -211,3 +257,53 @@ class TestRunAggregateEvaluationWorkflow:
         # Signal at ~250s would re-arm to ~550s, but max_age 400s wins.
         assert elapsed >= timedelta(seconds=400)
         assert elapsed < timedelta(seconds=550)
+
+
+class TestCheckTraceSettledActivity:
+    @pytest.mark.django_db(transaction=True)
+    def test_settled_when_quiet_beyond_margin(self, setup_data):
+        team = setup_data["team"]
+        _insert_ai_event(
+            team=team, event="$ai_generation", trace_id="t-settled", arrival=datetime.now(UTC) - timedelta(seconds=60)
+        )
+        result = check_trace_settled_activity(
+            CheckTraceSettledInputs(team_id=team.id, trace_id="t-settled", quiet_period_seconds=30)
+        )
+        assert result is not None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_not_settled_when_recent_activity(self, setup_data):
+        team = setup_data["team"]
+        _insert_ai_event(
+            team=team, event="$ai_generation", trace_id="t-live", arrival=datetime.now(UTC) - timedelta(seconds=5)
+        )
+        with pytest.raises(ApplicationError) as err:
+            check_trace_settled_activity(
+                CheckTraceSettledInputs(team_id=team.id, trace_id="t-live", quiet_period_seconds=30)
+            )
+        assert err.value.type == "trace_not_settled"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_null_visibility_is_not_settled(self, setup_data):
+        team = setup_data["team"]
+        with pytest.raises(ApplicationError) as err:
+            check_trace_settled_activity(
+                CheckTraceSettledInputs(team_id=team.id, trace_id="t-missing", quiet_period_seconds=30)
+            )
+        assert err.value.type == "trace_not_settled"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_annotation_events_do_not_defer_settling(self, setup_data):
+        team = setup_data["team"]
+        _insert_ai_event(
+            team=team, event="$ai_generation", trace_id="t-annot", arrival=datetime.now(UTC) - timedelta(seconds=120)
+        )
+        _insert_ai_event(
+            team=team, event="$ai_evaluation", trace_id="t-annot", arrival=datetime.now(UTC) - timedelta(seconds=2)
+        )
+        assert (
+            check_trace_settled_activity(
+                CheckTraceSettledInputs(team_id=team.id, trace_id="t-annot", quiet_period_seconds=30)
+            )
+            is not None
+        )

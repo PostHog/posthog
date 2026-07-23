@@ -20,6 +20,10 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
 
+# ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
+# probes), not defects — same reasoning as EgressBudgetExhausted above.
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled"})
+
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
@@ -70,7 +74,14 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
             # rate limiter already records via record_outbound_decision) are expected control flow,
             # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or (
+                    isinstance(e, temporalio.exceptions.ApplicationError)
+                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+                )
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {

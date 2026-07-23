@@ -102,6 +102,18 @@ def increment_user_errors(error_type: str, *, provider: str | None = None) -> No
     counter.add(1)
 
 
+def increment_settle_poll(outcome: str) -> None:
+    """Track trace settle-poll activity outcomes (not_visible/not_settled/settled).
+
+    Safe to call outside Temporal context (no-ops), matching `increment_errors`.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome})
+    counter = meter.create_counter("ai_evaluation_settle_polls_total", "Trace settle poll outcomes")
+    counter.add(1)
+
+
 def increment_eval_signal_outcome(outcome: str) -> None:
     """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
     meter = get_metric_meter({"outcome": outcome})
