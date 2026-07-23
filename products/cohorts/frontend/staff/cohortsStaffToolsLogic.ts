@@ -253,7 +253,7 @@ export const cohortsStaffToolsLogic = kea<cohortsStaffToolsLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        '/cohorts/staff': (_, searchParams) => {
+        '/feature_flags/staff/cohorts': (_, searchParams) => {
             // Deep link (e.g. from a support ticket): seed the lookup with the cohort id.
             const cohortId = searchParams.cohort_id ? Number(searchParams.cohort_id) : null
             if (cohortId && cohortId !== values.lastSeededCohortId) {

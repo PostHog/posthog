@@ -18,6 +18,7 @@ export interface AlertAdvancedOptionsSectionProps {
     canCheckOngoingInterval: boolean
     projectTimezone: string
     enabledAdvancedOptionsCount: number
+    defaultOpen?: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
@@ -26,12 +27,13 @@ export function AlertAdvancedOptionsSection({
     canCheckOngoingInterval,
     projectTimezone,
     enabledAdvancedOptionsCount,
+    defaultOpen,
     onSetAlertFormValue,
 }: AlertAdvancedOptionsSectionProps): JSX.Element {
     const ongoing = ongoingIntervalField(alertForm.config, canCheckOngoingInterval)
 
     return (
-        <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
+        <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount} defaultOpen={defaultOpen}>
             {ongoing.show ? (
                 <Group name={['config']}>
                     <div className="flex gap-1">
@@ -45,7 +47,7 @@ export function AlertAdvancedOptionsSection({
                             />
                         </LemonField>
                         <Tooltip title={ongoing.tooltip} placement="right" delayMs={0}>
-                            <IconInfo />
+                            <IconInfo className="text-xl text-secondary shrink-0" />
                         </Tooltip>
                     </div>
                 </Group>

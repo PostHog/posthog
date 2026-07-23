@@ -2,7 +2,7 @@ import gzip
 import json
 import base64
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -4647,6 +4647,64 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
+
+
+class TestTaskSandboxUsageReport(APIBaseTest):
+    PERIOD_START = datetime(2026, 1, 2, tzinfo=UTC)
+    PERIOD_END = datetime(2026, 1, 3, tzinfo=UTC)
+
+    def _session(self, **overrides: Any) -> None:
+        # String-based model access (like ErrorTrackingIssue above): the tasks product
+        # only exposes its facade to static imports from the posthog module.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        SandboxSession = apps.get_model("tasks", "SandboxSession")
+
+        task = Task.objects.create(team=self.team, title="t", description="", origin_product="user_created")
+        run = TaskRun.objects.create(task=task, team=self.team)
+        defaults: dict = {
+            "team": self.team,
+            "task_run": run,
+            "sandbox_id": f"sb-{SandboxSession.objects.unscoped().count()}",
+            "cpu_cores": 4.0,
+            "memory_gb": 16.0,
+            "ttl_seconds": 6 * 60 * 60,
+            "created_at": datetime(2026, 1, 2, 1, tzinfo=UTC),
+            "user_attributed_at": datetime(2026, 1, 2, 1, tzinfo=UTC),
+            "ended_at": datetime(2026, 1, 2, 2, tzinfo=UTC),
+        }
+        defaults.update(overrides)
+        defaults.setdefault("ttl_expires_at", defaults["created_at"] + timedelta(seconds=defaults["ttl_seconds"]))
+        SandboxSession.objects.unscoped().create(**defaults)
+
+    def test_counts_attributed_in_period_usage_only(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_task_sandbox_usage_in_period
+
+        self._session()
+        self._session(user_attributed_at=None, ended_at=None)
+        self._session(
+            created_at=datetime(2026, 1, 1, 20, tzinfo=UTC),
+            user_attributed_at=datetime(2026, 1, 1, 22, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, 6, tzinfo=UTC),
+            ttl_seconds=24 * 60 * 60,
+        )
+
+        usage = get_teams_with_task_sandbox_usage_in_period(self.PERIOD_START, self.PERIOD_END)
+
+        # 1h fully in period + the in-period 6h slice of the boundary-spanning session.
+        self.assertEqual(usage.seconds, [(self.team.id, 7 * 3600)])
+        self.assertEqual(usage.cpu_core_seconds, [(self.team.id, 7 * 3600 * 4)])
+        self.assertEqual(usage.memory_gib_seconds, [(self.team.id, 7 * 3600 * 16)])
+
+    def test_has_non_zero_usage_counts_task_sandbox_seconds(self) -> None:
+        import dataclasses
+
+        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
+
+        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+
+        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
+        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

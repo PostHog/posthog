@@ -231,9 +231,9 @@ async def test_snowflake_export_workflow_with_many_files(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
-    # interval.
-    [TEST_TIME - dt.timedelta(hours=24)],
+    # Use 72 hours so that with 10 randomly sampled persons the probability of none landing
+    # more than 12 hours before the end is negligible ((12/72)^10 ≈ 1 in 60 million).
+    [TEST_TIME - dt.timedelta(hours=72)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)

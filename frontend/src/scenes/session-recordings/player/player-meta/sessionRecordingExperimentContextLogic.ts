@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -43,6 +43,7 @@ export interface sessionRecordingExperimentContextLogicValues {
     currentProjectId: number | string // teamLogic
     enrolledCount: number
     enrolledItems: ExperimentSessionContextItemApi[]
+    expandedExperimentIds: number[]
     experimentContext: ExperimentSessionContextResponseApi | null
     experimentContextEnabled: boolean
     experimentContextLoading: boolean
@@ -69,6 +70,13 @@ export interface sessionRecordingExperimentContextLogicActions {
     ) => {
         experimentContext: ExperimentSessionContextResponseApi | null
         payload?: any
+    }
+    setExperimentExpanded: (
+        experimentId: number,
+        expanded: boolean
+    ) => {
+        expanded: boolean
+        experimentId: number
     }
 }
 
@@ -110,6 +118,22 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentProjectId']],
     })),
+    actions({
+        // Whether an experiment's metric events are expanded in the sidebar. Collapsed by default —
+        // the row shows only exposure + variant until the viewer opts in, mirroring the inspector.
+        setExperimentExpanded: (experimentId: number, expanded: boolean) => ({ experimentId, expanded }),
+    }),
+    reducers({
+        expandedExperimentIds: [
+            [] as number[],
+            {
+                setExperimentExpanded: (
+                    state: number[],
+                    { experimentId, expanded }: { experimentId: number; expanded: boolean }
+                ) => (expanded ? [...state, experimentId] : state.filter((id) => id !== experimentId)),
+            },
+        ],
+    }),
     loaders(({ props, values }) => ({
         experimentContext: [
             null as ExperimentSessionContextResponseApi | null,
@@ -195,8 +219,11 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
             }
         },
     })),
+    // Gated on the flag so `experimentContextLoading` never goes true for flag-disabled
+    // viewers — an ungated load here resolves to null but flashes the sidebar's loading
+    // placeholder on the way. The subscription above starts the load if the flag arrives late.
     afterMount(({ actions, values }) => {
-        if (!values.experimentContextLoading) {
+        if (values.experimentContextEnabled && !values.experimentContextLoading) {
             actions.loadExperimentContext()
         }
     }),

@@ -719,6 +719,8 @@ async fn spawn_instance(
         live_watermarks: Arc::new(
             cohort_stream_processor::partitions::watermarks::LiveWatermarks::new(),
         ),
+        register_transfer_enabled: false,
+        reconcile: cohort_stream_processor::workers::ReconcileDeps::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

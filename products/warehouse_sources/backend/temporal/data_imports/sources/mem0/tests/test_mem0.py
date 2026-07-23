@@ -259,6 +259,21 @@ class TestEventsRows:
         assert prepared[1].url == next_url
         manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=next_url))
 
+    def test_follows_relative_next_urls(self):
+        # Mem0's /v1/events/ envelope returns a relative `next` link; it must resolve against the
+        # API origin rather than be rejected as off-origin.
+        absolute_next = f"{MEM0_BASE_URL}/v1/events/?page=2"
+        manager = _manager()
+        rows, prepared = _run(
+            EVENTS_ENDPOINT,
+            [_response([{"id": "e1"}], next_url="/v1/events/?page=2"), _response([{"id": "e2"}], next_url=None)],
+            manager,
+        )
+
+        assert rows == [{"id": "e1"}, {"id": "e2"}]
+        assert prepared[1].url == absolute_next
+        manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=absolute_next))
+
     def test_resumes_from_the_saved_next_url(self):
         saved_url = f"{MEM0_BASE_URL}/v1/events/?page=5"
         manager = _manager(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=saved_url))

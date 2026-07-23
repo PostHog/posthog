@@ -15,6 +15,7 @@ import {
     escapeDottedHogQLIdentifier,
     escapeHogQLString,
     escapePropertyAsHogQLIdentifier,
+    getDisplay,
     hogql,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
@@ -427,5 +428,30 @@ describe('dataWarehouseSourcesFromResponse', () => {
         expect(dataWarehouseSourcesFromResponse({ results: [] })).toEqual([])
         expect(dataWarehouseSourcesFromResponse(null)).toEqual([])
         expect(dataWarehouseSourcesFromResponse(undefined)).toEqual([])
+    })
+})
+
+describe('getDisplay', () => {
+    // ActionsStackedBar is a deprecated trends/stickiness alias of ActionsBar; the API and MCP
+    // accept it, and nothing downstream of getDisplay knows how to render it.
+    it.each([
+        [
+            'trends',
+            {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: { display: ChartDisplayType.ActionsStackedBar },
+            },
+        ],
+        [
+            'stickiness',
+            {
+                kind: NodeKind.StickinessQuery,
+                series: [],
+                stickinessFilter: { display: ChartDisplayType.ActionsStackedBar },
+            },
+        ],
+    ])('normalizes the deprecated ActionsStackedBar alias to ActionsBar for %s', (_, query) => {
+        expect(getDisplay(query as InsightQueryNode)).toEqual(ChartDisplayType.ActionsBar)
     })
 })

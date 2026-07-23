@@ -324,7 +324,8 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        // Hard bounces emit both the catch-all metric and the AWS-comparable hard-only one
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_hard'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.hardBounceRecipients).toEqual([
             { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
@@ -349,7 +350,8 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        // Transient bounces must NOT emit email_bounced_hard — AWS's account rate excludes them
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_transient'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([

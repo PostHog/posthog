@@ -46,7 +46,7 @@ describe('cohortsStaffToolsLogic', () => {
         })
 
         it('seeds the input and looks up the cohort from a deep link', async () => {
-            router.actions.push('/cohorts/staff?cohort_id=123')
+            router.actions.push('/feature_flags/staff/cohorts?cohort_id=123')
             await expectLogic(logic).toDispatchActions([
                 'seedCohortFromDeepLink',
                 'lookUpCohorts',
@@ -56,21 +56,21 @@ describe('cohortsStaffToolsLogic', () => {
         })
 
         it('does not clobber a manual edit when the URL is revisited with the same cohort id', async () => {
-            router.actions.push('/cohorts/staff?cohort_id=123')
+            router.actions.push('/feature_flags/staff/cohorts?cohort_id=123')
             await expectLogic(logic).toDispatchActions(['seedCohortFromDeepLink'])
 
             logic.actions.setCohortIdsInput('456')
             // Simulates urlToAction re-running for the same URL, e.g. browser back/forward.
-            router.actions.push('/cohorts/staff?cohort_id=123')
+            router.actions.push('/feature_flags/staff/cohorts?cohort_id=123')
 
             expectLogic(logic).toMatchValues({ cohortIdsInput: '456' })
         })
 
         it('re-seeds when a different cohort id is deep-linked while already seeded', async () => {
-            router.actions.push('/cohorts/staff?cohort_id=123')
+            router.actions.push('/feature_flags/staff/cohorts?cohort_id=123')
             await expectLogic(logic).toDispatchActions(['seedCohortFromDeepLink'])
 
-            router.actions.push('/cohorts/staff?cohort_id=456')
+            router.actions.push('/feature_flags/staff/cohorts?cohort_id=456')
             await expectLogic(logic).toDispatchActions(['seedCohortFromDeepLink'])
 
             expectLogic(logic).toMatchValues({ cohortIdsInput: '456' })

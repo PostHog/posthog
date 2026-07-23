@@ -42,6 +42,12 @@ declare module 'storybook/internal/types' {
             /** Timeout in ms for waitForSelector. Defaults to Playwright's context timeout (PLAYWRIGHT_TIMEOUT_MS). */
             waitForSelectorTimeout?: number
             /**
+             * Override the per-test Jest timeout (ms) for stories whose render legitimately needs
+             * longer than the default. Use sparingly — a slow story is usually a bug, not a budget
+             * problem. Still scaled by the viewport-widths multiplier. Defaults to JEST_TIMEOUT_MS.
+             */
+            jestTimeout?: number
+            /**
              * By default we wait for images to have width as an indication the page is ready for screenshot testing
              * Some stories have broken images on purpose to test what the UI does
              * in those cases set `allowImagesWithoutWidth` to `true`
@@ -122,6 +128,19 @@ const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
+// Storybook channel events that mean a forced remount's play function failed. Shared between the
+// in-page listener (which also waits for the success event, `storyRendered`) and the outer check
+// that decides whether to fail the retry, so the two can't drift apart.
+const REMOUNT_FAILURE_EVENTS = [
+    'storyErrored',
+    'storyThrewException',
+    'playFunctionThrewException',
+    // Storybook can still emit `storyRendered` after this one (an unhandled error doesn't stop the
+    // story from finishing), so it must be listened for directly instead of relying on the later
+    // `storyRendered` to end the wait.
+    'unhandledErrorsWhilePlaying',
+]
+
 // Sharing/embed stories render a preview iframe pointing at the shared/embedded URL, which Storybook
 // can't serve, so it 404s to a browser error page whose rendering is browser-version-dependent (and so
 // produces noisy, non-deterministic snapshots). Stub those navigations with a fixed page.
@@ -141,9 +160,86 @@ export default {
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
+        // On jest retries the preview answers setCurrentStory with `storyUnchanged`, which
+        // does NOT re-run loaders or the play function — the retry would just re-snapshot the
+        // page the failed attempt left behind. Force a full remount so retries start fresh,
+        // and surface the replayed play function's error if it throws again.
+        if (ATTEMPT_COUNT_PER_ID[context.id]) {
+            const remountResult = await page
+                .evaluate(
+                    ({ storyId, failureEvents }) => {
+                        return new Promise<{ event: string; message?: string }>((resolve) => {
+                            const channel = (
+                                window as unknown as {
+                                    __STORYBOOK_ADDONS_CHANNEL__: {
+                                        on: (event: string, listener: (data?: unknown) => void) => void
+                                        off: (event: string, listener: (data?: unknown) => void) => void
+                                        emit: (event: string, data?: unknown) => void
+                                    }
+                                }
+                            ).__STORYBOOK_ADDONS_CHANNEL__
+                            const doneEvents = [...failureEvents, 'storyRendered']
+                            const listeners: Record<string, (data?: unknown) => void> = {}
+                            // Purely diagnostic: when the remount wait times out, the phase it was stuck
+                            // in ("loading" vs "playing") points at the story rather than the machinery.
+                            let lastPhase: string | undefined
+                            const phaseListener = (data?: unknown): void => {
+                                lastPhase = (data as { newPhase?: string } | undefined)?.newPhase
+                            }
+                            const finish = (event: string, data?: unknown): void => {
+                                clearTimeout(timeoutId)
+                                channel.off('storyRenderPhaseChanged', phaseListener)
+                                doneEvents.forEach((e) => channel.off(e, listeners[e]))
+                                // unhandledErrorsWhilePlaying's payload is an array of serialized errors;
+                                // every other done event passes the error object directly.
+                                const error = (Array.isArray(data) ? data[0] : data) as
+                                    | { message?: string; description?: string }
+                                    | undefined
+                                resolve({ event, message: error?.message ?? error?.description })
+                            }
+                            doneEvents.forEach((e) => {
+                                listeners[e] = (data?: unknown) => finish(e, data)
+                                channel.on(e, listeners[e])
+                            })
+                            channel.on('storyRenderPhaseChanged', phaseListener)
+                            // If the remount never settles, stop waiting so postVisit can proceed — but
+                            // treat it as a failed retry below rather than silently falling through as if
+                            // the remount had finished cleanly.
+                            const timeoutId = setTimeout(
+                                () =>
+                                    finish('timeout', {
+                                        message: `remount did not settle within 30s (last render phase: ${
+                                            lastPhase ?? 'unknown'
+                                        })`,
+                                    }),
+                                30000
+                            )
+                            channel.emit('forceRemount', { storyId })
+                        })
+                    },
+                    { storyId: context.id, failureEvents: REMOUNT_FAILURE_EVENTS }
+                )
+                // page.evaluate() itself can reject (e.g. the page navigated or its execution context
+                // was destroyed mid-remount) — treat that as a failure too instead of letting `undefined`
+                // pass the check below as if the remount had finished cleanly.
+                .catch((error) => ({ event: 'evaluationFailed', message: (error as Error).message }))
+            if (
+                [
+                    ...REMOUNT_FAILURE_EVENTS,
+                    'evaluationFailed',
+                    // A remount that's still running when the wait times out must not be treated as
+                    // a clean success — the snapshot flow below would then race unfinished play logic.
+                    'timeout',
+                ].includes(remountResult.event)
+            ) {
+                throw new Error(
+                    `Story remount on retry failed (${remountResult.event}): ${remountResult.message ?? 'unknown error'}`
+                )
+            }
+        }
         const storyContext = await getStoryContext(page, context)
-        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
-        applyStoryTimeouts(page, viewportWidths)
+        const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
+        applyStoryTimeouts(page, viewportWidths, jestTimeout)
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
@@ -152,8 +248,15 @@ export default {
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        // The generated test also calls postVisit when the story or its play function already
+        // failed (so configs can do failure handling — our jest environment takes the failure
+        // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest
+        // timeout, which would bury the real error under an opaque "Exceeded timeout of 60000 ms".
+        if (context.hasFailure) {
+            return
+        }
         const storyContext = await getStoryContext(page, context)
-        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
@@ -175,7 +278,7 @@ export default {
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         // Keep timeouts scaled in postVisit too, as retries can run through this path multiple times.
-        applyStoryTimeouts(page, viewportWidths)
+        applyStoryTimeouts(page, viewportWidths, jestTimeout)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
             if (viewportWidths?.length) {
@@ -277,8 +380,11 @@ async function expectStoryToMatchSnapshot(
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
     await page.waitForTimeout(300)
 
-    const { waitForLoadersToDisappear = true, waitForSelector, waitForSelectorTimeout } =
-        storyContext.parameters?.testOptions ?? {}
+    const {
+        waitForLoadersToDisappear = true,
+        waitForSelector,
+        waitForSelectorTimeout,
+    } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
@@ -576,10 +682,10 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
         .catch(() => undefined)
 }
 
-function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[]): void {
+function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[], jestTimeout?: number): void {
     // Multi-width stories effectively run several snapshots inside one smoke test.
     const timeoutMultiplier = viewportWidths?.length || 1
-    jest.setTimeout(JEST_TIMEOUT_MS * timeoutMultiplier)
+    jest.setTimeout((jestTimeout ?? JEST_TIMEOUT_MS) * timeoutMultiplier)
     page.context().setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS * timeoutMultiplier)
 }
 

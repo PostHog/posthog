@@ -146,6 +146,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "articles":
@@ -171,7 +172,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
         return schemas
 
     def validate_credentials(
-        self, config: GNewsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GNewsSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_gnews_credentials(config.api_key)
 

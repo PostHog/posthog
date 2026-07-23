@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -27,6 +29,7 @@ import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
+    preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -1447,6 +1450,51 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
             }
         )
+
+        describe('preferred sort', () => {
+            it.each<[string, () => void, string, string]>([
+                [
+                    'an explicitly chosen sort overrides the relevance default',
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'DESC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'DESC',
+                ],
+                [
+                    'the chosen direction is kept',
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'ASC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'ASC',
+                ],
+                [
+                    'an unparseable stored preference is ignored',
+                    () => localStorage.setItem(`${MOCK_TEAM_ID}__replay_list_preferred_sort`, 'not json'),
+                    'surfacing_score',
+                    'DESC',
+                ],
+                [
+                    'a stored order outside the valid set is ignored',
+                    () =>
+                        localStorage.setItem(
+                            `${MOCK_TEAM_ID}__replay_list_preferred_sort`,
+                            JSON.stringify({ order: 'unknown', order_direction: 'DESC' })
+                        ),
+                    'surfacing_score',
+                    'DESC',
+                ],
+            ])('%s', (_name, setup, expectedOrder, expectedDirection) => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                setup()
+                const result = getDefaultFilters()
+                expect(result.order).toBe(expectedOrder)
+                expect(result.order_direction).toBe(expectedDirection)
+            })
+
+            it('keeps recency on person pages regardless of the stored preference', () => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                preferredRecordingsSortStorage.set({ order: 'activity_score', order_direction: 'DESC' })
+                expect(getDefaultFilters('some-person-uuid').order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
+            })
+        })
     })
 
     describe('pinnedFilters', () => {

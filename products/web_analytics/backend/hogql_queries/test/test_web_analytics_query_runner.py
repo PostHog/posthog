@@ -58,7 +58,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("simple_breakdown", WebStatsBreakdown.PAGE, False, False, None, "stats_table_simple_breakdown_query"),
+            # PAGE without bounce/avg-time displays no session-derived column,
+            # so it takes the no-join simple-breakdown fast path.
+            (
+                "simple_breakdown",
+                WebStatsBreakdown.PAGE,
+                False,
+                False,
+                None,
+                "stats_table_no_join_simple_breakdown_query",
+            ),
             (
                 "channel_type",
                 WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
