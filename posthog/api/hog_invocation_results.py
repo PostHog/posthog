@@ -5,6 +5,7 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
+import zstd
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -86,25 +87,41 @@ class HogInvocationResult:
 @dataclasses.dataclass(frozen=True)
 class HogInvocationResultDetail(HogInvocationResult):
     # The triggering payload (event/person/groups) the run executed against, decoded from the
-    # stored gzip+base64 blob into a JSON object so callers get structured data directly. Shape
-    # is caller-defined and unbounded.
+    # stored compressed+base64 blob into a JSON object so callers get structured data directly.
+    # Shape is caller-defined and unbounded.
     invocation_globals: dict[str, Any]
+
+
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+_GZIP_MAGIC = b"\x1f\x8b"
 
 
 def _decode_invocation_globals(stored: str) -> dict[str, Any]:
     """Decode the stored invocation_globals into a JSON object.
 
-    The producer gzip-compresses then base64-encodes the payload (see the Node
-    hog-invocation-results service). Legacy rows predate compression and are stored
-    as raw JSON, detected by a leading '{'. A decode failure degrades to an empty
-    object so one malformed row can't 500 the whole request.
+    The producer compresses then base64-encodes the payload (see the Node
+    hog-invocation-results service, whose `decodeInvocationGlobals` mirrors this —
+    keep the two in sync). Three encodings coexist until old rows age out under
+    the table TTL: zstd+base64, gzip+base64 (written before the codec swap), and
+    raw JSON from rows predating compression, detected by a leading '{'. The
+    compressed variants are told apart by magic bytes. A decode failure degrades
+    to an empty object so one malformed row can't 500 the whole request.
     """
     if not stored:
         return {}
     try:
-        decoded = stored if stored.startswith("{") else gzip.decompress(base64.b64decode(stored)).decode("utf-8")
+        if stored.startswith("{"):
+            decoded = stored
+        else:
+            raw = base64.b64decode(stored)
+            if raw[:4] == _ZSTD_MAGIC:
+                decoded = zstd.decompress(raw).decode("utf-8")
+            elif raw[:2] == _GZIP_MAGIC:
+                decoded = gzip.decompress(raw).decode("utf-8")
+            else:
+                return {}
         parsed = json.loads(decoded)
-    except (ValueError, OSError, EOFError):
+    except (ValueError, OSError, EOFError, zstd.Error):
         return {}
     return parsed if isinstance(parsed, dict) else {}
 

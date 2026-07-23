@@ -16,6 +16,11 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
+_GLOBALS_PAYLOAD = {"event": {"event": "$pageview"}, "person": {"id": "p1"}, "groups": {}}
+# _GLOBALS_PAYLOAD compressed by the Node writer's codec (@mongodb-js/zstd, the actual producer
+# of these rows) — pins the cross-language frame contract: Node compresses, this API decompresses.
+_ZSTD_NODE_FIXTURE = "KLUv/SBA3QEA9AJ7ImV2ZW50IjoiJHBhZ2V2aWV3In0sInBlcnNvbmlkIjoicDFncm91cHMiOnt9fQMAOMMQKjAW5Qg="
+
 
 def create_hog_invocation_result(
     team_id: int,
@@ -201,23 +206,26 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         results = self._list({"limit": 2}).json()
         assert len(results) == 2
 
-    def test_detail_returns_invocation_globals(self):
-        # Legacy rows predate compression and are stored as raw JSON.
-        self._seed("inv-1", invocation_status="failed", invocation_globals='{"event": {"event": "$pageview"}}')
+    # Three encodings coexist in ClickHouse until old rows age out under the table TTL:
+    # raw JSON (pre-compression rows), gzip+base64 (pre-codec-swap rows), zstd+base64 (current).
+    @parameterized.expand(
+        [
+            ("raw_json_legacy", json.dumps(_GLOBALS_PAYLOAD)),
+            (
+                "gzip_base64_legacy",
+                base64.b64encode(gzip.compress(json.dumps(_GLOBALS_PAYLOAD).encode("utf-8"))).decode("utf-8"),
+            ),
+            ("zstd_base64", _ZSTD_NODE_FIXTURE),
+        ]
+    )
+    def test_detail_decodes_invocation_globals(self, _name, encoded):
+        self._seed("inv-1", invocation_status="failed", invocation_globals=encoded)
         res = self._detail("inv-1")
         assert res.status_code == status.HTTP_200_OK
         body = res.json()
         assert body["invocation_id"] == "inv-1"
         assert body["status"] == "failed"
-        assert body["invocation_globals"] == {"event": {"event": "$pageview"}}
-
-    def test_detail_decodes_gzip_base64_invocation_globals(self):
-        # Current rows are gzip-compressed then base64-encoded by the producer.
-        payload = {"event": {"event": "$pageview"}, "person": {"id": "p1"}, "groups": {}}
-        encoded = base64.b64encode(gzip.compress(json.dumps(payload).encode("utf-8"))).decode("utf-8")
-        self._seed("inv-1", invocation_globals=encoded)
-        body = self._detail("inv-1").json()
-        assert body["invocation_globals"] == payload
+        assert body["invocation_globals"] == _GLOBALS_PAYLOAD
 
     def test_detail_invocation_globals_degrades_to_empty_on_garbage(self):
         self._seed("inv-1", invocation_globals="not-valid-base64-or-json")
