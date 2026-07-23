@@ -58,15 +58,6 @@ tools:
     persons-emails-list:
         operation: persons_emails_list
         enabled: false
-    persons-funnel-create:
-        operation: persons_funnel_create
-        enabled: false
-    persons-funnel-retrieve:
-        operation: persons_funnel_retrieve
-        enabled: false
-    persons-lifecycle-retrieve:
-        operation: persons_lifecycle_retrieve
-        enabled: false
     persons-list:
         operation: persons_list
         enabled: true
@@ -171,9 +162,6 @@ tools:
                 - last_seen_at
     persons-split-create:
         operation: persons_split_create
-        enabled: false
-    persons-trends-retrieve:
-        operation: persons_trends_retrieve
         enabled: false
     persons-update:
         operation: persons_update

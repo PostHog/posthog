@@ -426,6 +426,27 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not an org member" in response.json()["error"]
 
+    # --- PUT reviewers (report-level, works with no existing artefact) ---
+
+    def test_reviewers_action_assigns_first_reviewer_when_none_exist(self):
+        # A report that never had a suggested_reviewers artefact must still be assignable: the
+        # report-level PUT creates the first status row from scratch (the artefact PUT couldn't,
+        # since it required an existing artefact to address).
+        member = self._create_org_member("alice@example.com", github_login="AliceCase")
+        report = self._create_report()
+        assert self._reviewers_count(report) == 0
+
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
+        response = self.client.put(
+            url,
+            data=json.dumps({"content": [{"user_uuid": str(member.uuid)}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert self._reviewers_count(report) == 1
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
+
     def test_put_user_uuid_not_in_org_returns_400(self):
         # Random UUID not tied to anyone in this org.
         report = self._create_report()
@@ -540,7 +561,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
-    def test_put_task_attributed_reviewer_change_writes_no_activity_log(self):
+    def test_put_reviewers_ignores_task_header_and_attributes_to_requesting_user(self):
+        # The reviewers write is app/user-only, so a supplied X-PostHog-Task-Id must be ignored and
+        # the row attributed to the requesting user. A task-attributed row (created_by_id=None) would
+        # flip auto-start into the agent path and run the implementation task as the named colleague
+        # rather than the editor — reviewer impersonation the triggering_user_id guard exists to stop.
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
         task = Task.objects.create(
@@ -557,7 +582,17 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             headers={"X-PostHog-Task-Id": str(task.id)},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert latest is not None
+        assert latest.created_by_id == self.user.id
+        assert latest.task_id is None
 
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")
