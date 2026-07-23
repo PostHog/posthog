@@ -123,11 +123,23 @@ def fetch_per_question_stats(
         # `hasOpenChoice` "Other: ___" response) and would leak respondent-entered content.
         # Bucket free-text answers under "<other>" so callers still see how many people picked
         # "Other" without exposing the text itself. Reading the text requires the responses
-        # endpoint, which requires `query:read`.
-        allowed_choices: set[str] | None = None
+        # endpoint, which requires `query:read`. Translated answers map back to their base
+        # choice so they aggregate with it rather than being redacted into "<other>".
+        # NOTE: the grouped query above uses the 2-arg `getSurveyResponse`, which extracts a
+        # scalar string. Multiple-choice answers are stored as JSON arrays, so they resolve to
+        # '' and are filtered out by the `length(...) > 0` predicate before reaching here — i.e.
+        # only single_choice answers currently produce choice rows. `multiple_choice` is kept in
+        # the condition so the translation normalization applies automatically if/when this query
+        # is extended to array-extract multi-choice answers (as the frontend already does).
+        choice_map: dict[str, str] | None = None
         if question_type in ("single_choice", "multiple_choice"):
             choices = q.get("choices") or []
-            allowed_choices = set(choices) if choices else set()
+            # Seed translations first, then base choices, so a translation that reuses another
+            # base-choice string can't remap that base choice to a different option. The tie-break
+            # is lossy (a colliding translated pick is attributed to the base option) but it never
+            # misattributes base-language answers.
+            choice_map = dict(q.get("choice_translations") or {})
+            choice_map.update({choice: choice for choice in choices})
 
         distribution: dict[str, int] = {}
         total_count = 0
@@ -140,13 +152,16 @@ def fetch_per_question_stats(
             if not answer_str:
                 continue
 
-            if allowed_choices is not None and answer_str not in allowed_choices:
-                # Free-text "Other" — keep the count but not the value.
-                other_count += count_n
-                total_count += count_n
-                continue
+            if choice_map is not None:
+                normalized = choice_map.get(answer_str)
+                if normalized is None:
+                    # Free-text "Other" — keep the count but not the value.
+                    other_count += count_n
+                    total_count += count_n
+                    continue
+                answer_str = normalized
 
-            distribution[answer_str] = count_n
+            distribution[answer_str] = distribution.get(answer_str, 0) + count_n
             total_count += count_n
             if question_type == "rating":
                 try:

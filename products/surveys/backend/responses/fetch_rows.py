@@ -38,6 +38,41 @@ class SurveyResponseRow:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+def build_choice_translation_map(question: dict[str, Any]) -> dict[str, str]:
+    """Map each translated choice back to its base-language choice, matched by position.
+
+    Returns translations only — base choices are intentionally NOT seeded here; the consumer
+    (``per_question_stats``) folds them in last so base choices win on collision. Keep in sync
+    with the frontend twin ``buildChoiceTranslationMap`` in
+    ``frontend/src/scenes/surveys/surveyTranslationUtils.ts``.
+    """
+    base_choices = question.get("choices")
+    if not isinstance(base_choices, list):
+        return {}
+    translations = question.get("translations")
+    if not isinstance(translations, dict):
+        return {}
+
+    mapping: dict[str, str] = {}
+    for translation in translations.values():
+        if not isinstance(translation, dict):
+            continue
+        translated_choices = translation.get("choices")
+        if not isinstance(translated_choices, list):
+            continue
+        # Positional mapping is only trustworthy when the arrays line up 1:1. If a choice was
+        # added or removed without updating this translation, the lengths diverge and index i no
+        # longer refers to the same option — skip the language and fall back to base-only matching
+        # (translated answers surface as "<other>", the safe pre-fix behavior) rather than risk
+        # folding a response into the wrong choice.
+        if len(translated_choices) != len(base_choices):
+            continue
+        for index, choice in enumerate(translated_choices):
+            if isinstance(choice, str) and isinstance(base_choices[index], str):
+                mapping[choice] = base_choices[index]
+    return mapping
+
+
 def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
     """Return survey questions with stable `(id, index, text, type, choices)` shape."""
     questions = survey.questions or []
@@ -52,6 +87,7 @@ def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
                 "text": question.get("question") or "",
                 "type": question.get("type") or "open",
                 "choices": question.get("choices"),
+                "choice_translations": build_choice_translation_map(question),
             }
         )
     return resolved
