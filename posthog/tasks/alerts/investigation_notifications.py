@@ -40,9 +40,10 @@ INVESTIGATION_NOTIFY_GRACE_MINUTES = 5
 
 # Fallback for non-terminal investigations (RUNNING / PENDING / SKIPPED / null). Must
 # exceed the activity's worst case — `ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE`
-# (20 min) × `ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS` (2) — so a healthy long
-# investigation isn't preempted by a duplicate force-dispatch.
-INVESTIGATION_RUNNING_GRACE_MINUTES = 45
+# (30 min) × `ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS` (2) = 60 min — plus slack, so a
+# healthy long investigation on its second attempt isn't preempted by a duplicate
+# force-dispatch that would fire a notification the verdict gate was meant to hold.
+INVESTIGATION_RUNNING_GRACE_MINUTES = 70
 
 
 def run_investigation_notification_safety_net() -> int:
