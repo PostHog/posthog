@@ -188,21 +188,24 @@ class OrganizationDomainManager(models.Manager):
         The org's active (licensed and configured) SSO enforcement, if any of its verified domains
         enforce SSO. Keyed on the org, unlike `get_sso_enforcement_for_email_address`.
         """
-        query = (
+        queryset = (
             self.verified_domains()
             .filter(organization=organization)
             .exclude(sso_enforcement="")
             .values("domain", "sso_enforcement", "organization_id", "organization__available_product_features")
-            .first()
         )
-        if not query:
-            return None
-        return self._active_sso_enforcement(
-            query["sso_enforcement"],
-            query["organization__available_product_features"],
-            organization_id=query["organization_id"],
-            domain=query["domain"],
-        )
+        # Check every enforcing domain: rows can be individually inert (e.g. an unconfigured
+        # provider), and one inert row must not mask another domain's active enforcement.
+        for query in queryset:
+            enforcement = self._active_sso_enforcement(
+                query["sso_enforcement"],
+                query["organization__available_product_features"],
+                organization_id=query["organization_id"],
+                domain=query["domain"],
+            )
+            if enforcement is not None:
+                return enforcement
+        return None
 
     def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
         """Whether the domain of `email` is a verified domain owned by `organization`."""

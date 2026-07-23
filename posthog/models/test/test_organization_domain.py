@@ -43,6 +43,24 @@ class TestOrganizationDomainSSOEnforcement(BaseTest):
         org = self._org_with_domain(sso_enforcement=sso_enforcement, licensed=licensed)
         self.assertEqual(OrganizationDomain.objects.is_email_blocked_by_sso_enforcement(email, org), expect_blocked)
 
+    def test_inert_enforcing_domain_does_not_mask_an_active_one(self, mock_providers):
+        # First row's provider is unconfigured on the instance; the org's other enforcing domain is
+        # fully active. Enforcement must still apply — one inert row can't disable the restriction.
+        mock_providers.return_value = {"google-oauth2": True, "github": False, "gitlab": True}
+        org = Organization.objects.create(name="Enforced org")
+        org.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT}
+        ]
+        org.save()
+        OrganizationDomain.objects.create(
+            domain="inert.hogflix.com", organization=org, sso_enforcement="github", verified_at=timezone.now()
+        )
+        OrganizationDomain.objects.create(
+            domain="active.hogflix.com", organization=org, sso_enforcement="google-oauth2", verified_at=timezone.now()
+        )
+        self.assertEqual(OrganizationDomain.objects.get_active_sso_enforcement_for_organization(org), "google-oauth2")
+        self.assertTrue(OrganizationDomain.objects.is_email_blocked_by_sso_enforcement("x@gmail.com", org))
+
     def test_email_on_any_verified_domain_is_allowed(self, _mock_providers):
         # Enforcement gates on the org, but the allow-list is all of the org's verified domains —
         # not just the enforcing one. Multi-domain orgs must accept invitees from every verified domain.
