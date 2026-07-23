@@ -24,10 +24,10 @@ class TestMentionCommandActivity:
         )
         self.user = User.objects.create_and_join(self.organization, "u@example.com", "pw")
 
-    def _inputs(self, *, command_prefix: str, with_thread: bool) -> PostHogCodeSlackMentionCommandWorkflowInputs:
-        event = {"channel": "C1", "user": "U1", "text": "help"}
-        if with_thread:
-            event["ts"] = "111.1"
+    def _inputs(
+        self, *, command_prefix: str, event_extra: dict[str, str]
+    ) -> PostHogCodeSlackMentionCommandWorkflowInputs:
+        event = {"channel": "C1", "user": "U1", "text": "help", **event_extra}
         return PostHogCodeSlackMentionCommandWorkflowInputs(
             event=event,
             integration_ids=[self.integration.id],
@@ -38,12 +38,15 @@ class TestMentionCommandActivity:
 
     @parameterized.expand(
         [
-            # A slash command outside a thread carries no ``ts``; the reply must
-            # still go out (channel-root anchor) rather than silently no-op on the
-            # guard, and it must speak the ``/posthog`` surface.
-            ("slash_outside_thread", "/posthog", False, ""),
-            # The mention surface always carries a ``ts`` and keeps its copy.
-            ("mention_in_thread", "@PostHog", True, "111.1"),
+            # A slash command outside a thread carries neither ts nor thread_ts; the
+            # reply anchors to the channel root and speaks the ``/posthog`` surface.
+            ("slash_outside_thread", "/posthog", {}, ""),
+            # A top-level mention carries only its own ts (no thread_ts). The reply
+            # must anchor to the channel root, not that ts — a thread-anchored reply
+            # is invisible to a user who isn't already viewing the thread.
+            ("mention_top_level", "@PostHog", {"ts": "111.1"}, ""),
+            # A mention inside a real thread carries thread_ts; the reply threads there.
+            ("mention_in_thread", "@PostHog", {"ts": "222.2", "thread_ts": "111.1"}, "111.1"),
         ]
     )
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
@@ -52,7 +55,7 @@ class TestMentionCommandActivity:
         self,
         _name: str,
         command_prefix: str,
-        with_thread: bool,
+        event_extra: dict[str, str],
         expected_thread_ts: str,
         mock_slack_cls,
         mock_info,
@@ -61,7 +64,7 @@ class TestMentionCommandActivity:
         client = mock_slack_cls.return_value.client
 
         result = handle_posthog_code_slack_mention_command_activity(
-            self._inputs(command_prefix=command_prefix, with_thread=with_thread), self.user.id
+            self._inputs(command_prefix=command_prefix, event_extra=event_extra), self.user.id
         )
 
         assert result.status == "done"
