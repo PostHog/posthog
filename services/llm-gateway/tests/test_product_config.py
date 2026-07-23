@@ -62,6 +62,16 @@ class TestCheckProductAccess:
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
             ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            # Custom image scans accept only server-minted OAuth credentials.
+            ("custom_image_scans", "personal_api_key", None, "@cf/zai-org/glm-5.2", False, "requires OAuth"),
+            (
+                "custom_image_scans",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "@cf/zai-org/glm-5.2",
+                False,
+                "server-minted",
+            ),
             # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),

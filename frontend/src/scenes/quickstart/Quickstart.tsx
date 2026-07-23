@@ -24,7 +24,7 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -1418,7 +1418,8 @@ function PublicationsSection(): JSX.Element | null {
 }
 
 export function Quickstart(): JSX.Element {
-    const { featuredProducts, additionalProducts, activeProductCount, totalProductCount } = useValues(quickstartLogic)
+    const { featuredProducts, additionalProducts, activeProductCount, totalProductCount, activationDataLoading } =
+        useValues(quickstartLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -1497,6 +1498,7 @@ export function Quickstart(): JSX.Element {
                     />
                     <HeaderStat icon={<IconApps />}>
                         {activeProductCount} of {totalProductCount} live
+                        {activationDataLoading && <Spinner textColored />}
                     </HeaderStat>
                 </div>
                 {featuredProducts.length > 0 ? (

@@ -220,6 +220,16 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
     ),
+    # Server-side security review before a custom sandbox image is built. The Django worker mints a
+    # short-lived OAuth token carrying the internal provenance marker; personal API keys and normal
+    # Code OAuth tokens cannot spend this unbilled product's budget.
+    "custom_image_scans": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"@cf/zai-org/glm-5.2"}),
+        allow_api_keys=False,
+        credit_bucket=None,
+        requires_server_credential=True,
+    ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-mini"}),
@@ -409,10 +419,10 @@ def check_product_access(
     # shared server-side gateway key still works here. Gated behind the same flag as the
     # free-tier gate so it stays inert until the Code billing cutover.
     if (
-        settings.posthog_code_model_gate_enabled
-        and config.requires_server_credential
+        config.requires_server_credential
         and is_oauth
         and INTERNAL_RUN_SCOPE not in (scopes or [])
+        and (settings.posthog_code_model_gate_enabled or resolved_product == "custom_image_scans")
     ):
         return False, f"Product '{product}' requires a server-minted credential"
 

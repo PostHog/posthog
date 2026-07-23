@@ -10,6 +10,7 @@ personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-kafka = { path = "../common/kafka" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 lifecycle = { path = "../common/lifecycle" }
@@ -30,13 +31,13 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 health = { path = "../common/health" }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"
 tokio-util = { workspace = true }
-uuid = { workspace = true }
 
 [lints]
 workspace = true
