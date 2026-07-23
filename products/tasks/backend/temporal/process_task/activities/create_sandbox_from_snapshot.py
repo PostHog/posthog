@@ -126,6 +126,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             access_token=access_token,
             team_id=ctx.team_id,
             sandbox_environment=sandbox_env,
+            otel_telemetry_enabled=ctx.agent_otel_telemetry_enabled,
         )
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
