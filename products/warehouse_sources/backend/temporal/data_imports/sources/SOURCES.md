@@ -524,7 +524,7 @@ the row lists both.
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
-| spot_io                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
+| spot_io                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | spotlercrm                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | squadcast                        | HTTP                        | requests                                                        | ✅                          |
 | square                           | HTTP                        | requests                                                        | ✅                          |
