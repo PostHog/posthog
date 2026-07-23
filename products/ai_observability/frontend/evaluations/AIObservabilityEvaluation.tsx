@@ -122,7 +122,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                   event: '$ai_evaluation',
                                   custom_name: `${evaluation.name} — Pass rate`,
                                   math: HogQLMathType.HogQL,
-                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(lower(JSONExtractString(properties, '$ai_evaluation_result')) = 'true') / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',

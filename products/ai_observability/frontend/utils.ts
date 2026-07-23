@@ -1231,7 +1231,7 @@ export async function queryEvaluationRunsStats(params: {
         SELECT
             count() as total,
             countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable,
-            countIf(properties.$ai_evaluation_result = 1) as passed
+            countIf(lower(JSONExtractString(properties, '$ai_evaluation_result')) = 'true') as passed
         FROM events
         WHERE
             event = '$ai_evaluation'

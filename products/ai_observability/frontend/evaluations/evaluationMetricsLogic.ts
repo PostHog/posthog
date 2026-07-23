@@ -176,7 +176,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                                 properties.$ai_evaluation_id as evaluation_id,
                                 count() as runs_count,
                                 countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable_count,
-                                countIf(properties.$ai_evaluation_result = 1) as pass_count
+                                countIf(lower(JSONExtractString(properties, '$ai_evaluation_result')) = 'true') as pass_count
                             FROM events
                             WHERE event = '$ai_evaluation' AND {filters}
                             GROUP BY evaluation_id
@@ -283,7 +283,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                         custom_name: evaluation.name,
                         math: HogQLMathType.HogQL,
                         // Pass rate excludes N/A results, returns 0 if all results are N/A
-                        math_hogql: `if(countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                        math_hogql: `if(countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND lower(JSONExtractString(properties, '$ai_evaluation_result')) = 'true') / countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
                     })),
                     trendsFilter: {
                         display: ChartDisplayType.ActionsLineGraph,
