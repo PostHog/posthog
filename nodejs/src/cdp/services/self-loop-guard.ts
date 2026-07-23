@@ -79,8 +79,15 @@ export const extractRequestApiKey = (body: string | null | undefined, urlString:
     }
 }
 
-const ownsToken = (team: Pick<Team, 'api_token' | 'secret_api_token'>, token: string): boolean => {
-    return token === team.api_token || (team.secret_api_token !== null && token === team.secret_api_token)
+const ownsToken = (
+    team: Pick<Team, 'api_token' | 'secret_api_token' | 'secret_api_token_backup'>,
+    token: string
+): boolean => {
+    return (
+        token === team.api_token ||
+        (team.secret_api_token !== null && token === team.secret_api_token) ||
+        (team.secret_api_token_backup !== null && token === team.secret_api_token_backup)
+    )
 }
 
 // True when a fetch targets a PostHog ingestion endpoint authenticating with the
@@ -90,7 +97,7 @@ const ownsToken = (team: Pick<Team, 'api_token' | 'secret_api_token'>, token: st
 export const isSelfReferentialIngestFetch = (input: {
     url: string
     body: string | null | undefined
-    team: Pick<Team, 'api_token' | 'secret_api_token'>
+    team: Pick<Team, 'api_token' | 'secret_api_token' | 'secret_api_token_backup'>
 }): boolean => {
     if (!isPostHogIngestUrl(input.url)) {
         return false

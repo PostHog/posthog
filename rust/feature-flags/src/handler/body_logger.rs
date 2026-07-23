@@ -232,13 +232,22 @@ impl BodyLogger {
             return;
         };
 
-        let (truncated, request_truncated, request_original_size_bytes) =
-            truncate_body(&decoded, self.request_max_bytes);
         // `/flags` accepts a `phs_` secret token as `api_key`, so the decoded
         // body can carry one. Redact it before logging — a body-log reader must
         // never be able to recover a secret token.
-        let decoded_body = String::from_utf8_lossy(truncated);
-        let request_body = redact_secret_tokens(&decoded_body);
+        //
+        // Redact BEFORE truncating: a token smuggled as JSON unicode escapes
+        // (`"phs_..."`) only decodes to the literal `phs_` prefix when the
+        // *whole* body parses as JSON. Truncating first can split that JSON,
+        // forcing `redact_secret_tokens` onto its raw-text fallback, which never
+        // sees the escaped token — leaking a recoverable secret. So redact the
+        // full decoded body, then truncate the redacted result for logging.
+        let request_original_size_bytes = decoded.len();
+        let decoded_body = String::from_utf8_lossy(&decoded);
+        let redacted = redact_secret_tokens(&decoded_body);
+        let (truncated, request_truncated, _) =
+            truncate_body(redacted.as_bytes(), self.request_max_bytes);
+        let request_body = String::from_utf8_lossy(truncated);
         let (response_flags_body, total, logged) = serialize_filtered_response(response, &patterns);
 
         // Override the default target (module path) with a stable, semantic
@@ -819,6 +828,48 @@ mod tests {
         assert!(
             !captured.contains("phs_redactme123"),
             "raw secret token leaked into body log: {captured}"
+        );
+        assert!(
+            captured.contains("phs_<redacted>"),
+            "expected redacted token marker in body log: {captured}"
+        );
+    }
+
+    #[test]
+    fn log_response_redacts_unicode_escaped_token_when_truncation_splits_json() {
+        // A caller can hide a valid token as JSON unicode escapes and pad the body so the
+        // log truncation lands past the token. If truncation ran *before* redaction, the
+        // truncated prefix would be invalid JSON, the raw-text fallback would never match the
+        // escaped bytes, and the full recoverable token would leak. Redacting the whole body
+        // first keeps it out regardless of where truncation later cuts.
+        let mut map = HashMap::new();
+        map.insert(42, vec!["*".into()]);
+        // Small cap so truncation happens inside the padding, well after the token.
+        let logger = BodyLogger::new(BodyLogTeams(map), 100);
+        let resp = make_response(&["my-feature"]);
+
+        // The escapes decode to "phs_"; the api_key value is "phs_SECRETTOKENVALUE".
+        let padding = "A".repeat(500);
+        let body = format!(
+            r#"{{"api_key":"\u0070\u0068\u0073\u005fSECRETTOKENVALUE","pad":"{padding}"}}"#
+        );
+        assert!(!body.contains("phs_"), "literal prefix must be hidden in the raw body");
+
+        let captured = capture_log_response(|_| {
+            logger.log_response(Uuid::nil(), Some(42), Some(Bytes::from(body)), &resp);
+        });
+
+        assert!(
+            captured.contains("\"request_truncated\":true"),
+            "test setup should truncate the body: {captured}"
+        );
+        assert!(
+            !captured.contains("SECRETTOKENVALUE"),
+            "decoded secret token leaked into body log: {captured}"
+        );
+        assert!(
+            !captured.contains("0070"),
+            "escaped secret token bytes leaked into body log: {captured}"
         );
         assert!(
             captured.contains("phs_<redacted>"),
