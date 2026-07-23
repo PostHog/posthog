@@ -729,13 +729,13 @@ def mock_stripe_client():
         ]
 
         instance = MockStripeClient.return_value
-        instance.balance_transactions.list.return_value = mock_balance_transaction_list
-        instance.charges.list.return_value = mock_charges_list
-        instance.customers.list.return_value = mock_customers_list
-        instance.invoices.list.return_value = mock_invoice_list
-        instance.prices.list.return_value = mock_price_list
-        instance.products.list.return_value = mock_product_list
-        instance.subscriptions.list.return_value = mock_subscription_list
+        instance.v1.balance_transactions.list.return_value = mock_balance_transaction_list
+        instance.v1.charges.list.return_value = mock_charges_list
+        instance.v1.customers.list.return_value = mock_customers_list
+        instance.v1.invoices.list.return_value = mock_invoice_list
+        instance.v1.prices.list.return_value = mock_price_list
+        instance.v1.products.list.return_value = mock_product_list
+        instance.v1.subscriptions.list.return_value = mock_subscription_list
 
         yield instance
 
