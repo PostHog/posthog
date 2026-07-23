@@ -281,9 +281,18 @@ class DeltaTableHelper:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        is_delta = await asyncio.to_thread(
-            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
-        )
+        try:
+            is_delta = await asyncio.to_thread(
+                deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+            )
+        except Exception as e:
+            # Mirrors the DeltaTable() open below: capture before propagating. Callers range from
+            # best-effort maintenance to the main write path, so this can't safely swallow the
+            # error and report "no table" here — that would trip should_overwrite_table for a
+            # table that actually exists, risking data loss.
+            capture_exception(e)
+            raise
+
         if is_delta:
             try:
                 return await asyncio.to_thread(
