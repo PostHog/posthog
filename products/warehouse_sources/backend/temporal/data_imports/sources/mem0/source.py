@@ -122,6 +122,7 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -142,7 +143,7 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
         return schemas
 
     def validate_credentials(
-        self, config: Mem0SourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: Mem0SourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_mem0_credentials(config.api_key):
             return True, None

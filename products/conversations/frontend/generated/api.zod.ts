@@ -455,6 +455,12 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
         ),
+    is_favorited: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
+        ),
 })
 
 export const conversationsViewsPartialUpdateBodyNameMax = 400
@@ -466,6 +472,12 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
+    is_favorited: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user.'
         ),
 })
 

@@ -8,7 +8,7 @@ import pytz
 from clickhouse_driver import Client
 
 from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
 
 
 def _get_ch_client_local_reads_prod() -> Client:
@@ -101,7 +101,7 @@ def _get_production_session_events_locally(
     page: int,
     events_to_ignore: list[str] | None = None,
     extra_fields: list[str] | None = None,
-) -> tuple[list | None, list | None]:
+) -> SessionEventsPage:
     """
     Get session events from production, locally, required for testing session summary
     """
@@ -118,4 +118,5 @@ def _get_production_session_events_locally(
     with _ch_client_local_reads_prod() as client:
         rows, columns_with_types = client.execute(interpolated_query, with_column_types=True)
     columns = [col for col, _ in columns_with_types]
-    return columns, rows
+    # This helper pages by re-querying, so `has_more` is decided by the caller's page loop, not here.
+    return SessionEventsPage(columns=columns, rows=rows, has_more=False)

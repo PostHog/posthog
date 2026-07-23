@@ -4388,6 +4388,52 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         }
 
+    def test_tile_ignoring_dashboard_filters_keeps_insight_query_untouched(self) -> None:
+        # The tile opts out of dashboard filters entirely, so neither the dashboard's date range nor its
+        # properties may reach the returned query; the tile's own overrides still apply.
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-90d"},
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "ignoreDashboardFilters": True,
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+            },
+        )
+        dashboard_filters = {
+            "date_from": "-7d",
+            "properties": [{"key": "$country", "type": "event", "operator": "exact", "value": ["US"]}],
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        source = response["query"]["source"]
+        assert source["dateRange"]["date_from"] == "-90d"
+        assert self._collect_property_values(source.get("properties"), "$country") == []
+        assert self._collect_property_values(source.get("properties"), "$browser") == [["Firefox"]]
+        assert response["filter_override_context"] == {
+            "dashboard": None,
+            "tile": {
+                "ignoreDashboardFilters": True,
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+            },
+            "overridden_dashboard": dashboard_filters,
+        }
+
     def test_dashboard_property_override_replaces_insight_on_same_key(self) -> None:
         # Insight and dashboard both filter $browser, no tile. The dashboard must win on that key —
         # over the insight's own filter — instead of AND-ing (Chrome AND Safari would return nothing).
@@ -4415,6 +4461,35 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
         assert browser_values == [["Safari"]], f"Dashboard $browser should replace the insight's. Got: {browser_values}"
+
+    def test_grouped_dashboard_property_override_does_not_crash_retrieval(self) -> None:
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        country_filter = {"key": "$country", "type": "event", "operator": "exact", "value": ["US"]}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": str(dashboard.pk),
+                "filters_override": json.dumps(
+                    {"properties": {"type": "AND", "values": [{"type": "AND", "values": [country_filter]}]}}
+                ),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        country_values = self._collect_property_values(response.json()["query"]["source"].get("properties"), "$country")
+        assert country_values == [["US"]]
 
     def test_from_dashboard_ignores_dashboard_context_without_view_access(self) -> None:
         self.organization.available_product_features = [

@@ -555,6 +555,21 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
+    def test_search_by_ticket_number_with_hash_prefix(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=%23{self.ticket.ticket_number}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit):
+        # "²" passes str.isdigit() but int() rejects it; it must fall through to text search
+        # rather than 500.
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=%C2%B2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
     @parameterized.expand(
         [
             ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),

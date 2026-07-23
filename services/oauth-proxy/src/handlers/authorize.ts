@@ -1,5 +1,6 @@
 import { type Region, baseUrlForRegion } from '@/lib/constants'
 import { type ClientMapping, getClientMapping, putCallbackRedirectUri, putRegionSelection } from '@/lib/kv'
+import { type ValidationError, errorResponse } from '@/lib/validation'
 
 import REGION_PICKER_HTML from '../static/region-picker.html'
 
@@ -10,6 +11,22 @@ const REGION_PICKER_HEADERS: Record<string, string> = {
     'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
+}
+
+// Prevent open redirects: for clients registered through the proxy (which have
+// stored redirect_uris), the requested redirect_uri must be one of them. Legacy
+// clients without stored redirect_uris fall through to regional server validation.
+function validateRegisteredRedirectUri(
+    redirectUri: string | null,
+    mapping: ClientMapping | null
+): ValidationError | null {
+    if (mapping?.redirect_uris && redirectUri && !mapping.redirect_uris.includes(redirectUri)) {
+        return {
+            error: 'invalid_request',
+            error_description: 'redirect_uri is not registered for this client',
+        }
+    }
+    return null
 }
 
 /**
@@ -50,18 +67,9 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         }
     }
 
-    // Validate redirect_uri against registered URIs to prevent open redirects.
-    // Only enforced for clients registered through the proxy (which have stored redirect_uris).
-    if (mapping?.redirect_uris && originalRedirectUri) {
-        if (!mapping.redirect_uris.includes(originalRedirectUri)) {
-            return new Response(
-                JSON.stringify({
-                    error: 'invalid_request',
-                    error_description: 'redirect_uri is not registered for this client',
-                }),
-                { status: 400, headers: { 'Content-Type': 'application/json' } }
-            )
-        }
+    const redirectUriError = validateRegisteredRedirectUri(originalRedirectUri, mapping)
+    if (redirectUriError) {
+        return errorResponse(redirectUriError)
     }
 
     // Store region selection keyed by both state and client_id.
