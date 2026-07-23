@@ -30800,7 +30800,7 @@ export namespace Schemas {
       api_version?: string | null;
       /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
       readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
-      /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Empty for source types without vendor API versioning. */
+      /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Source types without real vendor versioning report a single opaque `v1`. */
       readonly supported_api_versions: readonly string[];
       /** The subset of `supported_api_versions` the vendor has deprecated, each with the date it stops being served (null if not announced). Still selectable, so a source stuck on one can be moved off it, but they are flagged as a poor choice to move onto. */
       readonly deprecated_api_versions: readonly ExternalDataSourceSerializersDeprecatedApiVersionsItem[];
@@ -48733,7 +48733,7 @@ export namespace Schemas {
       api_version?: string | null;
       /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
       readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
-      /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Empty for source types without vendor API versioning. */
+      /** Vendor API versions this source type supports. `api_version` can be moved to any of them. Source types without real vendor versioning report a single opaque `v1`. */
       readonly supported_api_versions?: readonly string[];
       /** The subset of `supported_api_versions` the vendor has deprecated, each with the date it stops being served (null if not announced). Still selectable, so a source stuck on one can be moved off it, but they are flagged as a poor choice to move onto. */
       readonly deprecated_api_versions?: readonly PatchedExternalDataSourceSerializersDeprecatedApiVersionsItem[];

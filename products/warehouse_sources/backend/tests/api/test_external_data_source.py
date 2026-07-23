@@ -351,6 +351,77 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.json()
         mock_cancel.assert_called_once_with("workflow_Customers")
 
+    def _create_running_job(self, source, schema) -> None:
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+            workflow_id=f"workflow_{schema.name}",
+            workflow_run_id="run_id",
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow")
+    def test_update_without_repin_leaves_running_syncs_alone(self, mock_cancel):
+        # Guards against the guard regressing to cancel-always: an unrelated edit (and a full-payload
+        # PATCH echoing the current pin) must never abort a customer's in-flight sync.
+        source = self._create_external_data_source()
+        self._create_running_job(source, self._create_external_data_schema(source.id))
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"prefix": source.prefix, "description": "renamed", "api_version": source.api_version},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow",
+        side_effect=Exception("workflow already completed"),
+    )
+    def test_repin_persists_even_when_cancel_fails(self, mock_cancel):
+        # The run commonly finishes between the query and the cancel call (Temporal then raises). The
+        # pin is already committed, so a cancel failure must not turn the repin into a 500.
+        source = self._create_external_data_source()
+        self._create_running_job(source, self._create_external_data_schema(source.id))
+
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.api_version == "2026-02-25.clover"
+        mock_cancel.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow")
+    def test_repin_does_not_cancel_cdc_syncs(self, mock_cancel):
+        # CDC replicates via the database WAL, not the vendor API, so a version change is irrelevant
+        # to it — its in-flight extraction must not be aborted as collateral.
+        source = self._create_external_data_source()
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.id,
+            table=None,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+        )
+        self._create_running_job(source, cdc_schema)
+
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_not_called()
+
     def test_api_version_deprecation_surfaces_for_deprecated_pin(self):
         source = self._create_external_data_source()
         source.api_version = "2024-09-30.acacia"

@@ -826,7 +826,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text=(
             "Vendor API versions this source type supports. `api_version` can be moved to any of "
-            "them. Empty for source types without vendor API versioning."
+            "them. Source types without real vendor versioning report a single opaque `v1`."
         ),
     )
     deprecated_api_versions = serializers.SerializerMethodField(
@@ -1298,23 +1298,30 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
-        api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
+        # Compare the *resolved* versions, not the raw labels: null↔default and an explicit pin
+        # equal to the default are no-ops that must not cancel syncs (a bare `api_version: "v1"`
+        # write-back on an unversioned source would otherwise abort its running jobs).
+        api_version_changed = "api_version" in validated_data and source.resolve_api_version(
+            validated_data["api_version"]
+        ) != source.resolve_api_version(instance.api_version)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
         # A repin invalidates any in-flight import: retried/resumed activities re-resolve the
         # version from the DB, so letting a run finish would mix two vendor API versions in one
-        # table. Only schemas that follow the source pin are affected — a schema carrying its own
-        # override resolves independently. The user decides when to sync again.
+        # table. The user decides when to sync again.
         if api_version_changed:
             running_jobs = (
                 ExternalDataJob.objects.filter(
                     pipeline_id=updated_source.pk,
                     team_id=instance.team_id,
-                    status="Running",
+                    status=ExternalDataJob.Status.RUNNING,
                 )
                 # A schema carrying its own override resolves independently of the source pin.
                 .filter(Q(schema__api_version__isnull=True) | Q(schema__api_version=""))
+                # CDC replicates via the database WAL, not the vendor API, so a vendor-version
+                # change never affects it — don't abort a CDC snapshot/extraction as collateral.
+                .exclude(schema__sync_type=ExternalDataSchema.SyncType.CDC)
                 .exclude(schema__deleted=True)
                 .exclude(workflow_id__isnull=True)
                 .exclude(workflow_id="")
@@ -1323,6 +1330,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 try:
                     cancel_external_data_workflow(running_job.workflow_id)
                 except Exception as e:
+                    # Best-effort and must never fail the PATCH (the pin is already committed): the
+                    # common case is the run finishing between the query and this call. A genuinely
+                    # stuck run re-resolves the new version on its next activity, so it can't keep
+                    # writing the old one indefinitely.
+                    logger.exception(
+                        "Could not cancel running workflow after api_version change",
+                        source_id=str(updated_source.id),
+                        workflow_id=running_job.workflow_id,
+                    )
                     capture_exception(e, {"source_id": str(updated_source.id), "workflow_id": running_job.workflow_id})
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
