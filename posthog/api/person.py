@@ -5,6 +5,8 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
+from django.utils.timezone import now
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -38,7 +40,6 @@ from posthog.api.utils import action, format_paginated_url, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
-from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
@@ -1192,13 +1193,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(
-        self, results_package: dict[str, tuple[builtins.list, Optional[str], Optional[str], int]]
-    ):  # noqa: UP006
-        if not results_package:
-            return response.Response(data=[])
-
-        actors, next_url, initial_url, missing_persons = results_package["result"]
+    def _respond_with_results(self, results: tuple[builtins.list, Optional[str], Optional[str], int]):  # noqa: UP006
+        actors, next_url, initial_url, missing_persons = results
 
         return response.Response(
             data={
@@ -1206,8 +1202,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "next": next_url,
                 "initial": initial_url,
                 "missing_persons": missing_persons,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
+                # These endpoints no longer cache results; the fields remain for response-shape compatibility.
+                "is_cached": False,
+                "last_refresh": now(),
             }
         )
 
@@ -1340,12 +1337,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
-        return self._respond_with_cached_results(self.calculate_funnel_persons(request))
+        return self._respond_with_results(self.calculate_funnel_persons(request))
 
-    @cached_by_filters
-    def calculate_funnel_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
+    def calculate_funnel_persons(self, request: request.Request) -> tuple[List, Optional[str], Optional[str], int]:  # noqa: UP006
         from posthog.schema import FunnelsActorsQuery, FunnelsQuery  # noqa: PLC0415
 
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
@@ -1385,15 +1379,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
+        return (
+            serialized_actors,
+            next_url,
+            initial_url,
+            raw_count - len(serialized_actors),
+        )
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -1402,12 +1393,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
-        return self._respond_with_cached_results(self.calculate_trends_persons(request))
+        return self._respond_with_results(self.calculate_trends_persons(request))
 
-    @cached_by_filters
-    def calculate_trends_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
+    def calculate_trends_persons(self, request: request.Request) -> tuple[List, Optional[str], Optional[str], int]:  # noqa: UP006
         from posthog.schema import ChartDisplayType, InsightActorsQuery, TrendsFilter, TrendsQuery  # noqa: PLC0415
 
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
@@ -1450,15 +1438,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
         initial_url = format_query_params_absolute_url(request, 0)
 
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
+        return (
+            serialized_actors,
+            next_url,
+            initial_url,
+            raw_count - len(serialized_actors),
+        )
 
     @action(methods=["GET"], detail=True)
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
