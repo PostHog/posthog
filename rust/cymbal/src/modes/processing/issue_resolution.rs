@@ -150,7 +150,10 @@ impl Issue {
         // An unbounded name also produces oversized fingerprint-issue-state Kafka messages,
         // which fail the produce with MessageSizeTooLarge.
         let name = name.chars().take(MAX_ISSUE_NAME_CHARS).collect();
-        let description = description.chars().take(MAX_ISSUE_DESCRIPTION_CHARS).collect();
+        let description = description
+            .chars()
+            .take(MAX_ISSUE_DESCRIPTION_CHARS)
+            .collect();
         let issue = Self {
             id: Uuid::now_v7(),
             team_id,
