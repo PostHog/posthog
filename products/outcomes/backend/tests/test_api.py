@@ -16,25 +16,44 @@ from posthog.models.team.team import Team
 from products.outcomes.backend.api import OutcomeSerializer
 from products.outcomes.backend.models import Outcome, OutcomeLatch
 
+from .test_criteria import atom, criteria, path
+
+VALID_CRITERIA = criteria(
+    path(
+        atom("uploaded_file", threshold=3),
+        atom("purchase", aggregation="sum", aggregation_property="amount", threshold=100),
+        min_matches=1,
+    ),
+    path(atom("invited_teammate")),
+)
+
 
 class TestOutcomeSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("zero_threshold", {"name": "A", "target_event": "signed_up", "threshold": 0}, "threshold"),
-            ("loop_guard", {"name": "A", "target_event": "$outcome_reached", "threshold": 1}, "target_event"),
-            ("missing_target_event", {"name": "A", "threshold": 1}, "target_event"),
+            ("no_paths", {"paths": []}),
+            ("empty_path", criteria({"atoms": [], "min_matches": None})),
+            ("loop_guard", criteria(path(atom("$outcome_reached")))),
+            ("non_monotone_aggregation", criteria(path(atom(aggregation="avg", aggregation_property="x")))),
+            ("sum_without_property", criteria(path(atom(aggregation="sum", threshold=10)))),
+            ("zero_threshold", criteria(path(atom(threshold=0)))),
+            ("min_matches_above_atom_count", criteria(path(atom(), min_matches=2))),
         ]
     )
-    def test_rejects_invalid_definitions(self, _name: str, data: dict, error_field: str) -> None:
-        serializer = OutcomeSerializer(data=data)
+    def test_rejects_inadmissible_criteria(self, _name: str, criteria_dict: dict) -> None:
+        serializer = OutcomeSerializer(data={"name": "A", "criteria": criteria_dict})
         assert not serializer.is_valid()
-        assert error_field in serializer.errors
+        assert "criteria" in serializer.errors
+
+    def test_accepts_full_grammar(self) -> None:
+        serializer = OutcomeSerializer(data={"name": "A", "criteria": VALID_CRITERIA})
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestOutcomeAPI(APIBaseTest):
     def _create_outcome(self, team: Team | None = None, **kwargs) -> Outcome:
         team = team or self.team
-        defaults = {"name": "Activated", "target_event": "uploaded_file", "threshold": 3}
+        defaults = {"name": "Activated", "criteria": criteria(path(atom("uploaded_file", threshold=3)))}
         defaults.update(kwargs)
         with team_scope(team.id):
             return Outcome.objects.create(team=team, created_by=self.user, **defaults)
@@ -44,28 +63,32 @@ class TestOutcomeAPI(APIBaseTest):
             "person_id": uuid.uuid4(),
             "distinct_id": "some-user",
             "reached_at": timezone.now(),
-            "event_count": 3,
+            "evidence": {"winning_path": 0, "paths": []},
         }
         defaults.update(kwargs)
         with team_scope(outcome.team_id):
             return OutcomeLatch.objects.create(team_id=outcome.team_id, outcome=outcome, **defaults)
 
-    def test_create_outcome(self) -> None:
+    def test_create_outcome_with_full_criteria(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/outcomes",
-            data={"name": "Activated", "description": "3 uploads", "target_event": "uploaded_file", "threshold": 3},
+            data={"name": "Activated", "description": "Full grammar", "criteria": VALID_CRITERIA},
+            format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         data = response.json()
         assert data["reached_count"] == 0
+        assert [len(p["atoms"]) for p in data["criteria"]["paths"]] == [2, 1]
+        assert data["criteria"]["paths"][0]["min_matches"] == 1
         outcome = Outcome.objects.for_team(self.team.id).get(id=data["id"])
         assert outcome.created_by == self.user
-        assert outcome.threshold == 3
+        assert outcome.criteria["paths"][0]["atoms"][1]["aggregation"] == "sum"
 
-    def test_create_rejects_invalid_threshold(self) -> None:
+    def test_create_rejects_inadmissible_criteria(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/outcomes",
-            data={"name": "Bad", "target_event": "uploaded_file", "threshold": 0},
+            data={"name": "Bad", "criteria": criteria(path(atom(threshold=0)))},
+            format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -87,7 +110,9 @@ class TestOutcomeAPI(APIBaseTest):
         self._create_latch(outcome)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/outcomes/{outcome.id}", data={"target_event": "other_event"}
+            f"/api/projects/{self.team.id}/outcomes/{outcome.id}",
+            data={"criteria": criteria(path(atom("other_event")))},
+            format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -95,7 +120,7 @@ class TestOutcomeAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         outcome.refresh_from_db()
         assert outcome.name == "Renamed"
-        assert outcome.target_event == "uploaded_file"
+        assert outcome.criteria["paths"][0]["atoms"][0]["event"] == "uploaded_file"
 
     def test_reached_lists_latches_most_recent_first(self) -> None:
         outcome = self._create_outcome()

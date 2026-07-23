@@ -578,6 +578,11 @@ SPECTACULAR_SETTINGS = {
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
+        # Disambiguates from the metrics product's `aggregation` ChoiceField (different value set).
+        "OutcomeAggregationEnum": "products.outcomes.backend.criteria.AGGREGATIONS",
+        # Pins the metrics product's pre-existing enum name now that `aggregation` fields
+        # exist in multiple products; without this the name gets hash-suffixed.
+        "AggregationEnum": ["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).

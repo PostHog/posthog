@@ -6,9 +6,6 @@ import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn, Lemo
 
 import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -24,6 +21,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { CriteriaBuilder } from './CriteriaBuilder'
+import { CriteriaSummary } from './criteriaUtils'
 import type { OutcomeDefinitionApi } from './generated/api.schemas'
 import { outcomesLogic } from './outcomesLogic'
 
@@ -48,7 +47,7 @@ export function OutcomesScene(): JSX.Element {
         {
             title: 'Name',
             sticky: true,
-            width: '30%',
+            width: '25%',
             render: function Render(_: any, outcome: OutcomeDefinitionApi) {
                 return (
                     <LemonTableLink
@@ -60,14 +59,9 @@ export function OutcomesScene(): JSX.Element {
             },
         },
         {
-            title: 'Condition',
+            title: 'Criteria',
             render: function Render(_: any, outcome: OutcomeDefinitionApi) {
-                return (
-                    <span>
-                        <PropertyKeyInfo value={outcome.target_event} type={TaxonomicFilterGroupType.Events} /> &ge;{' '}
-                        {outcome.threshold}
-                    </span>
-                )
+                return <CriteriaSummary criteria={outcome.criteria} />
             },
         },
         {
@@ -161,9 +155,10 @@ function NewOutcomeModal({ isOpen }: { isOpen: boolean }): JSX.Element {
     return (
         <LemonModal
             title="New outcome"
-            description="A person reaches the outcome once they have performed the target event at least the threshold number of times."
+            description="A person reaches the outcome by completing any one path. Within a path, every condition must be met — or at least M of them if you relax it."
             isOpen={isOpen}
             onClose={() => closeNewOutcomeModal()}
+            width={760}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={() => closeNewOutcomeModal()}>
@@ -188,25 +183,11 @@ function NewOutcomeModal({ isOpen }: { isOpen: boolean }): JSX.Element {
                 <LemonField name="description" label="Description" showOptional>
                     <LemonTextArea placeholder="What does reaching this outcome mean?" minRows={2} />
                 </LemonField>
-                <LemonField name="target_event" label="Target event">
-                    <TaxonomicPopover
-                        groupType={TaxonomicFilterGroupType.Events}
-                        value={newOutcome.target_event}
-                        onChange={(value) => setNewOutcomeValue('target_event', value ?? '')}
-                        type="secondary"
-                        placeholder="Select an event"
-                        data-attr="outcome-event-picker"
-                        renderValue={(v) =>
-                            v ? (
-                                <PropertyKeyInfo value={v} disablePopover type={TaxonomicFilterGroupType.Events} />
-                            ) : null
-                        }
-                        excludedProperties={{ events: [null] }}
-                        selectingKeyOnly
+                <LemonField name="criteria" label="Criteria">
+                    <CriteriaBuilder
+                        value={newOutcome.criteria}
+                        onChange={(criteria) => setNewOutcomeValue('criteria', criteria)}
                     />
-                </LemonField>
-                <LemonField name="threshold" label="Threshold (at least this many occurrences)">
-                    <LemonInput type="number" min={1} />
                 </LemonField>
             </Form>
         </LemonModal>

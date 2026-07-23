@@ -8,6 +8,64 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `count` - count
+ * * `sum` - sum
+ * * `distinct` - distinct
+ */
+export type OutcomeAggregationEnumApi = (typeof OutcomeAggregationEnumApi)[keyof typeof OutcomeAggregationEnumApi]
+
+export const OutcomeAggregationEnumApi = {
+    Count: 'count',
+    Sum: 'sum',
+    Distinct: 'distinct',
+} as const
+
+/**
+ * A standard PostHog property filter (event property, person property, cohort, HogQL, ...), in the same shape the insights API accepts.
+ */
+export type OutcomeAtomApiPropertiesItem = { [key: string]: unknown }
+
+export interface OutcomeAtomApi {
+    /**
+     * Name of the event this condition aggregates.
+     * @maxLength 400
+     */
+    event: string
+    /** Property filters an event must match to count toward this condition. */
+    properties?: OutcomeAtomApiPropertiesItem[]
+    /** Monotone aggregation over matching events: count of events, sum of a numeric property, or number of distinct values of a property.
+     *
+     * * `count` - count
+     * * `sum` - sum
+     * * `distinct` - distinct */
+    aggregation?: OutcomeAggregationEnumApi
+    /**
+     * Event property to sum or count distinct values of; required for sum and distinct, must be empty for count.
+     * @maxLength 400
+     * @nullable
+     */
+    aggregation_property?: string | null
+    /** The condition is satisfied once the aggregation reaches at least this value. Must be a whole number of at least 1 for count and distinct, greater than 0 for sum. */
+    threshold?: number
+}
+
+export interface OutcomePathApi {
+    /** Conditions combined within this path; all must be met unless min_matches is set. */
+    atoms: OutcomeAtomApi[]
+    /**
+     * Satisfy the path when at least this many of its conditions are met (M-of-N). Leave empty to require all of them.
+     * @minimum 1
+     * @nullable
+     */
+    min_matches?: number | null
+}
+
+export interface OutcomeCriteriaApi {
+    /** Paths OR'd together: a person reaches the outcome by completing any one path. */
+    paths: OutcomePathApi[]
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -71,17 +129,8 @@ export interface OutcomeDefinitionApi {
     name: string
     /** What reaching this outcome means for the business. */
     description?: string
-    /**
-     * Name of the event the person must perform to reach the outcome.
-     * @maxLength 400
-     */
-    target_event: string
-    /**
-     * Minimum number of times the person must perform the target event.
-     * @minimum 1
-     * @maximum 2147483647
-     */
-    threshold?: number
+    /** Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N). */
+    criteria: OutcomeCriteriaApi
     /** Number of persons who have reached this outcome so far. */
     readonly reached_count: number
     /**
@@ -113,17 +162,8 @@ export interface PatchedOutcomeDefinitionApi {
     name?: string
     /** What reaching this outcome means for the business. */
     description?: string
-    /**
-     * Name of the event the person must perform to reach the outcome.
-     * @maxLength 400
-     */
-    target_event?: string
-    /**
-     * Minimum number of times the person must perform the target event.
-     * @minimum 1
-     * @maximum 2147483647
-     */
-    threshold?: number
+    /** Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N). */
+    criteria?: OutcomeCriteriaApi
     /** Number of persons who have reached this outcome so far. */
     readonly reached_count?: number
     /**
@@ -137,6 +177,11 @@ export interface PatchedOutcomeDefinitionApi {
     readonly created_by?: UserBasicApi
 }
 
+/**
+ * Aggregate values only: the winning path index and, per condition, the attained value against its threshold at latch time.
+ */
+export type OutcomeLatchApiEvidence = { [key: string]: unknown }
+
 export interface OutcomeLatchApi {
     readonly id: string
     /** UUID of the person who reached the outcome. */
@@ -145,8 +190,8 @@ export interface OutcomeLatchApi {
     readonly distinct_id: string
     /** Timestamp of the threshold-crossing event — a function of the event set alone. */
     readonly reached_at: string
-    /** How many times the person had performed the target event when evaluated. */
-    readonly event_count: number
+    /** Aggregate values only: the winning path index and, per condition, the attained value against its threshold at latch time. */
+    readonly evidence: OutcomeLatchApiEvidence
     readonly created_at: string
 }
 

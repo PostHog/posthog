@@ -1,19 +1,18 @@
-from django.core.validators import MinValueValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-# Loop guard: outcomes must never be defined over the event they themselves emit.
-OUTCOME_REACHED_EVENT = "$outcome_reached"
+from products.outcomes.backend.criteria import OUTCOME_REACHED_EVENT as OUTCOME_REACHED_EVENT
 
 
 class Outcome(TeamScopedRootMixin, UUIDModel):
-    """A user-defined condition over events that, once met by a person, becomes a permanent dated fact.
+    """A user-defined compound condition over events that, once met by a person, becomes a permanent dated fact.
 
-    POC scope: a single monotone atom — "person performed `target_event` at least `threshold` times".
-    The full criteria grammar (paths, M-of-N, sum/distinct aggregations, windows, group-level
-    subjects) is deliberately deferred.
+    Criteria follow the monotone grammar in `criteria.py`: paths OR'd together, atoms AND'd
+    within a path (optionally M-of-N), each atom a count/sum/distinct aggregation of matching
+    events compared with >= threshold. Group-level subjects and windows are deliberately
+    deferred.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
@@ -27,13 +26,8 @@ class Outcome(TeamScopedRootMixin, UUIDModel):
     description = models.TextField(
         blank=True, default="", help_text="What reaching this outcome means for the business."
     )
-    target_event = models.CharField(
-        max_length=400, help_text="Name of the event the person must perform to reach the outcome."
-    )
-    threshold = models.PositiveIntegerField(
-        default=1,
-        validators=[MinValueValidator(1)],
-        help_text="Minimum number of times the person must perform the target event.",
+    criteria = models.JSONField(
+        help_text="Monotone criteria: paths OR'd together, atoms AND'd within a path (optionally M-of-N)."
     )
     last_calculated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the batch evaluator last ran for this outcome."
@@ -63,8 +57,8 @@ class OutcomeLatch(TeamScopedRootMixin, UUIDModel):
     reached_at = models.DateTimeField(
         help_text="Timestamp of the threshold-crossing event — a function of the event set alone."
     )
-    event_count = models.PositiveIntegerField(
-        help_text="How many times the person had performed the target event when evaluated."
+    evidence = models.JSONField(
+        help_text="Aggregate values only: per-condition attained vs threshold and the winning path index."
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

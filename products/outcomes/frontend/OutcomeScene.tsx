@@ -4,8 +4,6 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CriteriaSummary, describeEvidenceProgress, OutcomeEvidence } from './criteriaUtils'
 import type { OutcomeLatchApi } from './generated/api.schemas'
 import { OutcomeLogicProps, outcomeLogic } from './outcomeLogic'
 
@@ -59,9 +58,9 @@ export function OutcomeScene(): JSX.Element {
             },
         },
         {
-            title: 'Event count when reached',
+            title: 'Progress when reached',
             render: function Render(_: any, latch: OutcomeLatchApi) {
-                return <span>{latch.event_count}</span>
+                return <span>{describeEvidenceProgress(latch.evidence as unknown as OutcomeEvidence)}</span>
             },
         },
     ]
@@ -96,11 +95,8 @@ export function OutcomeScene(): JSX.Element {
             />
             <div className="flex flex-wrap gap-8 border rounded p-4 bg-surface-primary">
                 <div>
-                    <div className="text-muted text-xs uppercase">Condition</div>
-                    <div className="text-lg">
-                        <PropertyKeyInfo value={outcome.target_event} type={TaxonomicFilterGroupType.Events} /> &ge;{' '}
-                        {outcome.threshold}
-                    </div>
+                    <div className="text-muted text-xs uppercase">Criteria</div>
+                    <CriteriaSummary criteria={outcome.criteria} />
                 </div>
                 <div>
                     <div className="text-muted text-xs uppercase">Reached by</div>
