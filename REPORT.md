@@ -55,7 +55,6 @@ Exported events (allowlist, everything else is dropped):
 | `_posthog/turn_complete` | info | `stop_reason` |
 | `_posthog/task_complete` | info | `stop_reason` |
 | `_posthog/error` | **error** | `error_source`, `stop_reason`, message in body (capped) |
-| `_posthog/console` | mapped from level | agent-server internal logs |
 | `_posthog/progress` | info | `progress_group/step/status` |
 | `_posthog/git_checkpoint`, `_posthog/branch_created` | info | `branch` |
 | `_posthog/mode_change`, `_posthog/compact_boundary` | info | |
@@ -63,12 +62,12 @@ Exported events (allowlist, everything else is dropped):
 | `session/update: tool_call` | info | `tool_call_id`, `tool_kind`, `tool_status` (no title, no rawInput) |
 | `session/update: tool_call_update` (terminal only) | info / warn on `failed` | `tool_call_id`, `tool_status` |
 
-Deliberately dropped: `agent_message`, `agent_message_chunk`, `agent_thought_chunk`, `user_message`, `session/prompt` bodies, in-progress `tool_call_update` snapshots (they re-send the growing tool input/output), `available_commands_update`, and any unknown method (fail-closed allowlist).
+Deliberately dropped: `agent_message`, `agent_message_chunk`, `agent_thought_chunk`, `user_message`, `session/prompt` bodies, in-progress `tool_call_update` snapshots (they re-send the growing tool input/output), `available_commands_update`, `_posthog/console` (free-text agent-server diagnostics interpolate arbitrary data — e.g. the prompt preview logged on user-message handling and stringified extension params — so exporting them would leak content; they stay in the S3 log and event-ingest stream), and any unknown method (fail-closed allowlist).
 Bodies are capped at 2000 chars; free-text attribute values at 200 chars (the `log_attributes` faceting table only indexes key/value pairs under 256 chars).
 
 ### APM trace (one per run)
 
-- `task_run` root span (kind SERVER): opened at session init, closed at session cleanup. Status OK once a turn ends cleanly with `end_turn` (the sandbox never emits `task_complete` for successful runs; the terminal "completed" status is decided by the workflow outside, so a clean turn end is the in-sandbox success signal), ERROR with the error message on `_posthog/error` (an error always wins, a later turn completion cannot flip it back), unset when the run ends without either (cancelled or timed out).
+- `task_run` root span (kind SERVER): opened at session init, closed at session cleanup. Status is resolved at shutdown from the latest turn outcome (the sandbox never emits `task_complete` for successful runs — the terminal "completed" status is decided by the workflow outside — so the last turn is the in-sandbox success signal): OK when the last turn ended with `end_turn`, ERROR with the error message on `_posthog/error` (an error always wins, later turn completions cannot flip it back) or when the last turn stopped with `error`, unset otherwise (cancelled / refused / timed out / no completed turns). Resolving at shutdown rather than per-turn means an early clean turn cannot leave a stale OK on a run whose final turn was cancelled.
 - `turn` child spans: opened on each ACP `session/prompt` (used purely as a boundary marker; its content is never read), closed on `_posthog/turn_complete`; attributes `turn_index`, `stop_reason`, plus the turn's token counts and `cost_usd` lifted from usage updates, so APM can rank slow or expensive turns directly.
 - `tool_call:<kind>` grandchild spans (`execute`, `read`, `edit`, ...): opened on `tool_call`, closed on the terminal `tool_call_update`; status ERROR on `failed`; attributes `tool_call_id`, `tool_kind`, `tool_status`. Per-kind span names stay low-cardinality and make APM latency breakdowns by tool kind useful.
 - Robustness: orphaned spans are closed (status unset) and exported at shutdown; a new prompt while a turn is open closes the stale turn; duplicate `tool_call` events are idempotent; an error cascades ERROR status through open tool and turn spans to the root.
