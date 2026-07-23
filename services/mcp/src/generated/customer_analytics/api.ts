@@ -706,6 +706,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
         'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
     )
 
+
 export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
