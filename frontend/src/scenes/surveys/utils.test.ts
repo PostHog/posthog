@@ -13,6 +13,7 @@ import {
     SurveyEventProperties,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
@@ -1470,6 +1471,7 @@ describe('doesSurveyRepeatOnEveryEvent', () => {
 describe('getRecurringSurveyScheduleInfo', () => {
     it('computes the total run duration as count * frequency days', () => {
         const info = getRecurringSurveyScheduleInfo({
+            schedule: SurveySchedule.Recurring,
             iteration_count: 2,
             iteration_frequency_days: 30,
             start_date: null,
@@ -1482,6 +1484,7 @@ describe('getRecurringSurveyScheduleInfo', () => {
 
     it('computes the auto-close date from the start date in UTC', () => {
         const info = getRecurringSurveyScheduleInfo({
+            schedule: SurveySchedule.Recurring,
             iteration_count: 2,
             iteration_frequency_days: 30,
             // Time-of-day near a UTC midnight boundary must not shift the calendar day the backend uses
@@ -1494,6 +1497,7 @@ describe('getRecurringSurveyScheduleInfo', () => {
 
     it('returns null once the survey has already ended', () => {
         const info = getRecurringSurveyScheduleInfo({
+            schedule: SurveySchedule.Recurring,
             iteration_count: 2,
             iteration_frequency_days: 30,
             start_date: '2026-01-01T00:00:00Z',
@@ -1502,11 +1506,70 @@ describe('getRecurringSurveyScheduleInfo', () => {
         expect(info).toBeNull()
     })
 
+    it('returns null for a non-recurring survey even with leftover iteration fields', () => {
+        const info = getRecurringSurveyScheduleInfo({
+            schedule: SurveySchedule.Once,
+            iteration_count: 2,
+            iteration_frequency_days: 30,
+            start_date: '2026-01-01T00:00:00Z',
+            end_date: null,
+        })
+        expect(info).toBeNull()
+    })
+
+    it('clamps the run duration to the backend iteration cap', () => {
+        const info = getRecurringSurveyScheduleInfo({
+            schedule: SurveySchedule.Recurring,
+            // Above MAX_ITERATION_COUNT (500) — the backend only generates 500 windows
+            iteration_count: 1000,
+            iteration_frequency_days: 30,
+            start_date: null,
+            end_date: null,
+        })
+        expect(info?.totalDurationDays).toBe(500 * 30)
+    })
+
     it.each([
-        ['zero count', { iteration_count: 0, iteration_frequency_days: 30, start_date: null, end_date: null }],
-        ['zero frequency', { iteration_count: 2, iteration_frequency_days: 0, start_date: null, end_date: null }],
-        ['null count', { iteration_count: null, iteration_frequency_days: 30, start_date: null, end_date: null }],
-        ['null frequency', { iteration_count: 2, iteration_frequency_days: null, start_date: null, end_date: null }],
+        [
+            'zero count',
+            {
+                schedule: SurveySchedule.Recurring,
+                iteration_count: 0,
+                iteration_frequency_days: 30,
+                start_date: null,
+                end_date: null,
+            },
+        ],
+        [
+            'zero frequency',
+            {
+                schedule: SurveySchedule.Recurring,
+                iteration_count: 2,
+                iteration_frequency_days: 0,
+                start_date: null,
+                end_date: null,
+            },
+        ],
+        [
+            'null count',
+            {
+                schedule: SurveySchedule.Recurring,
+                iteration_count: null,
+                iteration_frequency_days: 30,
+                start_date: null,
+                end_date: null,
+            },
+        ],
+        [
+            'null frequency',
+            {
+                schedule: SurveySchedule.Recurring,
+                iteration_count: 2,
+                iteration_frequency_days: null,
+                start_date: null,
+                end_date: null,
+            },
+        ],
     ])('returns null for %s', (_name, survey) => {
         expect(getRecurringSurveyScheduleInfo(survey)).toBeNull()
     })

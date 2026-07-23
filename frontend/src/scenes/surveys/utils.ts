@@ -5,7 +5,13 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
+import {
+    MAX_ITERATION_COUNT,
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_CREATED_SOURCE,
+    SURVEY_RATING_SCALE,
+} from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -569,14 +575,24 @@ export interface RecurringSurveyScheduleInfo {
  * only contradict it.
  */
 export function getRecurringSurveyScheduleInfo(
-    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
+    survey: Pick<Survey, 'schedule' | 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
 ): RecurringSurveyScheduleInfo | null {
     const count = survey.iteration_count
     const frequency = survey.iteration_frequency_days
-    if (survey.end_date || !count || !frequency || count < 1 || frequency < 1) {
+    if (
+        survey.schedule !== SurveySchedule.Recurring ||
+        survey.end_date ||
+        !count ||
+        !frequency ||
+        count < 1 ||
+        frequency < 1
+    ) {
         return null
     }
-    const totalDurationDays = count * frequency
+    // The backend caps the generated iteration windows at MAX_ITERATION_COUNT, so anything above that never
+    // extends the schedule — mirror the cap here to match the real close date.
+    const effectiveCount = Math.min(count, MAX_ITERATION_COUNT)
+    const totalDurationDays = effectiveCount * frequency
     const autoCloseDate = survey.start_date ? dayjs.utc(survey.start_date).add(totalDurationDays, 'day') : null
     return { totalDurationDays, autoCloseDate }
 }
