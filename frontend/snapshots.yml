@@ -6279,9 +6279,9 @@ snapshots:
     scenes-app-insights-error-empty-states--funnel-single-step--light:
         hash: v1.k794b7964.49098739cf73ac9854bc1d46cfd56405adcd40293f444d5ff8de1262b8bb1d1e.-7-iNk2KTD2g20fzTZf9fQyHGs647o8oWLMiUQ5XQ4M
     scenes-app-insights-error-empty-states--long-loading--dark:
-        hash: v1.k794b7964.4292e7593e17b889ac3a9011418979edcd88c9543d592162c8fab2b1809fc620.lLy6rdV3V-0PqRYWFCO75_6NSPC52a3xUdM_zUx4C6g
+        hash: v1.k794b7964.64fae7f64e38d223a3fa687b7fd0186b71e7960967d0a5d2147c06a7bf48af68.FiRzqrXXTctc6c8pdeotjPvKplAUwNWt76-8RQ1TSN4
     scenes-app-insights-error-empty-states--long-loading--light:
-        hash: v1.k794b7964.37ac1f8ed685e7329f75ccc361aeebbbb444ec01aa76b524d6f385f6c9f07eca.ZVg1oU7Td2E71vfg8AmOVfM7esqQYD_y6fZQ4rAeZfY
+        hash: v1.k794b7964.bcb8140610bb7a2625227d145be2f70ed54c975a8f49fa28e1b8c3e6e9ea70e8.c3kj5wXRs95Hfa2bWvWudlNnA-m7br9Rggaaqp_HDGo
     scenes-app-insights-error-empty-states--memory-limit-exceeded--dark:
         hash: v1.k794b7964.ef18ee16bcec4b43d74979a5131a3f325f8e0542b6b4cba050746f6b02699ab9.kOLq5BxzD8AlGlxKgleq3uJTw_ddM6GTSmML4MNaZ5o
     scenes-app-insights-error-empty-states--memory-limit-exceeded--light:
