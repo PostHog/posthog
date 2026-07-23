@@ -1341,7 +1341,8 @@ def test_align_incoming_decimals_to_delta_fits(batch_type, batch_values, delta_t
             "amount": pa.array(batch_values, type=batch_type),
         }
     )
-    delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("id", pa.int64()), pa.field("amount", delta_type)]))
+    delta_fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("amount", delta_type)]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
     aligned = align_incoming_decimals_to_delta(arrow_table, delta_schema)
 
@@ -1361,9 +1362,8 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
             "amount": pa.array([decimal.Decimal("1234567.5")], type=pa.decimal128(10, 2)),
         }
     )
-    delta_schema = deltalake.Schema.from_arrow(
-        pa.schema([pa.field("id", pa.int64()), pa.field("amount", pa.decimal128(38, 32))])
-    )
+    delta_fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("amount", pa.decimal128(38, 32))]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
     with pytest.raises(SchemaColumnTypeChangedException):
         align_incoming_decimals_to_delta(arrow_table, delta_schema)
