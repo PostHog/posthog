@@ -60,7 +60,7 @@ One envelope, defined once per language from a shared definition, matching the R
 The fields below are the attribution key plus the measured quantity.
 They map directly onto `cogs_attribution` columns so the pipeline is a projection, not a translation.
 
-```
+```text
 finops.usage {
   # Attribution key (required)
   product           string   # canonical product enum, reuse query_tagging.Product
@@ -103,7 +103,7 @@ Two taxonomy decisions make this standardized rather than a free-for-all:
 
 One small library per language. Same conceptual API everywhere:
 
-```
+```text
 emit_usage(product, billable_unit, quantity, *, org_id=None, team_id=None,
            feature=None, system=None, resource_id=None, duration_ms=None)
 ```
