@@ -74,6 +74,7 @@ from products.slack_app.backend.services.integration_resolver import (
     resolve_user_for_workspace,
     user_resolution_failure_reply,
 )
+from products.slack_app.backend.services.region_claims import evaluate_workspace_claims
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_EDIT_WORKSPACE,
@@ -644,48 +645,14 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     return claimed
 
 
-_VALID_WORKSPACE_CLAIM_KINDS = frozenset(SLACK_INTEGRATION_KINDS)
-
-
 @csrf_exempt
 def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
-    """Cross-region probe: does this region hold an Integration row for the given Slack workspace?
+    """Legacy Slack-scoped route for the cross-region claims probe.
 
-    Both Cloud regions provision the PostHog Code Slack signing secret, so a region can HMAC-sign
-    a small JSON body and the receiver can verify it with the same routine that validates real
-    Slack webhooks. The signed body covers `slack_team_id` + `kinds`, so a captured signature
-    cannot be replayed against a different workspace.
+    The implementation is shared with the generic ``/chat/<provider>/workspace/claims/``
+    route — see ``evaluate_workspace_claims``.
     """
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    try:
-        slack_config = SlackIntegration.slack_config()
-        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
-    except SlackIntegrationError as e:
-        logger.warning("slack_app_workspace_claims_invalid_request", error=str(e))
-        return HttpResponse("Invalid request", status=403)
-
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse("Invalid JSON", status=400)
-
-    slack_team_id = data.get("slack_team_id")
-    kinds = data.get("kinds")
-    if not isinstance(slack_team_id, str) or not slack_team_id:
-        return HttpResponse("Missing slack_team_id", status=400)
-    if not isinstance(kinds, list) or not kinds:
-        return HttpResponse("Missing kinds", status=400)
-    filtered = [k for k in kinds if isinstance(k, str) and k in _VALID_WORKSPACE_CLAIM_KINDS]
-    if not filtered:
-        return HttpResponse("No valid kinds", status=400)
-
-    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        kind__in=filtered,
-        integration_id=slack_team_id,
-    ).exists()
-    return JsonResponse({"claimed": claimed})
+    return evaluate_workspace_claims(request, provider="slack")
 
 
 def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:

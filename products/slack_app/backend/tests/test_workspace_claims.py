@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -13,6 +14,7 @@ from posthog.models.integration import Integration, validate_slack_request
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.slack_app.backend.services.region_auth import sign_region_request
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -293,3 +295,85 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
         # Loop header is included so even if the endpoint URL were ever swapped to the event
         # callback by mistake, the receiver would not re-enter the cross-region machinery.
         assert sent_headers["X-PostHog-Region-Proxied"] == "1"
+
+
+class TestChatWorkspaceClaimsView(TestCase):
+    """The generic /chat/<provider>/workspace/claims/ route.
+
+    Authenticated with the neutral region signature headers; the Slack provider also
+    accepts the legacy Slack webhook headers so the two Cloud regions can upgrade
+    independently (the sender flips to neutral headers only once both regions run the
+    receiver).
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.signing_secret = "posthog-code-workspace-claims-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def _post_neutral(self, provider: str, payload: dict, *, sign_at: str | None = None) -> Any:
+        body = json.dumps(payload).encode()
+        if sign_at is not None:
+            with freeze_time(sign_at):
+                signature, ts = sign_region_request(body, self.signing_secret)
+        else:
+            signature, ts = sign_region_request(body, self.signing_secret)
+        return self.client.post(
+            f"/chat/{provider}/workspace/claims/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_POSTHOG_REGION_SIGNATURE=signature,
+            HTTP_X_POSTHOG_REGION_TIMESTAMP=ts,
+        )
+
+    @patch("products.slack_app.backend.services.region_auth.SlackIntegration.slack_config")
+    def test_neutral_headers_and_workspace_id_alias_accepted(self, mock_config):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_NEUTRAL",
+            sensitive_config={"access_token": "xoxb"},
+        )
+        response = self._post_neutral("slack", {"workspace_id": "T_NEUTRAL", "kinds": ["slack"]})
+        assert response.status_code == 200
+        assert response.json() == {"claimed": True}
+
+    @patch("products.slack_app.backend.services.region_auth.SlackIntegration.slack_config")
+    def test_neutral_bad_signature_returns_403(self, mock_config):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "different-secret"}
+        response = self._post_neutral("slack", {"workspace_id": "T_NEUTRAL", "kinds": ["slack"]})
+        assert response.status_code == 403
+
+    @patch("products.slack_app.backend.services.region_auth.SlackIntegration.slack_config")
+    def test_neutral_expired_timestamp_returns_403(self, mock_config):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        response = self._post_neutral("slack", {"workspace_id": "T_NEUTRAL", "kinds": ["slack"]}, sign_at="2020-01-01")
+        assert response.status_code == 403
+
+    @patch("products.slack_app.backend.services.region_auth.SlackIntegration.slack_config")
+    def test_legacy_slack_headers_accepted_for_slack_provider(self, mock_config):
+        # Dual-accept: a not-yet-upgraded region still signs probes with the Slack webhook
+        # headers. Removing this fallback before both regions send neutral headers would
+        # break cross-region routing mid-rollout.
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        body = json.dumps({"slack_team_id": "T_LEGACY", "kinds": ["slack"]}).encode()
+        signature, ts = sign_slack_request(body, self.signing_secret)
+        response = self.client.post(
+            "/chat/slack/workspace/claims/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_SLACK_SIGNATURE=signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+        )
+        assert response.status_code == 200
+        assert response.json() == {"claimed": False}
+
+    def test_unknown_provider_returns_404(self):
+        response = self.client.post(
+            "/chat/carrier-pigeon/workspace/claims/",
+            data=b"{}",
+            content_type="application/json",
+        )
+        assert response.status_code == 404

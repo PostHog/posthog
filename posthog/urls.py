@@ -68,6 +68,7 @@ from products.slack_app.backend.api import (
     slack_workspace_claims_view,
 )
 from products.slack_app.backend.views import (
+    chat_workspace_claims_view,
     slack_app_command_handler,
     slack_user_link_authorize,
     slack_user_link_callback,
@@ -670,6 +671,10 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
+    # Generic successor to the Slack-scoped claims route above; used by cross-region
+    # probes for any chat provider. `path` (not `opt_slash_path`) because the route
+    # needs the <provider> converter; the sender always uses the trailing slash.
+    path("chat/<str:provider>/workspace/claims/", chat_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
