@@ -14,6 +14,20 @@ _DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "
 # when set. Property filters are handled separately (stacked unless they contradict).
 _SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
 
+# Tile-only flag, not a filter value: it must never reach DashboardFilter(**effective_filters)
+# (extra="forbid"), so every merged output strips it. It only acts on the override (tile) layer;
+# in the base layer (e.g. smuggled in via the `filters_override` query param) it is stripped
+# without effect, since a dashboard-layer "ignore dashboard filters" has no meaning.
+_IGNORE_DASHBOARD_FILTERS = "ignoreDashboardFilters"
+
+
+def _ignores_dashboard_filters(filters: dict | None) -> bool:
+    return bool(filters and filters.get(_IGNORE_DASHBOARD_FILTERS))
+
+
+def _without_ignore_flag(filters: dict) -> dict:
+    return {key: value for key, value in filters.items() if key != _IGNORE_DASHBOARD_FILTERS}
+
 
 class FilterLayerResolution(TypedDict):
     dashboard: dict
@@ -24,10 +38,21 @@ class FilterLayerResolution(TypedDict):
 def resolve_filter_layers_by_priority(
     base_filters: dict | None, override_filters: dict | None
 ) -> FilterLayerResolution:
-    base = base_filters or {}
+    base = _without_ignore_flag(base_filters or {})
     override = override_filters or {}
+
+    if _ignores_dashboard_filters(override):
+        overridden_base: dict = {key: value for key, value in base.items() if value is not None}
+        if overridden_base.get("properties") is not None:
+            overridden_base["properties"] = flatten_property_leaves(overridden_base["properties"])
+        return {
+            "dashboard": {},
+            "tile": override,
+            "overridden_dashboard": overridden_base,
+        }
+
     effective_base = {**base}
-    overridden_base: dict = {}
+    overridden_base = {}
 
     for field in _SCALAR_OVERRIDE_FIELDS:
         if override.get(field) is not None:
@@ -87,11 +112,26 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
 
     Overriding the insight's own base filters (not just the lower-priority layer's) is handled separately
     by `remove_query_properties_overridden_by`, which the override-aware call sites apply to the query.
+
+    An override with `ignoreDashboardFilters` drops the base layer entirely: only the override's own
+    values apply. The flag itself is stripped from every merged result, since the output feeds
+    `DashboardFilter(**...)` which forbids extra keys. In the base layer the flag is stripped without
+    acting — it is tile-only, but clients can place it in `base_filters` via the `filters_override`
+    query param.
     """
+    if base_filters:
+        base_filters = _without_ignore_flag(base_filters)
+    if override_filters:
+        if override_filters.get(_IGNORE_DASHBOARD_FILTERS):
+            effective = _without_ignore_flag(override_filters)
+            if effective.get("properties") is not None:
+                effective["properties"] = flatten_property_leaves(effective["properties"])
+            return effective
+        override_filters = _without_ignore_flag(override_filters)
     if not override_filters:
         return base_filters or {}
     if not base_filters:
-        return override_filters or {}
+        return override_filters
 
     resolved_layers = resolve_filter_layers_by_priority(base_filters, override_filters)
     merged = {**resolved_layers["dashboard"]}
@@ -229,7 +269,9 @@ def resolve_effective_dashboard_filters(
 ) -> tuple[dict, dict]:
     """Combine dashboard and tile filters for query execution and display reconstruction."""
     effective_filters = (
-        merge_filters_by_priority(base_filters, tile_filters_override) if tile_filters_override else base_filters or {}
+        merge_filters_by_priority(base_filters, tile_filters_override)
+        if tile_filters_override
+        else _without_ignore_flag(base_filters or {})
     )
     # `merge_filters_by_priority` can early-return a raw layer (and a single layer is unmerged), so
     # `properties` may still be a group dict here — normalize before it reaches `DashboardFilter`.
@@ -241,6 +283,10 @@ def resolve_effective_dashboard_filters(
 
 def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
     """Build a dashboard filter while tolerating legacy grouped properties."""
+    # Final guard: callers like Insight.get_effective_query pass client-supplied filter dicts
+    # here without going through the merge functions, and the tile-only flag would trip
+    # DashboardFilter's extra="forbid".
+    filters = _without_ignore_flag(filters)
     if isinstance(filters.get("properties"), dict):
         filters = {**filters, "properties": flatten_property_leaves(filters["properties"])}
     return DashboardFilter(**filters)

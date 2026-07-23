@@ -38,6 +38,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
+    invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',

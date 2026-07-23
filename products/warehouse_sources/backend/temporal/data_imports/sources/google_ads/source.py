@@ -82,8 +82,8 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
-    supported_versions = ("v23",)
-    default_version = "v23"
+    supported_versions = ("v23", "v24")
+    default_version = "v24"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
 
     @property
@@ -143,6 +143,7 @@ class GoogleAdsSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Deferred so registering this source doesn't import the google-ads SDK — see configs.py.
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
@@ -150,9 +151,12 @@ class GoogleAdsSource(
             get_schemas as get_google_ads_schemas,
         )
 
+        # Discover against the source's pinned version (falling back to the default) so a
+        # v23-pinned source reconciles schemas under v23, matching its sync path — not v24.
         google_ads_schemas = get_google_ads_schemas(
             config,
             team_id,
+            self.resolve_api_version(api_version),
         )
 
         ads_incremental_fields = get_google_ads_incremental_fields()
@@ -203,6 +207,7 @@ class GoogleAdsSource(
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
@@ -364,7 +369,9 @@ class GoogleAdsSource(
 
         return is_valid, errors
 
-    def _validate_mcc_customer_access(self, client, config: GoogleAdsSourceConfig) -> tuple[bool, str | None]:
+    def _validate_mcc_customer_access(
+        self, client, config: GoogleAdsSourceConfig, api_version: str
+    ) -> tuple[bool, str | None]:
         """Validate that a client account is accessible through a manager (MCC) account.
 
         list_accessible_customers() only returns manager-level accounts, not client accounts
@@ -372,7 +379,7 @@ class GoogleAdsSource(
         is configured correctly in the client, this will succeed.
         """
         cleaned_customer_id = clean_customer_id(config.customer_id)
-        ga_service = client.get_service("GoogleAdsService")
+        ga_service = client.get_service("GoogleAdsService", version=api_version)
         query = "SELECT customer.id FROM customer"
         try:
             response = ga_service.search(customer_id=cleaned_customer_id, query=query)
@@ -392,19 +399,24 @@ class GoogleAdsSource(
         config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
             _is_transient_grpc_error,
             google_ads_client,
         )
 
+        # The SDK's client default is the newest bundled version, so leaving these probes unpinned
+        # would validate against a version the source may not sync with.
+        resolved_version = self.resolve_api_version(api_version)
+
         try:
             client = google_ads_client(config, team_id)
 
             if isinstance(config, GoogleAdsSourceConfig) and config.is_mcc_account and config.is_mcc_account.enabled:
-                return self._validate_mcc_customer_access(client, config)
+                return self._validate_mcc_customer_access(client, config, resolved_version)
 
-            customer_service = client.get_service("CustomerService")
+            customer_service = client.get_service("CustomerService", version=resolved_version)
             accessible_customers = customer_service.list_accessible_customers()
 
             customer_resource_name = f"customers/{clean_customer_id(config.customer_id)}"
