@@ -14,5 +14,5 @@
 #
 # Format: one "<app_label>.<migration_name>" per line, e.g.
 # posthog.1234_backfill_something_in_batches
-posthog.1263_delete_revenue_analytics_user_product_list
+posthog.1264_delete_revenue_analytics_user_product_list
 product_analytics.0004_delete_revenue_analytics_insights

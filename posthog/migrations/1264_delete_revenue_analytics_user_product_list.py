@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
     # as one long transaction (which would bloat WAL and hold locks on a big table).
     atomic = False
 
-    dependencies = [("posthog", "1262_organization_members_can_see_org_members")]
+    dependencies = [("posthog", "1263_alter_integration_kind")]
 
     operations = [
         migrations.RunPython(delete_revenue_analytics_user_product_list, migrations.RunPython.noop),
