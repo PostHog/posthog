@@ -61,24 +61,15 @@ maybeDescribe('PgSessionQueue requeue-vs-running races (real PG)', () => {
         }
     })
 
-    /** Seed one queued session; returns its id plus the app/revision ids. */
-    async function seedSession(slug = 'race'): Promise<{ id: string; appId: string; revId: string }> {
-        const revisions = new PgRevisionStore(pool)
-        const app = await revisions.createApplication({ team_id: 1, slug, name: 'Race', description: '' })
-        const rev = await revisions.createRevision({
-            application_id: app.id,
-            parent_revision_id: null,
-            created_by_id: null,
-            bundle_uri: 's3://x/',
-            spec: AgentSpecSchema.parse({ model: 'test/x' }),
-        })
+    /** Enqueue one queued session under an existing app/revision. */
+    async function enqueueUnder(appId: string, revId: string, externalKey: string | null = null): Promise<string> {
         const id = randomUUID()
         await queue.enqueue({
             id,
-            application_id: app.id,
-            revision_id: rev.id,
+            application_id: appId,
+            revision_id: revId,
             team_id: 1,
-            external_key: null,
+            external_key: externalKey,
             idempotency_key: null,
             trigger_metadata: null,
             state: 'queued',
@@ -92,6 +83,21 @@ maybeDescribe('PgSessionQueue requeue-vs-running races (real PG)', () => {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
+        return id
+    }
+
+    /** Seed one queued session; returns its id plus the app/revision ids. */
+    async function seedSession(slug = 'race'): Promise<{ id: string; appId: string; revId: string }> {
+        const revisions = new PgRevisionStore(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug, name: 'Race', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
+        })
+        const id = await enqueueUnder(app.id, rev.id)
         return { id, appId: app.id, revId: rev.id }
     }
 
@@ -226,56 +232,177 @@ maybeDescribe('PgSessionQueue requeue-vs-running races (real PG)', () => {
         expect((await queue.claim(300))?.id).toBe(id)
     })
 
-    // Wiring + semantics for the approval-decision wake against real PG: the
-    // decision path used to write `update({state:'queued'})` unconditionally,
-    // which could hand a running session to a second worker or resurrect a
-    // cancelled one. The decision must still succeed (the approval row flips)
-    // while the session keeps its state.
-    it.each(['running', 'cancelled'] as const)(
-        'a late approval decision does not change a %s session state',
-        async (state) => {
+    // The runner reopens a cancelled session ONLY when its outcome is
+    // `completed` (the documented cancel-reopen: the runner catches the cancel,
+    // persists the partial reply, reopens). Every other outcome on a cancelled
+    // row must leave it cancelled — in particular a shutdown-suspend (`queued`)
+    // that raced the cancel used to resurrect the session into the claim pool.
+    it.each(['queued', 'closed', 'failed'] as const)(
+        'finalize with outcome %s racing a cancel leaves the session cancelled',
+        async (outcome) => {
             if (!reachable) {
                 return
             }
-            const { id, appId, revId } = await seedSession()
-            if (state === 'running') {
-                expect((await queue.claim(500))?.id).toBe(id)
-            } else {
-                await queue.update(id, { state })
-            }
-            const approvals = new PgApprovalStore(pool)
-            const { request } = await approvals.upsertQueued({
-                id: randomUUID(),
-                session_id: id,
-                application_id: appId,
-                team_id: 1,
-                revision_id: revId,
-                turn: 1,
-                tool_call_id: 'tc-1',
-                tool_name: '@posthog/team-delete',
-                proposed_args: { team_id: 1 },
-                assistant_message: { role: 'assistant', content: [{ type: 'text', text: '' }], timestamp: 0 },
-                approver_scope: { type: 'principal', allow_edit: false },
-                expires_at: new Date(Date.now() + 60_000).toISOString(),
+            const { id } = await seedSession()
+            const a = await queue.claim(500)
+            expect(a?.id).toBe(id)
+            // Ingress lands the durable cancel mid-run…
+            await queue.update(id, { state: 'cancelled' })
+            // …then the worker finalizes without having seen it (queued = a
+            // pod-shutdown suspend; closed/failed = the loop's own outcome).
+            const persisted = await queue.finalizeRun(id, {
+                state: outcome,
+                conversation: a!.conversation,
+                usage_total: a!.usage_total,
             })
+            expect(persisted).toBe('cancelled')
+            expect((await queue.get(id))?.state).toBe('cancelled')
+            expect(await queue.claim(200)).toBeNull()
+        }
+    )
+
+    // The cancel-reopen itself must keep both guarantees: with no undrained
+    // input it reopens as `completed` (the runner's documented overwrite of
+    // ingress's durable cancel), and with an undrained input it re-queues —
+    // the reopen path used to skip the completed-with-pending-inputs rescue
+    // and strand the input on the reopened row.
+    it('cancel-reopen with an undrained input re-queues instead of stranding it', async () => {
+        if (!reachable) {
+            return
+        }
+        const { id } = await seedSession()
+        const a = await queue.claim(500)
+        expect(a?.id).toBe(id)
+        await queue.update(id, { state: 'cancelled' })
+        // A /send (or approval envelope) landed after the run's last drain.
+        await queue.appendPendingInput(id, { role: 'user', content: 'raced past the cancel', timestamp: Date.now() })
+        const persisted = await queue.finalizeRun(id, {
+            state: 'completed',
+            conversation: a!.conversation,
+            usage_total: a!.usage_total,
+        })
+        expect(persisted).toBe('queued')
+        expect((await queue.claim(300))?.id).toBe(id)
+    })
+
+    it('cancel-reopen with no pending input still reopens as completed', async () => {
+        if (!reachable) {
+            return
+        }
+        const { id } = await seedSession()
+        const a = await queue.claim(500)
+        expect(a?.id).toBe(id)
+        await queue.update(id, { state: 'cancelled' })
+        const persisted = await queue.finalizeRun(id, {
+            state: 'completed',
+            conversation: a!.conversation,
+            usage_total: a!.usage_total,
+        })
+        expect(persisted).toBe('completed')
+        expect((await queue.get(id))?.state).toBe('completed')
+    })
+
+    // Terminal rows still take inert `pending_inputs` appends (a raced /send),
+    // and the append bumps `updated_at` — so recency alone would let a dead
+    // session shadow a live one under the same external key, breaking resume.
+    it('findByExternalKey prefers a live session over a terminal one with a fresher updated_at', async () => {
+        if (!reachable) {
+            return
+        }
+        const { appId, revId } = await seedSession()
+        const live = await enqueueUnder(appId, revId, 'thread-1')
+        const dead = await enqueueUnder(appId, revId, 'thread-1')
+        await queue.update(dead, { state: 'cancelled' })
+        // Inert append on the terminal row — lands in pending_inputs and
+        // bumps updated_at past the live row's.
+        await queue.appendPendingInput(dead, { role: 'user', content: 'raced-in', timestamp: Date.now() })
+
+        expect((await queue.findByExternalKey(appId, 'thread-1', revId))?.id).toBe(live)
+    })
+
+    /** Queue one approval row for the session; returns the request. */
+    async function seedApproval(
+        approvals: PgApprovalStore,
+        ids: { id: string; appId: string; revId: string }
+    ): Promise<{ id: string }> {
+        const { request } = await approvals.upsertQueued({
+            id: randomUUID(),
+            session_id: ids.id,
+            application_id: ids.appId,
+            team_id: 1,
+            revision_id: ids.revId,
+            turn: 1,
+            tool_call_id: 'tc-1',
+            tool_name: '@posthog/team-delete',
+            proposed_args: { team_id: 1 },
+            assistant_message: { role: 'assistant', content: [{ type: 'text', text: '' }], timestamp: 0 },
+            approver_scope: { type: 'principal', allow_edit: false },
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+        })
+        return request
+    }
+
+    // Wiring + semantics for the approval-decision wake against real PG: the
+    // decision path used to write `update({state:'queued'})` unconditionally,
+    // which could hand a running session to a second worker. The decision must
+    // still succeed (the approval row flips) while the session stays running —
+    // the live worker drains the marker at its next turn.
+    it('a late approval decision does not change a running session state', async () => {
+        if (!reachable) {
+            return
+        }
+        const ids = await seedSession()
+        expect((await queue.claim(500))?.id).toBe(ids.id)
+        const approvals = new PgApprovalStore(pool)
+        const request = await seedApproval(approvals, ids)
+
+        const result = await applyApprovalDecision(
+            { approvals, queue },
+            {
+                requestId: request.id,
+                applicationId: ids.appId,
+                decision: 'approve',
+                // decision_by is a uuid column in PG.
+                decidedBy: randomUUID(),
+            }
+        )
+        expect(result.ok).toBe(true)
+
+        const row = await queue.get(ids.id)
+        expect(row?.state).toBe('running')
+        expect(row?.pending_inputs).toHaveLength(1)
+        expect(await queue.claim(200)).toBeNull()
+    })
+
+    // A decision on a session that already terminated must fail closed: the
+    // old path left an immortal 'approving' row plus an inert decided marker
+    // in pending_inputs, and a later legitimate allow_restart restart drained
+    // the marker — dispatching a stale approved tool call from a dead turn.
+    // Now the approval row expires and no marker lands.
+    it.each(['cancelled', 'closed', 'failed'] as const)(
+        'a late approval decision on a %s session expires the approval and appends no marker',
+        async (terminal) => {
+            if (!reachable) {
+                return
+            }
+            const ids = await seedSession()
+            const approvals = new PgApprovalStore(pool)
+            const request = await seedApproval(approvals, ids)
+            await queue.update(ids.id, { state: terminal })
 
             const result = await applyApprovalDecision(
                 { approvals, queue },
-                {
-                    requestId: request.id,
-                    applicationId: appId,
-                    decision: 'approve',
-                    // decision_by is a uuid column in PG.
-                    decidedBy: randomUUID(),
-                }
+                { requestId: request.id, applicationId: ids.appId, decision: 'approve', decidedBy: randomUUID() }
             )
-            expect(result.ok).toBe(true)
+            expect(result.ok).toBe(false)
+            if (!result.ok) {
+                expect(result.error).toBe('session_terminal')
+            }
+            expect((await approvals.get(request.id))?.state).toBe('expired')
 
-            const row = await queue.get(id)
-            expect(row?.state).toBe(state)
-            // The decided marker still lands for a live worker to drain; a
-            // cancelled session simply never wakes to read it.
-            expect(row?.pending_inputs).toHaveLength(1)
+            const row = await queue.get(ids.id)
+            expect(row?.state).toBe(terminal)
+            expect(row?.pending_inputs).toHaveLength(0)
             expect(await queue.claim(200)).toBeNull()
         }
     )

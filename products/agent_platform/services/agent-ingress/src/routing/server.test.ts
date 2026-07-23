@@ -266,7 +266,7 @@ describe('ingress HTTP server (path mode)', () => {
                 kind: 'posthog_bearer',
                 token: OWNER_TOKEN,
             })
-            await requeue(id, opts)
+            return await requeue(id, opts)
         })
 
         const send = await request(app)

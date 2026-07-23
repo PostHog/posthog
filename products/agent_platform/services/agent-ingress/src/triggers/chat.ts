@@ -22,7 +22,13 @@
 
 import { z } from 'zod'
 
-import { buildClientToolResultMarker, createLogger, TRIGGER_ROUTES, type SessionPrincipal } from '@posthog/agent-shared'
+import {
+    buildClientToolResultMarker,
+    createLogger,
+    isFinalSessionState,
+    TRIGGER_ROUTES,
+    type SessionPrincipal,
+} from '@posthog/agent-shared'
 
 const log = createLogger('chat-trigger')
 
@@ -254,7 +260,7 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
         return
     }
     // Cancel is idempotent: terminal sessions return ok without changing state.
-    if (existing.state === 'closed' || existing.state === 'failed' || existing.state === 'cancelled') {
+    if (isFinalSessionState(existing.state)) {
         res.json({ ok: true, idempotent: true, state: existing.state })
         return
     }

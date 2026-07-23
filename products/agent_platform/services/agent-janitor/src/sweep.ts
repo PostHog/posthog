@@ -99,6 +99,12 @@ export interface SweepResult {
     poisoned: number
     /** Idle completed sessions that aged out past `idleCompletedThresholdMs` and were closed. */
     closed: number
+    /**
+     * Idle-close candidates found holding an undrained input at write time and
+     * re-queued instead of closed (`closeIfIdle`'s rescue arm). A rising rate
+     * means appends are routinely landing without their wake.
+     */
+    requeued_idle_inputs: number
     /** Queued approval requests aged past `expires_at` that were terminated this sweep. */
     expired_approvals: number
     /** Sessions whose `idempotency_key` was nulled by the retention sweep. */
@@ -130,6 +136,7 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
     // closing each one. Rows whose agent says "longer please" are left
     // alone until the next sweep tick.
     let closed = 0
+    let requeuedIdleInputs = 0
     if (deps.listIdleCompletedCandidates) {
         const candidates = await deps.listIdleCompletedCandidates()
         for (const s of candidates) {
@@ -152,6 +159,8 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
                 const persisted = await deps.queue.closeIfIdle(s.id)
                 if (persisted === 'closed') {
                     closed++
+                } else if (persisted === 'queued') {
+                    requeuedIdleInputs++
                 }
             }
         }
@@ -239,6 +248,7 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
         requeued,
         poisoned,
         closed,
+        requeued_idle_inputs: requeuedIdleInputs,
         expired_approvals: expiredApprovals,
         cleared_idempotency_keys: clearedIdempotencyKeys,
         reaped_sandboxes: reapedSandboxes,

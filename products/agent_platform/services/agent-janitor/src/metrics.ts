@@ -41,10 +41,12 @@ export const sweepDuration = new Histogram({
 
 /**
  * Sessions / resources the sweep acted on, by action. `action` ∈ requeued |
- * poisoned | closed | expired_approvals | cleared_idempotency_keys |
- * reaped_sandboxes | sandbox_reap_failures. A rising `requeued` / `poisoned`
- * rate points back at runner instability (workers crashing mid-session);
- * `sandbox_reap_failures` points at the sandbox terminator.
+ * poisoned | closed | requeued_idle_inputs | expired_approvals |
+ * cleared_idempotency_keys | reaped_sandboxes | sandbox_reap_failures. A
+ * rising `requeued` / `poisoned` rate points back at runner instability
+ * (workers crashing mid-session); `requeued_idle_inputs` at wakes that
+ * routinely miss their append; `sandbox_reap_failures` at the sandbox
+ * terminator.
  */
 export const sweptTotal = new Counter({
     name: 'agent_janitor_swept_total',

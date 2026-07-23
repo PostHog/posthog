@@ -192,7 +192,10 @@ export class PgSessionQueue implements SessionQueue {
         await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
     }
 
-    async requeueForInput(sessionId: string, opts: { allowRestartFromClosed?: boolean } = {}): Promise<void> {
+    async requeueForInput(
+        sessionId: string,
+        opts: { allowRestartFromClosed?: boolean } = {}
+    ): Promise<AgentSession['state'] | null> {
         // Guarded wake. What the WHERE guarantees, precisely:
         //   - `running` is excluded (double-claim defense): the claim's FOR
         //     UPDATE lock is released at claim-commit, so flipping a running
@@ -216,16 +219,30 @@ export class PgSessionQueue implements SessionQueue {
         // re-queues a presumed-dead worker's session; if that worker is alive
         // and finalizes later, its finalizeRun can overwrite the rescued run's
         // state) is unaddressed and matches master.
+        // Returns the state actually persisted so callers can tell whether the
+        // wake landed ('queued'), a live worker keeps ownership ('running'),
+        // or the session is terminal and the wake was refused — null when the
+        // row is gone. The no-op read is a second query, but only on the
+        // guarded path; the wake itself stays one statement.
         const blocked = ['running', ...FINAL_SESSION_STATES].filter(
             (s) => !(opts.allowRestartFromClosed && s === 'closed')
         )
-        await this.pool.query(
+        const res = await this.pool.query<{ state: AgentSession['state'] }>(
             `UPDATE agent_session
              SET state = 'queued',
                  updated_at = NOW()
-             WHERE id = $1 AND NOT (state = ANY($2::text[]))`,
+             WHERE id = $1 AND NOT (state = ANY($2::text[]))
+             RETURNING state`,
             [sessionId, blocked]
         )
+        if (res.rows[0]) {
+            return res.rows[0].state
+        }
+        const sel = await this.pool.query<{ state: AgentSession['state'] }>(
+            `SELECT state FROM agent_session WHERE id = $1`,
+            [sessionId]
+        )
+        return sel.rows[0]?.state ?? null
     }
 
     async closeIfIdle(sessionId: string): Promise<AgentSession['state'] | null> {
@@ -264,17 +281,22 @@ export class PgSessionQueue implements SessionQueue {
         // Single-statement CAS on the end-of-run state write:
         //   - a concurrent re-queue ('queued') always wins over the worker's
         //     outcome — the session has new input and must be claimable;
-        //   - 'cancelled' keeps the documented reopen semantics (the runner
-        //     overwrites ingress's durable cancel with its outcome);
-        //   - completing with undrained pending_inputs re-queues instead, so
-        //     a /send that landed after the last drain wakes the session
-        //     rather than stranding on a 'completed' row;
+        //   - 'cancelled' honors ONLY the documented reopen (the runner
+        //     catches the cancel and finishes as 'completed'). Any other
+        //     outcome on a cancelled row leaves it cancelled — a
+        //     shutdown-suspend ('queued') that raced the cancel must not
+        //     resurrect the session into the claim pool, and a close/fail
+        //     must not overwrite the user's cancel;
+        //   - ANY write that would persist 'completed' (the direct outcome
+        //     and the cancel-reopen alike) re-queues instead when undrained
+        //     pending_inputs exist, so a /send that landed after the last
+        //     drain wakes the session rather than stranding;
         //   - everything else takes the worker's outcome verbatim.
         const res = await this.pool.query<{ state: AgentSession['state'] }>(
             `UPDATE agent_session
              SET state = CASE
                      WHEN state = 'queued' THEN state
-                     WHEN state = 'cancelled' THEN $2
+                     WHEN state = 'cancelled' AND $2 <> 'completed' THEN state
                      WHEN $2 = 'completed' AND jsonb_array_length(pending_inputs) > 0 THEN 'queued'
                      ELSE $2
                  END,
@@ -530,20 +552,25 @@ export class PgSessionQueue implements SessionQueue {
         revisionId: string
     ): Promise<AgentSession | null> {
         // The revision scope lives in SQL, not in JS post-filtering — the
-        // `ORDER BY updated_at DESC LIMIT 1` would otherwise return the most
-        // recent row regardless of revision, and a JS-side reject would strand
-        // any older same-revision row. Filtering in the WHERE clause guarantees
-        // the lookup never reaches a session on a different revision. See the
+        // `ORDER BY … LIMIT 1` would otherwise return the most recent row
+        // regardless of revision, and a JS-side reject would strand any older
+        // same-revision row. Filtering in the WHERE clause guarantees the
+        // lookup never reaches a session on a different revision. See the
         // interface docs.
+        //
+        // Live rows sort before terminal ones regardless of recency: inert
+        // pending_inputs appends (a raced /send against a cancel) still bump
+        // updated_at on terminal rows, so ordering by updated_at alone would
+        // let a dead session shadow the live one under the same key.
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
              FROM agent_session
              WHERE application_id = $1
                AND external_key = $2
                AND revision_id = $3
-             ORDER BY updated_at DESC
+             ORDER BY (state = ANY($4::text[])) ASC, updated_at DESC
              LIMIT 1`,
-            [applicationId, externalKey, revisionId]
+            [applicationId, externalKey, revisionId, FINAL_SESSION_STATES]
         )
         if (r.rowCount === 0) {
             return null

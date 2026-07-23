@@ -499,7 +499,15 @@ export function buildApp(opts: BuildAppOpts): Express {
                 }
             )
             if (!result.ok) {
-                const status = result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
+                // 410 mirrors chat /send's session_terminal contract.
+                const status =
+                    result.error === 'not_found'
+                        ? 404
+                        : result.error === 'edits_not_allowed'
+                          ? 422
+                          : result.error === 'session_terminal'
+                            ? 410
+                            : 409
                 res.status(status).json(
                     result.state ? { error: result.error, state: result.state } : { error: result.error }
                 )

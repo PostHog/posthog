@@ -204,6 +204,15 @@ export interface ApprovalStore {
     /** Final state after the platform ran the tool. */
     markDispatched(id: string, outcome: { result?: unknown; error?: string }): Promise<ApprovalRequest | null>
     markRejected(id: string, input: DecideApprovalInput): Promise<ApprovalRequest | null>
+    /**
+     * Atomically flip a single undecided (`queued`) or undispatched
+     * (`approving`) row to `expired`. Returns null when the row is already
+     * terminal or missing. Used by the decision path to fail closed when the
+     * row's session has terminated: expiring the row de-fangs any decided
+     * marker that raced into `pending_inputs`, because the runner drops
+     * markers whose row isn't `approving`.
+     */
+    markExpired(id: string): Promise<ApprovalRequest | null>
     /** Janitor sweep — flips `queued` rows past `expires_at` to `expired`. Returns rows that flipped. */
     expireQueued(now: string): Promise<ApprovalRequest[]>
     /** UI / inbox listings. team_id and application_id are denormalised for these. */

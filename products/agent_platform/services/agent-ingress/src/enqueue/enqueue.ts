@@ -32,6 +32,7 @@ import {
     AgentSession,
     ConversationMessage,
     EMPTY_USAGE_TOTAL,
+    isFinalSessionState,
     SessionPrincipal,
     SessionQueue,
     TriggerMetadata,
@@ -206,14 +207,14 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         // under a shared external_key), and two draft revisions previewed under
         // the same external_key stay isolated.
         const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, input.revision.id)
-        // Terminal states (`closed` / `cancelled` / `failed`) never resume —
-        // fall through and create a fresh session under the same key.
-        // `cancelled` is in the set so this path agrees with chat /send's
-        // "cancelled is always terminal" 410 (and with `requeueForInput`,
-        // which would refuse to wake it anyway — without this check the
-        // append would strand in pending_inputs on the cancelled row while
-        // the caller was told "resumed").
-        if (existing && existing.state !== 'closed' && existing.state !== 'failed' && existing.state !== 'cancelled') {
+        // Lifecycle-final states (FINAL_SESSION_STATES) never resume — fall
+        // through and create a fresh session under the same key. `cancelled`
+        // is in the set so this path agrees with chat /send's "cancelled is
+        // always terminal" 410 (and with `requeueForInput`, which would
+        // refuse to wake it anyway — without this check the append would
+        // strand in pending_inputs on the cancelled row while the caller was
+        // told "resumed").
+        if (existing && !isFinalSessionState(existing.state)) {
             const denied = await elevationIfDenied(deps, input, existing)
             if (denied) {
                 return denied
