@@ -1331,6 +1331,31 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         else:
             assert dashboard.id not in ids
 
+    def test_filter_queryset_by_access_level_on_team_less_instance_does_not_raise(self):
+        # An org-wide aggregation (e.g. the welcome endpoint) builds a team-less UserAccessControl.
+        # Resource-level access is team-scoped, so evaluating it used to dereference self._team.id and
+        # raise AttributeError on every call. Object-level blocking must still apply, so restricted
+        # dashboards stay excluded while accessible ones come through.
+        visible = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        blocked = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(blocked.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        uac = UserAccessControl(user=self.user, organization_id=str(self.organization.id))
+        filtered_ids = list(
+            uac.filter_queryset_by_access_level(
+                Dashboard.objects.filter(team_id__in=[self.team.id]),
+                include_all_if_admin=True,
+            ).values_list("id", flat=True)
+        )
+
+        assert visible.id in filtered_ids
+        assert blocked.id not in filtered_ids
+
     def test_get_user_access_level_with_specific_access_priority(self):
         """Test that get_user_access_level prioritizes specific access over resource access"""
         # Set resource-level access to "none"

@@ -1071,8 +1071,13 @@ class UserAccessControl:
 
         blocked_resource_ids, allowed_resource_ids = self._blocked_and_allowed_object_ids(access_controls)
 
+        # Resource-level access is team-scoped, so it can't be evaluated on a team-less instance
+        # (org-wide aggregation across many teams). Treat that as no resource access — fail closed,
+        # consistent with has_access_levels_for_resource. Object-level blocking below still applies.
+        has_resource_access = self._team is not None and self.has_resource_access(resource)
+
         # Apply filtering logic based on resource-level access
-        if not self.has_resource_access(resource) and allowed_resource_ids:
+        if not has_resource_access and allowed_resource_ids:
             # User has "none" resource access but specific object access
             # Only show objects they have explicit access to (plus created objects)
             if model_has_creator:
