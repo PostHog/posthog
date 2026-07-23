@@ -47,6 +47,11 @@ STALE_BLAME_MULTIPLIER = 0.15
 # Caps activity-only fallbacks below blame candidates: they only win when every blame author is stale.
 ACTIVITY_ONLY_SCORE_CAP = 0.25
 ACTIVITY_BONUS_SATURATION_COMMITS = 10
+# An area only implies ownership when a small set of people account for it. A source root like
+# `frontend/src` has dozens of unrelated committers, so being active there says nothing about
+# owning a given change. Above this many recent contributors we treat the area as a catch-all and
+# don't draw activity-only reviewers from it. Repo-agnostic: it's just a contributor count.
+MAX_AREA_CONTRIBUTORS_FOR_OWNERSHIP = 15
 GitHubLoginFieldLookup = Literal[
     "extra_data__login",
     "config__github_user__login",
@@ -280,6 +285,18 @@ class _AreaContributor:
     area: str  # the area of the evidence (freshest) commit, for evidence wording
 
 
+def _is_ownership_area(area: str, activity_by_area: dict[str, list[ContributorActivity]]) -> bool:
+    """Whether an active area is narrow enough that being active in it implies ownership.
+
+    Skips the repo-wide bucket and catch-all source roots — an area with too many distinct
+    recent committers is a scaffolding directory, not something a person can be said to own.
+    """
+    contributors = activity_by_area.get(area)
+    if not contributors or area == REPO_WIDE_AREA:
+        return False
+    return len(contributors) <= MAX_AREA_CONTRIBUTORS_FOR_OWNERSHIP
+
+
 def _relevant_area_activity(
     team_id: int,
     repository: str,
@@ -289,9 +306,11 @@ def _relevant_area_activity(
 
     Cache-only; a missing or stale map schedules an async rebuild and this report falls
     back to whatever is cached (possibly nothing). An area with no active contributors
-    falls back up its chain (parent directory, then repo-wide) — someone active nearby
-    beats nobody. Returns an empty dict when nothing is known — callers must treat that
-    as "no signal", not "nobody is active".
+    falls back up its chain to its parent directory. Catch-all levels are skipped: the
+    repo-wide bucket, and any area with more than ``MAX_AREA_CONTRIBUTORS_FOR_OWNERSHIP``
+    recent contributors (a source root, not an ownership signal). When no narrow-enough
+    area is active, returns an empty dict — callers must treat that as "no signal", which
+    leaves reviewer resolution on blame alone.
     """
     areas = areas_for_paths(touched_paths)
     if not areas:
@@ -306,7 +325,7 @@ def _relevant_area_activity(
     merged: dict[str, _AreaContributor] = {}
     used_levels: set[str] = set()
     for chain in chains:
-        level = next((area for area in chain if activity_by_area.get(area)), None)
+        level = next((area for area in chain if _is_ownership_area(area, activity_by_area)), None)
         if level is None or level in used_levels:
             continue
         used_levels.add(level)
