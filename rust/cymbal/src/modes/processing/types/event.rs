@@ -165,7 +165,10 @@ mod test {
         let exc_props = ExceptionEvent::<Parsed>::try_from(any_event).unwrap();
 
         let name = exc_props.proposed_issue_name().unwrap();
-        assert_eq!(name, format!("{}...", "N".repeat(MAX_ISSUE_NAME_LENGTH - 3)));
+        assert_eq!(
+            name,
+            format!("{}...", "N".repeat(MAX_ISSUE_NAME_LENGTH - 3))
+        );
         assert!(name.len() <= MAX_ISSUE_NAME_LENGTH);
     }
 }
