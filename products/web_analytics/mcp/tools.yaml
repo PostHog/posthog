@@ -180,6 +180,15 @@ tools:
     web-analytics-filter-presets-update:
         operation: web_analytics_filter_presets_update
         enabled: false
+    web-analytics-path-cleaning-suggestions-apply:
+        operation: web_analytics_path_cleaning_suggestions_apply
+        enabled: false
+    web-analytics-path-cleaning-suggestions-generate:
+        operation: web_analytics_path_cleaning_suggestions_generate
+        enabled: false
+    web-analytics-path-cleaning-suggestions-preview:
+        operation: web_analytics_path_cleaning_suggestions_preview
+        enabled: false
     web-analytics-recap:
         operation: web_analytics_recap
         enabled: false
