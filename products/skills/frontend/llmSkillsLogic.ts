@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 
+import { usersGithubLoginRetrieve } from '~/generated/core/api'
 import api, { ApiConfig } from '~/lib/api'
 import { downloadBlob } from '~/lib/components/ExportButton/exporter'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
@@ -21,6 +22,7 @@ import {
     llmSkillsMarketplaceInstallCommandRetrieve,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
+    llmSkillsNamePublishCommunityCreate,
 } from 'products/skills/frontend/generated/api'
 import type {
     LLMSkillListApi,
@@ -396,6 +398,12 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
+        publishToCommunity: (
+            skillName: string,
+            options: { display_name?: string; tags?: string[]; author_handle?: string }
+        ) => ({ skillName, options }),
+        publishToCommunitySuccess: (skillName: string) => ({ skillName }),
+        publishToCommunityFailure: (skillName: string) => ({ skillName }),
         importSkill: (file: File) => ({ file }),
         setImporting: (importing: boolean) => ({ importing }),
         downloadSkillZip: (skillName: string) => ({ skillName }),
@@ -424,6 +432,15 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        // Per-skill publish-in-flight state so the trigger can guard against double-submission.
+        publishingSkills: [
+            {} as Record<string, boolean>,
+            {
+                publishToCommunity: (state, { skillName }) => ({ ...state, [skillName]: true }),
+                publishToCommunitySuccess: (state, { skillName }) => ({ ...state, [skillName]: false }),
+                publishToCommunityFailure: (state, { skillName }) => ({ ...state, [skillName]: false }),
             },
         ],
         importing: [
@@ -524,6 +541,20 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         })
                     )
                     return Object.fromEntries(entries)
+                },
+            },
+        ],
+        // Resolved GitHub handle for the current user — used to prefill the publish dialog's
+        // author_handle so the common case (GitHub-SSO'd users) is correct by default. Null when
+        // no GitHub identity is linked; the dialog field then falls back to free text.
+        githubLogin: [
+            null as string | null,
+            {
+                loadGithubLogin: async () => {
+                    // `@me` resolves to the current user server-side, so this doesn't race userLogic
+                    // loading the user object first.
+                    const response = await usersGithubLoginRetrieve('@me')
+                    return response.github_login ?? null
                 },
             },
         ],
@@ -668,6 +699,36 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             }
         },
 
+        publishToCommunity: async ({ skillName, options }) => {
+            try {
+                const result = await llmSkillsNamePublishCommunityCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    skillName,
+                    {
+                        display_name: options.display_name,
+                        tags: options.tags,
+                        author_handle: options.author_handle,
+                    }
+                )
+                lemonToast.success(
+                    `Opened a community pull request for "${skillName}" — a maintainer will review it.`,
+                    {
+                        button: { label: 'View PR', action: () => window.open(result.pr_url, '_blank', 'noopener') },
+                    }
+                )
+                actions.publishToCommunitySuccess(skillName)
+            } catch (e: any) {
+                console.error('Failed to publish skill to community', e)
+                const detail = e?.data?.detail || e?.detail
+                lemonToast.error(
+                    e?.status === 503
+                        ? 'Publishing to the community is not available on this instance yet.'
+                        : detail || 'Failed to publish skill to the community'
+                )
+                actions.publishToCommunityFailure(skillName)
+            }
+        },
+
         importSkill: async ({ file }) => {
             actions.setImporting(true)
             try {
@@ -785,5 +846,6 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
     afterMount(({ actions }) => {
         actions.loadSkills()
         actions.loadCategoryCounts()
+        actions.loadGithubLogin()
     }),
 ])
