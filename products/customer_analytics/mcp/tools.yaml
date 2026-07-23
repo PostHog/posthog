@@ -467,30 +467,129 @@ tools:
     custom-property-definitions-values-retrieve:
         operation: custom_property_definitions_values_retrieve
         enabled: false
-    custom-property-sources-backfill-create:
-        operation: custom_property_sources_backfill_create
-        enabled: false
+    custom-property-sources-backfill:
+        operation: custom_property_sources_backfill
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Backfill a warehouse person-property source
+        description: >
+            Person-property sources only: start a backfill that reads the whole warehouse table and populates person
+            properties for its historical rows. Backfill is per table — one call refreshes every enabled person property
+            mapped from that table — and it coalesces if one is already running for the table (the response's
+            `already_running` is then true). Returns 400 for a source that is not an enabled person-property source.
+        feature_flag: warehouse-person-properties
     custom-property-sources-create:
         operation: custom_property_sources_create
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create custom property source
+        description: >
+            Bind a custom property definition to a data source. Account sources read a materialized view (`saved_query`
+            + `source_column`); person sources read a synced warehouse table (`external_data_schema` +
+            `column_property_map` mapping warehouse columns to person properties, plus `key_column` = the person's
+            distinct_id column). One source per definition.
+        feature_flag: customer-analytics-csp
     custom-property-sources-destroy:
         operation: custom_property_sources_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete custom property source
+        description: >
+            Delete a custom property source by id, stopping its sync. Values already written stay on the accounts/people
+            but stop updating. The definition itself is not deleted.
+        feature_flag: customer-analytics-csp
     custom-property-sources-list:
         operation: custom_property_sources_list
-        enabled: false
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List custom property sources
+        description: >
+            List custom property sources for the project, newest first. Each source binds a definition to a data source
+            and reports its sync status (`last_synced_at`, `last_sync_error`) and, for person sources, the schedule
+            (`next_sync_at`, `sync_frequency_interval_seconds`) and the most recent run (`latest_run`).
+        feature_flag: customer-analytics-csp
     custom-property-sources-partial-update:
         operation: custom_property_sources_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update custom property source
+        description: >
+            Update the editable fields of a custom property source (`key_column`, `is_enabled`). Re-enabling a disabled
+            source resets its failure count. The definition binding, warehouse schema, and column map are create-only
+            and cannot be changed here.
+        feature_flag: customer-analytics-csp
     custom-property-sources-retrieve:
         operation: custom_property_sources_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get custom property source
+        description: >
+            Fetch a single custom property source by id, including its binding, sync status, and (for person sources)
+            schedule and latest run.
+        feature_flag: customer-analytics-csp
     custom-property-sources-runs-list:
         operation: custom_property_sources_runs_list
-        enabled: false
-    custom-property-sources-sync-create:
-        operation: custom_property_sources_sync_create
-        enabled: false
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List person-property source runs
+        description: >
+            Person-property sources only: the source's sync/backfill run history, newest first. Each run reports
+            `trigger` (scheduled/manual/backfill), `status` (running/completed/failed), the funnel counts (`rows_read`,
+            `changed`, `existing` = person profiles affected, `produced`, `skipped_missing_person`), `error`, and
+            timestamps.
+        feature_flag: warehouse-person-properties
+    custom-property-sources-sync:
+        operation: custom_property_sources_sync
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Sync a warehouse person-property source now
+        description: >
+            Person-property sources only: trigger the underlying warehouse schema's sync now. This re-runs a real
+            (billable) warehouse sync, and the incremental person-property update rides off it. It does not reset the
+            schema's recurring sync schedule. Returns 400 for a source that is not an enabled person-property source.
+        feature_flag: warehouse-person-properties
     custom-property-sources-update:
         operation: custom_property_sources_update
         enabled: false

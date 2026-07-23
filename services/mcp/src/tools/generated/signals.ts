@@ -221,6 +221,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                scout: params.scout,
                 search: params.search,
                 source_product: params.source_product,
                 status: params.status,
@@ -512,6 +513,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
         }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
+        }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
@@ -592,6 +596,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
+        }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -993,6 +1000,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
         }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
+        }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
@@ -1082,6 +1092,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
+        }
+        if (params.output_destinations !== undefined) {
+            body['output_destinations'] = params.output_destinations
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
