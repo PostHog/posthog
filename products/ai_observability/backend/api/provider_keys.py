@@ -434,6 +434,12 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             except LLMProviderKey.DoesNotExist:
                 return Response({"detail": "Replacement key not found"}, status=status.HTTP_400_BAD_REQUEST)
 
+            if replacement_key.id == instance.id:
+                return Response(
+                    {"detail": "Replacement key cannot be the key being deleted"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             if replacement_key.provider != instance.provider:
                 return Response(
                     {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
@@ -448,6 +454,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 LLMModelConfiguration.objects.filter(id__in=model_config_ids, team_id=self.team_id).update(
                     provider_key=replacement_key
                 )
+
+                # The deleted key may also be the team's active key — the fallback that keyless
+                # evals resolve through. Honor the user's replacement choice instead of letting
+                # the SET_NULL cascade strand them.
+                config = EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).first()
+                if config:
+                    config.active_provider_key = replacement_key
+                    config.save(update_fields=["active_provider_key", "updated_at"])
+
                 _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
                 return super().destroy(request, *args, **kwargs)
         else:
