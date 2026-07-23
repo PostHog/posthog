@@ -521,6 +521,7 @@ def create_posthog_code_task_for_repo_activity(
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.providers import ConversationRef, SlackChatProvider
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import execute_task_processing_workflow
@@ -531,6 +532,8 @@ def create_posthog_code_task_for_repo_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
+    provider = SlackChatProvider(integration)
+    conversation = ConversationRef(channel_id=channel, thread_id=thread_ts)
 
     # Idempotency guard: this activity runs under a retry policy but its body is
     # not idempotent — a retry after the mapping write would create a duplicate
@@ -566,7 +569,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        safe_react(slack.client, channel, user_message_ts, "eyes")
+        provider.add_reaction(conversation, user_message_ts, "eyes")
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
@@ -665,10 +668,9 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
         )
         try:
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
+            provider.post_message(
+                conversation,
+                "Sorry, I ran into an internal error creating the task. Please try again in a minute.",
             )
         except Exception:
             logger.warning("posthog_code_error_notification_failed", channel=channel, thread_ts=thread_ts)

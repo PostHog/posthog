@@ -18,7 +18,6 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
-from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
@@ -66,6 +65,7 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.providers import ChatProviderError, SlackChatProvider
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
@@ -98,9 +98,8 @@ from products.slack_app.backend.services.slack_app_home import (
 )
 from products.slack_app.backend.services.slack_user_info import (
     get_cached_bot_user_id,
-    get_slack_user_info,
+    get_slack_email_for_user,
     normalize_slack_response,
-    persist_slack_user_info,
 )
 from products.slack_app.backend.services.slack_user_oauth import (
     build_invite_url,
@@ -1186,78 +1185,6 @@ def _notify_missing_slack_scopes(
     )
 
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
-
-
-def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
-    """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
-    a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
-    user (profile email hidden) or the lookup fails.
-
-    Every termination path emits a distinct structured log so a silent ``None`` can
-    still be diagnosed from logs alone — historically the failure modes collapsed
-    onto a downstream ``user_not_found`` warning that hid the actual cause.
-
-    Auth-class ``SlackApiError`` outcomes flip the shared ``slack_auth`` cache to
-    ``ok=false`` so the resolver demotes this install on subsequent mentions
-    rather than pinning every one to a dead token. The success path deliberately
-    does NOT write ``ok=true``: the cache lives in the resolver's ``auth.test``
-    layer, and a DB-cache hit (``SlackUserProfileCache``) proves nothing about
-    the live token. Letting the resolver own the positive verdict keeps the
-    cache truthful.
-    """
-    from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES, write_auth_state_broken
-
-    slack_client = SlackIntegration(probe_integration)
-    try:
-        user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
-        slack_email = user_info.get("user", {}).get("profile", {}).get("email")
-        if slack_email:
-            return slack_email
-
-        fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
-        if not fresh:
-            logger.warning(
-                "slack_app_resolve_user_email_empty_response",
-                integration_id=probe_integration.id,
-                slack_user_id=slack_user_id,
-            )
-            return None
-
-        persist_slack_user_info(probe_integration, slack_user_id, fresh)
-        slack_email = fresh.get("user", {}).get("profile", {}).get("email")
-        if not slack_email:
-            logger.warning(
-                "slack_app_resolve_user_email_missing_in_profile",
-                integration_id=probe_integration.id,
-                slack_user_id=slack_user_id,
-                ok=fresh.get("ok"),
-            )
-            return None
-        return slack_email
-    except SlackApiError as exc:
-        error_code = exc.response.get("error") if exc.response else None
-        token_broken = isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES
-        if token_broken and isinstance(error_code, str):
-            write_auth_state_broken(probe_integration.id, error_code)
-        logger.warning(
-            "slack_app_resolve_user_email_failed",
-            integration_id=probe_integration.id,
-            slack_user_id=slack_user_id,
-            error_code=error_code,
-            token_broken=token_broken,
-            exc_info=True,
-        )
-        return None
-    except Exception:
-        logger.warning(
-            "slack_app_resolve_user_email_failed",
-            integration_id=probe_integration.id,
-            slack_user_id=slack_user_id,
-            error_code=None,
-            token_broken=False,
-            exc_info=True,
-        )
-        return None
 
 
 def resolve_posthog_user_from_event(
@@ -2488,9 +2415,8 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        slack_config = SlackIntegration.slack_config()
-        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
-    except SlackIntegrationError as e:
+        SlackChatProvider.validate_webhook(request)
+    except (ChatProviderError, SlackIntegrationError) as e:
         logger.warning("slack_app_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
