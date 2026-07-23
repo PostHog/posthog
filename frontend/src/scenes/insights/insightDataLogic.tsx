@@ -87,7 +87,7 @@ import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
-import { compareQuery } from './utils/queryUtils'
+import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
 export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
     sceneLogic.values.activeSceneId === Scene.Insight &&
@@ -818,8 +818,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
             }
 
+            // a draft that only differs from the type's default in cosmetic ways (or that the
+            // editor marks as changed by construction) is noise when resurfaced as "unsaved insight"
+            if (!isDraftQueryWorthSaving(query, values.filterTestAccountsDefault)) {
+                return
+            }
+
             if (isQueryTooLarge(query)) {
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                return
             }
 
             localStorage.setItem(
