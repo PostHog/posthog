@@ -180,6 +180,31 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "conversion rate",
         ]
 
+    @parameterized.expand([("without_conversion_goal", False), ("with_conversion_goal", True)])
+    @patch("products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query")
+    def test_empty_hogql_results_do_not_crash(self, _name: str, with_conversion_goal: bool, mock_execute: MagicMock):
+        # The live events query can legitimately return zero rows; that used to hit a bare
+        # `assert response.results` and surface as a 5xx. It should return an empty overview instead.
+        mock_execute.return_value = MagicMock(results=[])
+
+        action = None
+        if with_conversion_goal:
+            action = Action.objects.create(
+                team=self.team,
+                name="Visited Foo",
+                steps_json=[{"event": "$pageview"}],
+            )
+
+        response = self._run_web_overview_query("2023-12-08", "2023-12-15", action=action)
+
+        assert all(item.value is None and item.previous is None for item in response.results)
+        expected_keys = (
+            ["visitors", "total conversions", "unique conversions", "conversion rate"]
+            if with_conversion_goal
+            else ["visitors", "views", "sessions", "session duration", "bounce rate"]
+        )
+        assert [item.key for item in response.results] == expected_keys
+
     def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
