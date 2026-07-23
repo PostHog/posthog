@@ -55,7 +55,9 @@ function ActionOverview({
                             ? 'Checked every few minutes; each alert covers the new matches since the last check'
                             : 'Checked about every hour; notifies when the threshold starts being crossed'
                         : scheduleLabel
-                          ? `Runs ${scheduleLabel.toLowerCase()}`
+                          ? // Lowercase only the leading "Daily"/"Weekly" so it reads as a sentence;
+                            // keep weekday names and the timezone acronym (e.g. PDT) in their own case.
+                            `Runs ${scheduleLabel.charAt(0).toLowerCase()}${scheduleLabel.slice(1)}`
                           : undefined
                 }
                 resourceType={{ type: 'replay_vision' }}
@@ -91,7 +93,7 @@ function ActionOverview({
 function VisionActionDetail(): JSX.Element {
     const { action, actionLoading } = useValues(visionActionRunsLogic)
     const rrule = action?.trigger_config?.rrule
-    const schedule = rrule ? humanizeCadence(parseRruleToCadence(rrule)) : null
+    const schedule = rrule ? humanizeCadence(parseRruleToCadence(rrule), action?.trigger_config?.timezone) : null
 
     return (
         <SceneContent>

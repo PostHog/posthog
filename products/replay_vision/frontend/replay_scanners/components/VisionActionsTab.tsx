@@ -42,7 +42,7 @@ function humanizeSchedule(action: VisionActionApi): string {
     if (freq !== 'DAILY' && freq !== 'WEEKLY') {
         return rrule
     }
-    return humanizeCadence(parseRruleToCadence(rrule))
+    return humanizeCadence(parseRruleToCadence(rrule), action.trigger_config?.timezone)
 }
 
 // Every write control on this tab needs replay_scanner editor access; all but delete also need
