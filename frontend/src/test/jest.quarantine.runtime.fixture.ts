@@ -30,6 +30,10 @@ describe('jest quarantine runtime fixture', () => {
         throw new Error('quarantined async failure')
     })
 
+    test.each([1])('tolerates each row %s', () => {
+        throw new Error('quarantined each row failure')
+    })
+
     test('tolerates beforeEach failure', () => {
         expect(true).toBe(true)
     })

@@ -448,11 +448,13 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
 export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
+export type TestRunner = NonNullable<QuarantineRequestApi['runner']>
 
 export interface FlakyTestRow {
-    /** Reconstructed pytest nodeid (the CI span name): a stable grouping/display key. */
+    runner: TestRunner
+    /** Runner-specific test identity (the CI span name): a stable grouping/display key. */
     nodeid: string
-    /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
+    /** Runnable selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
     classification: FlakyTestClassification
     /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
@@ -533,6 +535,7 @@ export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 export interface QuarantineSubmitInput {
     action: QuarantineRequestAction
     selector: string
+    runner: TestRunner
     reason: string
     owner: string
     /** Existing tracking issue, carried forward on extend/remove. */
@@ -546,6 +549,7 @@ export interface QuarantineSubmitInput {
 export interface QuarantineModalState {
     action: 'quarantine' | 'extend'
     selector: string
+    runner: TestRunner
     reason: string
     owner: string
     issue: string
@@ -588,6 +592,7 @@ function toRequestBody(input: QuarantineSubmitInput, repo: string | null): Quara
         // Wire field is 'operation' (a bare 'action' enum collides in the OpenAPI spec).
         operation: input.action,
         selector: input.selector,
+        runner: input.runner,
         // The repo being viewed, so the PR lands there. Null in local dev.
         repo,
         reason: input.reason,
@@ -1180,6 +1185,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         return {
                             rows: data.items.map(
                                 (it): FlakyTestRow => ({
+                                    runner: it.runner,
                                     nodeid: it.nodeid,
                                     selector: it.selector,
                                     classification: it.classification,

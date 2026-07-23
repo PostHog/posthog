@@ -95,6 +95,7 @@ export function QuarantineTestModal({
         onSubmit({
             action: modal.action,
             selector: selector.trim(),
+            runner: modal.runner,
             reason,
             owner: owner.trim(),
             issue: modal.issue,

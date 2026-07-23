@@ -906,6 +906,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'extend',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: 'https://github.com/PostHog/posthog/issues/7',
@@ -925,7 +926,8 @@ describe('engineeringAnalyticsLogic', () => {
 
         logic.actions.openQuarantineModal({
             action: 'quarantine',
-            selector: 'a/b.py::T::t',
+            selector: 'frontend/src/a.test.ts::renders',
+            runner: 'jest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -934,7 +936,8 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.submitQuarantine({
             input: {
                 action: 'quarantine',
-                selector: 'a/b.py::T::t',
+                selector: 'frontend/src/a.test.ts::renders',
+                runner: 'jest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',
@@ -948,7 +951,7 @@ describe('engineeringAnalyticsLogic', () => {
         // The viewed repo is threaded into the write so the PR targets it.
         expect(mockQuarantineRequest).toHaveBeenCalledWith(
             '1',
-            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog' })
+            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog', runner: 'jest' })
         )
         expect(logic.values.quarantineModal).toBeNull()
         expect(logic.values.quarantineSubmitLoading).toBe(false)
@@ -963,6 +966,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'quarantine',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -972,6 +976,7 @@ describe('engineeringAnalyticsLogic', () => {
             input: {
                 action: 'quarantine',
                 selector: 'a/b.py::T::t',
+                runner: 'pytest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',

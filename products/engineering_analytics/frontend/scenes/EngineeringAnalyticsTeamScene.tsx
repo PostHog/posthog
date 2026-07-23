@@ -148,7 +148,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     size="small"
                     columns={testColumns}
                     dataSource={activity?.tests ?? []}
-                    rowKey={(row) => row.nodeid}
+                    rowKey={(row) => `${row.runner}:${row.nodeid}`}
                     loading={activityLoading}
                     pagination={{ pageSize: 25 }}
                     useURLForSorting={false}

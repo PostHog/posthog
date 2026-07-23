@@ -147,6 +147,17 @@ class QuarantineMode(StrEnum):
     SKIP = "skip"
 
 
+class CITestRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+
+
+class QuarantineRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+    PLAYWRIGHT = "playwright"
+
+
 class QuarantineLifecycle(StrEnum):
     """Where an entry sits relative to its expiry: ``active`` (more than 7 days
     left), ``expiring_soon`` (7 days or fewer left), ``in_grace`` (expired up to
@@ -518,8 +529,8 @@ class CIFailureLogs:
 # The one caveat that governs every flaky figure, defined once here (the canonical-types home)
 # so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
 FLAKY_TEST_SIGNAL_CAVEAT = (
-    "Counts are absolute, never rates: CI emits a span for every failure but only for passes slow "
-    "enough to clear the emitter's duration threshold, so there is no execution denominator. "
+    "Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, "
+    "so there is no execution denominator. "
     "'suspected_regression' means no recovery was recorded in this data, not that the test never flakes."
 )
 
@@ -549,16 +560,16 @@ class FlakyTestItem:
     """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
 
     Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only
-    sees Backend CI. Evidence is counted per CI run, never per span or run attempt: one run fans a
-    test across matrix legs and re-run attempts re-test the same commit, so only the run grain
-    counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute
-    count.
+    sees the main pytest and Jest CI suites. Evidence is counted per CI run, never per span or run
+    attempt: one run fans a test across matrix legs and re-run attempts re-test the same commit, so
+    only the run grain counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure
+    is an absolute count.
     """
 
-    # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
+    runner: CITestRunner
+    # Stable test identity (the span name), runner-specific and not necessarily runnable.
     nodeid: str
-    # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
-    # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
+    # Runnable selector. Exact when the CI reporter stamped it; best-effort for older pytest spans.
     selector: str
     classification: FlakyTestClassification
     # Runs where one commit both failed and passed the test: a later run attempt going green, or an
@@ -637,6 +648,7 @@ class TeamTestSignal:
     pass-on-retry spans (xfail excluded: already-quarantined noise).
     """
 
+    runner: CITestRunner
     nodeid: str
     selector: str
     signal_count: int
@@ -857,6 +869,7 @@ class QuarantineRequest:
     # serializers' 'action' enums in the OpenAPI spec and churns their generated types.
     operation: QuarantineRequestAction
     selector: str
+    runner: QuarantineRunner = QuarantineRunner.PYTEST
     repo: str | None = None
     reason: str = ""
     owner: str = ""

@@ -40,6 +40,7 @@ import {
     QuarantineLifecycle,
     QuarantineLifecycleFilter,
     QuarantineModeFilter,
+    TestRunner,
     engineeringAnalyticsLogic,
     flakyEvidenceReason,
 } from './engineeringAnalyticsLogic'
@@ -85,7 +86,7 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
         )
     }
     return (
-        <Tooltip title="Runs as xfail: the test still executes but cannot fail the suite.">
+        <Tooltip title="Runs: the test still executes but cannot fail the suite.">
             <LemonTag type="muted">Runs, can't fail</LemonTag>
         </Tooltip>
     )
@@ -445,6 +446,7 @@ function ActiveTestHealthQueue(): JSX.Element {
                             openQuarantineModal({
                                 action: 'quarantine',
                                 selector: row.selector,
+                                runner: row.runner,
                                 // The evidence is the reason; the cause is the tracking issue's job to find.
                                 reason: flakyEvidenceReason(row, flakyTestWindow),
                                 owner: '',
@@ -565,12 +567,21 @@ function QuarantineRegister(): JSX.Element {
     } = useActions(engineeringAnalyticsLogic)
 
     const openNewQuarantine = (): void =>
-        openQuarantineModal({ action: 'quarantine', selector: '', reason: '', owner: '', issue: '', mode: 'run' })
+        openQuarantineModal({
+            action: 'quarantine',
+            selector: '',
+            runner: 'pytest',
+            reason: '',
+            owner: '',
+            issue: '',
+            mode: 'run',
+        })
 
     const openExtend = (row: QuarantineEntryRow): void =>
         openQuarantineModal({
             action: 'extend',
             selector: row.id,
+            runner: row.runner as TestRunner,
             reason: row.reason,
             owner: row.owner,
             issue: row.issue,
@@ -589,6 +600,7 @@ function QuarantineRegister(): JSX.Element {
                         input: {
                             action: 'remove',
                             selector: row.id,
+                            runner: row.runner as TestRunner,
                             reason: '',
                             owner: '',
                             issue: row.issue,

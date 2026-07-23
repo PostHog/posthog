@@ -22,6 +22,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CITestRunner,
     FlakyTestClassification,
     FlakyTestItem,
     FlakyTestList,
@@ -35,6 +36,7 @@ from products.engineering_analytics.backend.logic.queries._test_spans import (
 
 _SELECT = """
     SELECT
+        runner,
         nodeid,
         anyIf(selector, selector != '') AS selector,
         countIf(recovered_in_run) AS same_commit_recovery_run_count,
@@ -44,7 +46,7 @@ _SELECT = """
         countIf(quarantined_in_run) AS quarantined_failed_run_count,
         max(run_signal_at) AS last_signal_at
     FROM (__RUN_EVIDENCE__)
-    GROUP BY nodeid
+    GROUP BY runner, nodeid
     HAVING same_commit_recovery_run_count > 0
         OR quarantined_failed_run_count > 0
         OR master_failed_run_count > 0
@@ -90,6 +92,7 @@ def query_flaky_tests(
     return FlakyTestList(
         items=[
             FlakyTestItem(
+                runner=CITestRunner(runner),
                 nodeid=nodeid,
                 # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
                 selector=selector or selector_from_nodeid(nodeid),
@@ -105,6 +108,7 @@ def query_flaky_tests(
                 last_signal_at=last_signal_at,
             )
             for (
+                runner,
                 nodeid,
                 selector,
                 same_commit_recovery_run_count,

@@ -19,8 +19,9 @@
  * untouched and the run proceeds normally.
  *
  * Granularity note: `describe.each` block titles and `it.each` row titles are
- * resolved by jest after this wrapper runs, so those are matched at file /
- * directory / `product:` scope only, not by exact test name.
+ * resolved by jest after collection. Exact row selectors support `mode: "run"`
+ * through the runtime test name; `mode: "skip"` still requires file, directory,
+ * or `product:` scope because jest decides skips during collection.
  */
 
 import * as fs from 'fs'
@@ -395,21 +396,31 @@ function copyMembers(target: object, source: object): void {
 type EachFactory = (name: string, fn: (...args: unknown[]) => unknown, timeout?: number) => void
 type EachEntry = (...args: unknown[]) => EachFactory
 
-/** File-scope `.each`: skip or tolerate the whole table (row titles aren't known here). */
+function tolerateEachWhen(
+    fn: (...args: unknown[]) => unknown,
+    getDecision: () => Decision | null
+): (...args: unknown[]) => unknown {
+    return function (this: unknown, ...args: unknown[]): unknown {
+        const decision = getDecision()
+        if (decision === null || decision.mode !== 'run') {
+            return fn.apply(this, args)
+        }
+        return tolerate(fn, decision).apply(this, args)
+    }
+}
+
+/** `.each`: collection-time file scopes can skip; runtime row identities can tolerate failures. */
 function wrapEach(base: jest.It, skipBase: jest.It): jest.Each {
     const wrapped = (...eachArgs: unknown[]): EachFactory => {
         const factory = (base.each as unknown as EachEntry)(...eachArgs)
         const decision = decideForFile()
-        if (decision === null) {
-            return factory
-        }
-        if (decision.mode === 'skip') {
+        if (decision?.mode === 'skip') {
             warnSkip(decision)
             return (skipBase.each as unknown as EachEntry)(...eachArgs)
         }
-        return (name: string, fn: (...args: unknown[]) => unknown, timeout?: number): void => {
-            factory(name, tolerate(fn, decision), timeout)
-        }
+        const getDecision = decision === null ? decideForRunningTest : () => decision
+        return (name: string, fn: (...args: unknown[]) => unknown, timeout?: number): void =>
+            factory(name, tolerateEachWhen(fn, getDecision), timeout)
     }
     return wrapped as unknown as jest.Each
 }

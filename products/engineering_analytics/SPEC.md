@@ -46,7 +46,7 @@ graph TB
     subgraph Storage
         WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
-        TRACES[("Traces: per-test CI spans<br/>from Backend CI")]
+        TRACES[("Traces: per-test CI spans<br/>from Backend and Frontend CI")]
     end
 
     JL["Temporal job-logs pipeline"] --> LOGS
@@ -150,7 +150,7 @@ Warehouse tables (GitHub source):
 Other products read as sources:
 
 - Logs: the thinned CI failure lines this product's job-logs pipeline emits (`service.name = github-ci-logs`), keyed by `run_id`.
-- Traces: per-test CI spans emitted by Backend CI (`trace_spans`), behind flaky tests and team CI health.
+- Traces: per-test CI spans emitted by the main Backend pytest and Frontend Jest suites (`trace_spans`), behind flaky tests and team CI health. Jest covers both legacy `frontend/` tests and isolated product frontends through the shared root config; package-specific Jest and Vitest jobs are outside this signal.
 
 **Freshness caveat:** a run's `conclusion` settles via the `workflow_run` webhook, which can lag or miss deliveries; the read layer surfaces `status` honestly rather than implying a settled conclusion.
 

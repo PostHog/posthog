@@ -428,7 +428,7 @@ def _open_quarantine_pr(
         new_entry = _canonical_entry(
             {
                 "id": selector,
-                "runner": _DEFAULT_RUNNER,
+                "runner": request.runner.value,
                 "reason": request.reason.strip(),
                 "owner": request.owner.strip(),
                 "issue": issue_url,

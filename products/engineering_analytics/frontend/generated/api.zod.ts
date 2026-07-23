@@ -32,6 +32,13 @@ export const EngineeringAnalyticsQuarantineRequestBody = /* @__PURE__ */ zod.obj
         .describe(
             "Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'."
         ),
+    runner: zod
+        .enum(['pytest', 'jest', 'playwright'])
+        .describe('\* `pytest` - PYTEST\n\* `jest` - JEST\n\* `playwright` - PLAYWRIGHT')
+        .optional()
+        .describe(
+            "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Defaults to 'pytest'.\n\n\* `pytest` - PYTEST\n\* `jest` - JEST\n\* `playwright` - PLAYWRIGHT"
+        ),
     repo: zod
         .string()
         .nullish()

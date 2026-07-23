@@ -19,15 +19,14 @@ class FlakyTestItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = FlakyTestItem
         extra_kwargs = {
+            "runner": {"help_text": "Test runner that emitted this signal: 'pytest' or 'jest'."},
             "nodeid": {
-                "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
-                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
-                "selector — use `selector` to run or quarantine the test.",
+                "help_text": "Runner-specific stable test identity (the CI span name). This is a grouping key, "
+                "not necessarily runnable; use `selector` to run or quarantine the test.",
             },
             "selector": {
-                "help_text": "Runnable pytest selector, e.g. "
-                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
-                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
+                "help_text": "Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older "
+                "pytest spans use a best-effort reconstruction from the nodeid.",
             },
             "classification": {
                 "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
@@ -217,6 +216,11 @@ class QuarantineRequestSerializer(DataclassSerializer):
             "selector": {
                 "help_text": "Test selector to act on: an exact test id, a file, a directory, a class prefix, or "
                 "'product:<dashed-name>'.",
+            },
+            "runner": {
+                "help_text": "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Defaults to "
+                "'pytest'.",
+                "required": False,
             },
             "repo": {
                 "help_text": "Optional 'owner/name' repository override; defaults to the team's most active repo.",

@@ -45,8 +45,8 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
   `suspected_regression` means only failures were recorded, which is absence of proof, not proof of a real break.
   A test qualifies on any same-commit recovery, an xfail, any master/main failure, or failures on ≥
   `min_failed_prs` distinct PRs (`failed_pr_count`). Answers "what is this failing test costing us" and picks
-  quarantine candidates. **It does not answer "which tests are flaky"**: this queue only sees Backend CI, and
-  recovery proof only arrives when someone re-runs failed jobs (or a test is hand-marked
+  quarantine candidates. **It does not answer "which tests are flaky"**: this queue only sees the main Backend pytest
+  and Frontend Jest suites, and recovery proof only arrives when someone re-runs failed jobs (or a pytest test is hand-marked
   `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
   emitted, so there is no honest denominator.
 

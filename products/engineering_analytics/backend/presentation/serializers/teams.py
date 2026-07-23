@@ -73,8 +73,9 @@ class TeamTestSignalSerializer(DataclassSerializer):
     class Meta:
         dataclass = TeamTestSignal
         extra_kwargs = {
-            "nodeid": {"help_text": "Reconstructed pytest nodeid (the CI span name), a stable grouping key."},
-            "selector": {"help_text": "Runnable pytest selector; exact when the CI reporter emitted it."},
+            "runner": {"help_text": "Test runner that emitted this signal: 'pytest' or 'jest'."},
+            "nodeid": {"help_text": "Runner-specific test identity (the CI span name), a stable grouping key."},
+            "selector": {"help_text": "Runnable pytest or Jest selector; exact for newly emitted spans."},
             "signal_count": {
                 "help_text": "Runs in the current window where the test failed, errored, or a retry "
                 "recovered it (xfail excluded).",

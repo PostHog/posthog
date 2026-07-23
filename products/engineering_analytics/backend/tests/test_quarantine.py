@@ -119,6 +119,7 @@ def _request(**overrides: Any) -> contracts.QuarantineRequest:
     fields: dict[str, Any] = {
         "operation": contracts.QuarantineRequestAction.QUARANTINE,
         "selector": "posthog/api/test/test_foo.py::TestFoo::test_bar",
+        "runner": contracts.QuarantineRunner.PYTEST,
         "repo": "PostHog/posthog",
         "reason": "flaky under shards",
         "owner": "@PostHog/team-foo",
@@ -504,6 +505,7 @@ class TestQuarantineRequest(BaseTest):
         committed = github.update_file.call_args.args[2]
         entry = json.loads(committed)["entries"][0]
         assert entry["id"] == _request().selector
+        assert entry["runner"] == "pytest"
         assert entry["mode"] == "run"
         assert entry["expires"] == "2026-06-26"
         assert entry["issue"] == "https://github.com/PostHog/posthog/issues/4242"
@@ -516,6 +518,13 @@ class TestQuarantineRequest(BaseTest):
         request_quarantine(team=self.team, request=_request(mode=contracts.QuarantineMode.SKIP))
         entry = json.loads(github.update_file.call_args.args[2])["entries"][0]
         assert entry["mode"] == "skip"
+
+    @freeze_time("2026-06-12")
+    def test_jest_runner_is_persisted(self) -> None:
+        github = self._install(_github_mock())
+        request_quarantine(team=self.team, request=_request(runner=contracts.QuarantineRunner.JEST))
+        entry = json.loads(github.update_file.call_args.args[2])["entries"][0]
+        assert entry["runner"] == "jest"
 
     @freeze_time("2026-06-12")
     def test_extend_reuses_existing_issue_and_files_no_new_one(self) -> None:

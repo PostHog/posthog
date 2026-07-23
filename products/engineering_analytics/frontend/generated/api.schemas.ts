@@ -199,6 +199,17 @@ export interface CurrentBranchHealthApi {
 }
 
 /**
+ * * `pytest` - PYTEST
+ * * `jest` - JEST
+ */
+export type CITestRunnerEnumApi = (typeof CITestRunnerEnumApi)[keyof typeof CITestRunnerEnumApi]
+
+export const CITestRunnerEnumApi = {
+    Pytest: 'pytest',
+    Jest: 'jest',
+} as const
+
+/**
  * * `confirmed_flake` - CONFIRMED_FLAKE
  * * `suspected_regression` - SUSPECTED_REGRESSION
  * * `quarantined` - QUARANTINED
@@ -213,9 +224,14 @@ export const FlakyTestItemClassificationEnumApi = {
 } as const
 
 export interface FlakyTestItemApi {
-    /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
+    /** Test runner that emitted this signal: 'pytest' or 'jest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST */
+    runner: CITestRunnerEnumApi
+    /** Runner-specific stable test identity (the CI span name). This is a grouping key, not necessarily runnable; use `selector` to run or quarantine the test. */
     nodeid: string
-    /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+    /** Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older pytest spans use a best-effort reconstruction from the nodeid. */
     selector: string
     /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
      *
@@ -721,6 +737,20 @@ export const OperationEnumApi = {
     Remove: 'remove',
 } as const
 
+/**
+ * * `pytest` - PYTEST
+ * * `jest` - JEST
+ * * `playwright` - PLAYWRIGHT
+ */
+export type QuarantineRequestRunnerEnumApi =
+    (typeof QuarantineRequestRunnerEnumApi)[keyof typeof QuarantineRequestRunnerEnumApi]
+
+export const QuarantineRequestRunnerEnumApi = {
+    Pytest: 'pytest',
+    Jest: 'jest',
+    Playwright: 'playwright',
+} as const
+
 export interface QuarantineRequestApi {
     /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
      *
@@ -730,6 +760,12 @@ export interface QuarantineRequestApi {
     operation: OperationEnumApi
     /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
     selector: string
+    /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Defaults to 'pytest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     * * `playwright` - PLAYWRIGHT */
+    runner?: QuarantineRequestRunnerEnumApi
     /**
      * Optional 'owner/name' repository override; defaults to the team's most active repo.
      * @nullable
@@ -956,9 +992,14 @@ export interface GitHubSourceApi {
 }
 
 export interface TeamTestSignalApi {
-    /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+    /** Test runner that emitted this signal: 'pytest' or 'jest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST */
+    runner: CITestRunnerEnumApi
+    /** Runner-specific test identity (the CI span name), a stable grouping key. */
     nodeid: string
-    /** Runnable pytest selector; exact when the CI reporter emitted it. */
+    /** Runnable pytest or Jest selector; exact for newly emitted spans. */
     selector: string
     /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
     signal_count: number

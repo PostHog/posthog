@@ -65,8 +65,8 @@ def _testcase(
         ("pkg/test_a.py", "totally.unrelated.Thing", "test_y", ""),
     ],
 )
-def test_to_selector(file: str, classname: str, name: str, expected: str) -> None:
-    assert report_test_timings.to_selector(file, classname, name) == expected
+def test_to_pytest_selector(file: str, classname: str, name: str, expected: str) -> None:
+    assert report_test_timings.to_pytest_selector(file, classname, name) == expected
 
 
 # ---------- artifact name parsing ----------
@@ -76,6 +76,7 @@ def test_to_selector(file: str, classname: str, name: str, expected: str) -> Non
     "dir_name,expected",
     [
         ("junit-results-backend-core-29", ("backend", "core", 29)),
+        ("junit-results-frontend-FOSS-4", ("frontend", "FOSS", 4)),
         ("junit-results-llm-gateway", ("llm-gateway", "llm-gateway", None)),
         ("junit-results-hogli", ("hogli", "hogli", None)),
     ],
@@ -97,6 +98,16 @@ def test_derive_suite_segment_and_group(dir_name: str, expected: tuple[str, str,
 )
 def test_split_attempt_suffix(dir_name: str, expected: tuple[str, int]) -> None:
     assert report_test_timings.split_attempt_suffix(dir_name) == expected
+
+
+def test_collect_artifact_infos_does_not_expand_large_sparse_group(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-FOSS-8574803097"
+    artifact_dir.mkdir()
+
+    info = report_test_timings.collect_artifact_infos(tmp_path)[0]
+
+    assert info.group == 8_574_803_097
+    assert info.total is None
 
 
 # ---------- shard parsing end-to-end ----------
@@ -172,6 +183,57 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[2].outcome == "rerun_passed"
     assert shard.tests[2].attempts == 2
     assert shard.tests[3].outcome == "failed"
+
+
+def test_collect_jest_shard_reads_legacy_and_isolated_product_suites(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-EE-1"
+    artifact_dir.mkdir()
+    (artifact_dir / "junit-EE-1.xml").write_text(
+        textwrap.dedent(
+            """\
+            <?xml version="1.0"?>
+            <testsuites name="jest tests" tests="2" failures="1" time="4.0">
+              <testsuite name="src/scenes/legacy.test.ts" timestamp="2026-05-04T10:00:00" time="2.0">
+                <testcase classname="legacy scene renders" name="legacy scene renders" time="0.2"
+                  file="src/scenes/legacy.test.ts"><failure message="x"/></testcase>
+              </testsuite>
+              <testsuite name="../products/surveys/frontend/surveyLogic.test.ts"
+                timestamp="2026-05-04T10:00:01" time="3.0">
+                <testcase classname="surveyLogic saves" name="surveyLogic saves" time="0.3"
+                  file="../products/surveys/frontend/surveyLogic.test.ts"/>
+              </testsuite>
+            </testsuites>
+            """
+        )
+    )
+
+    shard = report_test_timings.collect_shards(tmp_path, "jest")[0]
+
+    assert (shard.info.suite, shard.info.segment, shard.info.group) == ("frontend", "EE", 1)
+    assert [test.file for test in shard.tests] == [
+        "frontend/src/scenes/legacy.test.ts",
+        "products/surveys/frontend/surveyLogic.test.ts",
+    ]
+    assert [test.selector for test in shard.tests] == [
+        "frontend/src/scenes/legacy.test.ts::legacy scene renders",
+        "products/surveys/frontend/surveyLogic.test.ts::surveyLogic saves",
+    ]
+    assert [test.nodeid for test in shard.tests] == [test.selector for test in shard.tests]
+    assert [test.outcome for test in shard.tests] == ["failed", "passed"]
+    assert shard.start == datetime(2026, 5, 4, 10, 0, tzinfo=UTC)
+    assert shard.end == datetime(2026, 5, 4, 10, 0, 4, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "junit_file,expected",
+    [
+        ("src/test/example.test.ts", "frontend/src/test/example.test.ts"),
+        ("../products/web_analytics/frontend/example.test.ts", "products/web_analytics/frontend/example.test.ts"),
+        ("../../outside.test.ts", ""),
+    ],
+)
+def test_normalize_jest_file(junit_file: str, expected: str) -> None:
+    assert report_test_timings.normalize_jest_file(junit_file) == expected
 
 
 # ---------- rerun classification (posthog.reruns testcase property) ----------
@@ -328,6 +390,18 @@ def test_filter_shards_preserves_parse_time_test_windows(tmp_path: Path) -> None
     assert filtered[0].tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 300000, tzinfo=UTC)
 
 
+def test_signals_only_threshold_keeps_failures_and_same_job_recovery() -> None:
+    tests = [
+        _testcase(name="slow_pass", duration=30.0),
+        _testcase(name="failure", outcome="failed", duration=0.1),
+        _testcase(name="recovery", duration=0.1),
+    ]
+
+    assert [
+        test.name for test in tests if report_test_timings.should_emit(test, float("inf"), frozenset({"m::recovery"}))
+    ] == ["failure", "recovery"]
+
+
 # ---------- re-run attempts ----------
 
 
@@ -458,6 +532,8 @@ def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatc
     assert tracer.spans[2].end_time == report_test_timings._to_ns(start + timedelta(seconds=2.4))
     assert tracer.spans[0].attributes["shard.testcase_seconds"] == pytest.approx(2.1)
     assert tracer.spans[0].attributes["shard.overhead_seconds"] == pytest.approx(7.9)
+    assert tracer.spans[1].attributes["test.runner"] == "pytest"
+    assert tracer.spans[1].attributes["test.job_key"] == "backend:core:1"
 
 
 def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatch: pytest.MonkeyPatch) -> None:

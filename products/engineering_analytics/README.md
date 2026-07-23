@@ -66,7 +66,7 @@ graph LR
     subgraph "Data in"
         WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
-        TRACES[("Traces: per-test CI spans<br/>emitted by Backend CI")]
+        TRACES[("Traces: per-test CI spans<br/>emitted by Backend and Frontend CI")]
     end
     JL["Temporal job-logs pipeline<br/>fetches + thins failed jobs' logs"] --> LOGS
     CUR["curated HogQL builders<br/>run privately, never global views"]
@@ -82,7 +82,7 @@ graph LR
 
 - Job-level CI: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).
 - One write surface: test quarantine. The UI files a tracking issue plus a PR against the repo's checked-in `.test_quarantine.json` through the team's GitHub App. Everything else is read-only.
-- The test-health view is an active work queue, not a failure-rate leaderboard: evidence is counted per CI run, a test is called flaky only where the evidence proves it (one commit was seen both failing and passing it: a re-run attempt going green, or an in-job retry), and every other failure ranks as an honest suspected regression by blast radius.
+- The test-health view is an active work queue, not a failure-rate leaderboard: the main pytest and Jest suites emit failures and same-job re-run recovery evidence. Evidence is counted per CI run, a test is called flaky only where one commit was seen both failing and passing it, and every other failure ranks as an honest suspected regression by blast radius.
 - Access control: per-user warehouse RBAC at the source resolver, `engineering_analytics:read` scopes on tools, feature-flag gated.
 
 ## The goal: CI Signals for PostHog Code

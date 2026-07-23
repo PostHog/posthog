@@ -131,6 +131,7 @@ describe('jest.quarantine', () => {
                     runtimeEntry(fixtureSuiteId),
                     runtimeEntry(`${fixtureSuiteId} tolerates body failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates async rejection`),
+                    runtimeEntry(`${fixtureSuiteId} tolerates each row 1`),
                     runtimeEntry(`${fixtureSuiteId} tolerates beforeEach failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates afterEach failure`),
                     runtimeEntry(`${fixtureSuiteId} skips body`, 'skip'),
@@ -167,6 +168,7 @@ describe('jest.quarantine', () => {
                 expect(output).toContain('quarantined body failure')
                 expect(output).toContain('quarantined beforeEach failure')
                 expect(output).toContain('quarantined afterEach failure')
+                expect(output).toContain('quarantined each row failure')
                 expect(output).toContain('[quarantine] skipping')
                 expect(output).not.toContain('skipped body should not run')
             } finally {
