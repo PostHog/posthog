@@ -514,7 +514,21 @@ tools:
             another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
-        enabled: false
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get scout enrollment, banner, and run limits
+        description: >
+            Return this project's scout metadata: whether it is enrolled to run scouts, the current announcement banner
+            (e.g. an early-access run-limit notice, or null when unset), and the enforced run limits with current usage
+            — `max_runs_per_tick`, `max_runs_per_day` (null = unbounded), `runs_today`, and `runs_remaining_today`.
+            Limits reflect what the scout coordinator actually applies at dispatch, so use this to size an enabled scout
+            troop against the project's real daily run budget rather than assuming a value. Read-only and side-effect
+            free.
     scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true
@@ -705,7 +719,7 @@ tools:
             / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the
             oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist
             without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview
-            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.
+            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false

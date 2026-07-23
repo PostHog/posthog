@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -7,11 +7,16 @@ from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     ANTHROPIC_VERSION,
+    DEFAULT_CLAUDE_CODE_START,
     AnthropicResumeConfig,
+    ClaudeCodeDayPaginator,
+    _claude_code_start_day,
+    _flatten_claude_code_core,
+    _flatten_claude_code_models,
     _flatten_cost_result,
     _flatten_usage_result,
     _row_id,
@@ -143,6 +148,23 @@ class TestFlattenCost:
         assert row["amount"] == "123.78912"
         assert row["currency"] == "USD"
         assert row["id"]
+
+    def test_inference_geo_surfaced(self) -> None:
+        # The data-residency dimension is parsed into cost results when grouped by description; surface
+        # it as its own column rather than dropping it on the floor.
+        row = _flatten_cost_result(
+            {"starting_at": "2025-08-01T00:00:00Z", "ending_at": "2025-08-02T00:00:00Z"},
+            {"workspace_id": "wrkspc_1", "amount": "1.0", "inference_geo": "us"},
+        )
+        assert row["inference_geo"] == "us"
+
+    def test_id_stable_when_inference_geo_added(self) -> None:
+        # inference_geo is deliberately kept out of the surrogate key (description already disambiguates
+        # it), so surfacing it must not change the id of a row that existed before the column was added.
+        base = {"starting_at": "s", "ending_at": "e", "workspace_id": "w", "description": "d", "amount": "1"}
+        without_geo = _flatten_cost_result({"starting_at": "s", "ending_at": "e"}, base)
+        with_geo = _flatten_cost_result({"starting_at": "s", "ending_at": "e"}, {**base, "inference_geo": "us"})
+        assert without_geo["id"] == with_geo["id"]
 
 
 class TestReportParams:
@@ -557,3 +579,229 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = AnthropicSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
+
+
+def _cc_record(actor_email: str = "dev@example.com") -> dict[str, Any]:
+    return {
+        "date": "2025-09-01T00:00:00Z",
+        "organization_id": "org_1",
+        "actor": {"type": "user_actor", "email_address": actor_email},
+        "customer_type": "subscription",
+        "terminal_type": "vscode",
+        "core_metrics": {
+            "num_sessions": 1,
+            "lines_of_code": {"added": 1, "removed": 0},
+            "commits_by_claude_code": 0,
+            "pull_requests_by_claude_code": 0,
+        },
+        "tool_actions": {},
+        "model_breakdown": [
+            {"model": "claude-opus-4-8", "tokens": {"input": 1}, "estimated_cost": {"amount": "1", "currency": "USD"}}
+        ],
+    }
+
+
+def _cc_page(records: list[dict[str, Any]], *, has_more: bool, next_page: str | None) -> Response:
+    return _response({"data": records, "has_more": has_more, "next_page": next_page})
+
+
+def _midnight(day: date) -> datetime:
+    return datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+
+
+class TestFlattenClaudeCode:
+    _RECORD = {
+        "date": "2025-09-01T00:00:00Z",
+        "organization_id": "org_1",
+        "actor": {"type": "user_actor", "email_address": "dev@example.com"},
+        "customer_type": "subscription",
+        "terminal_type": "vscode",
+        "core_metrics": {
+            "num_sessions": 4,
+            "lines_of_code": {"added": 120, "removed": 30},
+            "commits_by_claude_code": 3,
+            "pull_requests_by_claude_code": 1,
+        },
+        "tool_actions": {
+            "edit_tool": {"accepted": 10, "rejected": 2},
+            "write_tool": {"accepted": 5, "rejected": 0},
+        },
+        "model_breakdown": [
+            {
+                "model": "claude-opus-4-8",
+                "tokens": {"input": 1000, "output": 500, "cache_read": 200, "cache_creation": 100},
+                "estimated_cost": {"amount": "12.50", "currency": "USD"},
+            },
+            {
+                "model": "claude-haiku-4-5",
+                "tokens": {"input": 50, "output": 20, "cache_read": 0, "cache_creation": 0},
+                "estimated_cost": {"amount": "0.10", "currency": "USD"},
+            },
+        ],
+    }
+
+    def test_core_flattens_metrics_and_tool_actions(self) -> None:
+        row = _flatten_claude_code_core(self._RECORD)
+        assert row["actor_type"] == "user_actor"
+        assert row["actor_email_address"] == "dev@example.com"
+        assert row["actor_api_key_name"] is None
+        assert row["num_sessions"] == 4
+        assert row["lines_of_code_added"] == 120
+        assert row["lines_of_code_removed"] == 30
+        assert row["edit_tool_accepted"] == 10
+        assert row["edit_tool_rejected"] == 2
+        assert row["write_tool_accepted"] == 5
+        # A tool the record omits yields nulls, never a crash.
+        assert row["multi_edit_tool_accepted"] is None
+        assert row["id"]
+
+    def test_api_actor_surfaces_key_name_not_email(self) -> None:
+        record = {**self._RECORD, "actor": {"type": "api_actor", "api_key_name": "ci-key"}}
+        row = _flatten_claude_code_core(record)
+        assert row["actor_api_key_name"] == "ci-key"
+        assert row["actor_email_address"] is None
+
+    def test_models_explode_one_row_per_model_with_distinct_ids(self) -> None:
+        rows = _flatten_claude_code_models(self._RECORD)
+        assert [r["model"] for r in rows] == ["claude-opus-4-8", "claude-haiku-4-5"]
+        assert rows[0]["input_tokens"] == 1000
+        assert rows[0]["cache_creation_tokens"] == 100
+        assert rows[0]["estimated_cost_amount"] == "12.50"
+        # Per-model rows for the same (day, actor) must have distinct ids so merge keeps them apart.
+        assert rows[0]["id"] != rows[1]["id"]
+
+    def test_empty_model_breakdown_yields_no_rows(self) -> None:
+        assert _flatten_claude_code_models({**self._RECORD, "model_breakdown": []}) == []
+
+
+class TestClaudeCodeStartDay:
+    def test_full_refresh_uses_launch_floor(self) -> None:
+        assert _claude_code_start_day(None) == DEFAULT_CLAUDE_CODE_START
+
+    @parameterized.expand(
+        [
+            ("datetime", datetime(2026, 3, 4, 12, 0, 0, tzinfo=UTC)),
+            ("rfc3339_string", "2026-03-04T12:00:00Z"),
+            ("bare_date_string", "2026-03-04"),
+            ("date", date(2026, 3, 4)),
+        ]
+    )
+    def test_incremental_watermark_resolves_to_calendar_day(self, _name: str, watermark: Any) -> None:
+        assert _claude_code_start_day(watermark) == date(2026, 3, 4)
+
+
+class TestClaudeCodeDayPaginator:
+    def test_advances_day_when_exhausted_and_stops_past_today(self) -> None:
+        paginator = ClaudeCodeDayPaginator(date(2025, 1, 1), date(2025, 1, 3))
+        req = Request()
+        paginator.init_request(req)
+        assert req.params["starting_at"] == "2025-01-01"
+
+        paginator.update_state(_cc_page([_cc_record()], has_more=False, next_page=None), data=[{"x": 1}])
+        assert paginator.has_next_page is True
+        req2 = Request()
+        paginator.update_request(req2)
+        assert req2.params["starting_at"] == "2025-01-02"
+        assert "page" not in req2.params
+
+        paginator.update_state(_cc_page([], has_more=False, next_page=None), data=[])  # day 2 -> day 3
+        assert paginator.has_next_page is True
+        paginator.update_state(_cc_page([], has_more=False, next_page=None), data=[])  # day 3 -> past today
+        assert paginator.has_next_page is False
+
+    def test_stays_on_day_across_pages(self) -> None:
+        paginator = ClaudeCodeDayPaginator(date(2025, 1, 1), date(2025, 1, 1))
+        paginator.update_state(_cc_page([_cc_record()], has_more=True, next_page="P2"), data=[{"x": 1}])
+        assert paginator.has_next_page is True
+        req = Request()
+        paginator.update_request(req)
+        assert req.params["starting_at"] == "2025-01-01"
+        assert req.params["page"] == "P2"
+
+    def test_resume_state_roundtrip(self) -> None:
+        paginator = ClaudeCodeDayPaginator(date(2025, 1, 1), date(2025, 1, 5))
+        paginator.set_resume_state({"date": "2025-01-04", "cursor": "PX"})
+        req = Request()
+        paginator.init_request(req)
+        assert req.params["starting_at"] == "2025-01-04"
+        assert req.params["page"] == "PX"
+        assert paginator.get_resume_state() == {"date": "2025-01-04", "cursor": "PX"}
+
+    def test_clamps_future_start_day_to_today(self) -> None:
+        # A watermark at/after today must re-pull today, never request a future day.
+        paginator = ClaudeCodeDayPaginator(date(2025, 6, 1), date(2025, 1, 1))
+        req = Request()
+        paginator.init_request(req)
+        assert req.params["starting_at"] == "2025-01-01"
+
+
+class TestClaudeCodeDayFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_one_windowed_request_per_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        watermark = _midnight(today - timedelta(days=2))
+        params = _wire(session, [_cc_page([_cc_record()], has_more=False, next_page=None) for _ in range(3)])
+        rows = _rows(_source("claude_code_analytics", _make_manager(), last_value=watermark))
+        assert len(rows) == 3  # one per-day core row
+        days = [(watermark.date() + timedelta(days=i)).isoformat() for i in range(3)]
+        assert [p["params"]["starting_at"] for p in params] == days
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_model_breakdown_endpoint_explodes_per_model(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        record = _cc_record()
+        record["model_breakdown"] = [
+            {"model": "m1", "tokens": {"input": 1}, "estimated_cost": {"amount": "1", "currency": "USD"}},
+            {"model": "m2", "tokens": {"input": 2}, "estimated_cost": {"amount": "2", "currency": "USD"}},
+        ]
+        _wire(session, [_cc_page([record], has_more=False, next_page=None)])
+        rows = _rows(_source("claude_code_model_breakdown", _make_manager(), last_value=_midnight(today)))
+        assert sorted(r["model"] for r in rows) == ["m1", "m2"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_within_a_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        params = _wire(
+            session,
+            [
+                _cc_page([_cc_record("a@x.com")], has_more=True, next_page="P2"),
+                _cc_page([_cc_record("b@x.com")], has_more=False, next_page=None),
+            ],
+        )
+        rows = _rows(_source("claude_code_analytics", _make_manager(), last_value=_midnight(today)))
+        assert {r["actor_email_address"] for r in rows} == {"a@x.com", "b@x.com"}
+        assert "page" not in params[0]["params"]
+        assert params[1]["params"]["page"] == "P2"
+        assert params[1]["params"]["starting_at"] == today.isoformat()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_day_and_page_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        manager = _make_manager(AnthropicResumeConfig(day_fanout_state={"date": today.isoformat(), "cursor": "P2"}))
+        params = _wire(session, [_cc_page([_cc_record()], has_more=False, next_page=None)])
+        rows = _rows(_source("claude_code_analytics", manager, last_value=_midnight(today)))
+        assert len(rows) == 1
+        assert params[0]["params"]["page"] == "P2"
+        assert params[0]["params"]["starting_at"] == today.isoformat()
+
+
+class TestServiceAccountsFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_emits_one_row_per_service_account_with_composite_key(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Service account objects here don't carry workspace_id, so the fan-out must inject it or the
+        # composite key's workspace_id lands null.
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
+                _entity_page([{"id": "svac_1", "type": "service_account"}], has_more=False, last_id="svac_1"),
+                _entity_page([{"id": "svac_2", "type": "service_account"}], has_more=False, last_id="svac_2"),
+            ],
+        )
+        rows = _rows(_source("service_accounts", _make_manager()))
+        assert [(r["workspace_id"], r["id"]) for r in rows] == [("wrkspc_1", "svac_1"), ("wrkspc_2", "svac_2")]

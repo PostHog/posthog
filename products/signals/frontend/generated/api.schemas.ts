@@ -2247,6 +2247,11 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunSummaryApiMetadata = { [key: string]: string }
+
+/**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
  *
  * Status and timestamps flow from the linked `tasks.TaskRun`.
@@ -2304,7 +2309,14 @@ export interface SignalScoutRunSummaryApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunSummaryApiMetadata
 }
+
+/**
+ * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+ */
+export type SignalScoutRunDetailApiMetadata = { [key: string]: string }
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
@@ -2364,6 +2376,8 @@ export interface SignalScoutRunDetailApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
+    /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+    metadata: SignalScoutRunDetailApiMetadata
 }
 
 /**
@@ -3082,6 +3096,10 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string
+    /**
      * Case-insensitive substring match against report title and summary.
      */
     search?: string
@@ -3212,13 +3230,18 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     date_to?: string
     /**
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * @minLength 1
+     */
+    key?: string
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean
     /**
-     * Max rows to return (default 20, hard cap 500).
+     * Max rows to return (default 20, hard cap 1000).
      * @minimum 1
-     * @maximum 500
+     * @maximum 1000
      */
     limit?: number
     /**

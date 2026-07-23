@@ -575,13 +575,15 @@ export const CustomPropertyDisplayTypeEnumApi = {
 /**
  * * `account` - account
  * * `person` - person
+ * * `group` - group
  */
-export type CustomPropertyDefinitionTargetTypeApi =
-    (typeof CustomPropertyDefinitionTargetTypeApi)[keyof typeof CustomPropertyDefinitionTargetTypeApi]
+export type CustomPropertyDefinitionTargetTypeEnumApi =
+    (typeof CustomPropertyDefinitionTargetTypeEnumApi)[keyof typeof CustomPropertyDefinitionTargetTypeEnumApi]
 
-export const CustomPropertyDefinitionTargetTypeApi = {
+export const CustomPropertyDefinitionTargetTypeEnumApi = {
     Account: 'account',
     Person: 'person',
+    Group: 'group',
 } as const
 
 /**
@@ -642,6 +644,45 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
+ * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
+ * pipeline, never through the API.
+ */
+export interface CustomPropertySyncRunApi {
+    readonly id: string
+    /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+    readonly trigger: string
+    /** Run status: 'running', 'completed', or 'failed'. */
+    readonly status: string
+    /**
+     * When the run began.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the run ended, or null while running.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /** Warehouse rows scanned this run. */
+    readonly rows_read: number
+    /** Rows whose mapped values changed since the last run. */
+    readonly changed: number
+    /** Person profiles updated (changed rows that matched an existing person). */
+    readonly existing: number
+    /** Property-update intents produced to the ingestion pipeline. */
+    readonly produced: number
+    /** Changed rows dropped because no existing person matched the distinct id. */
+    readonly skipped_missing_person: number
+    /**
+     * Error summary if the run failed, else null.
+     * @nullable
+     */
+    readonly error: string | null
+    /** When the run row was recorded. */
+    readonly created_at: string
+}
+
+/**
  * Binds a materialized data-warehouse view column to a custom property definition; the view's
  * values are synced onto matching accounts on each materialization.
  */
@@ -691,6 +732,18 @@ export interface CustomPropertySourceApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
+    /**
+     * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+     * @nullable
+     */
+    readonly sync_frequency_interval_seconds: number | null
+    /**
+     * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+     * @nullable
+     */
+    readonly next_sync_at: string | null
+    /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+    readonly latest_run: CustomPropertySyncRunApi | null
 }
 
 /**
@@ -736,11 +789,19 @@ export interface CustomPropertyDefinitionApi {
      * * `boolean` - boolean
      * * `select` - select */
     display_type: CustomPropertyDisplayTypeEnumApi
-    /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+    /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
      *
      * * `account` - account
-     * * `person` - person */
-    target_type?: CustomPropertyDefinitionTargetTypeApi
+     * * `person` - person
+     * * `group` - group */
+    target_type?: CustomPropertyDefinitionTargetTypeEnumApi
+    /**
+     * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
     /**
@@ -797,11 +858,19 @@ export interface PatchedCustomPropertyDefinitionApi {
      * * `boolean` - boolean
      * * `select` - select */
     display_type?: CustomPropertyDisplayTypeEnumApi
-    /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+    /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
      *
      * * `account` - account
-     * * `person` - person */
-    target_type?: CustomPropertyDefinitionTargetTypeApi
+     * * `person` - person
+     * * `group` - group */
+    target_type?: CustomPropertyDefinitionTargetTypeEnumApi
+    /**
+     * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
     /**
@@ -886,6 +955,43 @@ export interface PatchedCustomPropertySourceUpdateApi {
     key_column?: string
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
+}
+
+/**
+ * * `triggered` - triggered
+ * * `started` - started
+ * * `already_running` - already_running
+ */
+export type CustomPropertySyncTriggerResponseStatusEnumApi =
+    (typeof CustomPropertySyncTriggerResponseStatusEnumApi)[keyof typeof CustomPropertySyncTriggerResponseStatusEnumApi]
+
+export const CustomPropertySyncTriggerResponseStatusEnumApi = {
+    Triggered: 'triggered',
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Response of the person-property sync/backfill trigger actions.
+ */
+export interface CustomPropertySyncTriggerResponseApi {
+    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+     *
+     * * `triggered` - triggered
+     * * `started` - started
+     * * `already_running` - already_running */
+    status: CustomPropertySyncTriggerResponseStatusEnumApi
+    /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+    already_running?: boolean
+}
+
+export interface PaginatedCustomPropertySyncRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertySyncRunApi[]
 }
 
 export interface CustomerJourneyApi {
@@ -1264,6 +1370,17 @@ export type CustomPropertyDefinitionsValuesRetrieveParams = {
 }
 
 export type CustomPropertySourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
      */

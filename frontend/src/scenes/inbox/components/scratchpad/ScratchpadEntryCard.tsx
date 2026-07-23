@@ -1,14 +1,17 @@
-import { type ComponentProps, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { type ComponentProps } from 'react'
 
 import { IconChevronDown, IconClock } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { scratchpadLogic } from '../../logics/scratchpadLogic'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
 
 type LemonTagType = ComponentProps<typeof LemonTag>['type']
@@ -39,9 +42,18 @@ function splitKey(key: string): { kind: string | null; body: string } {
  * grammar of the scout emission cards: a header (chevron · kind · key · updated time) that stays
  * visible, a 2-line markdown preview when collapsed, the full body plus an attribution footer
  * (which scout created it, when, and how long it's been carried forward) when open.
+ *
+ * The list only carries previews, so a long note's tail arrives on expand — until it lands, the
+ * preview stays on screen with a skeleton under it rather than the card going blank.
  */
 export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+    const { expandedKeys, fullContentByKey, loadingContentKeys } = useValues(scratchpadLogic)
+    const { toggleEntry } = useActions(scratchpadLogic)
+
+    const expanded = expandedKeys.includes(entry.key)
+    const isLoadingContent = loadingContentKeys.includes(entry.key)
+    // `hasOwn` guards against a key like `constructor` resolving to an inherited prototype value.
+    const content = Object.hasOwn(fullContentByKey, entry.key) ? fullContentByKey[entry.key] : entry.content
 
     const { kind, body } = splitKey(entry.key)
     const scoutName = entry.created_by_skill ? stripScoutPrefix(entry.created_by_skill) : null
@@ -55,7 +67,7 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
         <div className="flex flex-col rounded border border-primary bg-bg-light">
             <button
                 type="button"
-                onClick={() => setExpanded((value) => !value)}
+                onClick={() => toggleEntry(entry.key)}
                 className="flex items-center gap-2 px-3 py-2 text-left"
                 aria-expanded={expanded}
             >
@@ -82,8 +94,10 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
                     disableImages
                     className={expanded ? 'text-sm text-primary' : 'text-sm text-primary line-clamp-2'}
                 >
-                    {entry.content || '_No content._'}
+                    {content || '_No content._'}
                 </LemonMarkdown>
+
+                {expanded && isLoadingContent && <LemonSkeleton className="h-4 w-2/3 mt-1" />}
 
                 {expanded && (entry.created_at || scoutName || entry.created_by_run_id) && (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">

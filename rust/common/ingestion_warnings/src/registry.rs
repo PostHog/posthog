@@ -1,20 +1,27 @@
 //! Registry of ingestion warning types emitted by Rust services.
 //!
-//! The `WarningType` enum, its `ALL` list, and `as_str()` are generated at build
-//! time (see `build.rs`) from `capture_warning_types.generated.json`, which is
-//! mirrored from the Node.js registry — the single source of truth for the warning
-//! taxonomy (`nodejs/src/ingestion/common/ingestion-warning-types.ts`). Category and
-//! severity are resolved Node-side at serialization time and are not represented here.
+//! The `WarningType` enum — every registered type with its `as_str()` tag and
+//! registry-declared `category()`/`severity()` — is generated at build time (see
+//! `build.rs`) from `warning_types.generated.json`, which mirrors the whole
+//! Node.js registry, the single source of truth for the warning taxonomy
+//! (`nodejs/src/ingestion/common/ingestion-warning-types.ts`). The taxonomy is
+//! producer-agnostic: which service emits which type is not registry data — each
+//! producer references the variants it emits, and the message's `source` field
+//! records who said it.
 //!
 //! `from_tag` is a hand-written allowlist mapping capture error tags to warning
-//! types: only tags registered here ever produce a warning. Unknown or deliberately
-//! excluded tags (auth/transport/server errors, intentional drops like
-//! `dropped_performance_event`) map to `None` and emit nothing. The
-//! `from_tag_round_trips_every_registered_type` test guarantees every generated
-//! variant has a `from_tag` arm, so adding a capture type in Node.js forces the
-//! matching Rust mapping here.
+//! types: only tags registered here ever produce a warning. Unknown or
+//! deliberately excluded tags (auth/transport/server errors, intentional drops
+//! like `dropped_performance_event`) map to `None` and emit nothing. The
+//! allowlist's domain is welded by test to the registry's `captureProduced`
+//! flags — the Node consumer's trust allowlist for the capture envelope —
+//! since skew in either direction silently drops warnings: a flagged type
+//! without an arm is never emitted, and an arm without the flag is emitted
+//! but rejected at the consumer. An arm for a type removed from the registry
+//! stops compiling.
 
-// Brings in `pub enum WarningType`, `WarningType::ALL`, and `WarningType::as_str`.
+// Brings in `pub enum WarningType` with `ALL`, `as_str`, `category`, and
+// `severity`.
 include!(concat!(env!("OUT_DIR"), "/warning_types.rs"));
 
 impl WarningType {
@@ -38,12 +45,6 @@ impl WarningType {
             _ => None,
         }
     }
-
-    /// Pipeline step recorded in the details JSON (`pipelineStep`). Every registered
-    /// capture type is a validation-stage drop, so they share this step.
-    pub const fn pipeline_step(self) -> &'static str {
-        "capture_validation"
-    }
 }
 
 #[cfg(test)]
@@ -52,14 +53,21 @@ mod tests {
     use rstest::rstest;
 
     #[test]
-    fn from_tag_round_trips_every_registered_type() {
-        // Guards the hand-written `from_tag` against the generated enum: a new
-        // variant mirrored from Node.js without a matching `from_tag` arm fails here.
+    fn from_tag_domain_equals_the_capture_trust_allowlist() {
+        // Two hand-maintained copies of "the types capture emits" must stay
+        // equal: the `from_tag` arms here (the emit allowlist) and the
+        // registry's `captureProduced` flags (the Node consumer's trust
+        // allowlist, carried through the artifact). Skew fails silently in
+        // production in either direction — a flagged type without an arm is
+        // never emitted; an arm without the flag is emitted and then
+        // rejected at the consumer's trust check. Comparing the variant
+        // itself (not just presence) also pins each arm to the right type,
+        // so a mis-mapped tag can't hide behind an unrelated `Some`.
         for warning in WarningType::ALL {
             assert_eq!(
                 WarningType::from_tag(warning.as_str()),
-                Some(warning),
-                "tag {} must round-trip",
+                warning.capture_produced().then_some(warning),
+                "{}: from_tag arm and captureProduced flag disagree — add the missing side",
                 warning.as_str()
             );
         }
