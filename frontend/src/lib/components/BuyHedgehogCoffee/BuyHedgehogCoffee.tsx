@@ -47,7 +47,7 @@ function BuyHedgehogCoffeeModal(): JSX.Element {
         >
             <div className="flex flex-col gap-2 max-w-md">
                 <p className="m-0">
-                    You've been happily under the free allowance for a while now — thanks for being part of PostHog.
+                    You've been happily under the free allowance for a while now and we're fine with that, but...
                 </p>
                 <p className="m-0">
                     If you've enjoyed using PostHog, we'd like you to consider passing it on by donating to our favourite cause: Hedgehogs. A small donation
