@@ -170,28 +170,28 @@ class TestSlashCommandHandlerNode(BaseTest):
 
     @parameterized.expand(
         [
-            ("hi",),
+            ("hello",),
             ("Hello",),
-            ("hey there",),
-            ("HI THERE",),
+            ("HELLO",),
             ("hello!",),
-            ("  hey  ",),
-            ("good morning",),
+            ("  hello  ",),
+            ("hello there",),
         ]
     )
-    def test_is_greeting_detects_opening_greeting(self, content):
+    def test_is_greeting_detects_opening_hello(self, content):
         state = AssistantState(messages=[HumanMessage(content=content)])
         self.assertTrue(self.node._is_greeting(state))
 
     @parameterized.expand(
         [
+            ("hi",),  # only "hello" triggers the reply, not other greetings
+            ("hey there",),
             ("hello, how are you?",),
-            ("hi, how do I build a funnel?",),
-            ("what's up with my retention",),
+            ("hello world, how do I build a funnel?",),
             ("",),
         ]
     )
-    def test_is_greeting_ignores_non_greetings(self, content):
+    def test_is_greeting_ignores_non_hello(self, content):
         state = AssistantState(messages=[HumanMessage(content=content)])
         self.assertFalse(self.node._is_greeting(state))
 
@@ -200,7 +200,7 @@ class TestSlashCommandHandlerNode(BaseTest):
             messages=[
                 HumanMessage(content="how many users signed up?"),
                 AssistantMessage(content="1,234 users signed up.", id="1"),
-                HumanMessage(content="hey"),
+                HumanMessage(content="hello"),
             ]
         )
         self.assertFalse(self.node._is_greeting(state))
@@ -216,7 +216,7 @@ class TestSlashCommandHandlerNode(BaseTest):
         self.assertEqual(msg.content, SlashCommandHandlerNode.GREETING_REPLY)
 
     async def test_router_returns_end_for_greeting(self):
-        state = AssistantState(messages=[HumanMessage(content="hi there")])
+        state = AssistantState(messages=[HumanMessage(content="hello")])
         result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
 
