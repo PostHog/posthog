@@ -9,7 +9,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, status, viewsets
+from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 from slack_sdk.errors import SlackApiError
@@ -18,6 +18,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -52,11 +53,6 @@ def _release_slack_reservation(slack_thread: "CommentSlackThread") -> None:
     except Exception:
         # The stale-reservation grace period will unblock a retry even if this row lingers.
         logger.exception("comment_slack_reservation_release_failed", slack_thread_id=str(slack_thread.id))
-
-
-class Conflict(exceptions.APIException):
-    status_code = status.HTTP_409_CONFLICT
-    default_code = "conflict"
 
 
 def _slack_thread_url(thread: CommentSlackThread) -> str:

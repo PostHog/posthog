@@ -1,11 +1,17 @@
+import time
+
 import structlog
 import posthoganalytics
-from celery import shared_task
+from celery import Task, shared_task
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
+from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
@@ -18,12 +24,58 @@ def _sync_killed(team_id: int) -> bool:
     """Kill switch for syncing on existing mirrors: only an explicit flag *off* halts it.
 
     The fail-closed creation gate is send_to_slack; here a flag-evaluation error or missing
-    flag (None) must not silently drop user replies, so only False stops the sync.
+    flag (None) must not silently drop user replies, so only False stops the sync. Evaluated
+    with the same org/project groups as the request path, so a project-targeted disable also
+    stops sync on mirrors that already exist.
     """
     try:
-        return posthoganalytics.feature_enabled(DISCUSSIONS_SLACK_SYNC_FLAG, str(team_id)) is False
+        team_ref = Team.objects.filter(id=team_id).values_list("uuid", "organization_id").first()
+        if team_ref is None:
+            return False
+        team_uuid, organization_id = team_ref
+        return (
+            posthoganalytics.feature_enabled(
+                DISCUSSIONS_SLACK_SYNC_FLAG,
+                str(team_uuid),
+                groups={"organization": str(organization_id), "project": str(team_id)},
+            )
+            is False
+        )
     except Exception:
         return False
+
+
+def _slack_retry_after(exc: Exception) -> int | None:
+    """Seconds Slack asked us to wait when the failure is a rate limit; None for other errors."""
+    if not isinstance(exc, SlackApiError) or exc.response is None:
+        return None
+    if exc.response.get("error") != "ratelimited":
+        return None
+    try:
+        return min(int(exc.response.headers.get("Retry-After", "1")), 30)
+    except (AttributeError, TypeError, ValueError):
+        return 1
+
+
+def _post_backfill_reply(client: WebClient, mirror: CommentSlackThread, reply: Comment) -> str | None:
+    author_name, author_email = slack_author_from_user(reply.created_by)
+    return post_comment_to_slack_thread(
+        client=client,
+        channel=mirror.slack_channel_id,
+        content=reply.content or "",
+        rich_content=reply.rich_content,
+        author_name=author_name,
+        author_email=author_email,
+        thread_ts=mirror.slack_thread_ts,
+    )
+
+
+def _log_backfill_reply_failure(comment_slack_thread_id: str, reply: Comment) -> None:
+    logger.warning(
+        "comment_slack_backfill_reply_failed",
+        comment_slack_thread_id=comment_slack_thread_id,
+        comment_id=str(reply.id),
+    )
 
 
 def _mark_reply_synced(reply: Comment, ts: object) -> None:
@@ -43,8 +95,11 @@ def _reply_skip_reason(reply: Comment) -> str | None:
     return None
 
 
-@shared_task(bind=True, ignore_result=True, max_retries=3, default_retry_delay=5)
-def mirror_comment_reply_to_slack(self, comment_id: str) -> None:
+# Retry budget must outlast a slow root post in send_to_slack (up to two 10s Slack calls),
+# or a reply created mid-send would exhaust retries and never reach the thread.
+@shared_task(bind=True, ignore_result=True, max_retries=6, default_retry_delay=10)
+@skip_team_scope_audit  # Comment is on RootTeamManager; queries pin the team via the comment/mirror rows
+def mirror_comment_reply_to_slack(self: Task, comment_id: str) -> None:
     """Post a newly-created discussion reply into its parent's mirrored Slack thread.
 
     A discussion mirrors to exactly one Slack thread (1:1). Retries on a Slack failure rather
@@ -89,6 +144,7 @@ def mirror_comment_reply_to_slack(self, comment_id: str) -> None:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit  # Comment is on RootTeamManager; the reply query filters by the mirror's team_id
 def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
     """Post a discussion's pre-existing replies into a freshly-mirrored Slack thread.
 
@@ -126,22 +182,20 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
     for reply in replies:
         if _reply_skip_reason(reply):
             continue
-        author_name, author_email = slack_author_from_user(reply.created_by)
         try:
-            posted_ts = post_comment_to_slack_thread(
-                client=client,
-                channel=mirror.slack_channel_id,
-                content=reply.content or "",
-                rich_content=reply.rich_content,
-                author_name=author_name,
-                author_email=author_email,
-                thread_ts=mirror.slack_thread_ts,
-            )
-        except Exception:
-            logger.warning(
-                "comment_slack_backfill_reply_failed",
-                comment_slack_thread_id=comment_slack_thread_id,
-                comment_id=str(reply.id),
-            )
-            continue
+            posted_ts = _post_backfill_reply(client, mirror, reply)
+        except Exception as exc:
+            # chat.postMessage allows ~1 msg/sec per channel, so a long backfill will get rate
+            # limited; honoring Retry-After once keeps the whole thread mirroring instead of
+            # silently dropping its tail.
+            retry_after = _slack_retry_after(exc)
+            if retry_after is None:
+                _log_backfill_reply_failure(comment_slack_thread_id, reply)
+                continue
+            time.sleep(retry_after)
+            try:
+                posted_ts = _post_backfill_reply(client, mirror, reply)
+            except Exception:
+                _log_backfill_reply_failure(comment_slack_thread_id, reply)
+                continue
         _mark_reply_synced(reply, posted_ts)

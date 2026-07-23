@@ -1,13 +1,14 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
+from slack_sdk.errors import SlackApiError
 
 from posthog.api.comments import _slack_thread_url
 from posthog.helpers.slack_thread_mirror import escape_slack_mrkdwn
@@ -297,6 +298,7 @@ class TestReplyMirror(APIBaseTest):
 
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         reply.refresh_from_db()
+        assert reply.item_context is not None
         assert reply.item_context[SLACK_SYNCED_TS_KEY] == "100.2"
 
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
@@ -366,6 +368,28 @@ class TestBackfill(APIBaseTest):
 
         # r1 + r2 only — from_slack and emoji replies are skipped, and the root isn't a reply.
         assert mock_slack.return_value.client.chat_postMessage.call_count == 2
+
+    @patch("posthog.tasks.comment_slack_sync.time.sleep")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_retries_once_after_slack_rate_limit(self, mock_slack, mock_sleep):
+        rate_limited = MagicMock()
+        rate_limited.get.side_effect = lambda key, default=None: {"error": "ratelimited"}.get(key, default)
+        rate_limited.headers = {"Retry-After": "2"}
+        mock_slack.return_value.client.chat_postMessage.side_effect = [
+            SlackApiError("ratelimited", rate_limited),
+            {"ts": "100.2"},
+        ]
+        reply = self._reply("r1")
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        # The rate-limited post is retried after Slack's Retry-After instead of dropping the reply.
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 2
+        mock_sleep.assert_called_once_with(2)
+        reply.refresh_from_db()
+        assert reply.item_context is not None
+        assert reply.item_context[SLACK_SYNCED_TS_KEY] == "100.2"
 
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_backfill_owns_only_replies_that_predate_the_mirror(self, mock_slack):
