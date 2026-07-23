@@ -11,7 +11,7 @@ use posthog_replay_anonymizer::snapshot::{
     AnonymizedMessage, FailKind, Failure, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS,
     FLAG_MOUSE_ACTIVITY,
 };
-use posthog_replay_anonymizer::Ctx;
+use posthog_replay_anonymizer::{Ctx, ImagePolicy};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -368,32 +368,44 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
     let ctx = Ctx::new(allow);
     let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
-    // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks)
-    // and the simd path.
+    // Every engine combination is pinned against the tree reference: the parse-free byte walk
+    // (with its per-event fallbacks) vs the simd path, and inline vs deferred-parallel images.
     for byte_walk in [true, false] {
-        let mut bytes = payload.as_bytes().to_vec();
-        let stream = anonymize_kafka_payload_opts(allow, &mut bytes, AnonymizeOpts { byte_walk });
-        match (&stream, &tree) {
-            (Ok(s), Ok(t)) => {
-                let s_lines = parse_lines(&s.lines);
-                let t_lines = parse_lines(&t.lines);
-                assert_eq!(
-                    s_lines, t_lines,
-                    "lines diverged (walk={byte_walk}): {label}"
-                );
-                assert_eq!(s.meta, t.meta, "meta diverged (walk={byte_walk}): {label}");
+        for image_policy in [ImagePolicy::Inline, ImagePolicy::Parallel] {
+            let mut bytes = payload.as_bytes().to_vec();
+            let stream = anonymize_kafka_payload_opts(
+                allow,
+                &mut bytes,
+                AnonymizeOpts {
+                    byte_walk,
+                    image_policy,
+                },
+            );
+            match (&stream, &tree) {
+                (Ok(s), Ok(t)) => {
+                    let s_lines = parse_lines(&s.lines);
+                    let t_lines = parse_lines(&t.lines);
+                    assert_eq!(
+                        s_lines, t_lines,
+                        "lines diverged (walk={byte_walk}, images={image_policy:?}): {label}"
+                    );
+                    assert_eq!(
+                        s.meta, t.meta,
+                        "meta diverged (walk={byte_walk}, images={image_policy:?}): {label}"
+                    );
+                }
+                (Err(s), Err(t)) => {
+                    assert_eq!(
+                        s.kind, t.kind,
+                        "failure kind diverged (walk={byte_walk}, images={image_policy:?}): {label}"
+                    );
+                }
+                (s, t) => panic!(
+                    "outcome diverged (walk={byte_walk}, images={image_policy:?}) for {label}: stream={:?} tree={:?}",
+                    s.as_ref().map(|m| parse_lines(&m.lines)),
+                    t.as_ref().map(|m| parse_lines(&m.lines)),
+                ),
             }
-            (Err(s), Err(t)) => {
-                assert_eq!(
-                    s.kind, t.kind,
-                    "failure kind diverged (walk={byte_walk}): {label}"
-                );
-            }
-            (s, t) => panic!(
-                "outcome diverged (walk={byte_walk}) for {label}: stream={:?} tree={:?}",
-                s.as_ref().map(|m| parse_lines(&m.lines)),
-                t.as_ref().map(|m| parse_lines(&m.lines)),
-            ),
         }
     }
 }

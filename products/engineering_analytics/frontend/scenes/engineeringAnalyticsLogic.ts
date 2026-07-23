@@ -34,6 +34,7 @@ import {
 } from '../generated/api'
 import type {
     BrokenTestRowApi,
+    FlakyTestItemClassificationEnumApi,
     GitHubSourceApi,
     PullRequestListItemApi,
     PushCISampleApi,
@@ -53,7 +54,7 @@ export const PR_TABLE_LIMIT = 1000
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
 
-// Mirrors the endpoint's maximum so the UI can paginate every returned leaderboard row.
+// Mirrors the endpoint's maximum so the UI can paginate every returned queue row.
 export const FLAKY_TEST_LIMIT = 200
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -443,31 +444,29 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
-/** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
+/** Test-health windows the UI offers; the endpoint accepts any window up to 30 days. */
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
+export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
 
 export interface FlakyTestRow {
-    /** Reconstructed pytest nodeid (the CI span name) — a stable grouping/display key. */
+    /** Reconstructed pytest nodeid (the CI span name): a stable grouping/display key. */
     nodeid: string
     /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
-    /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
-    rerunPassedCount: number
-    /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
-    failedCount: number
-    /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
+    classification: FlakyTestClassification
+    /** Runs where an in-job retry recovered the test after failing: the only proof of flakiness here. */
+    rerunPassedRunCount: number
+    failedRunCount: number
     failedPrCount: number
-    /** Failed/error spans on the default branch (master/main) — the "matters right now" signal. */
-    masterFailedCount: number
-    /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
-    xfailedCount: number
-    lastSeenAt: string
+    masterFailedRunCount: number
+    quarantinedFailedRunCount: number
+    lastSignalAt: string
 }
 
 export interface FlakyTestsData {
     rows: FlakyTestRow[]
-    /** True when more tests qualified than the cap; rows are the strongest `limit`. */
+    /** True when more tests qualified than the cap; rows are the highest-ranked `limit`. */
     truncated: boolean
     limit: number
 }
@@ -551,29 +550,28 @@ export interface QuarantineModalState {
     owner: string
     issue: string
     mode: QuarantineMode
-    /** Glanceable confirm presentation for prefilled openers (leaderboard rows); 'Edit details' switches to the form. */
+    /** Glanceable confirm presentation for prefilled openers (queue rows); 'Edit details' switches to the form. */
     confirm?: boolean
 }
 
-/** Data-backed quarantine reason from a leaderboard row — the evidence is the reason; the
+/** Data-backed quarantine reason from a queue row: the evidence is the reason; the
  *  cause is unknown until someone investigates, which is the tracking issue's job. */
 export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
     const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
     const parts: string[] = []
-    if (row.rerunPassedCount > 0) {
-        parts.push(`passed on retry ${row.rerunPassedCount}x`)
+    if (row.rerunPassedRunCount > 0) {
+        parts.push(`recovered on retry in ${pluralize(row.rerunPassedRunCount, 'run')}`)
     }
-    if (row.failedCount > 0) {
-        parts.push(
-            row.failedPrCount > 0
-                ? `failed ${row.failedCount}x across ${pluralize(row.failedPrCount, 'PR')}`
-                : `failed ${row.failedCount}x`
-        )
+    if (row.failedRunCount > 0) {
+        parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
     }
-    if (row.xfailedCount > 0) {
-        parts.push(`failed while quarantined ${row.xfailedCount}x`)
+    if (row.failedPrCount > 0) {
+        parts.push(`hit ${pluralize(row.failedPrCount, 'PR')}`)
     }
-    return `Flaky in CI: ${parts.join(', ')} in the last ${windowLabel}`
+    if (row.masterFailedRunCount > 0) {
+        parts.push(`broke master in ${pluralize(row.masterFailedRunCount, 'run')}`)
+    }
+    return `CI evidence: ${parts.join(', ')} in the last ${windowLabel}`
 }
 
 /** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
@@ -1184,12 +1182,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 (it): FlakyTestRow => ({
                                     nodeid: it.nodeid,
                                     selector: it.selector,
-                                    rerunPassedCount: it.rerun_passed_count,
-                                    failedCount: it.failed_count,
+                                    classification: it.classification,
+                                    rerunPassedRunCount: it.rerun_passed_run_count,
+                                    failedRunCount: it.failed_run_count,
                                     failedPrCount: it.failed_pr_count,
-                                    masterFailedCount: it.master_failed_count,
-                                    xfailedCount: it.xfailed_count,
-                                    lastSeenAt: it.last_seen_at,
+                                    masterFailedRunCount: it.master_failed_run_count,
+                                    quarantinedFailedRunCount: it.quarantined_failed_run_count,
+                                    lastSignalAt: it.last_signal_at,
                                 })
                             ),
                             truncated: data.truncated,
@@ -1373,7 +1372,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantineFailure: () => true,
                 },
             ],
-            // Leaderboard window; transient like the other lenses (no persisted UI in this phase).
+            // Test-health window; transient like the other lenses (no persisted UI in this phase).
             flakyTestWindow: [
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
@@ -1381,7 +1380,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Prototype panel hides the low-signal PR-only failures by default.
             showPrOnlyBrokenTests: [false, { setShowPrOnlyBrokenTests: (_, { show }) => show }],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
-            // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
+            // "connect a source" gate; only a real 'error' surfaces the queue's own banner.
             flakyTestsStatus: [
                 'ok' as LoaderStatus,
                 {
