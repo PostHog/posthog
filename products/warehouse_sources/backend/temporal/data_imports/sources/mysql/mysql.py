@@ -1390,9 +1390,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             if not rows:
                                 return None
                             column_names = [column[0] for column in cursor.description or []]
-                            return table_from_iterator(
-                                (dict(zip(column_names, row)) for row in rows), arrow_schema
-                            )
+                            return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
                     yield from iter_keyset_pages(
                         builder=_QUERY_BUILDER,
