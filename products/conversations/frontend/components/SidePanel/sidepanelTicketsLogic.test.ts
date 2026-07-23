@@ -1,13 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { CONVERSATIONS_MESSAGE_MAX_LENGTH, sidepanelTicketsLogic } from './sidepanelTicketsLogic'
+import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 describe('sidepanelTicketsLogic', () => {
     let logic: ReturnType<typeof sidepanelTicketsLogic.build>

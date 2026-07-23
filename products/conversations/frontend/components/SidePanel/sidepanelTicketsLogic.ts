@@ -15,7 +15,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { appendExceptionToMessage, supportLogic } from 'lib/components/Support/supportLogic'
+import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -33,8 +33,6 @@ import type {
 } from '../../types'
 
 const POLL_INTERVAL = 60 * 1000 // 60 seconds
-
-export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
 
 function removeRestoreTokenFromUrl(): void {
     if ('ph_conv_restore' in router.values.searchParams) {
@@ -436,10 +434,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!values.isEnabled || !content.trim() || values.messageSending || !posthog.conversations) {
                 return
             }
-            if (content.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
-                lemonToast.error(
-                    `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
-                )
+            if (warnIfMessageTooLong(content)) {
                 return
             }
             actions.setMessageSending(true)

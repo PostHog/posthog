@@ -8,7 +8,12 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { initKeaTests } from '~/test/init'
 import { OrganizationBasicType, Region, SidePanelTab, TeamPublicType } from '~/types'
 
-import { getPublicSupportSnippet, SupportFormFields, supportLogic } from './supportLogic'
+import {
+    CONVERSATIONS_MESSAGE_MAX_LENGTH,
+    getPublicSupportSnippet,
+    SupportFormFields,
+    supportLogic,
+} from './supportLogic'
 import * as SupportModal from './SupportModal'
 
 // supportLogic and SupportModal import each other, so jest.mock('./SupportModal') leaves supportLogic
@@ -214,6 +219,22 @@ describe('supportLogic', () => {
 
             expect(sendMessage).toHaveBeenCalledTimes(1)
             expect(sendMessage.mock.calls[0][0]).toBe('Just a message')
+        })
+
+        it('blocks an over-limit message client-side without sending or falling back to Zendesk', async () => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
+            enableConversationsFlag()
+
+            await logic.asyncActions.submitSupportTicket({
+                ...FORM_FIELDS,
+                message: 'a'.repeat(CONVERSATIONS_MESSAGE_MAX_LENGTH + 1),
+            })
+
+            // Guarded before it leaves the browser: no widget send, and no Zendesk double-file
+            expect(sendMessage).not.toHaveBeenCalled()
+            expect(zendeskCalls()).toHaveLength(0)
+            expect(logic.values.lastSubmittedTicketId).toBeNull()
         })
 
         it('does not fall back to Zendesk when sendMessage throws, to avoid double-filing', async () => {
