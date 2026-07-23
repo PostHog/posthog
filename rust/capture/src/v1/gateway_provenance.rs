@@ -16,13 +16,11 @@ use serde_json::{Map, Value};
 use crate::gateway_provenance as shared;
 
 pub use crate::gateway_provenance::Provenance;
+pub use crate::gateway_provenance::VERIFIED_PROPERTY;
 
 use super::constants::{
     POSTHOG_AI_GATEWAY_REQUEST_ID, POSTHOG_AI_GATEWAY_SIGNATURE, POSTHOG_AI_GATEWAY_SIGNED_AT,
 };
-
-const GATEWAY_PREFIX: &str = "$ai_gateway";
-pub const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 
 /// Stamped from the signed header (not the client value) so billing can dedup
 /// exemptions by it.
@@ -38,7 +36,7 @@ const GATEWAY_KEY_NEEDLE: &str = "\"$ai_gateway";
 const _: () = assert!(
     {
         let needle = GATEWAY_KEY_NEEDLE.as_bytes();
-        let prefix = GATEWAY_PREFIX.as_bytes();
+        let prefix = shared::GATEWAY_PREFIX.as_bytes();
         let mut ok = needle.len() == prefix.len() + 1 && needle[0] == b'"';
         let mut i = 0;
         while i < prefix.len() {
@@ -96,7 +94,7 @@ pub fn stamp_verified(props: &mut Map<String, Value>, request_id: &str) {
 
 /// Removes the whole `$ai_gateway*` namespace so a forged marker can't reach billing.
 pub fn strip_gateway(props: &mut Map<String, Value>) {
-    props.retain(|k, _| !k.starts_with(GATEWAY_PREFIX));
+    props.retain(|k, _| !k.starts_with(shared::GATEWAY_PREFIX));
 }
 
 /// Cheap raw-bytes pre-check: does the property object plausibly carry a
@@ -158,7 +156,7 @@ fn scan_for_escaped_gateway_key(raw: &str) -> bool {
 /// `$ai_gateway` prefix. Any non-`\u` escape, or a `\u` codepoint outside ASCII,
 /// can't be part of the all-ASCII prefix, so it's a mismatch.
 fn key_starts_with_gateway(content: &[u8]) -> bool {
-    let target = GATEWAY_PREFIX.as_bytes();
+    let target = shared::GATEWAY_PREFIX.as_bytes();
     let mut ti = 0;
     let mut i = 0;
     while ti < target.len() {

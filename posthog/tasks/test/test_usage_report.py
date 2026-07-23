@@ -1552,6 +1552,7 @@ class TestQueryUsageReportSQL:
     ) -> None:
         from posthog.tasks.usage_report import (
             GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+            GATEWAY_SPONSORSHIP_LOOKAROUND,
             get_teams_with_ai_event_count_in_period,
         )
 
@@ -1567,13 +1568,14 @@ class TestQueryUsageReportSQL:
         sponsor_query = mock_sync_execute.call_args_list[1].args[0]
         sponsor_params = mock_sync_execute.call_args_list[1].args[1]
         assert "max(relay) AS has_verified_relay" in base_query
-        assert "row_number() OVER (PARTITION BY team_id, trace_id ORDER BY timestamp, event, span_id)" in sponsor_query
-        assert "countIf(relay_rank <= generation_count * %(allowance)s AND timestamp >= %(begin)s" in sponsor_query
+        assert "countIf(event_timestamp < %(begin)s) AS events_before_period" in sponsor_query
+        assert "countIf(timestamp >= %(begin)s AND timestamp < %(end)s) AS events_in_period" in sponsor_query
+        assert "events_before_period >= generation_count * %(allowance)s" in sponsor_query
         assert sponsor_query.count("team_id IN %(relayed_team_ids)s") == 2
         assert sponsor_params["allowance"] == GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION
         assert sponsor_params["relayed_team_ids"] == [1]
-        assert sponsor_params["sponsor_begin"] == begin - timedelta(days=1)
-        assert sponsor_params["sponsor_end"] == end + timedelta(days=1)
+        assert sponsor_params["sponsor_begin"] == begin - GATEWAY_SPONSORSHIP_LOOKAROUND
+        assert sponsor_params["sponsor_end"] == end + GATEWAY_SPONSORSHIP_LOOKAROUND
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -5902,7 +5904,19 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 "$ai_trace_id": trace_id,
             },
         )
-        for index in range(GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION + 1):
+        for request_id in ("gateway-request-2", "gateway-request-2"):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin - relativedelta(minutes=30),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+        for index in range(2 * GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION + 1):
             _create_event(
                 event="$ai_span",
                 team=self.team,
@@ -5945,7 +5959,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(
             ai_count(),
             baseline_count + 4,
-            "one overage, two replay copies, and one unmatched span stay billable",
+            "one overage, two span replays, and one unmatched span stay billable",
         )
 
     def test_gateway_sponsorship_allowance_is_shared_across_adjacent_periods(self) -> None:
