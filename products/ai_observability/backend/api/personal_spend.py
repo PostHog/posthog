@@ -584,6 +584,11 @@ def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     return {"items": rows[:limit], "truncated": len(rows) > limit}
 
 
+def _share_of(value: float, scoped: float) -> float:
+    """Fraction of scoped cost in `[0, 1]`, guarding the empty-window (`scoped == 0`) case."""
+    return (value / scoped) if scoped > 0 else 0.0
+
+
 def _fetch_summary(
     team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
 ) -> dict[str, Any]:
@@ -1079,12 +1084,12 @@ def _compute_spend_analysis(
         # reconcile to (at most) 1 -- see `cost_attributed_usd`'s help_text for why it can
         # land slightly under 1 rather than exactly at it.
         for row in by_tool["items"]:
-            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
-            row["share_attributed"] = (row["cost_attributed_usd"] / scoped) if scoped > 0 else 0.0
+            row["share_of_scoped"] = _share_of(row["cost_usd"], scoped)
+            row["share_attributed"] = _share_of(row["cost_attributed_usd"], scoped)
 
         by_input_size = _fetch_by_input_size(team, email, from_dt, to_dt, product)
         for row in by_input_size["items"]:
-            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
+            row["share_of_scoped"] = _share_of(row["cost_usd"], scoped)
 
         payload = {
             "summary": summary,
