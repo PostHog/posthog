@@ -30,14 +30,16 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
             },
             "classification": {
-                "help_text": "confirmed_flake: an in-job retry recovered the test in the same run, so it is "
-                "provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: "
-                "only failures were recorded, which is absence of proof, not proof that it is a real break.",
+                "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
+                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it "
+                "fails while masked as xfail. suspected_regression: only failures were recorded, which is "
+                "absence of proof, not proof that it is a real break.",
             },
-            "rerun_passed_run_count": {
-                "help_text": "Runs where an in-job pytest retry recovered the test after it failed. Above zero is "
-                "the only proof of flakiness this data carries, and it reaches only tests hand-marked "
-                "@pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures stay visible.",
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed the test: a 'Re-run failed jobs' "
+                "attempt went green on the same commit, or an in-job pytest retry (tests hand-marked "
+                "@pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit "
+                "and never counts.",
             },
             "failed_run_count": {
                 "help_text": "Distinct CI runs whose recorded outcome was failed or error. A run counts once "
