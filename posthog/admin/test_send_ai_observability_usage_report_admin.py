@@ -49,13 +49,24 @@ class TestSendAIObservabilityUsageReportAdmin(BaseTest):
         response, mock_call_command = self._post("2026-07-15")
 
         self.assertEqual(response.status_code, 302)
-        mock_call_command.assert_called_once_with(
-            "send_ai_observability_usage_report", "--date=2026-07-15", "--async=1"
-        )
+        mock_call_command.assert_called_once_with("send_ai_observability_usage_report", "--date=2026-07-15", "--async")
 
     @freeze_time("2026-07-22T12:00:00Z")
     def test_far_future_date_is_rejected_and_not_dispatched(self):
         response, mock_call_command = self._post("2026-07-30")
+
+        self.assertEqual(response.status_code, 200)
+        mock_call_command.assert_not_called()
+
+    def test_get_renders_form_without_dispatching(self):
+        http_request = self.factory.get("/admin/posthog/organization/send-ai-observability-usage-report/")
+        http_request.user = self.user
+        _attach_messages(http_request)
+        with (
+            patch("posthog.admin.admins.organization_admin.reverse", side_effect=_fake_reverse),
+            patch("posthog.admin.admins.organization_admin.call_command") as mock_call_command,
+        ):
+            response = self.admin.send_ai_observability_usage_report_view(http_request)
 
         self.assertEqual(response.status_code, 200)
         mock_call_command.assert_not_called()

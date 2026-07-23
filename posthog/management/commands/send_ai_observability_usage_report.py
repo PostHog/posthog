@@ -10,9 +10,9 @@ class Command(BaseCommand):
     help = "Send the AI observability usage report for a given day"
 
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--dry-run", type=bool, help="Print information instead of sending it")
+        parser.add_argument("--dry-run", action="store_true", help="Print information instead of sending it")
         parser.add_argument("--date", type=str, help="The date to be run in format YYYY-MM-DD")
-        parser.add_argument("--async", type=bool, help="Run the task asynchronously")
+        parser.add_argument("--async", action="store_true", help="Run the task asynchronously")
         parser.add_argument(
             "--org-ids",
             type=str,
@@ -35,6 +35,7 @@ class Command(BaseCommand):
                 at=date,
                 organization_ids=organization_ids,
             )
+            print("Queued!")  # noqa: T201
         else:
             send_ai_observability_usage_reports(
                 dry_run=dry_run,
@@ -44,8 +45,7 @@ class Command(BaseCommand):
 
             if dry_run:
                 print("Dry run so not sent.")  # noqa: T201
-
-        if organization_ids:
-            print(f"Done! Processed {len(organization_ids)} organization(s).")  # noqa: T201
-        else:
-            print("Done!")  # noqa: T201
+            elif organization_ids:
+                print(f"Done! Processed {len(organization_ids)} organization(s).")  # noqa: T201
+            else:
+                print("Done!")  # noqa: T201

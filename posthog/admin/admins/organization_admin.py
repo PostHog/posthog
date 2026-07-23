@@ -563,7 +563,7 @@ class OrganizationAdmin(admin.ModelAdmin):
             if form.is_valid():
                 report_date = form.cleaned_data["report_date"]
                 call_command(
-                    "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async=1"
+                    "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
                 )
                 messages.success(request, f"AI observability usage report for date {report_date} was queued.")
                 return redirect(reverse("admin:posthog_organization_changelist"))
