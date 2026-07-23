@@ -9,7 +9,6 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { withInformationalResponse } from '@/tools/tool-utils'
 import {
     createExecTool,
     describeValidationError,
@@ -19,6 +18,7 @@ import {
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
+import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -1172,6 +1172,24 @@ describe('exec tool', () => {
             const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
+        })
+
+        // The entity-search redirect must only steer at `system.information_schema.metrics`
+        // when the governed-metrics tool is actually registered — otherwise flag-off orgs
+        // get pointed at a catalog table they can't query.
+        it('adds governed-metrics steering to the entity-search redirect only when data-catalog-metric-run is registered', async () => {
+            const withCatalog = createExec([makeMockTool({ name: 'data-catalog-metric-run' })])
+            await expect(withCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /system\.information_schema\.metrics/
+            )
+
+            const withoutCatalog = createExec([makeMockTool()])
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /was removed/
+            )
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.not.toThrow(
+                /system\.information_schema\.metrics/
+            )
         })
     })
 

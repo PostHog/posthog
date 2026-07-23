@@ -18,7 +18,7 @@ export function OrganizationSecuritySettings(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { updateOrganization } = useActions(organizationLogic)
 
-    const allowPubliclySharedResourcesRestrictionReason = useRestrictedArea({
+    const adminRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
@@ -70,7 +70,25 @@ export function OrganizationSecuritySettings(): JSX.Element | null {
                             updateOrganization({ allow_publicly_shared_resources })
                         }
                     }}
-                    disabledReason={allowPubliclySharedResourcesRestrictionReason}
+                    disabledReason={adminRestrictionReason}
+                />
+                <LemonSwitch
+                    label={
+                        <span>
+                            Members can see the full member list{' '}
+                            <Tooltip title="When disabled, only admins and owners can see all organization members. Members will only see themselves in the members list, and only people with project access in a project's access control.">
+                                <IconInfo className="mr-1" />
+                            </Tooltip>
+                        </span>
+                    }
+                    bordered
+                    className="mt-2"
+                    data-attr="org-members-can-see-org-members-toggle"
+                    checked={currentOrganization?.members_can_see_org_members ?? true}
+                    onChange={(members_can_see_org_members) => {
+                        updateOrganization({ members_can_see_org_members })
+                    }}
+                    disabledReason={adminRestrictionReason}
                 />
             </PayGateMini>
         </>

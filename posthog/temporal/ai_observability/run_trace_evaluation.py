@@ -62,7 +62,6 @@ from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
-    increment_trial_usage_and_notify,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
@@ -481,6 +480,10 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunTraceEvaluationInputs) -> WorkflowResult:
+        # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
+        # histories for one release, then delete this call (temporal-workflow-versioning rule).
+        temporalio.workflow.deprecate_patch("remove-trial-evals")
+
         window_start = temporalio.workflow.now()
 
         # Wait for the rest of the trace to arrive. Timers are server-side, so sleeping
@@ -541,14 +544,6 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
                 if handled is not None:
                     return handled
                 raise
-
-            # Replay-only; see increment_trial_usage_and_notify.
-            if (
-                not temporalio.workflow.patched("remove-trial-evals")
-                and not result.get("is_byok")
-                and not result.get("skipped")
-            ):
-                await increment_trial_usage_and_notify(evaluation)
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(

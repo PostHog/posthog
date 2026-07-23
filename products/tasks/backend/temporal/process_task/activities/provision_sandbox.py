@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
+from django.utils import timezone
 
 from temporalio import activity
 
@@ -18,6 +19,7 @@ from products.tasks.backend.logic.services.connection_token import (
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -570,6 +572,9 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
 
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
+            # The provider's TTL clock starts here — the usage ledger anchors its
+            # kill deadline on this boundary, not on when the row is opened below.
+            sandbox_created_at = timezone.now()
             actual_used_snapshot = bool(
                 (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
             )
@@ -602,6 +607,13 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         except Exception:
             sandbox.destroy()
             raise
+
+        # Best-effort usage-ledger row (swallows its own failures). After the state
+        # write on purpose: the except branch above destroys sandboxes that never
+        # became reachable, and those must not enter the ledger.
+        open_sandbox_session(
+            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
+        )
 
         emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")
