@@ -17,6 +17,7 @@ from products.tasks.backend.constants import (
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
@@ -767,6 +768,49 @@ class TestGetTaskProcessingContextActivity:
 
         payload_mock.assert_not_called()
 
+    def test_modal_vm_sandbox_restricted_egress_overrides_default_base(self):
+        # Restricted egress must win over the default-base allowlist: VM can't enforce Modal's
+        # outbound domain allowlist, so a default-base origin with a custom domain list stays on
+        # gVisor and the flag is never consulted (the egress gate returns before the fetch).
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ) as payload_mock:
+            assert (
+                _is_modal_vm_sandbox_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="user_created",
+                    allowed_domains=["github.com"],
+                )
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
+        # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
+        # would place this origin on the VM base; the bool override also skips the flag fetch.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ) as payload_mock:
+            assert (
+                _is_modal_vm_sandbox_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="user_created",
+                    allowed_domains=None,
+                    custom_image_available=True,
+                    state={"use_modal_vm_sandbox": False},
+                )
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
     @pytest.mark.parametrize(
         "origin_product, payload, custom_image_available, expected",
         [
@@ -779,6 +823,25 @@ class TestGetTaskProcessingContextActivity:
             ("user_created", {"origin_products": ["signals_scout"]}, True, False),
             ("user_created", '{"origin_products": ["user_created"]}', False, False),
             ("user_created", '{"origin_products": ["user_created"]}', True, True),
+            # default_base_origin_products: listed origins run on the bare VM base image
+            # with no custom image at all — the "VM as default" rollout knob.
+            (
+                "user_created",
+                {"origin_products": ["user_created"], "default_base_origin_products": ["user_created"]},
+                False,
+                True,
+            ),
+            # default-base alone (no origin_products) is enough for a no-custom-image run.
+            ("user_created", {"default_base_origin_products": ["user_created"]}, False, True),
+            # the waiver is scoped per origin — an unlisted origin still gets gVisor.
+            ("signals_scout", {"default_base_origin_products": ["user_created"]}, False, False),
+            # origin_products membership alone does NOT waive the custom-image requirement.
+            (
+                "user_created",
+                {"origin_products": ["user_created"], "default_base_origin_products": ["signals_scout"]},
+                False,
+                False,
+            ),
         ],
     )
     def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, custom_image_available, expected):
@@ -812,6 +875,23 @@ class TestGetTaskProcessingContextActivity:
     )
     def test_vm_sandbox_allowed_origin_products_parsing(self, payload, expected):
         assert vm_sandbox_allowed_origin_products(payload) == expected
+
+    @pytest.mark.parametrize(
+        "payload, expected",
+        [
+            (None, set()),
+            ({"default_base_origin_products": ["user_created"]}, {"user_created"}),
+            ('{"default_base_origin_products": ["a", "b"]}', {"a", "b"}),
+            # Distinct from vm_sandbox_allowed_origin_products: read only from the explicit
+            # dict key, and a bare list is never an opt-in (it keeps origin_products meaning).
+            ({"origin_products": ["user_created"]}, set()),
+            (["user_created"], set()),
+            ("not-json", set()),
+            ({"default_base_origin_products": [1, 2]}, set()),
+        ],
+    )
+    def test_vm_sandbox_default_base_origin_products_parsing(self, payload, expected):
+        assert vm_sandbox_default_base_origin_products(payload) == expected
 
     @pytest.mark.parametrize(
         "state,expected",

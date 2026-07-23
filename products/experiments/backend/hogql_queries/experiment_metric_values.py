@@ -63,7 +63,7 @@ def build_session_conversion_window_predicate(conversion_window_seconds: int) ->
         return parse_expr(
             """
             metric_events_by_session.first_event_timestamp
-                < exposures.last_exposure_time + toIntervalSecond({conversion_window_seconds})
+                < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
             """,
             placeholders={
                 "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
@@ -85,7 +85,7 @@ def build_conversion_window_predicate_for_events(events_alias: str, conversion_w
             f"""
             {events_alias}.timestamp >= exposures.first_exposure_time
             AND {events_alias}.timestamp
-                < exposures.last_exposure_time + toIntervalSecond({{conversion_window_seconds}})
+                < exposures.first_exposure_time + toIntervalSecond({{conversion_window_seconds}})
             """,
             placeholders={
                 "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),

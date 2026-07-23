@@ -8,6 +8,7 @@ from llm_gateway.api.handler import ProviderError
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import Settings
 from llm_gateway.glm_routing import (
+    normalize_glm_anthropic_request,
     send_glm_anthropic_messages,
     send_glm_chat_completions,
     send_glm_responses,
@@ -46,6 +47,7 @@ async def _send(
     flag: bool | None = None,
     send_fn: Any = send_glm_anthropic_messages,
     product: str = PRODUCT,
+    request_data: dict[str, Any] | None = None,
 ) -> tuple[Any, AsyncMock]:
     evaluate = AsyncMock(return_value=flag)
     with (
@@ -54,7 +56,7 @@ async def _send(
         patch("llm_gateway.glm_routing.evaluate_flag", evaluate),
     ):
         result = await send_fn(
-            {"model": GLM_MODEL, "messages": [{"role": "user", "content": "hi"}]},
+            request_data or {"model": GLM_MODEL, "messages": [{"role": "user", "content": "hi"}]},
             _user(),
             False,
             product,
@@ -74,6 +76,49 @@ async def test_routes_to_cloudflare_by_default() -> None:
     # The public model id must reach handle_llm_request unchanged — it drives metrics and the
     # unsupported-model gate.
     assert handle.call_args.kwargs["model"] == GLM_MODEL
+
+
+@pytest.mark.parametrize("effort", ["high", "max"])
+async def test_normalizes_supported_reasoning_effort_for_anthropic_requests(effort: str) -> None:
+    request = {
+        "model": GLM_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+        "output_config": {"effort": effort},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+    }
+    handle = AsyncMock(return_value={"ok": True})
+
+    await _send(_settings(), handle, request_data=request)
+
+    assert handle.call_args.kwargs["request_data"] == {
+        **request,
+        "thinking": {"type": "adaptive"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("edits", "expected_context_management"),
+    [
+        ([{"type": "clear_thinking_20251015", "keep": "all"}], None),
+        (
+            [
+                {"type": "clear_thinking_20251015", "keep": "all"},
+                {"type": "clear_tool_uses_20250919"},
+            ],
+            {"edits": [{"type": "clear_tool_uses_20250919"}]},
+        ),
+    ],
+)
+def test_drops_clear_thinking_when_thinking_is_not_enabled(
+    edits: list[dict[str, str]], expected_context_management: dict[str, Any] | None
+) -> None:
+    request = {
+        "model": GLM_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+        "context_management": {"edits": edits},
+    }
+
+    assert normalize_glm_anthropic_request(request).get("context_management") == expected_context_management
 
 
 async def test_routes_to_modal_when_fraction_one_without_flag_roundtrip() -> None:

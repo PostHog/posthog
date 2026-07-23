@@ -113,6 +113,10 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         AccessControlResourceType.Export,
         AccessControlLevel.Editor
     )
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
@@ -230,6 +234,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                     <SceneMenuBarItem
                                         onClick={() => push(urls.insightSharing(insight.short_id!))}
                                         data-attr={`${RESOURCE_TYPE}-menubar-share`}
+                                        disabled={!!sharingDisabledReason}
+                                        tooltip={sharingDisabledReason ?? undefined}
                                     >
                                         <IconShare />
                                         Share or embed

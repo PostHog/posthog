@@ -762,6 +762,15 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         isShared: boolean
     }
+    reportDashboardTileIgnoreDashboardFiltersToggled: (
+        dashboardId: number | undefined,
+        insightId: number | null,
+        ignored: boolean
+    ) => {
+        dashboardId: number | undefined
+        ignored: boolean
+        insightId: number | null
+    }
     reportDashboardTileInsertedInline: (
         tileType: DashboardAddTileType,
         column: number,
@@ -1316,6 +1325,16 @@ export interface eventUsageLogicActions {
     reportInsightDateRangeChanged: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
+    reportInsightDraftDiscarded: (draftAgeSeconds: number) => {
+        draftAgeSeconds: number
+    }
+    reportInsightDraftRestored: (
+        surface: 'insight_editor' | 'saved_insights',
+        draftAgeSeconds: number
+    ) => {
+        draftAgeSeconds: number
+        surface: 'insight_editor' | 'saved_insights'
+    }
     reportInsightDragToZoomed: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
@@ -1672,8 +1691,12 @@ export interface eventUsageLogicActions {
     reportSavedInsightFilterUsed: (filterKeys: string[]) => {
         filterKeys: string[]
     }
-    reportSavedInsightNewInsightClicked: (insightType: string) => {
+    reportSavedInsightNewInsightClicked: (
+        insightType: string,
+        presetKey?: string
+    ) => {
         insightType: string
+        presetKey: string | undefined
     }
     reportSavedInsightTabChanged: (tab: string) => {
         tab: string
@@ -2095,6 +2118,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ dashboard, changeType, properties }),
+        reportDashboardTileIgnoreDashboardFiltersToggled: (
+            dashboardId: number | undefined,
+            insightId: number | null,
+            ignored: boolean
+        ) => ({ dashboardId, insightId, ignored }),
         reportDashboardLayoutZoomChanged: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             layoutZoom: number,
@@ -2256,7 +2284,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ fromDashboardId, toDashboardId, tileType }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
-        reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
+        reportSavedInsightNewInsightClicked: (insightType: string, presetKey?: string) => ({
+            insightType,
+            presetKey,
+        }),
+        reportInsightDraftRestored: (surface: 'saved_insights' | 'insight_editor', draftAgeSeconds: number) => ({
+            surface,
+            draftAgeSeconds,
+        }),
+        reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -3038,6 +3074,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...properties,
             })
         },
+        reportDashboardTileIgnoreDashboardFiltersToggled: async ({ dashboardId, insightId, ignored }) => {
+            posthog.capture('dashboard tile ignore dashboard filters toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                ignored,
+            })
+        },
         reportDashboardLayoutZoomChanged: async ({ dashboard, layoutZoom, source }) => {
             posthog.capture('dashboard layout zoom changed', {
                 dashboard_id: dashboard?.id,
@@ -3300,8 +3343,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
         },
-        reportSavedInsightNewInsightClicked: ({ insightType }) => {
-            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
+        reportInsightDraftRestored: ({ surface, draftAgeSeconds }) => {
+            posthog.capture('insight draft restored', { surface, draft_age_seconds: draftAgeSeconds })
+        },
+        reportInsightDraftDiscarded: ({ draftAgeSeconds }) => {
+            posthog.capture('insight draft discarded', { draft_age_seconds: draftAgeSeconds })
+        },
+        reportSavedInsightNewInsightClicked: ({ insightType, presetKey }) => {
+            posthog.capture('saved insights new insight clicked', {
+                insight_type: insightType,
+                ...(presetKey ? { preset_key: presetKey } : {}),
+            })
         },
         reportPersonSplit: (props) => {
             posthog.capture('split person started', props)

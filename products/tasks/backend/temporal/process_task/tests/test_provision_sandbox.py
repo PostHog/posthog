@@ -1,16 +1,21 @@
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
+    CheckoutBranchInSandboxInput,
+    CheckoutBranchInSandboxOutput,
     PrepareSandboxForRepositoryOutput,
     _build_environment_variables,
     _build_sandbox_tags,
     _to_modal_domain_allowlist,
+    checkout_branch_in_sandbox,
 )
 
 _PROVISION = "products.tasks.backend.temporal.process_task.activities.provision_sandbox"
@@ -127,6 +132,46 @@ def test_build_sandbox_tags_drops_none_values():
 )
 def test_to_modal_domain_allowlist_resolves_exact_list(allowed_domains, expected):
     assert _to_modal_domain_allowlist(allowed_domains) == expected
+
+
+@patch(f"{_PROVISION}.emit_agent_log")
+@patch(f"{_PROVISION}.Sandbox.get_by_id")
+@pytest.mark.parametrize(
+    "used_snapshot, expected_checkout",
+    [
+        (False, "git checkout -B new-task-branch HEAD"),
+        (True, "git fetch --depth 1 origin -- HEAD && git checkout -B new-task-branch FETCH_HEAD"),
+    ],
+)
+def test_checkout_branch_creates_missing_branch_from_current_default_branch(
+    mock_get_sandbox, _mock_emit_agent_log, used_snapshot, expected_checkout
+):
+    sandbox = mock_get_sandbox.return_value
+
+    def execute(command, **_kwargs):
+        exit_code = 2 if "git ls-remote" in command else 0
+        return ExecutionResult(stdout="", stderr="", exit_code=exit_code)
+
+    sandbox.execute.side_effect = execute
+    activity_body = cast(
+        Callable[[CheckoutBranchInSandboxInput], CheckoutBranchInSandboxOutput],
+        vars(checkout_branch_in_sandbox)["__wrapped__"],
+    )
+
+    activity_body(
+        CheckoutBranchInSandboxInput(
+            context=_context(),
+            sandbox_id="sandbox-123",
+            repository="posthog/posthog",
+            branch="new-task-branch",
+            github_token="token",
+            shallow_clone=True,
+            used_snapshot=used_snapshot,
+        )
+    )
+
+    checkout_command = sandbox.execute.call_args_list[-1].args[0]
+    assert expected_checkout in checkout_command
 
 
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
