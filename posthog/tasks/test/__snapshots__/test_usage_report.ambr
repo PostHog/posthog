@@ -1440,12 +1440,15 @@
   
   SELECT team_id,
          COUNT() - uniqExactIf(request_id, verified
-                               AND request_id != '') as count
+                               AND request_id != '') AS count,
+         max(relay) AS has_verified_relay
   FROM
     (SELECT team_id,
             replaceRegexpAll(JSONExtractRaw(properties, '$ai_gateway_verified'), '^"|"$', '') IN ('true',
-                                                                                                  '1') as verified,
-                                                                                                 if(verified, replaceRegexpAll(JSONExtractRaw(properties, '$ai_gateway_request_id'), '^"|"$', ''), '') as request_id
+                                                                                                  '1') AS verified,
+                                                                                                 if(verified, replaceRegexpAll(JSONExtractRaw(properties, '$ai_gateway_request_id'), '^"|"$', ''), '') AS request_id,
+                                                                                                 if(verified, replaceRegexpAll(JSONExtractRaw(properties, '$ai_gateway_relay'), '^"|"$', ''), '') IN ('true',
+                                                                                                                                                                                                      '1') AS relay
      FROM events
      WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
        AND timestamp >= '2022-01-10 00:00:00'
