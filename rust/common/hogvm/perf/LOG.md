@@ -397,3 +397,30 @@ this file does not yet contain one.
   0.894 x 0.968 x 0.934 x 0.959 x 0.959 x 0.679 = **~0.505** (~49.5% cumulative
   reduction vs loop start) — **the ~38% stretch-equivalent is exceeded; the loop's
   stop condition fires this iteration.**
+
+## Closing summary (2026-07-23) — loop complete: stretch goal exceeded
+
+- Stop condition: cumulative committed same-machine ratio reached **~0.505** (~49.5%
+  reduction), past the ~38% stretch-equivalent (original-machine 60 us/op). If the
+  ratios transfer, the original M-series baseline of 96.6 us/op maps to ~49 us/op.
+- Committed iterations (ratios multiply): boxing large variants (0.894), HogStr
+  shared-constant pushes (0.968), ahash object maps (0.934), in-place object
+  emplacement (0.959), per-chunk token-slice cache (0.959), jemalloc in the addon
+  (0.679).
+- Rejected hypotheses (kept for posterity, do not re-try): pervasive `Arc<str>`
+  strings (~9% regression); eager `ok_or` with unit VmError variants (~3% regression,
+  lint suppressed crate-wide); solo CallGlobal probe de-allocation (~1%, under gate).
+- Environment learnings for future loops on ephemeral runners are recorded in the
+  session notes above (rolling mmdb snapshot vs pinned fixture, brotli/perf/protoc
+  provisioning, cross-session hardware drift — trust only same-session interleaved
+  A/B ratios).
+- What a further push would need (target already exceeded; for reference): the final
+  profile puts `step` dispatch itself on top (13.4%) with allocation down to ~9% —
+  the remaining levers are structural: superinstruction/threaded dispatch,
+  copy-on-write globals to shrink the per-event JSON round trip, and interned map
+  keys paired with an `Rc`-based string model (the conditions under which the
+  iteration-1 approach could be revisited).
+- Production follow-ups for the human reviewing this branch: wire
+  `registerProgram`/`executeRegisteredSync` into
+  `nodejs/src/cdp/hog-transformations/rust-vm-executor.ts` (still TODO from the
+  pre-loop work), and watch addon RSS after the jemalloc switch.

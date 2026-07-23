@@ -92,6 +92,35 @@ To roughly halve VM time, the value representation needs to stop allocating per 
 4. Hoist elision for immutable scalars in `GetLocal` (verify aliasing semantics against the
    reference VM first).
 
+## Optimization loop results (2026-07-23, ephemeral Linux runner — see LOG.md for full detail)
+
+Six committed changes; cumulative same-machine ratio **~0.505** (~49.5% reduction), past the
+~38% stretch-equivalent. All semantics pinned by the test suites + expected-output fixture.
+
+| Iteration | Change | Same-machine ratio |
+| --- | --- | --- |
+| 2 | Box Object/Callable/Closure payloads (`HogValue` 120 -> 32 bytes) | 0.894 |
+| 3 | `HogStr` two-arm string payload; constant pushes share the token `Arc<str>` | 0.968 |
+| 4 | `HogMap` = IndexMap + ahash (keyed, DoS-resistant) for object maps | 0.934 |
+| 5 | In-place object-child emplacement in `walk_emplacing` | 0.959 |
+| 7 | Per-chunk cached token slice for the fetch path | 0.959 |
+| 8 | jemalloc (workspace `common-alloc`) as the addon's Rust allocator | 0.679 |
+
+Refuted on this hardware (do not re-try; details in LOG.md): pervasive `Arc<str>` strings
+(iteration 1, ~9% regression — atomic churn + added copies), eager `ok_or(VmError::...)` even
+for unit variants (~3% regression), a solo CallGlobal symbol-probe de-allocation (~1%, under
+the 2% gate).
+
+Final profile (jemalloc build): `step` dispatch 13.4%, memmove 4.1, jemalloc alloc+free ~9.4
+(down from ~33 under glibc), indexmap insert 2.8 + rehash 1.5, `json_to_hog` 2.4, memcmp 2.4,
+`walk_emplacing` 1.7, `hog_to_json` 1.5. The interpreter loop itself is now the top cost;
+the next big lever would be structural (superinstruction dispatch, or copy-on-write globals
+so the JSON round trip shrinks) rather than allocation plumbing.
+
+Production rollout notes: the addon now sets jemalloc as the Rust global allocator inside the
+plugin-server process (PostHog Rust standard; watch addon RSS on rollout), and object maps
+hash with keyed ahash (order/equality/serialization unchanged).
+
 ## Guardrails learned the hard way
 
 - `ok_or(...)` evaluates its argument eagerly — never put a VmError constructor in it on a hot
