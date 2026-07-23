@@ -969,7 +969,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 changed = true
             }
             // Persist the field changes; text insertion into the composer is handled separately.
+            // Publish a settle promise so a workflow run from the same quick action waits for the
+            // PATCH to commit before the backend reads the ticket (otherwise it sees stale fields).
             if (changed) {
+                cache.ticketUpdateSettled = new Promise<void>((resolve) => {
+                    cache.resolveTicketUpdate = resolve
+                })
                 actions.updateTicket()
             }
         },
@@ -978,14 +983,29 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (!ticket) {
                 return
             }
+            // Guard against a double-fire kicking off the (non-idempotent) workflow run twice.
+            if (cache.runningWorkflowQuickAction) {
+                return
+            }
+            cache.runningWorkflowQuickAction = true
             try {
+                // Wait out any ticket-field update from the same quick action so the workflow runs
+                // against the updated ticket, not the pre-update state.
+                if (cache.ticketUpdateSettled) {
+                    await cache.ticketUpdateSettled
+                }
                 await conversationsQuickActionsRunCreate(String(getCurrentTeamId()), quickAction.short_id, {
                     ticket_id: ticket.id,
                 })
                 lemonToast.success(`Running "${quickAction.name}"`)
+                // The workflow may change the ticket server-side; refresh so a later local edit
+                // doesn't PATCH over its changes with stale state.
+                actions.loadTicket()
             } catch (error) {
                 posthog.captureException(error)
                 lemonToast.error('Failed to run workflow')
+            } finally {
+                cache.runningWorkflowQuickAction = false
             }
         },
         loadTicket: async () => {
@@ -1085,6 +1105,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
                 }
+                // Release any quick-action workflow run waiting on this PATCH to settle.
+                cache.resolveTicketUpdate?.()
+                cache.resolveTicketUpdate = undefined
+                cache.ticketUpdateSettled = undefined
             }
         },
         loadMessages: async () => {

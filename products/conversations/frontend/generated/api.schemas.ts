@@ -605,11 +605,25 @@ export const SupportPriorityEnumApi = {
 } as const
 
 /**
+ * * `user` - user
+ * * `role` - role
+ */
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
+
+export const AssigneeTypeEnumApi = {
+    User: 'user',
+    Role: 'role',
+} as const
+
+/**
  * Who a quick action assigns the ticket to when applied.
  */
 export interface QuickActionAssigneeApi {
-    /** Assignee kind: "user" or "role". */
-    type: string
+    /** Assignee kind: "user" or "role".
+     *
+     * * `user` - user
+     * * `role` - role */
+    type: AssigneeTypeEnumApi
     /**
      * User id (for type=user) or role id (for type=role). Null clears the assignee.
      * @nullable

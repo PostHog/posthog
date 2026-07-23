@@ -119,6 +119,9 @@ def create_hog_flow_manual_invocation(team_id: int, hog_flow_id: str, payload: d
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/manual_invocations",
         json=payload,
         headers=get_internal_api_headers(),
+        # This runs on a synchronous, user-facing request path (a support agent clicking a quick
+        # action), so bound the wait rather than hang the request if the CDP service is slow.
+        timeout=5,
     )
 
 

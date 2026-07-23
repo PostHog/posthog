@@ -1,17 +1,20 @@
 import { JSONContent } from '@tiptap/core'
 import { Editor } from '@tiptap/react'
 
-import { EditorRange } from 'lib/components/RichContentEditor/types'
+import { EditorRange, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 
 import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import { applyTemplateVariablesToRichContent, TemplateVariableValues } from '../Editor/templateVariables'
 
-/** True if the TipTap tree contains any non-empty text node or a media node worth rendering. */
-function hasVisibleText(node: JSONContent): boolean {
+// Leaf/atom nodes that carry content even though they have no child text (image, @mention).
+const CONTENT_LEAF_TYPES = new Set([RichContentNodeType.Mention, 'image'])
+
+/** True if the TipTap tree contains any non-empty text node or a content-bearing leaf node. */
+export function hasVisibleText(node: JSONContent): boolean {
     if (typeof node.text === 'string' && node.text.length > 0) {
         return true
     }
-    if (node.type === 'image') {
+    if (node.type && CONTENT_LEAF_TYPES.has(node.type)) {
         return true
     }
     return Array.isArray(node.content) && node.content.some(hasVisibleText)

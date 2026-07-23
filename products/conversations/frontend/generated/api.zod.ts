@@ -213,7 +213,10 @@ export const ConversationsQuickActionsCreateBody = /* @__PURE__ */ zod.object({
                 .union([
                     zod
                         .object({
-                            type: zod.string().describe('Assignee kind: \"user\" or \"role\".'),
+                            type: zod
+                                .enum(['user', 'role'])
+                                .describe('\* `user` - user\n\* `role` - role')
+                                .describe('Assignee kind: \"user\" or \"role\".\n\n\* `user` - user\n\* `role` - role'),
                             id: zod
                                 .string()
                                 .nullable()
@@ -302,7 +305,10 @@ export const ConversationsQuickActionsUpdateBody = /* @__PURE__ */ zod.object({
                 .union([
                     zod
                         .object({
-                            type: zod.string().describe('Assignee kind: \"user\" or \"role\".'),
+                            type: zod
+                                .enum(['user', 'role'])
+                                .describe('\* `user` - user\n\* `role` - role')
+                                .describe('Assignee kind: \"user\" or \"role\".\n\n\* `user` - user\n\* `role` - role'),
                             id: zod
                                 .string()
                                 .nullable()
@@ -392,7 +398,10 @@ export const ConversationsQuickActionsPartialUpdateBody = /* @__PURE__ */ zod.ob
                 .union([
                     zod
                         .object({
-                            type: zod.string().describe('Assignee kind: \"user\" or \"role\".'),
+                            type: zod
+                                .enum(['user', 'role'])
+                                .describe('\* `user` - user\n\* `role` - role')
+                                .describe('Assignee kind: \"user\" or \"role\".\n\n\* `user` - user\n\* `role` - role'),
                             id: zod
                                 .string()
                                 .nullable()

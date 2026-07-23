@@ -85,18 +85,23 @@ export const QuickActionsExtension = Extension.create<QuickActionsExtensionOptio
                 // Only trigger when `/` starts a line so it doesn't fire on ordinary reply text
                 // (URLs, "and/or", "24/7"). The toolbar quick-action button handles mid-text insertion.
                 startOfLine: true,
+                // Quick action names have spaces, so keep the query alive across them.
+                allowSpaces: true,
+                // Don't hijack a leading `/` inside a code block, where it's ordinary code.
+                allow: ({ editor }) => !editor.isActive('codeBlock'),
                 render: () => {
                     let renderer: ReactRenderer<QuickActionPickerRef>
+                    const close = (): void => renderer?.destroy()
 
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(QuickActionSuggestionPopover, {
-                                props: { ...props, options: extensionOptions },
+                                props: { ...props, options: extensionOptions, onClose: close },
                                 editor: props.editor,
                             })
                         },
                         onUpdate(props) {
-                            renderer.updateProps({ ...props, options: extensionOptions })
+                            renderer.updateProps({ ...props, options: extensionOptions, onClose: close })
                         },
                         onKeyDown(props) {
                             if (props.event.key === 'Escape') {

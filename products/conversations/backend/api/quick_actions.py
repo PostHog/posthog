@@ -23,6 +23,7 @@ from products.conversations.backend.events import (
     _get_assignment_properties,
     _get_customer_properties,
     _get_ticket_base_properties,
+    _groups_from_org_id,
     _resolve_org_groups,
 )
 from products.conversations.backend.models import QuickAction, QuickActionVisibility, Ticket
@@ -39,7 +40,7 @@ MAX_CONTENT_SIZE_CHARS = 50_000
 class QuickActionAssigneeSerializer(serializers.Serializer):
     """Who a quick action assigns the ticket to when applied."""
 
-    type = serializers.CharField(help_text='Assignee kind: "user" or "role".')
+    type = serializers.ChoiceField(choices=["user", "role"], help_text='Assignee kind: "user" or "role".')
     id = serializers.CharField(
         allow_null=True,
         help_text="User id (for type=user) or role id (for type=role). Null clears the assignee.",
@@ -205,11 +206,16 @@ def _build_ticket_event_globals(ticket: Ticket) -> dict:
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
     properties.update(_get_assignment_properties(ticket))
     try:
-        _, groups = _resolve_org_groups(ticket, ticket.team)
-        if groups is not None:
-            properties["$groups"] = groups
+        # Fast path: reuse the org id already resolved onto the ticket, like events.py does, instead
+        # of paying for the full person-lookup resolver on every run.
+        if ticket.organization_id:
+            properties["$groups"] = _groups_from_org_id(ticket.team, ticket.organization_id)
+        else:
+            _, groups = _resolve_org_groups(ticket, ticket.team)
+            if groups is not None:
+                properties["$groups"] = groups
     except Exception:
-        groups = None
+        logger.exception("quick_action_run_group_resolution_failed", ticket_id=str(ticket.id))
     return {
         "event": {
             "event": "$conversation_quick_action_triggered",

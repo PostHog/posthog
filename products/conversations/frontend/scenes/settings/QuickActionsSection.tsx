@@ -13,7 +13,7 @@ import { workflowsLogic } from 'products/workflows/frontend/Workflows/workflowsL
 
 import { SupportEditor, serializeToMarkdown } from '../../components/Editor'
 import { TEMPLATE_VARIABLES } from '../../components/Editor/templateVariables'
-import { quickActionHasReply, quickActionToDoc } from '../../components/QuickActions/applyQuickAction'
+import { hasVisibleText, quickActionHasReply, quickActionToDoc } from '../../components/QuickActions/applyQuickAction'
 import { quickActionsLogic } from '../../components/QuickActions/quickActionsLogic'
 import { TicketTags } from '../../components/TicketTags'
 import type { QuickActionApi } from '../../generated/api.schemas'
@@ -74,12 +74,19 @@ export function QuickActionsSection(): JSX.Element {
     const { user } = useValues(userLogic)
     const { workflows, workflowsLoading } = useValues(workflowsLogic)
     const { loadWorkflows } = useActions(workflowsLogic)
-    const activeWorkflows = workflows.filter((w) => w.status === 'active')
 
     // workflowsLogic doesn't load on mount, so kick the fetch to populate the workflow picker.
     useEffect(() => {
         loadWorkflows()
     }, [loadWorkflows])
+
+    const workflowOptions = workflows
+        .filter((w) => w.status === 'active' || w.id === workflowId)
+        .map((w) => ({
+            value: w.id,
+            label:
+                w.status === 'active' ? w.name || 'Untitled workflow' : `${w.name || 'Untitled workflow'} (inactive)`,
+        }))
 
     const editorRef = useRef<RichContentEditorType | null>(null)
     const editingQuickAction = quickActions.find((q) => q.short_id === editingShortId) ?? null
@@ -92,9 +99,12 @@ export function QuickActionsSection(): JSX.Element {
 
     const handleSave = (): void => {
         const richContent = editorRef.current?.getJSON() ?? null
+        // A blank editor still yields a structurally non-empty doc; store an empty reply instead so
+        // a workflow-only quick action doesn't carry a junk rich_content.
+        const hasReply = !!richContent && hasVisibleText(richContent)
         saveQuickAction({
-            content: richContent ? serializeToMarkdown(richContent) : '',
-            rich_content: richContent,
+            content: hasReply ? serializeToMarkdown(richContent) : '',
+            rich_content: hasReply ? richContent : {},
         })
     }
 
@@ -295,10 +305,7 @@ export function QuickActionsSection(): JSX.Element {
                             loading={workflowsLoading}
                             allowClear
                             placeholder="Don't run a workflow"
-                            options={activeWorkflows.map((w) => ({
-                                value: w.id,
-                                label: w.name || 'Untitled workflow',
-                            }))}
+                            options={workflowOptions}
                         />
                     </LemonField.Pure>
                 </div>
