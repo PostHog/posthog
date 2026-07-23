@@ -54,6 +54,25 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         assert row.column_property_map == {"plan": "plan_tier", "seats": "seat_count"}
         assert row.saved_query_id is None
 
+    def test_create_person_source_stores_and_cleans_column_descriptions(self):
+        view = self._create(
+            column_property_map={"plan": "plan_tier", "seats": "seat_count"},
+            # 'plan' kept and trimmed; 'seats' blank -> dropped; 'unmapped' -> dropped (no such column).
+            column_descriptions={"plan": "  The plan tier  ", "seats": "   ", "unmapped": "ignored"},
+        )
+
+        assert view.column_descriptions == {"plan": "The plan tier"}
+        row = CustomPropertySource.objects.unscoped().get(id=view.id)
+        assert row.column_descriptions == {"plan": "The plan tier"}
+
+    def test_create_person_source_defaults_descriptions_to_empty(self):
+        view = self._create()
+        assert view.column_descriptions == {}
+
+    def test_person_source_rejects_non_object_column_descriptions(self):
+        with self.assertRaisesMessage(api.CustomPropertySourceValidationError, "must be an object"):
+            self._create(column_descriptions=["not", "an", "object"])
+
     @parameterized.expand(
         [
             (
