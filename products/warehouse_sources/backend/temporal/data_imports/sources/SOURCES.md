@@ -549,7 +549,7 @@ the row lists both.
 | teamcity                         | HTTP                        | requests                                                        | ✅                          |
 | teamtailor                       | HTTP                        | requests                                                        | ✅                          |
 | teamwork                         | HTTP                        | requests                                                        | ✅                          |
-| telnyx                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
+| telnyx                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tempo                            | HTTP                        | requests                                                        | ✅                          |
 | temporalio                       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tenable_vulnerability_management | HTTP (async export flow)    | requests                                                        | ✅                          |
