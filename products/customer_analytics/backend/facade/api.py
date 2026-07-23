@@ -1192,6 +1192,12 @@ def _to_custom_property_source_view(
         latest = source.sync_runs.order_by("-created_at").first()
         latest_run = _to_sync_run_view(latest) if latest is not None else None
 
+    # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
+    # the underlying billable warehouse source, so it's warehouse-derived metadata gated the same way as
+    # the schedule/latest-run above — a caller without warehouse-source viewer access sees the mapping
+    # but not its status. Account sources have no warehouse binding; their status stays visible.
+    warehouse_status_visible = source.external_data_schema_id is None or schema is not None
+
     return contracts.CustomPropertySourceView(
         id=source.id,
         definition=source.definition_id,
@@ -1201,9 +1207,9 @@ def _to_custom_property_source_view(
         key_column=source.key_column,
         column_property_map=source.column_property_map,
         is_enabled=source.is_enabled,
-        consecutive_failures=source.consecutive_failures,
-        last_synced_at=source.last_synced_at,
-        last_sync_error=source.last_sync_error,
+        consecutive_failures=source.consecutive_failures if warehouse_status_visible else 0,
+        last_synced_at=source.last_synced_at if warehouse_status_visible else None,
+        last_sync_error=source.last_sync_error if warehouse_status_visible else None,
         created_at=source.created_at,
         created_by=source.created_by_id,
         updated_at=source.updated_at,

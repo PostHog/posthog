@@ -198,14 +198,21 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         self.schema.sync_frequency_interval = timedelta(hours=6)
         self.schema.save(update_fields=["sync_frequency_interval"])
         source = self._create(user_access_control=self._uac(allowed=True))
+        # Warehouse-derived sync status, including the raw error text from the backfill/sync activity.
+        CustomPropertySource.objects.filter(id=source.id).update(
+            last_sync_error="boom: internal warehouse detail", consecutive_failures=3
+        )
 
         denied = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=False))
         assert denied is not None
         assert denied.sync_frequency_interval_seconds is None and denied.next_sync_at is None
+        # Status fields must be redacted too, not just the schedule — the raw error can leak warehouse detail.
+        assert denied.last_sync_error is None and denied.consecutive_failures == 0
 
         allowed = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
         assert allowed is not None
         assert allowed.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
+        assert allowed.last_sync_error == "boom: internal warehouse detail" and allowed.consecutive_failures == 3
 
     def test_list_sync_runs_requires_warehouse_source_viewer(self):
         source = self._create(user_access_control=self._uac(allowed=True))
