@@ -1,7 +1,16 @@
 // AUTO-GENERATED from products/data_catalog/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
 import type { Schemas } from '@/api/generated'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
+
 import {
     DataCatalogCertificationsCertifyCreateParams,
     DataCatalogCertificationsCreateBody,
@@ -18,13 +27,6 @@ import {
     DataCatalogRelationshipProposalsRejectCreateBody,
     DataCatalogRelationshipProposalsRejectCreateParams,
 } from '@/generated/data_catalog/api'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({ project_id: true })
 
