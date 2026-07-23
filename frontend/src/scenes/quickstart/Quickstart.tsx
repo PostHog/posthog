@@ -1418,13 +1418,8 @@ function PublicationsSection(): JSX.Element | null {
 }
 
 export function Quickstart(): JSX.Element {
-    const {
-        featuredProducts,
-        additionalProducts,
-        activeProductCount,
-        totalProductCount,
-        activationDataLoading,
-    } = useValues(quickstartLogic)
+    const { featuredProducts, additionalProducts, activeProductCount, totalProductCount, activationDataLoading } =
+        useValues(quickstartLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
