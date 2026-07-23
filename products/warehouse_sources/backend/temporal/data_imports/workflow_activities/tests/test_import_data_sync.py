@@ -208,17 +208,23 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     logger.aexception = mock.AsyncMock()
     logger.adebug = mock.AsyncMock()
 
+    source_id = uuid.uuid4()
+    job_inputs = mock.MagicMock(team_id=7, source_id=source_id, run_id="run-123")
+
     with (
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
         mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
     ):
         handle_mock.side_effect = NonRetryableException()
         with pytest.raises(NonRetryableException):
-            await module._handle_import_error(mock.MagicMock(), logger, error)
+            await module._handle_import_error(job_inputs, logger, error)
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[3] is error
+    # Must pass the same (team_id, source_id, run_id, error_msg, logger, error) signature every other
+    # branch uses — passing job_inputs itself crashed the handler with a TypeError and defeated the
+    # retry limiting it exists to enforce.
+    assert handle_mock.await_args.args == (7, str(source_id), "run-123", str(error), logger, error)
     logger.aexception.assert_not_awaited()
 
 
