@@ -204,6 +204,34 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
     })
 
+    it('is idempotent — a repeat ph_load_toolbar keeps the live toolbar instead of remounting it', async () => {
+        // On an SPA, posthog-js calls ph_load_toolbar again on client-side route changes.
+        // Remounting resets the Kea context out from under the mounted React tree, so the toolbar
+        // the user is interacting with disappears (and a duplicate shadow root is stacked). A
+        // repeat call must leave the existing instance untouched.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            // no toolbarFlagsKey → skips the flags preload, straight to mount
+        }
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const container = document.body.firstElementChild
+        const childCountAfterFirstLoad = document.body.childElementCount
+        expect(container).toBeTruthy()
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        // Nothing added, same node still first: the second call was a no-op, not a fresh mount
+        // (which would append another container) or a teardown + remount (which would swap it).
+        expect(document.body.childElementCount).toBe(childCountAfterFirstLoad)
+        expect(document.body.firstElementChild).toBe(container)
+    })
+
     it('should still load toolbar even if flag fetching fails', async () => {
         // The failed flags fetch is reported through toolbarLogger's console.warn by design
         const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()

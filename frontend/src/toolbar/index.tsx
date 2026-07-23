@@ -15,7 +15,7 @@ import { createRoot } from 'react-dom/client'
 import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
-import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
+import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { isToolbarRequestError } from '~/toolbar/toolbarRequestError'
@@ -93,6 +93,20 @@ win['posthogToolbarController'] = posthogToolbarController
 export { posthogToolbarController }
 
 export async function loadToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Promise<void> {
+    // ph_load_toolbar is not called once per page — posthog-js re-invokes it during a page's
+    // lifetime, most notably on SPA client-side route changes. Mounting is destructive
+    // (initKeaInToolbar() calls resetContext()), so a naive re-run tears the Kea logics out from
+    // under the already-mounted React tree: the toolbar the user is interacting with vanishes and
+    // a duplicate shadow root is appended. Keep a healthy live instance instead of remounting.
+    if (isToolbarMounted()) {
+        return
+    }
+    // Flagged as loaded but the container was detached (the host page removed our node): tear the
+    // stale React root / Kea context down before mounting a fresh one so we don't leak or stack.
+    if (posthogToolbarController.isLoaded) {
+        posthogToolbarController.destroy()
+    }
+
     // Store the start time so we can measure total load duration in initInstrumentation.
     // The loader script already stamps this before fetching the app module, so the measured
     // duration includes the chunk fetch — keep the earliest timestamp.
