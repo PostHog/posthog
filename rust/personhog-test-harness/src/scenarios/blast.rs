@@ -31,6 +31,7 @@ pub async fn run(args: BlastArgs) -> Result<()> {
         person_ids.clone(),
         args.duration,
         args.concurrency,
+        None,
         &args.property_prefix,
         &collector,
         &state,
@@ -59,6 +60,12 @@ pub async fn run(args: BlastArgs) -> Result<()> {
 
 /// Drive concurrent property updates against random targets until the
 /// duration elapses, journaling every acked write into `state`.
+///
+/// With `rate_per_sec` set, the workers collectively pace to that target
+/// (each worker ticks at rate/concurrency); unset, they run flat out.
+/// Metric emission is a no-op unless an exporter is installed (only the
+/// traffic mode installs one), so instrumenting here is free for the
+/// bounded modes.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_traffic(
     client: &HarnessClient,
@@ -66,11 +73,13 @@ pub async fn run_traffic(
     person_ids: Arc<Vec<i64>>,
     duration: Duration,
     concurrency: usize,
+    rate_per_sec: Option<f64>,
     property_prefix: &str,
     collector: &Arc<StatsCollector>,
     state: &PersonState,
 ) -> Result<()> {
     let deadline = Instant::now() + duration;
+    let worker_tick = rate_per_sec.map(|rate| per_worker_tick(rate, concurrency));
 
     let mut handles = Vec::new();
     for worker_id in 0..concurrency {
@@ -83,8 +92,16 @@ pub async fn run_traffic(
         handles.push(tokio::spawn(async move {
             let mut counter: u64 = 0;
             let mut rng = rand::rngs::StdRng::from_entropy();
+            let mut pacer = worker_tick.map(|tick| {
+                let mut interval = tokio::time::interval(tick);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                interval
+            });
 
             while Instant::now() < deadline {
+                if let Some(pacer) = pacer.as_mut() {
+                    pacer.tick().await;
+                }
                 let person_id = person_ids[rng.gen_range(0..person_ids.len())];
                 counter += 1;
 
@@ -99,6 +116,10 @@ pub async fn run_traffic(
                 {
                     Ok(resp) => {
                         collector.writes.record_success(start.elapsed());
+                        metrics::counter!("personhog_traffic_writes_total", "outcome" => "ok")
+                            .increment(1);
+                        metrics::histogram!("personhog_traffic_write_seconds")
+                            .record(start.elapsed().as_secs_f64());
                         let mut written = HashMap::new();
                         written.insert(key, serde_json::Value::String(value));
                         match resp.person {
@@ -110,6 +131,8 @@ pub async fn run_traffic(
                     }
                     Err(e) => {
                         collector.writes.record_failure();
+                        metrics::counter!("personhog_traffic_writes_total", "outcome" => "failed")
+                            .increment(1);
                         // `{:#}` prints the full anyhow chain — the outer
                         // context alone hides the gRPC status underneath.
                         tracing::warn!(person_id, error = format!("{e:#}"), "write failed");
@@ -123,6 +146,14 @@ pub async fn run_traffic(
         handle.await?;
     }
     Ok(())
+}
+
+/// The tick interval each of `concurrency` workers needs so their
+/// combined rate hits `rate_per_sec`. Rates too low to represent tick at
+/// most once per hour rather than dividing by zero.
+pub fn per_worker_tick(rate_per_sec: f64, concurrency: usize) -> Duration {
+    let per_worker = (rate_per_sec / concurrency.max(1) as f64).max(1.0 / 3600.0);
+    Duration::from_secs_f64(1.0 / per_worker)
 }
 
 /// Read every journaled person back with STRONG consistency and check that
@@ -184,4 +215,20 @@ pub async fn verify_strong(
     }
 
     Ok(all_violations)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn per_worker_tick_divides_the_rate_across_workers() {
+        // 100 wps over 20 workers: each ticks every 200ms.
+        assert_eq!(per_worker_tick(100.0, 20), Duration::from_millis(200));
+        // One worker carries the whole rate.
+        assert_eq!(per_worker_tick(4.0, 1), Duration::from_millis(250));
+        // Degenerate inputs stay finite instead of dividing by zero.
+        assert!(per_worker_tick(0.0, 10) <= Duration::from_secs(3600));
+        assert!(per_worker_tick(10.0, 0) <= Duration::from_secs(1));
+    }
 }

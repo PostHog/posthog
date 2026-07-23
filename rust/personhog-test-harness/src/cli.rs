@@ -31,6 +31,9 @@ pub enum Command {
     Consistency(ConsistencyArgs),
     /// Full e2e gate: stack up, seed, traffic, quiesce, verify, cleanup.
     Gate(Box<GateArgs>),
+    /// Continuous synthetic traffic with epoch-based verification, for the
+    /// dev deployment. Refuses to start unless PERSONHOG_TRAFFIC_ENV=dev.
+    Traffic(TrafficArgs),
 }
 
 #[derive(Args, Clone)]
@@ -271,4 +274,76 @@ pub struct GateArgs {
     /// workspace target directory for this build profile.
     #[arg(long)]
     pub bin_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Clone)]
+pub struct TrafficArgs {
+    /// Router serving the personhog stack under continuous test.
+    #[arg(long, env = "TRAFFIC_ROUTER_URL")]
+    pub router_url: String,
+
+    /// Master toggle. When false the process starts fully (guard, metrics,
+    /// liveness) but idles instead of driving traffic — so a deployed-but-
+    /// disabled harness is observably "off on purpose" rather than absent.
+    /// The chart ships false and flips it to start traffic; the CLI
+    /// defaults to true because invoking `traffic` means traffic.
+    #[arg(long, env = "TRAFFIC_ENABLED", default_value_t = true, action = clap::ArgAction::Set)]
+    pub enabled: bool,
+
+    /// Reserved harness team. The traffic mode owns every row on it.
+    #[arg(long, env = "TRAFFIC_TEAM_ID", default_value_t = 900_101)]
+    pub team_id: i64,
+
+    /// Dedicated team for the hostile lane, kept out of the exactness
+    /// journal (its outcomes are observed as metrics, not verified).
+    #[arg(long, env = "TRAFFIC_HOSTILE_TEAM_ID", default_value_t = 900_102)]
+    pub hostile_team_id: i64,
+
+    #[arg(long, env = "TRAFFIC_PERSONS_DB_URL", default_value = DEFAULT_PERSONS_DB_URL)]
+    pub persons_db_url: String,
+
+    /// The table the writer under test upserts into (the dev writer's
+    /// PG_TARGET_TABLE).
+    #[arg(
+        long,
+        env = "TRAFFIC_PG_TARGET_TABLE",
+        default_value = "personhog_person_tmp"
+    )]
+    pub pg_target_table: String,
+
+    /// Persons seeded per epoch. The pool rotates every epoch so journal
+    /// keys never grow a document toward the admission size ceiling.
+    #[arg(long, env = "TRAFFIC_POOL_SIZE", default_value_t = 200)]
+    pub pool_size: u32,
+
+    /// Verification epoch length: traffic runs, then the epoch's acked
+    /// writes are verified against strong reads and Postgres, then the
+    /// person pool rotates.
+    #[arg(long, env = "TRAFFIC_EPOCH", default_value = "5m", value_parser = humantime::parse_duration)]
+    pub epoch: Duration,
+
+    /// Each epoch draws its target write rate uniformly from this range
+    /// (writes/second), which also exercises the autoscaler.
+    #[arg(long, env = "TRAFFIC_RATE_MIN", default_value_t = 50.0)]
+    pub rate_min: f64,
+
+    #[arg(long, env = "TRAFFIC_RATE_MAX", default_value_t = 500.0)]
+    pub rate_max: f64,
+
+    /// Concurrent write workers sharing the epoch's target rate.
+    #[arg(long, env = "TRAFFIC_CONCURRENCY", default_value_t = 20)]
+    pub concurrency: usize,
+
+    /// Read-your-write probers running alongside the writers.
+    #[arg(long, env = "TRAFFIC_PROBERS", default_value_t = 2)]
+    pub probers: usize,
+
+    /// Hostile-lane writes per second (NUL and oversized payloads against
+    /// the hostile team). 0 disables.
+    #[arg(long, env = "TRAFFIC_HOSTILE_RATE", default_value_t = 1.0)]
+    pub hostile_rate: f64,
+
+    /// Prometheus metrics + liveness port.
+    #[arg(long, env = "TRAFFIC_METRICS_PORT", default_value_t = 9110)]
+    pub metrics_port: u16,
 }
