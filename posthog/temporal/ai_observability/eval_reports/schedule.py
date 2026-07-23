@@ -29,7 +29,10 @@ async def create_eval_reports_schedule(client: Client):
             id=SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        # Offset off the top of the hour to de-conflict with the trace summarization
+        # coordinators (which sweep at :00 and :30), so the AI observability background
+        # workloads don't all hammer the shared offline ClickHouse cluster at once.
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=20))]),
     )
 
     if await a_schedule_exists(client, SCHEDULE_ID):

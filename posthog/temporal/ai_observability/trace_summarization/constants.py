@@ -62,7 +62,11 @@ AI_EVENT_TYPES = (
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
+# Kept deliberately low: each team in a batch fires its own sampling query against the
+# offline ClickHouse cluster as the `default` user, which has a 30-query concurrency cap
+# shared with the other AI observability background workloads (trace clustering, eval
+# reports). A high fan-out here exhausts that budget and surfaces as ClickHouseAtCapacity.
+DEFAULT_MAX_CONCURRENT_TEAMS = 5  # Max teams to process in parallel
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
@@ -105,10 +109,27 @@ SUMMARIZE_AND_SAVE_RETRY_POLICY = RetryPolicy(
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30  # Max time for single team workflow — must be well under coordinator timeout
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly trigger to avoid silent skips
 
+# ClickHouse capacity/overload errors surface under these exception class names when the
+# offline cluster's per-user concurrency cap is hit. Retrying just re-fires the same query
+# into an already-saturated cluster, deepening the contention — so treat them as
+# non-retryable and let the next hourly run pick the rolling window back up. Names are kept
+# as strings (Temporal matches non_retryable_error_types by class name) to avoid importing
+# the heavy error modules into the workflow sandbox; they mirror the classes in
+# posthog/errors.py and posthog/exceptions.py.
+CLICKHOUSE_CAPACITY_ERROR_TYPES = [
+    "ClickHouseAtCapacity",
+    "CHQueryErrorTooManySimultaneousQueries",
+    "CHQueryErrorCannotScheduleTask",
+    "ConcurrencyLimitExceeded",
+]
+
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=2,
-    non_retryable_error_types=["ValueError", "TypeError"],
+    initial_interval=timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=60),
+    non_retryable_error_types=["ValueError", "TypeError", *CLICKHOUSE_CAPACITY_ERROR_TYPES],
 )
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 
