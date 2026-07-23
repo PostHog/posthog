@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils/strings'
@@ -100,19 +101,27 @@ function SurveyAutoCloseHelper({
         return null
     }
 
+    const { autoCloseDate, totalDurationDays } = scheduleInfo
+    const hasCloseDatePassed = autoCloseDate?.isBefore(dayjs()) ?? false
+
     return (
-        <LemonBanner type="info" className="text-xs">
-            {scheduleInfo.autoCloseDate ? (
+        <LemonBanner type={hasCloseDatePassed ? 'warning' : 'info'} className="text-xs">
+            {!autoCloseDate ? (
                 <span>
-                    This survey will automatically close on{' '}
-                    <span className="font-semibold">{scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}</span>, after
-                    its last repeat.
+                    Once launched, this survey will run for{' '}
+                    <span className="font-semibold">{pluralize(totalDurationDays, 'day')}</span> before it automatically
+                    closes.
+                </span>
+            ) : hasCloseDatePassed ? (
+                <span>
+                    This survey's schedule ended on{' '}
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>. Because that date has
+                    passed, it will close automatically the next time its schedule is checked (within 12 hours).
                 </span>
             ) : (
                 <span>
-                    Once launched, this survey will run for{' '}
-                    <span className="font-semibold">{pluralize(scheduleInfo.totalDurationDays, 'day')}</span> before it
-                    automatically closes.
+                    This survey will automatically close on{' '}
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, after its last repeat.
                 </span>
             )}
         </LemonBanner>

@@ -5,6 +5,7 @@ import { IconComment, IconGitBranch } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils/strings'
 import { FirstSurveyHelper } from 'scenes/surveys/components/empty-state/FirstSurveyHelper'
@@ -32,13 +33,18 @@ function SurveySchedule(): JSX.Element {
                     {pluralize(survey.iteration_count, 'time', 'times', false)}
                 </span>
                 {scheduleInfo &&
-                    (scheduleInfo.autoCloseDate ? (
+                    (!scheduleInfo.autoCloseDate ? (
                         <span className="text-xs text-muted">
-                            Automatically closes on {scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}
+                            Runs for {pluralize(scheduleInfo.totalDurationDays, 'day')} once launched
+                        </span>
+                    ) : scheduleInfo.autoCloseDate.isBefore(dayjs()) ? (
+                        <span className="text-xs text-muted">
+                            Schedule ended {scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}; closes automatically
+                            within 12 hours
                         </span>
                     ) : (
                         <span className="text-xs text-muted">
-                            Runs for {pluralize(scheduleInfo.totalDurationDays, 'day')} once launched
+                            Automatically closes on {scheduleInfo.autoCloseDate.format('MMMM D, YYYY')}
                         </span>
                     ))}
             </span>
