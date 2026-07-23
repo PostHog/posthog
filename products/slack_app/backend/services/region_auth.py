@@ -25,7 +25,8 @@ class RegionAuthError(Exception):
 
 def sign_region_request(body: bytes, secret: str) -> tuple[str, str]:
     """Sign a request body for a cross-region probe; returns (signature, timestamp)."""
-    return sign_slack_request(body, secret)
+    signed = sign_slack_request(body, secret)
+    return signed.signature, signed.timestamp
 
 
 def validate_region_request(request: HttpRequest, secret: str) -> None:
