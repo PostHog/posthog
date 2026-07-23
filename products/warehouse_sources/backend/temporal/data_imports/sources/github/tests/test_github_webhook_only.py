@@ -12,7 +12,9 @@ def _no_resume() -> mock.Mock:
     return manager
 
 
-@pytest.mark.parametrize("endpoint", ["workflow_runs", "workflow_jobs", "reviews"])
+@pytest.mark.parametrize(
+    "endpoint", ["workflow_runs", "workflow_jobs", "reviews", "deployments", "deployment_statuses"]
+)
 def test_webhook_only_poll_yields_no_rows_when_webhook_inactive(endpoint: str) -> None:
     webhook_source_manager = mock.Mock()
     webhook_source_manager.webhook_enabled = mock.AsyncMock(return_value=False)

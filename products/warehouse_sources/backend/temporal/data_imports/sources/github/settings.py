@@ -256,6 +256,71 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # the job reaches that stage, so NULLs-last ordering keeps the latest state.
         version_keys=["completed_at", "started_at", "created_at"],
     ),
+    "deployments": GithubEndpointConfig(
+        name="deployments",
+        path="/repos/{repository}/deployments",
+        partition_key="created_at",
+        incremental_fields=[
+            # The deployments list endpoint returns newest-first by created_at and (like
+            # /actions/runs) does not honor sort/direction, so created_at is the only viable
+            # cursor. We sync incrementally by paginating newest-first and stopping once we cross
+            # below the cursor (see github.py). created_at is immutable; a deployment's latest
+            # state lives on its deployment_statuses children and on updated_at, so the
+            # created_at cursor won't refresh a deployment once newer ones land — that is handled
+            # by the deployment webhook, not by re-scanning history.
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        sort_mode="desc",  # API returns newest-first and ignores sort/direction, like workflow_runs
+        # deployment carries updated_at (bumped when a new status is added), the recency key so a
+        # completed deployment is never frozen by a stale earlier webhook event.
+        version_keys=["updated_at"],
+        # Webhook-only marker, like workflow_runs: the deployment webhook is the source of truth.
+        # initial_lookback_days == 0 makes source.py report this schema as webhook_only, activates
+        # webhook mode from the first sync, and makes the poll path yield no rows instead of
+        # crawling the full /deployments history against a shared, rate-limited budget. History,
+        # if wanted, is a deliberate one-off backfill.
+        initial_lookback_days=0,
+    ),
+    "deployment_statuses": GithubEndpointConfig(
+        name="deployment_statuses",
+        # Child of deployments: {deployment_id} is filled per parent deployment during fan-out.
+        # GitHub has no repo-wide deployment-statuses list, so a deployment's status history (the
+        # success/failure/inactive transitions that mark a rollback) can only be assembled by
+        # fanning out over deployments one at a time.
+        path="/repos/{repository}/deployments/{deployment_id}/statuses",
+        partition_key="created_at",  # Set at status creation; immutable and non-null.
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        # Deployment-status ids are globally unique (like review ids), so no composite key is
+        # needed even though this is a fan-out child.
+        primary_key="id",
+        sort_mode="desc",  # Rows land parent-newest-first, same as workflow_jobs and reviews.
+        fan_out_parent="deployments",
+        fan_out_path_param="deployment_id",
+        fan_out_parent_field="id",
+        # The raw status only carries the deployment API URL, so inject the deployment id for
+        # trivial attribution joins against the deployments table (mirrors reviews' pr_number).
+        fan_out_include_parent_fields={"id": "deployment_id"},
+        # One /statuses call per deployment: the deployment_status webhook is the source of truth,
+        # and the poll only re-fans the tiny window since the latest synced status. Repos that want
+        # history should run a deliberate one-off backfill, not pay for it on every connect.
+        initial_lookback_days=0,
+        # A deployment status is append-only (each transition is a new, immutable id), so no
+        # webhook dedupe is needed — unlike reviews/runs, one id never emits multiple events.
+    ),
     "teams": GithubEndpointConfig(
         name="teams",
         # Org-scoped: {organization} is derived from the repository owner (owner/repo -> owner).

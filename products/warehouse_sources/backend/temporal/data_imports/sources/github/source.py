@@ -81,6 +81,8 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     "workflow_jobs": "workflow_job",
     "workflow_runs": "workflow_run",
     "reviews": "pull_request_review",
+    "deployments": "deployment",
+    "deployment_statuses": "deployment_status",
 }
 
 
@@ -203,7 +205,7 @@ class GithubSource(
 3. Paste the webhook URL shown below into the **Payload URL** field
 4. Set **Content type** to **application/json**
 5. Enter a **Secret** and add the same value to the **Signing secret** field below
-6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, and **Pull request reviews**
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
 7. Click **Add webhook**
 
 If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",

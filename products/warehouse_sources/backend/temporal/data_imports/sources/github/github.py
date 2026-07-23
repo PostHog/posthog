@@ -111,14 +111,14 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    # workflow_runs has a different param surface: it accepts neither
-    # state/sort/direction nor `since`, and always returns newest-first by
-    # created_at. We intentionally send no time filter either — its `created`
+    # workflow_runs and deployments share a param surface: they accept neither
+    # state/sort/direction nor `since`, and always return newest-first by
+    # created_at. We intentionally send no time filter either — a `created`
     # filter would cap the result set to GitHub's 1,000-result search limit and
     # silently drop rows on busy repos. Incremental sync is handled instead by
     # paginating newest-first and stopping at the cursor (see get_rows), so the
     # request stays a plain paged read regardless of incremental state.
-    if endpoint == "workflow_runs":
+    if endpoint in ("workflow_runs", "deployments"):
         return {"per_page": config.page_size}
 
     params: dict[str, Any] = {

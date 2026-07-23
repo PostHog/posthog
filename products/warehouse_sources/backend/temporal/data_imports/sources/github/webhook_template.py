@@ -133,6 +133,25 @@ if (eventType = 'pull_request_review') {
   row := review
 }
 
+// deployment_status nests the status under body.deployment_status and its deployment under
+// body.deployment. Reshape so webhook rows match poll rows, which carry deployment_id injected
+// from the parent deployment. States are already lowercase in both REST and webhook, so no case
+// normalization is needed (unlike pull_request_review).
+if (eventType = 'deployment_status') {
+  let status := request.body?.deployment_status
+  let deployment := request.body?.deployment
+  if (empty(status) or empty(deployment)) {
+    return {
+      'httpResponse': {
+        'status': 200,
+        'body': 'No deployment_status or deployment object in payload, skipping'
+      }
+    }
+  }
+  status.deployment_id := deployment?.id
+  row := status
+}
+
 if (empty(row)) {
   return {
     'httpResponse': {
@@ -166,7 +185,7 @@ produceToWarehouseWebhooks(row, schemaId)""",
             "type": "json",
             "key": "schema_mapping",
             "label": "Schema mapping",
-            "description": "Maps GitHub event types to ExternalDataSchema IDs. Keys are either a bare event type (workflow_job, workflow_run, pull_request_review) for legacy single-repo sources, or 'owner/repo.event_type' for multi-repo sources.",
+            "description": "Maps GitHub event types to ExternalDataSchema IDs. Keys are either a bare event type (workflow_job, workflow_run, pull_request_review, deployment, deployment_status) for legacy single-repo sources, or 'owner/repo.event_type' for multi-repo sources.",
             "required": True,
             "secret": False,
             "hidden": True,

@@ -199,6 +199,22 @@ class TestBuildInitialParams:
         # early-stop in get_rows, so the request never changes shape.
         assert params == {"per_page": 100}
 
+    def test_deployments_uses_minimal_params_with_cutoff(self) -> None:
+        # deployments shares workflow_runs' param surface: the list endpoint ignores
+        # sort/direction and returns newest-first, so even with a cutoff it must stay a plain paged
+        # read (incremental bounding is the client-side desc early-stop). Regressing it into the
+        # generic branch would send sort=created&direction=desc, which the endpoint silently ignores
+        # while the desc early-stop still relies on the natural newest-first order.
+        params = _build_initial_params(
+            GITHUB_ENDPOINTS["deployments"],
+            "deployments",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        assert params == {"per_page": 100}
+
 
 class TestBuildInitialUrl:
     def test_with_params(self) -> None:
@@ -1412,6 +1428,8 @@ class TestGithubWebhookSource:
             "workflow_jobs": "workflow_job",
             "workflow_runs": "workflow_run",
             "reviews": "pull_request_review",
+            "deployments": "deployment",
+            "deployment_statuses": "deployment_status",
         }
 
     def test_webhook_template_identity(self) -> None:
@@ -1423,7 +1441,13 @@ class TestGithubWebhookSource:
     def test_get_schemas_marks_only_mapped_schemas_webhook_capable(self) -> None:
         schemas = self.source.get_schemas(_pat_config(), team_id=1)
         webhook_capable = {s.name for s in schemas if s.supports_webhooks}
-        assert webhook_capable == {"workflow_jobs", "workflow_runs", "reviews"}
+        assert webhook_capable == {
+            "workflow_jobs",
+            "workflow_runs",
+            "reviews",
+            "deployments",
+            "deployment_statuses",
+        }
 
     def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
         # workflow_jobs and workflow_runs both do no poll backfill (zero floor), so neither is
