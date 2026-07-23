@@ -8,6 +8,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration, select_repository
 from products.tasks.backend.facade import api as tasks_facade
@@ -340,8 +341,8 @@ def test_returns_none_when_only_team_github_has_failed_token_refresh(team):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_select_repository_requests_reconnect_for_unavailable_owner_integration(organization, team):
-    owner = _create_user("owner@example.com", organization)
-    _create_user_integration(
+    owner = await database_sync_to_async(_create_user)("owner@example.com", organization)
+    await database_sync_to_async(_create_user_integration)(
         owner,
         integration_id="user-dead",
         repository_cache=[],
