@@ -1569,7 +1569,9 @@ class TestQueryUsageReportSQL:
         assert "max(relay) AS has_verified_relay" in base_query
         assert "uniqExact(tuple(event, span_id))" in sponsor_query
         assert "sponsors.generation_count * %(allowance)s" in sponsor_query
+        assert sponsor_query.count("team_id IN %(relayed_team_ids)s") == 2
         assert sponsor_params["allowance"] == GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION
+        assert sponsor_params["relayed_team_ids"] == [1]
         assert sponsor_params["sponsor_begin"] == begin - timedelta(days=1)
         assert sponsor_params["sponsor_end"] == end + timedelta(days=1)
 

@@ -1416,7 +1416,8 @@ def get_teams_with_ai_event_count_in_period(
         )
 
         base_counts = [(team_id, count) for team_id, count, _ in base_rows]
-        if not any(has_verified_relay for _, _, has_verified_relay in base_rows):
+        relayed_team_ids = [team_id for team_id, _, has_verified_relay in base_rows if has_verified_relay]
+        if not relayed_team_ids:
             return base_counts
 
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
@@ -1439,7 +1440,8 @@ def get_teams_with_ai_event_count_in_period(
                         if(verified AND relay, {trace_id_expr}, '') AS trace_id,
                         if(verified AND relay, {span_id_expr}, '') AS span_id
                     FROM {events_read_table(use_new)}
-                    WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+                    WHERE team_id IN %(relayed_team_ids)s
+                      AND event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
                 )
                 WHERE verified AND relay AND trace_id != '' AND span_id != ''
                 GROUP BY team_id, trace_id
@@ -1457,7 +1459,8 @@ def get_teams_with_ai_event_count_in_period(
                         if(verified AND NOT relay, {trace_id_expr}, '') AS trace_id,
                         if(verified AND NOT relay, {request_id_expr}, '') AS request_id
                     FROM {events_read_table(use_new)}
-                    WHERE event = '$ai_generation'
+                    WHERE team_id IN %(relayed_team_ids)s
+                      AND event = '$ai_generation'
                       AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
                 )
                 WHERE verified AND NOT relay AND trace_id != '' AND request_id != ''
@@ -1467,6 +1470,7 @@ def get_teams_with_ai_event_count_in_period(
             """,
             {
                 "allowance": GATEWAY_SPONSORED_AI_EVENTS_PER_GENERATION,
+                "relayed_team_ids": relayed_team_ids,
                 "ai_events": AI_EVENTS,
                 "begin": begin,
                 "end": end,

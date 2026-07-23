@@ -30,6 +30,7 @@ use prost::Message;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::io::Write;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
@@ -422,6 +423,47 @@ async fn test_verified_gateway_batch_stamps_trusted_provenance() {
         send_signed_request_with_client(&client, &make_single_span_request(), SECRET).await;
     assert_eq!(status, 200);
 
+    let events = sink.get_events().await;
+    let data = parse_event_data(&events[0]);
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    assert_eq!(data["properties"]["$ai_gateway_relay"], true);
+}
+
+#[tokio::test]
+async fn test_verified_gzip_gateway_batch_stamps_trusted_provenance() {
+    const SECRET: &str = "test-signing-secret";
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let body = make_single_span_request().encode_to_vec();
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&body).unwrap();
+    let body = encoder.finish().unwrap();
+    let signature = sign_gateway_body(
+        SECRET,
+        "application/x-protobuf",
+        "gzip",
+        &body,
+        DEFAULT_TEST_TIME,
+    );
+    let response = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Content-Encoding", "gzip")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .body(body)
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
     let events = sink.get_events().await;
     let data = parse_event_data(&events[0]);
     assert_eq!(data["properties"]["$ai_gateway_verified"], true);
