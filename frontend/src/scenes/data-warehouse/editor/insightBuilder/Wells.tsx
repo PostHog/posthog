@@ -2,9 +2,10 @@ import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { IconChevronDown, IconGear } from '@posthog/icons'
+import { LemonDialog, LemonTabs, Popover } from '@posthog/lemon-ui'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -12,6 +13,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { cn } from 'lib/utils/css-classes'
 
+import { YSeriesDisplayTab, YSeriesFormattingTab } from '~/queries/nodes/DataVisualization/Components/SeriesTab'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     AGGREGATION_LABELS,
     DATE_GRAIN_LABELS,
@@ -148,6 +151,64 @@ function DimensionPill({
     )
 }
 
+/**
+ * Edit icon on a value pill that opens the field's Formatting/Display controls (number format,
+ * color, label) in a popover — the per-series settings that used to live only in the Series tab.
+ * Series map to Values by position; the icon is hidden until the query has produced that series.
+ */
+function FieldSettingsButton({ index }: { index: number }): JSX.Element | null {
+    const { yData, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const [open, setOpen] = useState(false)
+    const [tab, setTab] = useState<'formatting' | 'display'>('formatting')
+
+    const series = yData[index]
+    if (!series) {
+        return null
+    }
+    const seriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
+
+    return (
+        <Popover
+            visible={open}
+            onClickOutside={() => setOpen(false)}
+            placement="right-start"
+            overlay={
+                <div className="w-72 p-2">
+                    <LemonTabs
+                        size="small"
+                        activeKey={tab}
+                        onChange={(key) => setTab(key as 'formatting' | 'display')}
+                        tabs={[
+                            {
+                                key: 'formatting',
+                                label: 'Formatting',
+                                content: <YSeriesFormattingTab ySeriesLogicProps={seriesLogicProps} />,
+                            },
+                            {
+                                key: 'display',
+                                label: 'Display',
+                                content: <YSeriesDisplayTab ySeriesLogicProps={seriesLogicProps} />,
+                            },
+                        ]}
+                    />
+                </div>
+            }
+        >
+            <button
+                type="button"
+                className="ml-auto inline-flex shrink-0 cursor-pointer items-center rounded p-0.5 text-secondary hover:bg-surface-secondary"
+                aria-label="Format this value"
+                // Bubble phase: open the popover without engaging the pill's drag listeners
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setOpen((previous) => !previous)}
+                data-attr="sql-builder-value-settings"
+            >
+                <IconGear />
+            </button>
+        </Popover>
+    )
+}
+
 function MeasurePill({
     tabId,
     index,
@@ -186,7 +247,7 @@ function MeasurePill({
             style={{ transform: CSS.Transform.toString(transform), transition }}
             data-attr="sql-builder-well-pill"
         >
-            <span className="flex items-center gap-1">
+            <span className="flex w-full items-center gap-1">
                 {isCountOfRows ? (
                     <span className="truncate">Count of rows</span>
                 ) : (
@@ -201,6 +262,7 @@ function MeasurePill({
                         <span className="truncate">of {measure.column}</span>
                     </>
                 )}
+                <FieldSettingsButton index={index} />
             </span>
         </LemonSnack>
     )
