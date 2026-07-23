@@ -66486,6 +66486,80 @@ export namespace Schemas {
       rates: SurveyGlobalStatsResponseRates;
     }
 
+    export interface SurveyLoadDetectorConfig {
+      /** Rolling window size in seconds used to group survey displays. */
+      window_seconds: number;
+      /** Distinct surveys shown within one window at which a user counts as overloaded. */
+      overload_threshold: number;
+      /** Days of survey display history analyzed. */
+      lookback_days: number;
+    }
+
+    export interface SurveyLoadDetectorOverlap {
+      /** ID of the first survey in the overlapping pair. */
+      survey_id_1: string;
+      /**
+         * Name of the first survey. Null when the survey no longer exists.
+         * @nullable
+         */
+      survey_name_1: string | null;
+      /** ID of the second survey in the overlapping pair. */
+      survey_id_2: string;
+      /**
+         * Name of the second survey. Null when the survey no longer exists.
+         * @nullable
+         */
+      survey_name_2: string | null;
+      /** Unique users shown both surveys within one rolling window. */
+      users_affected: number;
+    }
+
+    export interface SurveyLoadDetectorSummary {
+      /** Unique users shown at least one survey in the analyzed period. */
+      users_shown: number;
+      /** Unique users shown at least `overload_threshold` distinct surveys within one rolling window. */
+      overloaded_users: number;
+      /** Percentage (0-100) of users shown surveys who were overloaded. */
+      overloaded_users_rate: number;
+    }
+
+    export interface SurveyLoadDetectorSurvey {
+      /** Survey ID. */
+      survey_id: string;
+      /**
+         * Survey name. Null when the survey no longer exists.
+         * @nullable
+         */
+      survey_name: string | null;
+      /** Unique users shown this survey in the analyzed period. */
+      users_shown: number;
+      /** Total number of times this survey was displayed. */
+      times_shown: number;
+      /** Unique overloaded users who were shown this survey. */
+      overloaded_users_shown: number;
+      /** Percentage (0-100) of this survey's viewers who were overloaded. */
+      overloaded_users_rate: number;
+      /** Percentage (0-100) of this survey's viewers who dismissed it. */
+      dismissal_rate: number;
+      /** Percentage (0-100) of this survey's viewers who responded to it. */
+      response_rate: number;
+    }
+
+    export interface SurveyLoadDetectorResponse {
+      /** Effective configuration used for this analysis. */
+      config: SurveyLoadDetectorConfig;
+      /** Start of the analyzed period (UTC). */
+      date_from: string;
+      /** End of the analyzed period (UTC). */
+      date_to: string;
+      /** Aggregate survey load figures for the period. */
+      summary: SurveyLoadDetectorSummary;
+      /** Survey pairs shown to the same users within one rolling window, ordered by users affected. */
+      overlaps: SurveyLoadDetectorOverlap[];
+      /** Per-survey contribution to survey load, ordered by overloaded users shown. */
+      surveys: SurveyLoadDetectorSurvey[];
+    }
+
     export interface SurveyQuestionLabel {
       /** UUID assigned to the survey question. */
       question_id: string;
@@ -79850,6 +79924,27 @@ export namespace Schemas {
      * Zero-based question index. Omit to get the survey-wide headline instead.
      */
     question_index?: number;
+    };
+
+    export type SurveysLoadDetectorRetrieveParams = {
+    /**
+     * How many days of survey display history to analyze, ending now. Defaults to the team's saved configuration (30 if unset).
+     * @minimum 1
+     * @maximum 90
+     */
+    lookback_days?: number;
+    /**
+     * Number of distinct surveys shown within one rolling window at which a user counts as overloaded. Defaults to the team's saved configuration (2 if unset).
+     * @minimum 2
+     * @maximum 50
+     */
+    overload_threshold?: number;
+    /**
+     * Rolling window size in seconds. Surveys shown to the same user within this window count towards their survey load. Defaults to the team's saved configuration (86400 = 24h if unset).
+     * @minimum 60
+     * @maximum 2592000
+     */
+    window_seconds?: number;
     };
 
     export type SurveysGlobalStatsRetrieveParams = {
