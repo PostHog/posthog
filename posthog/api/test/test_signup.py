@@ -1207,6 +1207,62 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
+    def _org_enforcing_google_sso(self) -> Organization:
+        org = Organization.objects.create(name="Enforced org")
+        org.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT}
+        ]
+        org.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.posthog.com",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+            organization=org,
+        )
+        Team.objects.create(organization=org, name="Enforced project")
+        return org
+
+    @mock.patch("posthog.models.organization_domain.get_instance_available_sso_providers")
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_login_blocked_for_member_outside_enforced_verified_domain(
+        self, mock_sso_providers, mock_request, mock_domain_sso_providers
+    ):
+        mock_domain_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            org = self._org_enforcing_google_sso()
+            # Member was invited from outside the verified domain before enforcement was turned on.
+            member = User.objects.create_and_join(
+                organization=org, email="outsider@gmail.com", password=None, first_name="Outsider"
+            )
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, "outsider@gmail.com")
+
+        self.assertRedirects(response, "/login?error_code=sso_domain_not_allowed")
+        # Login refused — no authenticated session — but the membership itself is left untouched.
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertEqual(member.organization_memberships.count(), 1)
+
+    @mock.patch("posthog.models.organization_domain.get_instance_available_sso_providers")
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_login_allowed_for_member_on_enforced_verified_domain(
+        self, mock_sso_providers, mock_request, mock_domain_sso_providers
+    ):
+        mock_domain_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            org = self._org_enforcing_google_sso()
+            User.objects.create_and_join(
+                organization=org, email="insider@hogflix.posthog.com", password=None, first_name="Insider"
+            )
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, "insider@hogflix.posthog.com")
+
+        self.assertRedirects(response, "/")
+        self.assertIn("_auth_user_id", self.client.session)
+
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee

@@ -922,6 +922,16 @@ def process_social_domain_jit_provisioning_signup(
     return user
 
 
+def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
+    """Organization an invite grants access to, or None for legacy team-invite surrogates / missing invites."""
+    try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
+        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+    except (OrganizationInvite.DoesNotExist, ValidationError):
+        return None
+    return invite.organization
+
+
 @partial
 def social_create_user(
     strategy: DjangoStrategy,
@@ -947,6 +957,27 @@ def social_create_user(
     if not invite_id and organization_domain_id:
         invite = lookup_invite_for_saml(email, organization_domain_id)
         invite_id = invite.id if invite else None
+
+    # Keep SSO-enforced organizations to their verified domains. If the login email's domain is not a
+    # verified domain of an org that enforces SSO — one the user already belongs to, or the one this
+    # invite targets — block the login. This runs here rather than in the SSO gate (`social_auth_allowed`)
+    # because that gate only sees the email's own domain, not the organization being entered.
+    enforcement_email = user.email if user else email
+    organizations_to_check: list[Organization] = list(user.organizations.all()) if user else []
+    if invite_id:
+        invite_organization = _resolve_invite_organization(invite_id)
+        if invite_organization is not None:
+            organizations_to_check.append(invite_organization)
+    if enforcement_email and organizations_to_check:
+        blocked_organization = OrganizationDomain.objects.find_enforced_org_without_verified_email_domain(
+            enforcement_email, organizations_to_check
+        )
+        if blocked_organization is not None:
+            logger.warning(
+                "social_create_user_blocked_sso_enforced_domain",
+                organization=str(blocked_organization.id),
+            )
+            return redirect("/login?error_code=sso_domain_not_allowed")
 
     if user:
         # If the user is already authenticated, we're looking for outstanding invites for them

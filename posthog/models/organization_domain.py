@@ -1,4 +1,5 @@
 import secrets
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -132,16 +133,34 @@ class OrganizationDomainManager(models.Manager):
         if not query:
             return None
 
-        candidate_sso_enforcement = query["sso_enforcement"]
+        return self._active_sso_enforcement(
+            query["sso_enforcement"],
+            query["organization__available_product_features"],
+            organization_id=query["organization_id"],
+            domain=domain,
+        )
 
-        available_product_features = query["organization__available_product_features"]
+    def _active_sso_enforcement(
+        self,
+        candidate_sso_enforcement: str,
+        available_product_features: list[dict[str, Any]],
+        *,
+        organization_id: Any,
+        domain: str | None,
+    ) -> Optional[str]:
+        """
+        Given a domain's configured `sso_enforcement` and its organization's product features, return
+        the provider only if the enforcement is actually active: the org holds an SSO enforcement license
+        and the provider itself is licensed (SAML) or configured on the instance (Google/GitHub/GitLab).
+        Returns None when the setting is present but inert, so callers never enforce a dead configuration.
+        """
         available_product_feature_keys = [feature["key"] for feature in available_product_features]
         # Check organization has a license to enforce SSO
         if AvailableFeature.SSO_ENFORCEMENT not in available_product_feature_keys:
             logger.warning(
                 f"🤑🚪 SSO is enforced for domain {domain} but the organization does not have the proper license.",
                 domain=domain,
-                organization=str(query["organization_id"]),
+                organization=str(organization_id),
             )
             return None
 
@@ -152,7 +171,7 @@ class OrganizationDomainManager(models.Manager):
                 logger.warning(
                     f"🤑🚪 SAML SSO is enforced for domain {domain} but the organization does not have a SAML license.",
                     domain=domain,
-                    organization=str(query["organization_id"]),
+                    organization=str(organization_id),
                 )
                 return None
         else:
@@ -166,6 +185,51 @@ class OrganizationDomainManager(models.Manager):
                 return None
 
         return candidate_sso_enforcement
+
+    def get_active_sso_enforcement_for_organization(self, organization: Organization) -> Optional[str]:
+        """
+        Returns the enforced SSO provider for an organization if any of its verified domains enforce SSO
+        and that enforcement is active (licensed and configured). Unlike `get_sso_enforcement_for_email_address`,
+        this is keyed on the organization rather than an email's domain — it answers "does this org require
+        SSO for its own domains?" so callers can gate who may join or remain a member.
+        """
+        query = (
+            self.verified_domains()
+            .filter(organization=organization)
+            .exclude(sso_enforcement="")
+            .values("sso_enforcement", "organization_id", "organization__available_product_features")
+            .first()
+        )
+        if not query:
+            return None
+        return self._active_sso_enforcement(
+            query["sso_enforcement"],
+            query["organization__available_product_features"],
+            organization_id=query["organization_id"],
+            domain=None,
+        )
+
+    def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
+        """Whether the domain of `email` is a verified domain owned by `organization`."""
+        if "@" not in email:
+            return False
+        domain = email[email.index("@") + 1 :]
+        return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
+
+    def find_enforced_org_without_verified_email_domain(
+        self, email: str, organizations: "Iterable[Organization]"
+    ) -> Optional[Organization]:
+        """
+        Return the first organization that enforces SSO but for which `email`'s domain is not one of its
+        verified domains, meaning a login or join for this email into that org should be blocked. Returns
+        None when no organization blocks the email. Used to keep SSO-enforced orgs to their verified domains.
+        """
+        for organization in organizations:
+            if self.get_active_sso_enforcement_for_organization(organization) is None:
+                continue
+            if not self.is_domain_verified_for_organization(email, organization):
+                return organization
+        return None
 
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
