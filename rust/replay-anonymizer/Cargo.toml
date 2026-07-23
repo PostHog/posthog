@@ -24,8 +24,6 @@ libdeflater = { workspace = true }
 lz4 = { workspace = true }
 memchr = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
-# Scaled JPEG decode for the blur path (the blur target is <=96px, so most IDCT work can be
-# skipped). default-features off: its rayon feature would spawn an unbounded hidden pool.
 jpeg-decoder = { version = "0.3", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
