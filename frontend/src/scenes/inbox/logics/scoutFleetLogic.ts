@@ -10,11 +10,23 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsScoutMetadataGet, signalsScoutRunsFindingsSummary } from 'products/signals/frontend/generated/api'
-import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    signalsScoutConfigDestroy,
+    signalsScoutConfigList,
+    signalsScoutConfigUpdate,
+    signalsScoutMetadataGet,
+    signalsScoutRunsFindingsSummary,
+    signalsScoutRunsList,
+} from 'products/signals/frontend/generated/api'
+import type {
+    FleetFindingsSummaryApi,
+    PatchedSignalScoutConfigUpdateApi,
+    ScoutMetadataApi,
+    SignalScoutConfigApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
 
-import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
+import { SignalScoutRunSummary } from '../types'
 import {
     computeFleetSummary,
     computeScoutRollups,
@@ -26,6 +38,9 @@ import {
     ScoutRollup,
     sortConfigsForDisplay,
 } from '../utils/scoutRunsWindow'
+
+type SignalScoutConfig = SignalScoutConfigApi
+type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
@@ -70,6 +85,7 @@ export interface scoutFleetLogicValues {
     scoutConfigsLoading: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    updatingScoutIds: string[]
     visibleConfigs: SignalScoutConfig[]
 }
 
@@ -126,10 +142,10 @@ export interface scoutFleetLogicActions {
         errorObject?: any
     }
     loadScoutConfigsSuccess: (
-        scoutConfigs: SignalScoutConfig[],
+        scoutConfigs: SignalScoutConfigApi[] | null,
         payload?: any
     ) => {
-        scoutConfigs: SignalScoutConfig[]
+        scoutConfigs: SignalScoutConfigApi[] | null
         payload?: any
     }
     loadScoutMetadata: () => any
@@ -152,7 +168,7 @@ export interface scoutFleetLogicActions {
         updates: SignalScoutConfigUpdate
     ) => {
         configId: string
-        updates: SignalScoutConfigUpdate
+        updates: PatchedSignalScoutConfigUpdateApi
     }
     removeScoutConfigLocally: (configId: string) => {
         configId: string
@@ -189,7 +205,10 @@ export interface scoutFleetLogicActions {
         updates: SignalScoutConfigUpdate
     ) => {
         configId: string
-        updates: SignalScoutConfigUpdate
+        updates: PatchedSignalScoutConfigUpdateApi
+    }
+    updateScoutConfigFinished: (configId: string) => {
+        configId: string
     }
 }
 
@@ -199,12 +218,12 @@ export interface scoutFleetLogicMeta {
         scoutBannerMessage: (scoutMetadata: ScoutMetadataApi | null) => string | null
         rollups: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => Map<string, ScoutRollup>
         fleetSummary: (
-            scoutConfigs: SignalScoutConfig[] | null,
+            scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
         ) => FleetSummary | null
-        enabledCount: (scoutConfigs: SignalScoutConfig[] | null) => number
-        lastRunAt: (scoutConfigs: SignalScoutConfig[] | null) => string | null
-        visibleConfigs: (scoutConfigs: SignalScoutConfig[] | null, hideDisabled: boolean) => SignalScoutConfig[]
+        enabledCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
+        lastRunAt: (scoutConfigs: SignalScoutConfigApi[] | null) => string | null
+        visibleConfigs: (scoutConfigs: SignalScoutConfigApi[] | null, hideDisabled: boolean) => SignalScoutConfig[]
         runsWindowComplete: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => boolean
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
@@ -213,7 +232,7 @@ export interface scoutFleetLogicMeta {
             latestAt: string | null
             scoutCount: number
         }
-        customScoutCount: (scoutConfigs: SignalScoutConfig[] | null) => number
+        customScoutCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
     }
 }
 
@@ -237,6 +256,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     actions({
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
+        updateScoutConfigFinished: (configId: string) => ({ configId }),
         patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         deleteScout: (configId: string) => ({ configId }),
         deleteScoutFinished: (configId: string) => ({ configId }),
@@ -261,7 +281,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             null as SignalScoutConfig[] | null,
             {
                 loadScoutConfigs: async () => {
-                    return await api.signalScout.configs.list()
+                    const teamId = teamLogic.values.currentTeamId
+                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
                 },
             },
         ],
@@ -306,6 +327,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
             {
                 loadRunsWindow: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.runsWindow
+                    }
                     // Walk the full window newest→oldest, paginating via a `date_to` cursor so
                     // every scout shows its real run history (not just the fleet-wide newest 100).
                     const windowStart = dayjs().subtract(SCOUT_RUNS_WINDOW_HOURS, 'hours').toISOString()
@@ -315,7 +340,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     let complete = false
 
                     for (let page = 0; page < MAX_RUNS_PAGES; page++) {
-                        const pageRuns = await api.signalScout.runs.list({
+                        const pageRuns = await signalsScoutRunsList(String(teamId), {
                             limit: RUNS_PAGE_LIMIT,
                             date_from: windowStart,
                             date_to: cursor,
@@ -400,6 +425,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 deleteScout: (state, { configId }) => (state.includes(configId) ? state : [...state, configId]),
                 deleteScoutFinished: (state, { configId }) => state.filter((id) => id !== configId),
+            },
+        ],
+        updatingScoutIds: [
+            [] as string[],
+            {
+                updateScoutConfig: (state, { configId }) => (state.includes(configId) ? state : [...state, configId]),
+                updateScoutConfigFinished: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
         // Flips true the first time the runs window loads *successfully* and stays true across the
@@ -500,18 +532,62 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         updateScoutConfig: async ({ configId, updates }) => {
-            const previousConfig = values.scoutConfigs?.find((config) => config.id === configId)
-            // Optimistic update so the toggle/select feels instant.
+            const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())
+            const pendingUpdates: Map<string, SignalScoutConfigUpdate> = (cache.pendingScoutConfigUpdates ??= new Map())
+
+            if (inFlight.has(configId)) {
+                actions.patchScoutConfigLocally(configId, updates)
+                pendingUpdates.set(configId, { ...pendingUpdates.get(configId), ...updates })
+                return
+            }
+
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.updateScoutConfigFinished(configId)
+                return
+            }
+
+            let confirmedConfig = values.scoutConfigs?.find((config) => config.id === configId)
+            let updatesToSend: SignalScoutConfigUpdate | undefined = updates
+            let queuedUpdatesAfterFailure: SignalScoutConfigUpdate | undefined
+            inFlight.add(configId)
             actions.patchScoutConfigLocally(configId, updates)
+
             try {
-                const updated = await api.signalScout.configs.update(configId, updates)
-                // Reconcile this one row against the server (preserves concurrent edits to others).
-                actions.patchScoutConfigLocally(configId, updated)
+                while (updatesToSend) {
+                    const previousCronSchedule = confirmedConfig?.run_cron_schedule
+                    const updated = await signalsScoutConfigUpdate(String(teamId), configId, updatesToSend)
+                    confirmedConfig = updated
+
+                    if (updatesToSend.run_cron_schedule === null && previousCronSchedule) {
+                        lemonToast.info('Scheduled run time cleared. The scout is back on its rolling interval.')
+                    }
+
+                    const queuedUpdates = pendingUpdates.get(configId)
+                    if (!queuedUpdates) {
+                        actions.patchScoutConfigLocally(configId, updated)
+                        updatesToSend = undefined
+                        continue
+                    }
+
+                    pendingUpdates.delete(configId)
+                    // Keep queued optimistic changes visible while their follow-up request runs.
+                    actions.patchScoutConfigLocally(configId, { ...updated, ...queuedUpdates })
+                    updatesToSend = queuedUpdates
+                }
             } catch (error: any) {
-                if (previousConfig) {
-                    actions.patchScoutConfigLocally(configId, previousConfig)
+                queuedUpdatesAfterFailure = pendingUpdates.get(configId)
+                if (confirmedConfig) {
+                    actions.patchScoutConfigLocally(configId, confirmedConfig)
                 }
                 lemonToast.error(error?.detail || error?.message || 'Failed to update scout config')
+            } finally {
+                inFlight.delete(configId)
+                pendingUpdates.delete(configId)
+                actions.updateScoutConfigFinished(configId)
+                if (queuedUpdatesAfterFailure) {
+                    actions.updateScoutConfig(configId, queuedUpdatesAfterFailure)
+                }
             }
         },
         deleteScout: async ({ configId }) => {
@@ -558,7 +634,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             }
                         }
                     }
-                    await api.signalScout.configs.delete(configId)
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        throw new Error('Could not resolve the active project')
+                    }
+                    await signalsScoutConfigDestroy(String(teamId), configId)
                     // Remove only after the backend confirms — deletion is irreversible, so no optimistic
                     // drop that would have to be re-inserted (and re-sorted) on failure.
                     actions.removeScoutConfigLocally(configId)

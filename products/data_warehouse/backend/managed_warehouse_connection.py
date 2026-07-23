@@ -282,6 +282,7 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
             return
         source_id = source.id
         source_config = dict(source.job_inputs or {})
+        source_api_version = source.api_version
 
     # The allowlist mirrors the live Duckgres org-team row (the same row its reader policy is
     # derived from), so hand-set layouts — legacy overrides like team 2's posthog.events, custom
@@ -295,7 +296,9 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
     source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
     config = source_impl.parse_config(source_config)
     try:
-        discovered = source_impl.get_schemas(config, team_id)
+        discovered = source_impl.get_schemas(
+            config, team_id, api_version=source_impl.resolve_api_version(source_api_version)
+        )
     except Exception:
         # A provisioning or briefly unreachable warehouse fails here on every periodic sweep;
         # skip and let the next run retry rather than surfacing a task error each time.

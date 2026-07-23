@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/error_tracking/mcp/error_tracking_alerts.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     HogFunctionsCreateBody,
     HogFunctionsDestroyParams,
@@ -9,8 +13,6 @@ import {
     HogFunctionsPartialUpdateBody,
     HogFunctionsPartialUpdateParams,
 } from '@/generated/error_tracking_alerts/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingAlertsCreateSchema = HogFunctionsCreateBody.extend({
     type: HogFunctionsCreateBody.shape['type'].describe(

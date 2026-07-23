@@ -332,6 +332,10 @@ class TestHogFlowDraftPublish(APIBaseTest):
         trigger = next(a for a in flow.actions if a["type"] == "trigger")
         assert trigger["config"]["filters"].get("bytecode"), "publish must compile trigger filter bytecode"
 
+        # Publish must stay distinguishable from a plain edit in the audit trail
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "published"
+
     @patch(FLAG_PATH, return_value=True)
     def test_publish_with_stale_token_after_draft_reedit_is_rejected_with_409(self, _flag):
         flow_id = self._create_active_flow()
@@ -415,6 +419,9 @@ class TestHogFlowDraftPublish(APIBaseTest):
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.draft is None
         assert flow.draft_updated_at is None
+
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "draft_discarded"
 
     # ── Test-run from draft ──────────────────────────────────────────
 

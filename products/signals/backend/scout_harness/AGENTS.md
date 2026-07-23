@@ -90,6 +90,11 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a
   scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
   write-scoped config `create` endpoint instead (reads stay side-effect free).
+- `slack_delivery.py` / `slack_delivery_queue.py`
+  Best-effort direct Slack delivery for configured scout outputs. Finding emissions and surfaced
+  report emits/edits snapshot the run config's destination after their database write commits, then
+  enqueue the shared retrying Celery worker. Integrations are project-scoped, so a workspace connected
+  from any environment in the project can receive the canonical parent team's scout output.
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`
@@ -99,6 +104,17 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     signals into the standard ingestion pipeline.
   - `scratchpad.py` — `remember`, `forget`, and `search_scratchpad` tools backed by
     the `SignalScratchpad` model.
+  - `notes.py` — `list_notes` / `leave_note` / `delete_note` backed by the
+    `SignalScoutNote` model: steering notes humans (or other agents) leave for the
+    fleet over the public MCP surface (`scout-notes-*` tools), the inbound counterpart
+    to the scratchpad. A note targets one scout by `skill_name` or the whole fleet
+    (blank), optionally expiring via `expires_at`; the run prompt's _Notes left for
+    you_ section directs every scout to `scout-notes-list` its own notes in step 1 and
+    treat them as advisory steering. Unlike the scratchpad there is no sandbox-only
+    write gate, but writes still demand skill-authoring-level authorization (keys need
+    `llm_skill:write` on top of `signal_scout:write`, and every writer must clear the
+    `llm_skill` RBAC editor bar) — so a note-writer could already steer the fleet by
+    editing its skills, and notes add no new steering power.
   - `profile.py` — `project_profile_*` tools that read the deterministic
     `SignalProjectProfile` snapshot.
   - `runs.py` — `runs_*` tools that read past `SignalScoutRun` rows for dedupe and
@@ -143,7 +159,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
+  `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`,
+  `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
   `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
@@ -181,8 +198,9 @@ one sandbox session → zero or more emitted signals.
   DB constraint is still a possible follow-up for stronger single-flight guarantees.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; each scout has its own
-  `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
-  `run_interval_minutes` schedule the coordinator's per-scout due-check honors.
+  `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag,
+  `run_interval_minutes`, and optional project-local cron `run_cron_schedule` the
+  coordinator's per-scout due-check honors.
 - Scout sandbox GitHub credentials are **always read-only**: the runner requests
   `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped
   installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never
@@ -203,6 +221,13 @@ one sandbox session → zero or more emitted signals.
   (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
+  The bridge row does carry a write-once `metadata` JSON column stamped at creation — the
+  API-native record of run context that isn't worth a dedicated column. Known keys today:
+  `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
+  `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (`{}` on the
+  default path). Surfaced verbatim on the run serializers / `scout-runs-*` MCP tools; new
+  operationally-relevant run dimensions should be stamped there by `_create_run_row`, not grown
+  as ad-hoc columns.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
   `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
   `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit
@@ -248,11 +273,11 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default every 24 hours) is due, most-overdue
-  first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
-  drop ticks rather than queue them.
+  per-scout schedule (`run_interval_minutes`, default every 24 hours, or an optional
+  project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap
+  `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
-  `SignalProjectProfile` in `../models.py`.
+  `SignalScoutNote`, `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with
   `SourceType.CROSS_SOURCE_ISSUE`.
 - **Scout fleet** — the `signals-scout-*` skills live at

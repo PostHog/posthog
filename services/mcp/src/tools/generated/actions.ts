@@ -1,7 +1,13 @@
 // AUTO-GENERATED from products/actions/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+import { castStringToInt } from '@/tools/cast-helpers'
+
 import {
     ActionsCreateBody,
     ActionsDestroyParams,
@@ -10,10 +16,6 @@ import {
     ActionsPartialUpdateParams,
     ActionsRetrieveParams,
 } from '@/generated/actions/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ActionCreateSchema = ActionsCreateBody.omit({ _create_in_folder: true }).extend({
     name: ActionsCreateBody.shape['name'].describe('Name of the action (must be unique within the project)'),

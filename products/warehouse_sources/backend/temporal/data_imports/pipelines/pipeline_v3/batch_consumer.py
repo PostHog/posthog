@@ -241,6 +241,14 @@ class BatchConsumerAdapter(Protocol):
         the run's terminal state."""
         ...
 
+    def is_expected_user_error(self, err: Exception) -> bool:
+        """Whether the failure is an expected upstream/customer condition rather than a bug in
+        our pipeline (e.g. a source column whose type changed and no longer fits the stored
+        type — only a reset and full re-sync resolves it). The run still fails with the error's
+        actionable message, but the engine keeps these out of error tracking. Orthogonal to
+        ``is_retryable_error``: an error can be both non-retryable and expected."""
+        ...
+
     async def after_batch_processed(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -923,14 +931,25 @@ class BatchConsumer:
         if not self._adapter.is_retryable_error(err):
             # Deterministic failures do not benefit from retrying. Preserve their
             # messages, except for explicitly classified permanent apply errors.
-            logger.exception(
-                self._event("batch_failed_non_retryable"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
             reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
+            if self._adapter.is_expected_user_error(err):
+                # Expected upstream/customer condition — the run fails with an actionable
+                # message; there is nothing for us to fix, so keep it out of error tracking.
+                logger.warning(
+                    self._event("batch_failed_expected_user_error"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    error=str(err),
+                )
+            else:
+                logger.exception(
+                    self._event("batch_failed_non_retryable"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                )
+                capture_exception(err)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
             reason = f"max retries exceeded: {err}"

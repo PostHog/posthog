@@ -155,6 +155,34 @@ test.describe('Funnel insights', () => {
         })
     })
 
+    test('Tooltip cleans up when navigating away client-side', async ({ page }) => {
+        const insight = new InsightPage(page)
+        await insight.goToInsight(seededInsightId())
+        await insight.funnels.waitForChart()
+
+        await test.step('hover funnel bar to show tooltip', async () => {
+            await insight.funnels.hoverStepBars()
+            await expect(insight.funnels.tooltip.first()).toBeVisible()
+        })
+
+        await test.step('navigate back via keyboard while the tooltip is shown', async () => {
+            // Keyboard navigation keeps the cursor over the canvas, so the tooltip is
+            // still shown when the scene unmounts — clicking a link would hide it via
+            // hover-away first and make the cleanup assertion below vacuous.
+            const insightUrl = page.url()
+            const backLink = page.getByLabel(/^Go back to/)
+            await backLink.focus()
+            await page.keyboard.press('Enter')
+            await expect(page).not.toHaveURL(insightUrl)
+        })
+
+        await test.step('no orphaned tooltip remains after the scene unmounts', async () => {
+            // The tooltip portals to document.body outside the chart's DOM subtree, so
+            // it survives scene teardown unless the chart's cleanup actually runs.
+            await expect(insight.funnels.tooltip).toHaveCount(0, { timeout: 3000 })
+        })
+    })
+
     test('Switch between funnel visualization types', async ({ page }) => {
         const insight = await goToSeededFunnel(page)
 

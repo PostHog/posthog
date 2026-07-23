@@ -23,6 +23,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
+from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -274,6 +275,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "github_issue_number",
             "zendesk_ticket_id",
             "organization_id",
+            "organization_id_source",
             "person",
             "tags",
         ]
@@ -303,6 +305,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "github_issue_number",
             "zendesk_ticket_id",
             "organization_id",
+            "organization_id_source",
             "person",
             "ai_triage",
             "identity_verified",
@@ -322,6 +325,11 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
+            },
+            "organization_id_source": {
+                "help_text": "How organization_id was resolved: 'person' (from the requester's identity) or "
+                "'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). "
+                "Null when organization_id is unset."
             },
             "ai_triage": {
                 "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
@@ -352,6 +360,8 @@ TICKET_ID_PARAM = OpenApiParameter(
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
+    # "create" stays listed so a ticket:write token reaches the create() override below and
+    # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -587,6 +597,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         context = super().get_serializer_context()
         context["team"] = self.team
         return context
+
+    @extend_schema(exclude=True)
+    def create(self, *args, **kwargs):
+        # Tickets are created through their channel (widget, email, Slack, etc.) or the
+        # `compose` action, all of which assign team + ticket_number. The bare collection
+        # POST can't set those and is not a supported intake path — reject it explicitly
+        # instead of 500ing on the NOT NULL violation.
+        raise MethodNotAllowed(
+            method="POST",
+            detail="Creating tickets via this endpoint is not supported. "
+            "Use posthog.conversations.sendMessage() from the JavaScript SDK. "
+            "See https://posthog.com/docs/support/javascript-api for details.",
+        )
 
     def _attach_persons_to_tickets(self, tickets: Sequence[Ticket]) -> None:
         """Batch-fetch persons by distinct_id and attach to tickets."""

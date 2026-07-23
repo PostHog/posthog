@@ -45,7 +45,12 @@ class ScorerProposer:
         return _SYSTEM_PROMPT
 
     def grounding(self, scanner: "ReplayScanner") -> str:
-        return ""
+        # The schema requires echoing the scale, so the briefing must state the current one.
+        scale = (scanner.scanner_config or {}).get("scale") or {}
+        if not scale:
+            return ""
+        label = f" ({scale['label']})" if scale.get("label") else ""
+        return f"Current scale: {scale.get('min')} to {scale.get('max')}{label}."
 
     def to_config_patch(self, llm_output: dict[str, Any], base_config: dict[str, Any]) -> dict[str, Any]:
         config = dict(base_config)

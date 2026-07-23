@@ -117,9 +117,11 @@ export default meta
 
 type Story = StoryObj
 
-// The scene mounts asynchronously after navigation, so waits inside play functions need far more
-// than @testing-library's 1s default before CI can be trusted to have rendered the install step.
-const WAIT_OPTIONS = { timeout: 8000, interval: 200 }
+// The scene mounts asynchronously after navigation (and only 500ms after mount does the delayed
+// effect even start it), so play-function waits need a load-tolerant budget: on a busy CI shard
+// the install step can take well past the global 15s default to render, and retries genuinely
+// re-run play now — an under-budgeted wait fails all three attempts instead of flaking once.
+const WAIT_OPTIONS = { timeout: 30000, interval: 200 }
 
 // Click a footer/body button by its exact label, waiting for it to mount first.
 async function clickButton(text: string): Promise<void> {
@@ -205,12 +207,14 @@ export const RepoPickerOpen: Story = cloudRunStory({
     integrations: [githubIntegration],
     waitForSelector: '[data-attr="select-github-repository"]',
     extraPlay: async () => {
+        // LemonInput puts data-attr on the <input> element itself, so match the input directly —
+        // a descendant selector like `[data-attr=...] input` never matches anything.
         await waitFor(() => {
-            if (!document.querySelector('[data-attr="select-github-repository"] input')) {
+            if (!document.querySelector('input[data-attr="select-github-repository"]')) {
                 throw new Error('repo picker not ready')
             }
         }, WAIT_OPTIONS)
-        await userEvent.click(document.querySelector('[data-attr="select-github-repository"] input') as Element)
+        await userEvent.click(document.querySelector('input[data-attr="select-github-repository"]') as Element)
         // full_name only appears in the open dropdown (nothing is selected), so this confirms it's open.
         await waitFor(() => {
             if (!Array.from(document.querySelectorAll('span')).some((el) => el.textContent === 'acme-co/mobile-app')) {
