@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -271,6 +272,9 @@ def sync_pending_signals_refund_credits() -> None:
 
 
 _ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
+# Backstop for a worker dying without releasing the rebuild lock; above the task's
+# time_limit so a live rebuild is never treated as abandoned.
+_REBUILD_LOCK_TTL_SECONDS = 30 * 60
 
 
 @shared_task(
@@ -291,9 +295,13 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
     the cached rows untouched; the next enqueue retries.
     """
     # Concurrent enqueues for the same (team, repository) are common — several reports can
-    # hit the same stale map before the first rebuild lands. Re-checking staleness at start
-    # collapses them to one sandbox clone; the freshness window also debounces re-triggers.
+    # hit the same stale map before the first rebuild lands. The staleness re-check debounces
+    # re-triggers over the freshness window; the atomic cache lock closes the remaining race
+    # where several queued workers all pass the check before the first rebuild writes.
     if not force and not repository_activity_needs_rebuild(team_id, repository):
+        return
+    lock_key = f"signals_repo_activity_rebuild/{team_id}/{repository.strip().lower()}"
+    if not cache.add(lock_key, "1", timeout=_REBUILD_LOCK_TTL_SECONDS):
         return
     try:
         rebuild_repository_activity(team_id, repository)
@@ -308,6 +316,8 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         )
     except Exception as exc:
         capture_exception(exc, {"team_id": team_id, "repository": repository})
+    finally:
+        cache.delete(lock_key)
 
 
 @shared_task(

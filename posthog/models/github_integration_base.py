@@ -65,6 +65,8 @@ class GitHubCommitAttribution:
     sha: str
     login: str
     is_bot: bool
+    # Git author display name — untrusted free text, for display only, never parse it.
+    name: str | None = None
 
 
 class GitHubIntegrationError(Exception):
@@ -760,11 +762,13 @@ class GitHubIntegrationBase:
                 author = entry.get("author")
                 if not isinstance(sha, str) or not isinstance(author, dict) or not author.get("login"):
                     continue
+                git_author = (entry.get("commit") or {}).get("author") or {}
                 attributions.append(
                     GitHubCommitAttribution(
                         sha=sha,
                         login=author["login"],
                         is_bot=author.get("type") == "Bot",
+                        name=git_author.get("name") if isinstance(git_author.get("name"), str) else None,
                     )
                 )
             if len(body) < 100:

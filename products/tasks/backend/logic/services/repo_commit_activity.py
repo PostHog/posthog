@@ -6,6 +6,7 @@ Boots a short-lived sandbox, makes a minimal history-only clone
 runs; callers get plain data.
 """
 
+import re
 import shlex
 from dataclasses import dataclass
 
@@ -49,11 +50,14 @@ class RepositoryCommitActivityError(Exception):
 
 @dataclass(frozen=True)
 class RepositoryCommitActivity:
-    """One commit from the repository's recent default-branch history, newest-first."""
+    """One commit from the repository's recent default-branch history, newest-first.
+
+    Deliberately no author name/email: commit metadata is attacker-controlled free text
+    that could embed the parser's delimiters and forge records. Identity comes from
+    GitHub's sha→login attribution; the parsed format contains only sha and date.
+    """
 
     sha: str
-    author_name: str
-    author_email: str
     committed_at: str  # ISO 8601 committer date — same axis the --since filter selects on
     paths: list[str]
 
@@ -128,7 +132,9 @@ def _read_log(
 ) -> list[RepositoryCommitActivity]:
     target_path = sandbox_repo_path(repository)
     # %cd (committer date): the same axis --since filters on, and when the change landed.
-    pretty = f"{_RECORD_SEP}%H{_FIELD_SEP}%an{_FIELD_SEP}%ae{_FIELD_SEP}%cd"
+    # No free-form fields (%an/%ae): commit metadata can embed the delimiters and forge
+    # records; sha and date are further shape-validated in _parse_log.
+    pretty = f"{_RECORD_SEP}%H{_FIELD_SEP}%cd"
     log_command = (
         f"git -C {shlex.quote(target_path)} log "
         # --no-renames: inexact rename detection compares blob contents, which a blobless
@@ -153,6 +159,10 @@ def _read_log(
     return _parse_log(result.stdout)
 
 
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)$")
+
+
 def _parse_log(stdout: str) -> list[RepositoryCommitActivity]:
     commits: list[RepositoryCommitActivity] = []
     for record in stdout.split(_RECORD_SEP):
@@ -160,19 +170,13 @@ def _parse_log(stdout: str) -> list[RepositoryCommitActivity]:
             continue
         header, _, body = record.partition("\n")
         fields = header.split(_FIELD_SEP)
-        if len(fields) != 4:
+        if len(fields) != 2:
             continue
-        sha, author_name, author_email, committed_at = (field.strip() for field in fields)
-        if not sha or not author_email:
+        sha, committed_at = (field.strip() for field in fields)
+        # Strict shape validation: only records that look exactly like git's own output
+        # join against GitHub attribution.
+        if not _SHA_RE.match(sha) or not _ISO_DATE_RE.match(committed_at):
             continue
         paths = [line.strip() for line in body.splitlines() if line.strip()]
-        commits.append(
-            RepositoryCommitActivity(
-                sha=sha,
-                author_name=author_name,
-                author_email=author_email,
-                committed_at=committed_at,
-                paths=paths,
-            )
-        )
+        commits.append(RepositoryCommitActivity(sha=sha, committed_at=committed_at, paths=paths))
     return commits

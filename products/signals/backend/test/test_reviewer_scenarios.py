@@ -53,15 +53,13 @@ def _history() -> tuple[list[RepositoryCommitActivity], dict[str, tuple[str, boo
         # The founder's window activity is zero — their blame commits below predate it.
     ]
     serial = 0
-    for login, email, is_bot, path, count, newest in plan:
+    for login, _email, is_bot, path, count, newest in plan:
         for i in range(count):
             serial += 1
             sha = f"{serial:07d}" + "a" * 33
             commits.append(
                 RepositoryCommitActivity(
                     sha=sha,
-                    author_name=login,
-                    author_email=email,
                     committed_at=(timezone.now() - timedelta(days=newest + i * 2)).isoformat(),
                     paths=[path],
                 )

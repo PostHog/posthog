@@ -177,7 +177,7 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
             if entry is None:
                 per_area[area][login] = {
                     "login": login,
-                    "name": commit.author_name or login,
+                    "name": attribution.name or login,
                     "commit_count": 1,
                     "last_commit_at": commit.committed_at,
                     "last_commit_sha": commit.sha,

@@ -38,11 +38,11 @@ def team(organization):
     return Team.objects.create(organization=organization, name="test-repo-activity-team")
 
 
-def _commit(sha: str, email: str, days_ago: int, paths: list[str], name: str = "") -> RepositoryCommitActivity:
+def _commit(sha: str, _email: str, days_ago: int, paths: list[str]) -> RepositoryCommitActivity:
+    # _email kept in call sites as narrative: identity comes from the attribution join,
+    # never from commit metadata.
     return RepositoryCommitActivity(
         sha=sha,
-        author_name=name or email.split("@")[0],
-        author_email=email,
         committed_at=(timezone.now() - timedelta(days=days_ago)).isoformat(),
         paths=paths,
     )
