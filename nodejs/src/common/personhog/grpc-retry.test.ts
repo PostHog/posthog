@@ -77,6 +77,25 @@ describe('withRetry', () => {
         expect(callCount).toBe(1)
     })
 
+    it('does not retry an oversized-response ResourceExhausted error', async () => {
+        let callCount = 0
+        await expect(
+            withRetry(
+                () => {
+                    callCount++
+                    throw new ConnectError(
+                        'message size 1800000000 is larger than configured readMaxBytes 134217728',
+                        Code.ResourceExhausted
+                    )
+                },
+                'test-client',
+                'test-method'
+            )
+        ).rejects.toThrow(ConnectError)
+        // Oversized responses are deterministic — retrying re-reads the same frame, so we fail fast.
+        expect(callCount).toBe(1)
+    })
+
     it('does not retry non-ConnectError errors', async () => {
         let callCount = 0
         await expect(

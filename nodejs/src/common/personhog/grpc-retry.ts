@@ -13,8 +13,27 @@ const RETRYABLE_CODES = new Set([
     Code.Unknown,
 ])
 
+/**
+ * Connect raises `ResourceExhausted` for two very different situations:
+ * genuine server-side backpressure (retrying with backoff can succeed) and a
+ * response that exceeds the client's `readMaxBytes` cap. The latter is
+ * deterministic — the same oversized frame comes back on every attempt — so
+ * retrying only multiplies the logged failures without any chance of success.
+ * Connect tags the cap-exceeded case with a message mentioning `readMaxBytes`,
+ * which is how we tell the two apart.
+ */
+function isOversizedResponse(error: ConnectError): boolean {
+    return error.code === Code.ResourceExhausted && error.rawMessage.includes('readMaxBytes')
+}
+
 function isRetryable(error: unknown): boolean {
-    return error instanceof ConnectError && RETRYABLE_CODES.has(error.code)
+    if (!(error instanceof ConnectError)) {
+        return false
+    }
+    if (isOversizedResponse(error)) {
+        return false
+    }
+    return RETRYABLE_CODES.has(error.code)
 }
 
 function sleep(ms: number): Promise<void> {
