@@ -315,7 +315,12 @@ describe('dashboardBreakdownColors', () => {
 
         it.each([
             ['numeric dataset value matches a stringified config', 123, 'event', 'preset-1'],
-            ['multi-breakdown array matches its own entry, not a scalar containing "::"', ['a', 'b'], 'event', 'preset-4'],
+            [
+                'multi-breakdown array matches its own entry, not a scalar containing "::"',
+                ['a', 'b'],
+                'event',
+                'preset-4',
+            ],
             ['scalar containing "::" matches its own entry, not a multi-breakdown array', 'a::b', 'event', 'preset-2'],
             ['breakdown type must match', 'Chrome', 'event', undefined],
             ['type defaults to event when not provided', '123', undefined, 'preset-1'],

@@ -291,8 +291,12 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
         return null
     }
 
+    // Remove breakdown color entries, as they carry raw breakdown values (user data) — report only their count
+    const { breakdown_colors, ...sanitizedDashboard } = dashboard
+
     return {
-        ...dashboard,
+        ...sanitizedDashboard,
+        breakdown_colors_count: breakdown_colors?.length ?? 0,
         tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
     }
 }

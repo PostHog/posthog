@@ -581,9 +581,7 @@ describe('dashboardLogic', () => {
                 `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     // only the pin — no auto entry materialized from the partially loaded tiles
-                    breakdown_colors: [
-                        expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' }),
-                    ],
+                    breakdown_colors: [expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' })],
                 })
             )
         })
