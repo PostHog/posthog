@@ -705,6 +705,7 @@ def validate_bigquery_credentials(
             # Mirror the stable substrings the sync-path classifier keys off, so the wizard names the
             # same root causes. Ordering matches `get_non_retryable_errors`: identifier/dataset before
             # the generic access-denied so the more specific message wins.
+            message = str(e)
             if "Unable to load PEM file" in message:
                 return False, BIGQUERY_INVALID_KEY_FILE_ERROR
             if "invalid_grant" in message:

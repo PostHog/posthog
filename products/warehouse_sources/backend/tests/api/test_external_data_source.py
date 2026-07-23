@@ -37,7 +37,12 @@ from posthog.schema import (
 )
 
 from posthog.models import OrganizationMembership, Team
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GoogleCloudServiceAccountIntegration, Integration, OauthIntegration
+from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    GoogleCloudServiceAccountIntegration,
+    Integration,
+    OauthIntegration,
+)
 from posthog.models.project import Project
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
