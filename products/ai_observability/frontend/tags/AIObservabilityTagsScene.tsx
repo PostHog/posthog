@@ -39,7 +39,9 @@ export const scene: SceneExport = {
 }
 
 function TaggerMetrics(): JSX.Element {
-    const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic)
+    // Build the logic instance so this component holds its own mount, rather than
+    // reading the bare reference and assuming an ancestor kept it in the store.
+    const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic())
 
     const enabledCount = taggers.filter((t) => t.enabled && !t.deleted).length
 

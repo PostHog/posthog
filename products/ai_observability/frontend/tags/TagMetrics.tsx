@@ -5,7 +5,6 @@ import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 
-import { llmTaggersLogic } from './llmTaggersLogic'
 import { tagMetricsLogic } from './tagMetricsLogic'
 
 export const TAG_METRICS_COLLECTION_ID = 'tag-metrics'
@@ -50,8 +49,10 @@ function TopTagsCard({ tags }: { tags: { tag: string; count: number }[] }): JSX.
 }
 
 export function TagMetrics(): JSX.Element {
-    const { summaryMetrics, tagStats, tagStatsLoading, enabledTaggerCount, chartQuery } = useValues(tagMetricsLogic)
-    const { taggers } = useValues(llmTaggersLogic)
+    // `taggers` comes through tagMetricsLogic's connect to llmTaggersLogic, so we don't
+    // read the bare llmTaggersLogic reference directly (which can be unmounted here).
+    const { summaryMetrics, tagStats, tagStatsLoading, enabledTaggerCount, chartQuery, taggers } =
+        useValues(tagMetricsLogic)
 
     if (tagStatsLoading) {
         return (
