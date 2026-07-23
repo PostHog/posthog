@@ -568,6 +568,24 @@ export interface eventUsageLogicActions {
         journeyName: string
         stepCount: number
     }
+    reportDashboardBreakdownColorsSaved: (
+        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        manualCount: number,
+        autoCount: number,
+        breakdownTypes: string[]
+    ) => {
+        autoCount: number
+        breakdownTypes: string[]
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        manualCount: number
+    }
+    reportDashboardColorThemeSet: (
+        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        themeId: number | null
+    ) => {
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        themeId: number | null
+    }
     reportDashboardDateRangeChanged: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
         dateFrom?: string | Dayjs | null,
@@ -2122,6 +2140,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             action: 'shown' | 'discarded' | 'kept_editing'
         ) => ({ dashboard, action }),
+        reportDashboardBreakdownColorsSaved: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            manualCount: number,
+            autoCount: number,
+            breakdownTypes: string[]
+        ) => ({ dashboard, manualCount, autoCount, breakdownTypes }),
+        reportDashboardColorThemeSet: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            themeId: number | null
+        ) => ({ dashboard, themeId }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -3050,6 +3078,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
                 source,
                 layout_zoom: layoutZoom ?? undefined,
+            })
+        },
+        reportDashboardBreakdownColorsSaved: async ({ dashboard, manualCount, autoCount, breakdownTypes }) => {
+            posthog.capture('dashboard breakdown colors saved', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                manual_count: manualCount,
+                auto_count: autoCount,
+                breakdown_types: breakdownTypes,
+            })
+        },
+        reportDashboardColorThemeSet: async ({ dashboard, themeId }) => {
+            posthog.capture('dashboard color theme set', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                theme_id: themeId,
             })
         },
         reportDashboardFiltersChanged: async ({ dashboard, changeType, properties }) => {
