@@ -81,6 +81,8 @@ export interface CatalogItem {
     existingSource?: boolean
     /** Self-managed: the user keeps the data in their own bucket, PostHog only links to it. */
     selfManaged?: boolean
+    /** The sources most people connect (Stripe, Postgres, the ad platforms, ...). Led with when browsing. */
+    featured?: boolean
 }
 
 export interface CatalogCategory {
@@ -1512,6 +1514,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                                 name: connector.name,
                                 label: connector.label ?? connector.name,
                                 keywords: connector.keywords ?? [],
+                                featured: connector.featured,
                                 url: urls.dataWarehouseSourceNew(connector.name),
                             },
                         ]
@@ -1603,16 +1606,23 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         ? base
                         : base.filter((item) => item.category === selectedCategory)
                 // Keep fuzzy-search relevance order when searching. When browsing, lead with the
-                // sources the user can connect right now (alphabetically), then "Coming soon" ones,
-                // so the catalog doesn't open on a wall of unavailable tiles.
+                // featured sources people connect most (Stripe, Postgres, the ad platforms, ...),
+                // then the rest of the connectable sources, then "Coming soon" ones — all
+                // alphabetical within a tier — so the catalog doesn't open on a wall of obscure or
+                // unavailable tiles.
                 if (trimmed) {
                     return filtered
                 }
+                const browseRank = (item: CatalogItem): number => {
+                    if (item.status === 'coming_soon') {
+                        return 2
+                    }
+                    return item.featured ? 0 : 1
+                }
                 return [...filtered].sort((a, b) => {
-                    const aComingSoon = a.status === 'coming_soon'
-                    const bComingSoon = b.status === 'coming_soon'
-                    if (aComingSoon !== bComingSoon) {
-                        return aComingSoon ? 1 : -1
+                    const rankDiff = browseRank(a) - browseRank(b)
+                    if (rankDiff !== 0) {
+                        return rankDiff
                     }
                     return a.label.localeCompare(b.label)
                 })
