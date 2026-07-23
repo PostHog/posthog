@@ -57,19 +57,6 @@ export const FILTER_OPERATOR_LABELS: Record<InsightBuilderFilterOperator, string
     is_not_set: 'is not set',
 }
 
-export const FILTER_OPERATORS: InsightBuilderFilterOperator[] = [
-    'eq',
-    'neq',
-    'gt',
-    'gte',
-    'lt',
-    'lte',
-    'contains',
-    'not_contains',
-    'is_set',
-    'is_not_set',
-]
-
 /** Operators that compare against a value; is_set / is_not_set don't need one */
 export function operatorNeedsValue(operator: InsightBuilderFilterOperator): boolean {
     return operator !== 'is_set' && operator !== 'is_not_set'
