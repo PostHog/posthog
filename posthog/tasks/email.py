@@ -391,12 +391,13 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         subject=f"{invitee_first_name} joined you on PostHog",
         template_name="member_join",
         template_context={
+            # Footer context first so the sanitized organization_name below wins over the raw value.
+            **get_email_footer_context(organization=organization),
             "invitee": invitee,
             "organization": organization,
             "invitee_first_name": invitee_first_name,
             "invitee_last_name": invitee_last_name,
             "organization_name": organization_name,
-            **get_email_footer_context(organization=organization),
         },
     )
     for user in members_to_email:
@@ -2328,11 +2329,12 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
         subject=f"{requester_name} requested access to PostHog AI",
         template_name="posthog_ai_access_requested",
         template_context={
+            # Footer context first so the sanitized organization_name below wins over the raw value.
+            **get_email_footer_context(organization=organization),
             "requester_name": requester_name,
             "requester_email": requester.email or "",
             "organization_name": org_name,
             "posthog_ai_url": posthog_ai_url,
-            **get_email_footer_context(organization=organization),
         },
         reply_to=requester.email or "",
     )
