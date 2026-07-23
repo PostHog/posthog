@@ -122,9 +122,9 @@ def get_area_activity(team_id: int, repository: str, areas: list[str]) -> dict[s
                 ignore_conflicts=True,
             )
         if rows:
-            SignalRepositoryAreaActivity.objects.filter(id__in=[row.id for row in rows.values()]).update(
-                last_used_at=now
-            )
+            SignalRepositoryAreaActivity.objects.filter(
+                team_id=team_id, id__in=[row.id for row in rows.values()]
+            ).update(last_used_at=now)
         for area, row in rows.items():
             if row.refreshed_at is not None:
                 result[area] = _parse_contributors(row.contributors)
