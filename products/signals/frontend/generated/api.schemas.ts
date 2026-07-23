@@ -1658,6 +1658,54 @@ export interface ScoutMetadataApi {
 }
 
 /**
+ * `SignalScoutNote` projection used by `notes-list` and `notes-create`.
+ */
+export interface ScoutNoteApi {
+    /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
+    id: string
+    /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+    skill_name: string
+    /** The note's prose, read verbatim by scout runs. */
+    content: string
+    /**
+     * ISO-8601 creation timestamp.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * ISO-8601 expiry, or null for a note that stays active until deleted.
+     * @nullable
+     */
+    expires_at: string | null
+    /**
+     * Display name of the user who left the note, or null when unavailable.
+     * @nullable
+     */
+    created_by_name: string | null
+}
+
+/**
+ * Request body for `notes-create`.
+ */
+export interface ScoutNoteCreateRequestApi {
+    /**
+     * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+     * @maxLength 10000
+     */
+    content: string
+    /**
+     * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+     * @maxLength 200
+     */
+    skill_name?: string
+    /**
+     * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted.
+     * @nullable
+     */
+    expires_at?: string | null
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -3196,6 +3244,41 @@ export type SignalsScoutMembersListParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type SignalsScoutNotesListParams = {
+    /**
+     * Truncate each note's `content` to the first N characters (a preview). Omit for the full body — use this on wide scans so stacked notes can't dominate your context.
+     * @minimum 0
+     */
+    content_max_chars?: number
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass the `created_at` of the oldest note from the prior page to walk back past the result cap.
+     */
+    date_to?: string
+    /**
+     * Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.
+     */
+    include_expired?: boolean
+    /**
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     */
+    include_general?: boolean
+    /**
+     * Max rows to return (default 20, hard cap 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * @minLength 1
+     */
+    skill_name?: string
 }
 
 export type SignalsScoutProjectProfileGetParams = {
