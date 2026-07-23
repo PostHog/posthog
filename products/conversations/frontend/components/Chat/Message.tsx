@@ -114,6 +114,8 @@ export function Message({
                                 <SupportRichContentPreview
                                     content={message.richContent as JSONContent}
                                     className="text-sm"
+                                    fallbackContent={message.content}
+                                    fallbackDisableImages={message.fromZendesk}
                                 />
                             ) : (
                                 <SupportMarkdown className="text-sm" disableImages={message.fromZendesk}>
