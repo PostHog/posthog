@@ -19,6 +19,9 @@ on:
         # it when a PR leaves draft. To force the full matrices on a draft, add the
         # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
         # start without needing a new push. Cheap checks still run on drafts.
+        # The `no-ci` label does the opposite: it silences this workflow on a draft
+        # entirely (prototypes/spikes), until the label is removed or the PR is
+        # marked ready for review.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
         # PRs run legacy-schema only (master runs always cover both).
@@ -78,6 +81,13 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
@@ -3355,7 +3365,8 @@ jobs:
     test-selection-verdict:
         needs: [django, turbo-tests, changes, select-tests]
         name: Test selection verdict
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        # changes is skipped on no-ci drafts — no tests ran, nothing to verdict.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result != 'skipped' }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
