@@ -151,6 +151,7 @@ class TestMirrorOtlpDelivery(SimpleTestCase):
         # The run uuid (dashes stripped) is the trace id, grouping the run.
         assert records[0]["traceId"] == RUN_ID.replace("-", "")
         attributes = {a["key"]: a["value"] for a in records[0]["attributes"]}
+        assert attributes["event"] == {"stringValue": "task_run_log"}
         assert attributes["task_run_id"] == {"stringValue": RUN_ID}
         # OTLP JSON encodes 64-bit ints as strings.
         assert attributes["team_id"] == {"intValue": "2"}

@@ -46,6 +46,8 @@ _LOG_METHOD_NAMES = {"info": "info", "warn": "warning", "error": "error"}
 
 _OTLP_SEVERITIES = {"info": ("INFO", 9), "warn": ("WARN", 13), "error": ("ERROR", 17)}
 
+_LOG_EVENT_NAME = "task_run_log"
+
 _OTLP_SERVICE_NAME = "task-run-log-mirror"
 
 _OTLP_TIMEOUT_SECONDS = 3
@@ -99,7 +101,7 @@ def mirror_entries(
         if isinstance(entry_timestamp, str):
             fields["entry_timestamp"] = entry_timestamp
 
-        getattr(logger, _LOG_METHOD_NAMES[severity])("task_run_log", **fields)
+        getattr(logger, _LOG_METHOD_NAMES[severity])(_LOG_EVENT_NAME, **fields)
         records.append((severity, fields))
 
     _post_otlp(records, run_id=run_id)
@@ -131,9 +133,12 @@ def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> Non
                 "body": {"stringValue": fields["body"]},
                 **({"traceId": trace_id} if len(trace_id) == 32 else {}),
                 "attributes": [
-                    {"key": key, "value": _otlp_attribute_value(value)}
-                    for key, value in fields.items()
-                    if key != "body"
+                    {"key": "event", "value": {"stringValue": _LOG_EVENT_NAME}},
+                    *[
+                        {"key": key, "value": _otlp_attribute_value(value)}
+                        for key, value in fields.items()
+                        if key != "body"
+                    ],
                 ],
             }
         )

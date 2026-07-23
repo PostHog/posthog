@@ -86,14 +86,14 @@ Flush and shutdown are best-effort and per-signal independent (`Promise.allSettl
 
 This branch also carries the scout-run log mirror by Andrew Maguire ([#71094](https://github.com/PostHog/posthog/pull/71094)), a second, complementary delivery path with a different privacy posture and scope:
 
-|                | OTLP export (this work)                                                                     | Scout run log mirror (#71094)                                                                                       |
-| -------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Emitter        | agent-server inside the sandbox                                                              | Django `TaskRun.append_log` (the S3 write choke point)                                                                 |
-| Transport      | direct OTLP HTTP to `capture-logs`                                                           | structured stdout line per entry (`event=task_run_log`); the per-cluster OTel collector already ships container stdout |
-| Destination    | chosen telemetry project (via `SANDBOX_AGENT_OTEL_*`)                                        | the region's internal PostHog project's Logs                                                                           |
-| Content        | metadata-only allowlist — never prompts, message text, tool args/output, or raw error text   | readable bodies (agent messages, tool calls, sandbox output), capped at 8k chars                                       |
-| Scope          | every cloud task run once the settings are set                                               | runs whose task `origin_product` is in `TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS` (default: `signals_scout` only)          |
-| Traces         | one APM trace per run (`task_run`/`turn`/`tool_call:*` spans)                                | `request_id` = run uuid becomes the record's trace id, grouping one run as one trace                                   |
+|             | OTLP export (this work)                                                                    | Scout run log mirror (#71094)                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Emitter     | agent-server inside the sandbox                                                            | Django `TaskRun.append_log` (the S3 write choke point)                                                                 |
+| Transport   | direct OTLP HTTP to `capture-logs`                                                         | structured stdout line per entry (`event=task_run_log`); the per-cluster OTel collector already ships container stdout |
+| Destination | chosen telemetry project (via `SANDBOX_AGENT_OTEL_*`)                                      | the region's internal PostHog project's Logs                                                                           |
+| Content     | metadata-only allowlist — never prompts, message text, tool args/output, or raw error text | readable bodies (agent messages, tool calls, sandbox output), capped at 8k chars                                       |
+| Scope       | every cloud task run once the settings are set                                             | runs whose task `origin_product` is in `TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS` (default: `signals_scout` only)          |
+| Traces      | one APM trace per run (`task_run`/`turn`/`tool_call:*` spans)                              | `request_id` = run uuid becomes the record's trace id, grouping one run as one trace                                   |
 
 The privacy postures are compatible because the scopes differ: scout runs are PostHog-authored agents whose transcripts we already own end to end, so full bodies into the internal project are fine there, while the OTLP path covers customer-driven runs and therefore stays metadata-only.
 Mirroring is fire-and-forget — a mirror failure is logged and never breaks the run's S3 log write.
@@ -166,11 +166,11 @@ Incorporated from [#71094](https://github.com/PostHog/posthog/pull/71094) (scout
 
 ## Configuration reference
 
-| Where                  | Name                                                                       | Meaning                                                                |
-| ---------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Django settings        | `SANDBOX_AGENT_OTEL_LOGS_URL`                                              | Full OTLP logs ingest URL; unset = telemetry off                       |
-| Django settings        | `SANDBOX_AGENT_OTEL_LOGS_TOKEN`                                            | Project API key of the telemetry project; unset = telemetry off        |
-| Django settings        | `SANDBOX_AGENT_OTEL_TRACES_URL`                                            | Full OTLP traces ingest URL; unset = spans off, logs unaffected        |
-| Sandbox env (injected) | `POSTHOG_AGENT_OTEL_LOGS_URL` / `_TOKEN` / `POSTHOG_AGENT_OTEL_TRACES_URL` | Read by `agent-server` (`bin.ts`); reserved keys, not user-overridable |
-| Django settings        | `TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS`                                     | Task origins whose run logs mirror to the internal project's Logs (default `signals_scout`; empty disables) |
+| Where                  | Name                                                                       | Meaning                                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Django settings        | `SANDBOX_AGENT_OTEL_LOGS_URL`                                              | Full OTLP logs ingest URL; unset = telemetry off                                                                               |
+| Django settings        | `SANDBOX_AGENT_OTEL_LOGS_TOKEN`                                            | Project API key of the telemetry project; unset = telemetry off                                                                |
+| Django settings        | `SANDBOX_AGENT_OTEL_TRACES_URL`                                            | Full OTLP traces ingest URL; unset = spans off, logs unaffected                                                                |
+| Sandbox env (injected) | `POSTHOG_AGENT_OTEL_LOGS_URL` / `_TOKEN` / `POSTHOG_AGENT_OTEL_TRACES_URL` | Read by `agent-server` (`bin.ts`); reserved keys, not user-overridable                                                         |
+| Django settings        | `TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS`                                     | Task origins whose run logs mirror to the internal project's Logs (default `signals_scout`; empty disables)                    |
 | Django settings        | `TASK_RUN_LOGS_MIRROR_OTLP_URL` / `_TOKEN`                                 | Direct OTLP delivery for the mirror; the token pins records to the internal logs project so customer projects are never billed |
