@@ -367,7 +367,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             for child in step_entity.nodes:
                 assert isinstance(child, (EventsNode, ActionsNode))
                 child_exprs.append(self._build_step_query(child, table_entity))
-            if step_entity.operator == FilterLogicalOperator.OR_:
+            if step_entity.operator == FilterLogicalOperator.AND_:
+                event_expr = ast.And(exprs=child_exprs)
+            else:
                 event_expr = ast.Or(exprs=child_exprs)
         elif step_entity.event is None:
             # all events
