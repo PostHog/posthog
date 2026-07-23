@@ -243,3 +243,40 @@ this file does not yet contain one.
   (json_to_hog String clones? heap Vec growth? `walk_emplacing` clone of geoip
   records?). (2) CallGlobal `Symbol` probe allocations. (3) `HogLiteral::size`
   accounting walk on SetProperty (backlog 7).
+
+## 2026-07-23 — iteration 5: in-place object emplacement in `walk_emplacing`
+
+- Machine: same runner as iteration 4 (verified same hardware class; HEAD binary
+  measures within ~3% of last session).
+- Baseline (HEAD = ahash commit + lockfile chore, median of 3): **152.1 us/op**
+  (155.8 / 152.1 / 151.7).
+- Profile: allocator ~27%, `step` 10.3%, indexmap insert_full 3.6 + rehash 2.0 + get
+  1.1, memmove 2.8, `json_to_hog_impl` 2.5, `get_token` 2.5, memcmp 1.8,
+  `construct_free_standing` 1.4, `walk_emplacing` 1.2 self. Malloc call-graph: the
+  native-call path (geoipLookup) carries ~29% of allocation traffic — record
+  construction (`construct_free_standing` ~4%) plus `walk_emplacing` ~6%, which
+  *rebuilds every returned object map via `collect`* (fresh IndexMap: re-hash +
+  re-insert every key). The array arm has an all-flat fast path (added long ago when
+  this walk was the hottest function) — the object arm never got one.
+- Hypothesis: emplace object children **in place** — iterate `values_mut()`, `mem::replace`
+  each child out, walk it, write the result back. No new map, no re-hash, no re-insert,
+  and the `Box<HogMap>` moves to the heap untouched. Applies to every native-fn object
+  result (the geoip record has ~10 nested sub-objects per event). Gate >= 2%;
+  predicted 3-5%.
+- Diff summary: single-arm change in `context.rs::walk_emplacing` — `Object` children
+  are now walked via `values_mut()` + `mem::replace`, keeping the original `Box<HogMap>`
+  (no fresh map, no re-hash/re-insert); the array arm is untouched (its Vec collect
+  already reuses the allocation via in-place iteration specialization).
+- Gates: 77 crate + 19 addon tests, fixture parity, cymbal/cohort-core compile,
+  fmt/clippy/shear both workspaces — all green.
+- Measurement (interleaved A/B, 4 rounds, 100k iters each):
+  base 152.8 / 150.9 / 152.7 / 150.0 (median 151.8) vs
+  cand 146.1 / 144.6 / 146.8 / 145.0 (median 145.6) -> **~4.1% improvement**.
+- Verdict: **COMMITTED** (`perf(hogvm): emplace object children in place (151.8 -> 145.6 us/op)`).
+- Iteration score: committed improvement — consecutive-no-commit counter stays 0.
+- Cumulative committed same-machine ratios: 0.894 x 0.968 x 0.934 x 0.959 = **~0.775**
+  (~22.5% cumulative reduction vs loop start; stretch ~38% still open).
+- Next-iteration candidates: (1) `json_to_hog_impl` — reserve map/vec capacity from the
+  JSON node size and consider taking ownership of globals subtrees to move String leaves
+  instead of cloning. (2) CallGlobal `Symbol` probe allocations. (3) `HogLiteral::size`
+  walk on SetProperty (backlog 7).

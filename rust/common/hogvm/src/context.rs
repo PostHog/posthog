@@ -8,7 +8,7 @@ use crate::{
     program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
     vm::HogVM,
-    HogLiteral, HogMap, HogValue,
+    HogLiteral, HogValue,
 };
 
 /// Function names that always suspend, mirroring the reference VM's `ASYNC_STL`. These are async
@@ -353,12 +353,16 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
                 vm.heap.emplace(emplaced_arr).map(|ptr| ptr.into())
             }
         }
-        HogLiteral::Object(obj) => {
-            let emplaced_obj: Result<HogMap, _> = obj
-                .into_iter()
-                .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
-                .collect();
-            let emplaced_obj = HogLiteral::Object(Box::new(emplaced_obj?));
+        HogLiteral::Object(mut obj) => {
+            // Emplace children in place — no fresh map, so keys are neither re-hashed nor
+            // re-inserted (the collect-based rebuild here was a measured allocation hot spot for
+            // native fns returning nested objects, e.g. the geoip record; see perf/LOG.md).
+            // Flat children take the `_` arm of the recursive call and come straight back.
+            for v in obj.values_mut() {
+                let taken = std::mem::replace(v, HogValue::Lit(HogLiteral::Null));
+                *v = walk_emplacing(vm, taken)?;
+            }
+            let emplaced_obj = HogLiteral::Object(obj);
 
             if let Some(ptr) = existing_location {
                 // As above, if this was already heap allocated, replace it with the new one
