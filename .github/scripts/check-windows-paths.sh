@@ -70,18 +70,35 @@ def windows_fold(value: str) -> str:
     return "".join(result)
 
 bad = False
-seen: dict[str, str] = {}
+files: dict[str, str] = {}
+directories: dict[str, tuple[str, str]] = {}
 for raw_path in sys.stdin.buffer.read().split(b"\0"):
     if not raw_path:
         continue
     path = os.fsdecode(raw_path)
     folded = windows_fold(path)
-    other = seen.get(folded)
+    other = files.get(folded)
     if other is not None and other != path:
         print(f"::error file={path}::\047{path}\047 collides with \047{other}\047 on case-insensitive Windows filesystems")
         bad = True
     else:
-        seen[folded] = path
+        files[folded] = path
+
+    directory = directories.get(folded)
+    if directory is not None:
+        name, owner = directory
+        print(f"::error file={path}::\047{path}\047 is a file, but \047{owner}\047 requires \047{name}\047 to be a directory on case-insensitive Windows filesystems")
+        bad = True
+
+    parts = path.split("/")
+    for index in range(1, len(parts)):
+        name = "/".join(parts[:index])
+        folded_name = windows_fold(name)
+        other = files.get(folded_name)
+        if other is not None:
+            print(f"::error file={path}::\047{path}\047 requires \047{name}\047 to be a directory, but it collides with tracked file \047{other}\047 on case-insensitive Windows filesystems")
+            bad = True
+        directories.setdefault(folded_name, (name, path))
 
 raise SystemExit(bad)
 '; then

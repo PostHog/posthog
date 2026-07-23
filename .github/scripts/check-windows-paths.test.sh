@@ -20,6 +20,8 @@ add_path safe/Strasse.ts
 add_path safe/mydocu~1.txt
 add_path safe/𐐨.ts
 add_path safe/𐐀.ts
+add_path safe/Shared/one.ts
+add_path safe/shared/two.ts
 add_path 'bad/AUX .txt'
 add_path 'bad/CONIN$.log'
 add_path 'bad/CONOUT$'
@@ -33,6 +35,10 @@ add_path case/Foo.ts
 add_path case/foo.ts
 add_path case/Ä.ts
 add_path case/ä.ts
+add_path case/Foo
+add_path case/foo/bar.txt
+add_path reverse/Dir/child.txt
+add_path reverse/dir
 
 set +e
 output="$(GIT_INDEX_FILE="$index" "$checker")"
@@ -44,7 +50,7 @@ if [ "$status" -ne 1 ]; then
     exit 1
 fi
 
-for path in 'bad/AUX .txt' 'bad/CONIN$.log' 'bad/CONOUT$' bad/LPT0.txt bad/COM¹.txt bad/GIT~1 bad/git~1... 'bad/name?.txt' bad/trailing. case/foo.ts case/ä.ts; do
+for path in 'bad/AUX .txt' 'bad/CONIN$.log' 'bad/CONOUT$' bad/LPT0.txt bad/COM¹.txt bad/GIT~1 bad/git~1... 'bad/name?.txt' bad/trailing. case/foo.ts case/ä.ts case/foo/bar.txt reverse/dir; do
     if ! grep -Fq "file=$path::" <<<"$output"; then
         echo "expected checker error for $path"
         exit 1
