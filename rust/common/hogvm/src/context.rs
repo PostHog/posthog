@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::{
     error::VmError,
-    program::{ExportedFunction, Module, Program},
+    program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
     vm::HogVM,
     HogLiteral, HogValue,
@@ -223,7 +223,7 @@ impl ExecutionContext {
     pub fn get_symbol(&self, symbol: &Symbol) -> Result<&ExportedFunction, VmError> {
         self.symbol_table
             .get(symbol)
-            .ok_or(VmError::UnknownSymbol(symbol.to_string()))
+            .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))
     }
 
     // Whether `name` is a registered native (STL/ext) function — used to resolve first-class
@@ -255,7 +255,21 @@ impl ExecutionContext {
             None => self.program.get(ip),
         };
 
-        res.ok_or(VmError::EndOfProgram(ip))
+        res.ok_or_else(|| VmError::EndOfProgram(ip))
+    }
+
+    /// The pre-decoded form of `get_bytecode` — the interpreter's per-step fetch path.
+    pub fn get_token(&self, ip: usize, symbol: &Option<Symbol>) -> Result<&Token, VmError> {
+        let res = match symbol {
+            Some(symbol) => self
+                .symbol_table
+                .get(symbol)
+                .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))?
+                .get_token(ip),
+            None => self.program.get_token(ip),
+        };
+
+        res.ok_or_else(|| VmError::EndOfProgram(ip))
     }
 
     pub fn version(&self) -> u64 {

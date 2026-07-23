@@ -707,7 +707,7 @@ impl TryFrom<Num> for serde_json::Number {
         match value {
             // All my homies hate floating point numbers
             Num::Float(value) => serde_json::Number::from_f64(value)
-                .ok_or(VmError::InvalidNumber(format!("{value:?}"))),
+                .ok_or_else(|| VmError::InvalidNumber(format!("{value:?}"))),
             Num::Integer(value) => Ok(value.into()),
         }
     }

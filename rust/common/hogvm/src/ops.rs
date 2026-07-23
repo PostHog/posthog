@@ -78,13 +78,18 @@ impl TryFrom<Value> for Operation {
         let Some(num) = val.as_i64() else {
             return Err(VmError::NotAnOperation(val));
         };
+        Self::from_i64(num)
+    }
+}
 
+impl Operation {
+    pub fn from_i64(num: i64) -> Result<Self, VmError> {
         if num >= Self::GetGlobal as i64 && num <= Self::CloseUpvalue as i64 {
             // TODO - this is deeply unhinged
             // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             Ok(unsafe { std::mem::transmute::<u8, Operation>(num as u8) })
         } else {
-            Err(VmError::InvalidOperation(val))
+            Err(VmError::InvalidOperation(Value::from(num)))
         }
     }
 }

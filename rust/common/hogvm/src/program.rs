@@ -5,10 +5,65 @@ use serde_json::{Number, Value as JsonValue};
 
 use crate::VmError;
 
+/// A bytecode token pre-decoded out of its `JsonValue` representation, so the interpreter's
+/// per-step fetches are enum matches instead of serde deserializations. Decoded once per
+/// program/module body, index-aligned with the raw token array (jump offsets and `ip` semantics
+/// are unchanged).
+#[derive(Debug, Clone)]
+pub enum Token {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Str(Arc<str>),
+    /// Anything else (arrays/objects, numbers representable neither as i64 nor f64). Rare —
+    /// consumers fall back to their `JsonValue` handling.
+    Json(JsonValue),
+}
+
+impl Token {
+    fn from_json(value: &JsonValue) -> Token {
+        match value {
+            JsonValue::Null => Token::Null,
+            JsonValue::Bool(b) => Token::Bool(*b),
+            JsonValue::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Token::Int(i)
+                } else if let Some(f) = n.as_f64() {
+                    Token::Float(f)
+                } else {
+                    Token::Json(value.clone())
+                }
+            }
+            JsonValue::String(s) => Token::Str(Arc::from(s.as_str())),
+            other => Token::Json(other.clone()),
+        }
+    }
+
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Token::Null => "null",
+            Token::Bool(_) => "bool",
+            Token::Int(_) | Token::Float(_) => "number",
+            Token::Str(_) => "string",
+            Token::Json(JsonValue::Array(_)) => "array",
+            Token::Json(JsonValue::Object(_)) => "object",
+            Token::Json(_) => "json",
+        }
+    }
+}
+
+pub(crate) fn decode_tokens(tokens: &[JsonValue]) -> Vec<Token> {
+    tokens.iter().map(Token::from_json).collect()
+}
+
 // A top-level hog program - functionally the body of a "main" function, if hog had such a thing.
-// `bytecode` is `Arc`-shared so building a program from shared bytecode is a refcount bump.
+// `bytecode` is `Arc`-shared so building a program from shared bytecode is a refcount bump, and
+// the decoded token stream is shared the same way — cloning a `Program` never re-decodes.
+#[derive(Clone)]
 pub struct Program {
     bytecode: Arc<Vec<JsonValue>>,
+    decoded: Arc<Vec<Token>>,
     version: u64,
     program_start_offset: usize,
 }
@@ -23,6 +78,7 @@ pub struct Module {
 pub struct ExportedFunction {
     arg_count: usize,
     body: Vec<JsonValue>,
+    decoded: Vec<Token>,
 }
 
 impl Program {
@@ -51,7 +107,7 @@ impl Program {
                 }
                 let version = version.unwrap_or(JsonValue::Number(Number::from(0)));
                 match version {
-                    JsonValue::Number(n) => n.as_u64().ok_or(VmError::InvalidBytecode(
+                    JsonValue::Number(n) => n.as_u64().ok_or_else(|| VmError::InvalidBytecode(
                         "Invalid version number".to_string(),
                     ))?,
                     _ => {
@@ -69,6 +125,7 @@ impl Program {
         };
 
         let program = Program {
+            decoded: Arc::new(decode_tokens(&bytecode)),
             bytecode,
             version,
             program_start_offset: to_skip,
@@ -79,6 +136,10 @@ impl Program {
 
     pub fn get(&self, idx: usize) -> Option<&JsonValue> {
         self.bytecode.get(idx + self.program_start_offset)
+    }
+
+    pub fn get_token(&self, idx: usize) -> Option<&Token> {
+        self.decoded.get(idx + self.program_start_offset)
     }
 
     pub fn version(&self) -> u64 {
@@ -119,6 +180,7 @@ impl ExportedFunction {
     pub fn new(arg_count: usize, bytecode: Vec<JsonValue>) -> Self {
         ExportedFunction {
             arg_count,
+            decoded: decode_tokens(&bytecode),
             body: bytecode,
         }
     }
@@ -129,5 +191,9 @@ impl ExportedFunction {
 
     pub fn get(&self, idx: usize) -> Option<&JsonValue> {
         self.body.get(idx)
+    }
+
+    pub fn get_token(&self, idx: usize) -> Option<&Token> {
+        self.decoded.get(idx)
     }
 }

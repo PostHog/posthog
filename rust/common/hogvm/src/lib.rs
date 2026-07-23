@@ -17,6 +17,7 @@ pub use context::ExecutionContext;
 pub use program::ExportedFunction;
 pub use program::Module;
 pub use program::Program;
+pub use program::Token;
 
 // VM, and helpers
 pub use vm::sync_execute;
