@@ -6,11 +6,17 @@ import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 
 import type { Schemas } from '@/api/generated'
 
-import { ManagedMigrationsSupportListQueryParams, ManagedMigrationsSupportRetrieveParams } from '@/generated/managed_migrations/api'
+import {
+    ManagedMigrationsSupportListQueryParams,
+    ManagedMigrationsSupportRetrieveParams,
+} from '@/generated/managed_migrations/api'
 
 const ManagedMigrationsSupportGetSchema = ManagedMigrationsSupportRetrieveParams
 
-const managedMigrationsSupportGet = (): ToolBase<typeof ManagedMigrationsSupportGetSchema, Schemas.BatchImportSupportDetail> => ({
+const managedMigrationsSupportGet = (): ToolBase<
+    typeof ManagedMigrationsSupportGetSchema,
+    Schemas.BatchImportSupportDetail
+> => ({
     name: 'managed-migrations-support-get',
     schema: ManagedMigrationsSupportGetSchema,
     handler: async (context: Context, params: z.infer<typeof ManagedMigrationsSupportGetSchema>) => {
@@ -24,7 +30,10 @@ const managedMigrationsSupportGet = (): ToolBase<typeof ManagedMigrationsSupport
 
 const ManagedMigrationsSupportListSchema = ManagedMigrationsSupportListQueryParams
 
-const managedMigrationsSupportList = (): ToolBase<typeof ManagedMigrationsSupportListSchema, WithPostHogUrl<Schemas.PaginatedBatchImportSupportListList>> => ({
+const managedMigrationsSupportList = (): ToolBase<
+    typeof ManagedMigrationsSupportListSchema,
+    WithPostHogUrl<Schemas.PaginatedBatchImportSupportListList>
+> => ({
     name: 'managed-migrations-support-list',
     schema: ManagedMigrationsSupportListSchema,
     handler: async (context: Context, params: z.infer<typeof ManagedMigrationsSupportListSchema>) => {
