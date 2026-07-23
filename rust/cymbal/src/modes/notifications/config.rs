@@ -10,8 +10,8 @@ pub const DEFAULT_CONSUMER_TOPIC: &str = "error_tracking_ingestion_notifications
 /// `KAFKA_CONSUMER_GROUP`.
 pub const DEFAULT_CONSUMER_GROUP: &str = "error_tracking_ingestion_notifications";
 
-/// Top-level config for notifications mode. Keep this narrow: only Kafka,
-/// Postgres, signal emission, and the metrics server.
+/// Top-level config for notifications mode. Includes the downstream clients
+/// needed for legacy side effects and opt-in Temporal workflow starts.
 #[derive(Envconfig, Clone)]
 pub struct NotificationsConfig {
     #[envconfig(nested = true)]
@@ -59,6 +59,43 @@ pub struct NotificationsConfig {
 
     #[envconfig(default = "https://us.i.posthog.com/capture")]
     pub posthog_endpoint: String,
+
+    /// Direct Temporal starts are disabled by default. When enabled with an empty
+    /// allowlist, every team is routed to the issue-created workflow.
+    #[envconfig(
+        from = "ERROR_TRACKING_ISSUE_CREATED_WORKFLOW_ENABLED",
+        default = "false"
+    )]
+    pub issue_created_workflow_enabled: bool,
+
+    /// Comma-separated rollout allowlist. An empty value means all teams when
+    /// `ERROR_TRACKING_ISSUE_CREATED_WORKFLOW_ENABLED` is true.
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_CREATED_WORKFLOW_TEAM_IDS", default = "")]
+    pub issue_created_workflow_team_ids: String,
+
+    #[envconfig(from = "TEMPORAL_HOST", default = "")]
+    pub temporal_host: String,
+
+    #[envconfig(from = "TEMPORAL_PORT", default = "7233")]
+    pub temporal_port: u16,
+
+    #[envconfig(from = "TEMPORAL_NAMESPACE", default = "")]
+    pub temporal_namespace: String,
+
+    #[envconfig(from = "TEMPORAL_CLIENT_CERT", default = "")]
+    pub temporal_client_cert: String,
+
+    #[envconfig(from = "TEMPORAL_CLIENT_KEY", default = "")]
+    pub temporal_client_key: String,
+
+    #[envconfig(from = "TEMPORAL_SECRET_KEY", default = "")]
+    pub temporal_secret_key: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_LIFECYCLE_TASK_QUEUE",
+        default = "error-tracking-lifecycle-task-queue"
+    )]
+    pub error_tracking_lifecycle_task_queue: String,
 }
 
 impl NotificationsConfig {

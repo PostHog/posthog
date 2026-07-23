@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from django.conf import settings
 from django.db.models import Q
 
 import structlog
@@ -10,6 +9,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -227,11 +227,7 @@ def resolve_user_for_workspace(
     # The user resolver lives in api.py alongside the Slack-API helpers it
     # depends on (``get_slack_user_info`` etc). Inline-imported to break the
     # cycle until those helpers are factored out into a shared module.
-    from products.slack_app.backend.api import (
-        LOCAL_DEV_SLACK_EMAIL,
-        get_slack_email_for_user,
-        resolve_posthog_user_from_event,
-    )
+    from products.slack_app.backend.api import get_slack_email_for_user, resolve_posthog_user_from_event
 
     if not slack_user_id:
         logger.warning(
@@ -248,7 +244,7 @@ def resolve_user_for_workspace(
     # In local dev, match the seeded user the single-integration resolver also
     # uses. Keep this at the resolver layer so lower-level callers like channel
     # approval can still exercise real or stubbed Slack emails under DEBUG.
-    slack_email = LOCAL_DEV_SLACK_EMAIL if settings.DEBUG else None
+    slack_email = local_dev_slack_email()
 
     # Pass slack_email=None outside local dev so the linked-user path
     # short-circuits before users.info; the resolver fetches lazily on the
