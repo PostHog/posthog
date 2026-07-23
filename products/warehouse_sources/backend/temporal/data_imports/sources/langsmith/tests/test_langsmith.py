@@ -8,6 +8,7 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     MAX_CURSOR_BYTES,
+    LangSmithAPIError,
     LangSmithHostNotAllowedError,
     LangSmithPageLimitError,
     LangSmithRepeatedCursorError,
@@ -415,6 +416,27 @@ class TestResponseSizeCap:
 
         assert result == {"runs": [{"id": "a"}]}
         assert session.post.call_args.kwargs["stream"] is True
+
+    def test_fetch_page_folds_error_body_into_exception(self):
+        # A non-OK response must surface the API's rejection reason (the response body) in the raised
+        # exception — the body is where LangSmith names the field it refused. Regressing to a bare
+        # HTTPError would strip that reason from error tracking. The 400 must also be raised on the
+        # first try, not retried: it's deterministic, so retrying only burns the tight rate limit.
+        response = mock.MagicMock()
+        response.status_code = 400
+        response.ok = False
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        response.raw.read.return_value = b'{"detail": "invalid select field: bogus"}'
+        session = mock.MagicMock()
+        session.post.return_value = response
+
+        with pytest.raises(LangSmithAPIError) as exc:
+            _fetch_page(session, f"{BASE_URL}/api/v1/runs/query", {}, logger, json_body={"limit": 1})
+
+        assert exc.value.status_code == 400
+        assert "invalid select field: bogus" in str(exc.value)
+        assert session.post.call_count == 1
 
 
 class TestHostSafety:

@@ -96,6 +96,21 @@ class LangSmithRepeatedCursorError(Exception):
     pass
 
 
+class LangSmithAPIError(Exception):
+    """A non-retryable HTTP error (a 4xx other than 429) from the LangSmith API.
+
+    Carries the (truncated) response body so the failure names the exact rejection reason — e.g.
+    which runs/query `select` field the API refused — in error tracking, instead of the bare
+    `HTTPError` that `raise_for_status()` produces, whose message is just the status and URL.
+    """
+
+    def __init__(self, status_code: int, url: str, body: str):
+        self.status_code = status_code
+        self.url = url
+        self.body = body
+        super().__init__(f"LangSmith API error: status={status_code}, url={url}, body={body}")
+
+
 def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES) -> bytes:
     """Read at most `cap` decoded bytes from a streamed response, refusing an oversized body.
 
@@ -324,7 +339,10 @@ def _fetch_page(
             # Truncate (don't cap-and-raise) so a large error body still surfaces the real HTTP error.
             body = response.raw.read(MAX_ERROR_BODY_BYTES, decode_content=True).decode("utf-8", errors="replace")
             logger.error(f"LangSmith API error: status={response.status_code}, body={body}, url={url}")
-            response.raise_for_status()
+            # Fold the body into the raised exception (rather than `raise_for_status()`'s bare
+            # HTTPError) so the rejection reason reaches error tracking — the body is where the API
+            # says which field it refused.
+            raise LangSmithAPIError(response.status_code, url, body)
 
         raw = _read_capped_body(response)
         return json.loads(raw) if raw else None
