@@ -258,8 +258,9 @@ class TestRebuildTaskErrorHandling:
             GitHubRateLimitError("rate limited"),
             GitHubEgressBudgetExhausted("shed by egress limiter"),
             # The production symptom: missing Modal credentials surface as this transient error
-            # and must be treated as a deferral, not paged to error tracking.
-            SandboxProvisionError("Token missing", {}, None),
+            # and must be treated as a deferral, not paged to error tracking. capture=False keeps
+            # construction from firing its own error-tracking capture.
+            SandboxProvisionError("Token missing", {}, AttributeError("Token missing"), capture=False),
         ],
     )
     def test_expected_failures_defer_without_paging_error_tracking(self, team, exc):
