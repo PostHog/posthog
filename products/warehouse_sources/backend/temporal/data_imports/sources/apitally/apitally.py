@@ -79,6 +79,10 @@ def _client_config(api_key: str) -> ClientConfig:
         "auth": {"type": "api_key", "name": "Api-Key", "api_key": api_key, "location": "header"},
         "headers": {"Accept": "application/json"},
         "paginator": JSONResponseCursorPaginator(cursor_path="next_token", cursor_param="next_token"),
+        # `requests` only strips its built-in `Authorization` header on a cross-origin redirect, so
+        # the nonstandard `Api-Key` header would ride along to whatever host a 3xx points at. Refuse
+        # to follow redirects so the key never leaves api.apitally.io.
+        "allow_redirects": False,
     }
 
 
@@ -184,7 +188,9 @@ def apitally_source(
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        # `allow_redirects=False`: keep the `Api-Key` header from being replayed to a redirect
+        # target off api.apitally.io. A 3xx then falls through to the error return below.
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
             f"{APITALLY_BASE_URL}/v1/apps",
             headers={"Api-Key": api_key, "Accept": "application/json"},
             timeout=10,
