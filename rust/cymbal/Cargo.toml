@@ -55,6 +55,7 @@ tokio-stream = "0.1"
 personhog-common = { path = "../personhog-common" }
 async-stream = { workspace = true }
 subtle = "2.6"
+common-temporal = { path = "../common/temporal" }
 
 
 [dev-dependencies]

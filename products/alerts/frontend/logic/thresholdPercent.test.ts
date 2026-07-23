@@ -2,12 +2,22 @@ import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schem
 
 import {
     fractionToPercentInput,
+    inputToStoredBound,
     rescaleThresholdBound,
     thresholdForConditionChange,
     thresholdForUnitChange,
 } from './thresholdPercent'
 
 describe('thresholdPercent', () => {
+    it.each([
+        [undefined, InsightThresholdType.ABSOLUTE, undefined],
+        [NaN, InsightThresholdType.ABSOLUTE, undefined],
+        [100, InsightThresholdType.ABSOLUTE, 100],
+        [100, InsightThresholdType.PERCENTAGE, 1],
+    ])('stores input %p with %s units as %p', (value, type, expected) => {
+        expect(inputToStoredBound(value, type)).toBe(expected)
+    })
+
     // Stored 0–1 fractions render as percentage inputs without float noise — guards the ×100
     // round-trip surfacing values like 7.000000000000001 (regresses if the rounding is dropped).
     it.each([
