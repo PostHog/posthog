@@ -938,25 +938,45 @@ class TestIsTableCorrupted:
 
     @parameterized.expand(
         [
-            # (is_deltatable, open_exception, expected_corrupt) — only DeltaError/FileNotFoundError on a
-            # table whose _delta_log exists count as corrupt; a missing table or an unknown error must NOT,
-            # so we never trigger a destructive revive on a non-existent table or a transient failure.
-            ("not_a_delta_table", False, None, False),
-            ("opens_fine", True, None, False),
-            ("delta_error_is_corrupt", True, deltalake.exceptions.DeltaError("no protocol"), True),
-            ("file_not_found_is_corrupt", True, FileNotFoundError("missing data file"), True),
-            ("unknown_error_not_corrupt", True, ValueError("transient"), False),
+            # (is_deltatable, is_deltatable_exc, open_exception, expected_corrupt) — only
+            # DeltaError/FileNotFoundError on a table whose _delta_log exists count as corrupt; a missing
+            # table, an unknown open error, or a failure of the existence check itself must NOT, so we
+            # never trigger a destructive revive on a non-existent table or a transient failure.
+            ("not_a_delta_table", False, None, None, False),
+            ("opens_fine", True, None, None, False),
+            ("delta_error_is_corrupt", True, None, deltalake.exceptions.DeltaError("no protocol"), True),
+            ("file_not_found_is_corrupt", True, None, FileNotFoundError("missing data file"), True),
+            ("unknown_error_not_corrupt", True, None, ValueError("transient"), False),
+            # The is_deltatable existence check does its own S3 LIST and is just as exposed to a
+            # transient network blip as the open below — it must not escape uncaught.
+            (
+                "is_deltatable_transient_error_not_corrupt",
+                None,
+                OSError("Generic S3 error: connection reset"),
+                None,
+                False,
+            ),
         ]
     )
     @pytest.mark.asyncio
-    async def test_is_table_corrupted(self, _name: str, is_delta: bool, open_exc: Exception | None, expected: bool):
+    async def test_is_table_corrupted(
+        self,
+        _name: str,
+        is_delta: bool | None,
+        is_deltatable_exc: Exception | None,
+        open_exc: Exception | None,
+        expected: bool,
+    ):
         helper = self._helper()
         with (
             patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={}),
             patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_dt,
         ):
-            mock_dt.is_deltatable = MagicMock(return_value=is_delta)
+            if is_deltatable_exc is not None:
+                mock_dt.is_deltatable = MagicMock(side_effect=is_deltatable_exc)
+            else:
+                mock_dt.is_deltatable = MagicMock(return_value=is_delta)
             if open_exc is not None:
                 mock_dt.side_effect = open_exc
             result = await helper.is_table_corrupted()

@@ -319,9 +319,14 @@ class DeltaTableHelper:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        is_delta = await asyncio.to_thread(
-            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
-        )
+        try:
+            is_delta = await asyncio.to_thread(
+                deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+            )
+        except Exception:
+            # Same "unknown error is not corrupt" contract as the open below — this existence
+            # check does its own S3 LIST and is just as exposed to a transient network blip.
+            return False
         if not is_delta:
             return False
 
