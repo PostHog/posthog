@@ -647,10 +647,10 @@ async fn test_verified_gateway_logs_batch_produces_evaluation() {
 }
 
 #[tokio::test]
-async fn test_logs_batch_ignores_unrelated_records_when_enforcing_evaluation_limit() {
+async fn test_logs_batch_accepts_mixed_records_within_raw_limit() {
     let sink = CapturingSink::new();
     let client = make_test_client(&sink);
-    let mut log_records = (0..1001)
+    let mut log_records = (0..999)
         .map(|_| LogRecord {
             event_name: "exception".to_string(),
             ..Default::default()
@@ -669,6 +669,31 @@ async fn test_logs_batch_ignores_unrelated_records_when_enforcing_evaluation_lim
 
     assert_eq!(response.status().as_u16(), 200);
     assert_eq!(sink.get_events().await.len(), 1);
+}
+
+#[tokio::test]
+async fn test_logs_batch_rejects_too_many_raw_records() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+    let request = make_logs_request(
+        (0..1001)
+            .map(|_| LogRecord {
+                event_name: "exception".to_string(),
+                ..Default::default()
+            })
+            .collect(),
+    );
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 400);
+    assert!(sink.get_events().await.is_empty());
 }
 
 #[tokio::test]

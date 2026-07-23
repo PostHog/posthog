@@ -37,6 +37,7 @@ const MAX_AI_EVENTS_PER_REQUEST: usize = 100;
 /// to accommodate mixed-content batches (e.g. Next.js sending HTTP + AI spans together)
 /// while still bounding the cost of attribute scanning.
 const MAX_RAW_OTEL_SPANS_PER_REQUEST: usize = 1000;
+const MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST: usize = 1000;
 
 fn count_spans(request: &ExportTraceServiceRequest) -> usize {
     request
@@ -308,11 +309,16 @@ pub async fn logs_handler(
         },
     );
 
-    let request: ExportLogsServiceRequest =
-        ingestion::parse_logs_request(&body, &headers, OTEL_BODY_SIZE).map_err(|error| {
-            report_internal_error_metrics(error.to_metric_tag(), "otel_logs_parsing");
-            error.into_response()
-        })?;
+    let request: ExportLogsServiceRequest = ingestion::parse_logs_request(
+        &body,
+        &headers,
+        OTEL_BODY_SIZE,
+        MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST,
+    )
+    .map_err(|error| {
+        report_internal_error_metrics(error.to_metric_tag(), "otel_logs_parsing");
+        error.into_response()
+    })?;
     let raw_record_count = logs::count_records(&request);
     if raw_record_count == 0 {
         counter!("capture_ai_otel_logs_requests_success").increment(1);
@@ -342,14 +348,6 @@ pub async fn logs_handler(
         counter!("capture_ai_otel_logs_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
-    if event_count > MAX_AI_EVENTS_PER_REQUEST {
-        let err = CaptureError::RequestParsingError(format!(
-            "Too many evaluation records: {event_count} exceeds limit of {MAX_AI_EVENTS_PER_REQUEST}"
-        ));
-        report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
-        return Err(err.into_response());
-    }
-
     process_events(
         &state,
         ip,
