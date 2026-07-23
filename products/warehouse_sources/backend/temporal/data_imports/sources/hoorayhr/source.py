@@ -89,13 +89,18 @@ You need the admin role in your HoorayHR company to create an API key: go to [Se
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # HoorayHR's API exposes no pagination, cursors, or server-side timestamp filters, so every
         # table is full refresh only.
         return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
-        self, config: HoorayHRSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HoorayHRSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_hoorayhr_credentials(config.api_key):
             return True, None

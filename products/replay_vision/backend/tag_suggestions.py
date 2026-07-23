@@ -9,6 +9,7 @@ categories.
 """
 
 import uuid
+from dataclasses import dataclass
 from typing import Literal
 
 from django.conf import settings
@@ -97,7 +98,13 @@ def _observation_signal(scanner: ReplayScanner) -> tuple[list[tuple[str, int]], 
     return freeform, samples
 
 
-def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
+@dataclass(frozen=True)
+class _ProductTaxonomy:
+    events: list[str]
+    screens: list[str]
+
+
+def _product_taxonomy(team: Team) -> _ProductTaxonomy:
     """Custom product events and the screens sessions cover — grounds suggestions in how THIS product works."""
     events: list[str] = []
     try:
@@ -117,7 +124,7 @@ def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
         screens = [str(row[0]) for row in rows if row and row[0]][:_MAX_TOP_SCREENS]
     except Exception:
         logger.warning("replay_vision.suggest_tags.screens_failed", team_id=team.id, exc_info=True)
-    return events, screens
+    return _ProductTaxonomy(events=events, screens=screens)
 
 
 def _sibling_vocabularies(
@@ -232,7 +239,7 @@ def _assemble_grounding_evidence(
                 "replay_vision.suggest_tags.observation_signal_failed", scanner_id=str(scanner.id), exc_info=True
             )
 
-    events, screens = _product_taxonomy(team)
+    taxonomy = _product_taxonomy(team)
     sibling_tags: list[str] = []
     if user_access_control is not None:
         sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
@@ -244,8 +251,8 @@ def _assemble_grounding_evidence(
         allow_freeform_tags=allow_freeform_tags,
         freeform=freeform,
         reasoning_samples=reasoning_samples,
-        events=events,
-        screens=screens,
+        events=taxonomy.events,
+        screens=taxonomy.screens,
         sibling_tags=sibling_tags,
     )
 

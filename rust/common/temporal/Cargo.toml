@@ -1,0 +1,19 @@
+[package]
+name = "common-temporal"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+fernet = { version = "0.2.2", default-features = false, features = ["rustcrypto"] }
+hex = "0.4"
+prost14 = { package = "prost", version = "0.14" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+temporalio-client = { version = "=0.5.0", default-features = false, features = ["tls-ring"] }
+temporalio-common = { version = "=0.5.0", default-features = false }
+thiserror = { workspace = true }
+url = { workspace = true }

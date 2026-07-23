@@ -96,6 +96,7 @@ Environment cost data is only available for environments with [cost monitoring](
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -114,7 +115,7 @@ Environment cost data is only available for environments with [cost monitoring](
         return schemas
 
     def validate_credentials(
-        self, config: Env0SourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: Env0SourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_env0_credentials(config.api_key_id, config.api_key_secret):
             return True, None

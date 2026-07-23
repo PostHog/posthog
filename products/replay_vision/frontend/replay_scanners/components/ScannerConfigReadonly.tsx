@@ -14,10 +14,8 @@ import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     deriveOperand,
@@ -245,8 +243,6 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
 
 export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
@@ -401,13 +397,6 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         <LabeledRow label="Total observations">
                             <span className="tabular-nums">{observationStats.total.toLocaleString()}</span>
                         </LabeledRow>
-                        <LabeledRow label="Success rate">
-                            {observationStats.successRate != null ? (
-                                <span className="tabular-nums">{observationStats.successRate}%</span>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            )}
-                        </LabeledRow>
                         <LabeledRow label="Outcomes">
                             <span className="text-sm">
                                 {observationStats.succeeded.toLocaleString()} succeeded ·{' '}
@@ -418,7 +407,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                     </div>
                 </LemonCard>
             </div>
-            {qualityEnabled && <PromptVersionHistory scanner={scanner} />}
+            <PromptVersionHistory scanner={scanner} />
         </div>
     )
 }

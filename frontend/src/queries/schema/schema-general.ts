@@ -198,6 +198,7 @@ export enum NodeKind {
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
+    MCPToolFailureOccurrencesQuery = 'MCPToolFailureOccurrencesQuery',
     MCPToolStatsQuery = 'MCPToolStatsQuery',
     MCPToolDailyStatsQuery = 'MCPToolDailyStatsQuery',
     MCPToolQualityRowsQuery = 'MCPToolQualityRowsQuery',
@@ -279,6 +280,7 @@ export type AnyDataNode =
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
+    | MCPToolFailureOccurrencesQuery
     | MCPToolStatsQuery
     | MCPToolDailyStatsQuery
     | MCPToolQualityRowsQuery
@@ -406,6 +408,7 @@ export type QuerySchema =
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
+    | MCPToolFailureOccurrencesQuery
     | MCPToolStatsQuery
     | MCPToolDailyStatsQuery
     | MCPToolQualityRowsQuery
@@ -2751,6 +2754,10 @@ export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopU
 export interface MCPToolFailureItem {
     /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
     message: string
+    /** Raw $mcp_error_type bucket ("unknown" when the event carries none) — pass to MCPToolFailureOccurrencesQuery. */
+    error_type: string
+    /** Raw $mcp_error_status as a string; empty when the bucket has no HTTP status. */
+    error_status: string
     occurrences: integer
     last_seen: string
     /** Resolved harness labels seen for this failure, deduped and sorted. */
@@ -2770,6 +2777,40 @@ export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryRespo
 }
 
 export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
+
+/** One individual errored call of a single MCP tool within a failure bucket. */
+export interface MCPToolFailureOccurrenceItem {
+    timestamp: string
+    distinct_id: string
+    /** Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set. */
+    session_id: string
+    /** Resolved harness label for the call. */
+    harness: string
+    /** JSON-encoded intent payload as reported by the client; empty when absent. */
+    intent: string
+    /** Sanitized error message captured on the event; empty when the event predates message capture. */
+    error_message: string
+    /** Raw $mcp_error_status as a string; empty when absent. */
+    error_status: string
+}
+
+export interface MCPToolFailureOccurrencesQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolFailureOccurrenceItem[]
+}
+
+/** Individual errored calls of a single MCP tool within one failure bucket, newest first. */
+export interface MCPToolFailureOccurrencesQuery extends DataNode<MCPToolFailureOccurrencesQueryResponse> {
+    kind: NodeKind.MCPToolFailureOccurrencesQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    /** Raw $mcp_error_type bucket; "unknown" selects errored events without an error type. */
+    errorType: string
+    /** When set, only events with this HTTP status match; when unset, only events without a status match. */
+    errorStatus?: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolFailureOccurrencesQueryResponse = CachedQueryResponse<MCPToolFailureOccurrencesQueryResponse>
 
 /** Summary scalars for a single MCP tool: activity, latency, reach, and intent coverage. */
 export interface MCPToolStatsItem {
@@ -4280,8 +4321,6 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
-    /** Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row */
-    pinnedByDefault?: boolean
 }
 
 export interface FileSystemViewLogEntry {
