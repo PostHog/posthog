@@ -16,7 +16,7 @@ use chrono::DateTime;
 use common_types::{CapturedEvent, HasEventName};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, histogram};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 use time::{format_description::well_known::Iso8601, OffsetDateTime};
 use tokio::time::Instant;
@@ -37,6 +37,16 @@ use crate::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
 };
+
+fn deserialize_sent_at<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(match Option::<Value>::deserialize(deserializer)? {
+        Some(Value::String(value)) => Some(value),
+        _ => None,
+    })
+}
 
 /// A recording event optimized for minimal deserialization overhead.
 /// Instead of fully parsing all properties into a HashMap, we only extract
@@ -67,9 +77,13 @@ pub struct RawRecording {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
 
-    /// Request dispatch timestamp, kept untyped so malformed values can fall back to the query.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sent_at: Option<Value>,
+    /// ISO 8601 request dispatch timestamp.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_sent_at",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sent_at: Option<String>,
 
     /// Timezone offset
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -129,8 +143,7 @@ pub enum RecordingRequest {
 impl RawRecording {
     pub fn sent_at(&self) -> Option<OffsetDateTime> {
         self.sent_at
-            .as_ref()
-            .and_then(Value::as_str)
+            .as_deref()
             .and_then(|value| OffsetDateTime::parse(value, &Iso8601::DEFAULT).ok())
     }
 
