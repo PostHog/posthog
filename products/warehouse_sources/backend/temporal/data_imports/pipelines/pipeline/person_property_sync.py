@@ -28,6 +28,7 @@ from django.conf import settings
 import structlog
 import pyarrow.parquet as pq
 
+from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import PropertyDefinition, Team
@@ -148,6 +149,8 @@ async def _read_staged_rows(team_id: int, schema_id: str, job_id: str) -> list[d
         try:
             listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
         except FileNotFoundError:
+            # No staged folder — the sync staged nothing for this run (common on a no-change sync).
+            logger.debug("person-property sync: no staged rows folder", team_id=team_id, schema_id=schema_id)
             return []
         values = listing.values() if isinstance(listing, dict) else listing
         files = [f["Key"] for f in values if f.get("type") != "directory"]
@@ -391,12 +394,26 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
     result = SyncResult()
     sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, schema_id)
     if not sources:
+        logger.info(
+            "person-property sync: no enabled person sources for schema, nothing to do",
+            team_id=team_id,
+            schema_id=str(schema_id),
+            job_id=job_id,
+        )
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
     rows = await _read_staged_rows(team_id, str(schema_id), job_id)
     result.sources = len(sources)
     result.rows_read = len(rows)
+    logger.info(
+        "person-property sync: read staged rows",
+        team_id=team_id,
+        schema_id=str(schema_id),
+        job_id=job_id,
+        sources=len(sources),
+        rows_read=len(rows),
+    )
 
     for source in sources:
         bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
@@ -436,6 +453,10 @@ def _read_delta_bundles(
 
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
     if not deltalake.DeltaTable.is_deltatable(uri, storage_options=storage_options):
+        # No Delta table at the expected URI yet (e.g. the source's first sync hasn't landed) — treat
+        # as an empty read rather than erroring, but log it since a persistent empty backfill is a
+        # likely "why didn't anything happen" answer.
+        logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
         return accumulated, 0
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
@@ -465,10 +486,22 @@ async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger:
     result = SyncResult()
     sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, schema_id)
     if not sources:
+        logger.info(
+            "person-property backfill: no enabled person sources for schema, nothing to do",
+            team_id=team_id,
+            schema_id=str(schema_id),
+            trigger=trigger,
+        )
         return result
 
     schema = await database_sync_to_async(_get_schema, thread_sensitive=False)(team_id, schema_id)
     if schema is None:
+        logger.warning(
+            "person-property backfill: schema no longer exists, nothing to do",
+            team_id=team_id,
+            schema_id=str(schema_id),
+            trigger=trigger,
+        )
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
@@ -476,6 +509,14 @@ async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger:
     accumulated, rows_read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
     result.sources = len(sources)
     result.rows_read = rows_read
+    logger.info(
+        "person-property backfill: read full Delta table",
+        team_id=team_id,
+        schema_id=str(schema_id),
+        trigger=trigger,
+        sources=len(sources),
+        rows_read=rows_read,
+    )
 
     for source in sources:
         bundles = list(accumulated[str(source.source_id)].items())
@@ -539,41 +580,61 @@ async def record_completed_runs(
     result: SyncResult,
 ) -> None:
     """Persist one completed run row per source. Never raises — the recorder swallows its own errors,
-    and we still guard here so run bookkeeping can't fail the sync/backfill that produced it."""
-    for ps in result.per_source:
-        await database_sync_to_async(_record, thread_sensitive=False)(
+    and we still guard here so run bookkeeping can't fail the sync/backfill that produced it (which
+    would otherwise trigger a wasteful Temporal retry of an already-successful, produced run)."""
+    try:
+        for ps in result.per_source:
+            await database_sync_to_async(_record, thread_sensitive=False)(
+                team_id=team_id,
+                schema_id=schema_id,
+                job_id=job_id,
+                trigger=trigger,
+                status="completed",
+                started_at=started_at,
+                finished_at=finished_at,
+                ps=ps,
+                error=None,
+            )
+    except Exception as e:
+        logger.exception(
+            "person-property run: failed to record completed runs",
             team_id=team_id,
             schema_id=schema_id,
             job_id=job_id,
             trigger=trigger,
-            status="completed",
-            started_at=started_at,
-            finished_at=finished_at,
-            ps=ps,
-            error=None,
         )
+        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
 
 
 async def record_failed_runs(
     *, team_id: int, schema_id: str, job_id: str | None, trigger: str, started_at: str, finished_at: str, error: str
 ) -> None:
     """Persist a failed run row per source the schema feeds, so a failure is visible in the UI (not
-    only in error tracking). Resolving sources may itself fail on a bad DB state — swallow that."""
+    only in error tracking). Never raises — this runs on the already-failing path, so any error here
+    (a bad DB state while resolving sources, or the record write itself) is captured, not propagated,
+    to avoid masking the original failure that Temporal needs to see."""
     try:
         sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(
             team_id, schema_id
         )
-    except Exception:
-        return
-    for source in sources or []:
-        await database_sync_to_async(_record, thread_sensitive=False)(
+        for source in sources or []:
+            await database_sync_to_async(_record, thread_sensitive=False)(
+                team_id=team_id,
+                schema_id=schema_id,
+                job_id=job_id,
+                trigger=trigger,
+                status="failed",
+                started_at=started_at,
+                finished_at=finished_at,
+                ps=PerSourceResult(source_id=str(source.source_id)),
+                error=error,
+            )
+    except Exception as e:
+        logger.exception(
+            "person-property run: failed to record failed runs",
             team_id=team_id,
             schema_id=schema_id,
             job_id=job_id,
             trigger=trigger,
-            status="failed",
-            started_at=started_at,
-            finished_at=finished_at,
-            ps=PerSourceResult(source_id=str(source.source_id)),
-            error=error,
         )
+        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})

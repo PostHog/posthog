@@ -10,6 +10,8 @@ from datetime import datetime
 
 from django.db import transaction
 
+import structlog
+
 from posthog.exceptions_capture import capture_exception
 
 from products.customer_analytics.backend.models import (
@@ -19,6 +21,8 @@ from products.customer_analytics.backend.models import (
     SyncTrigger,
 )
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
+
+logger = structlog.get_logger(__name__)
 
 # Auto-disable a source after this many consecutive failures, matching the account sync path.
 MAX_CONSECUTIVE_SYNC_FAILURES = 5
@@ -40,9 +44,18 @@ def _parse_iso(value: str | None) -> datetime | None:
 def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
     """Create the run row and update the source's status fields. Swallows its own errors: run
     bookkeeping must never fail the sync that produced it."""
+    log = logger.bind(
+        team_id=record.team_id,
+        source_id=record.source_id,
+        schema_id=record.schema_id,
+        trigger=record.trigger,
+        status=record.status,
+    )
     try:
         source = CustomPropertySource.objects.for_team(record.team_id).filter(id=record.source_id).first()
         if source is None:
+            # The source was deleted between the run starting and finishing — nothing to record.
+            log.info("person-property run recorder: source no longer exists, skipping")
             return
 
         finished_at = _parse_iso(record.finished_at)
@@ -86,11 +99,34 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
                 source.last_sync_error = None
                 source.consecutive_failures = 0
                 source.save(update_fields=["last_synced_at", "last_sync_error", "consecutive_failures", "updated_at"])
+                log.info(
+                    "person-property run recorded: completed",
+                    rows_read=record.rows_read,
+                    changed=record.changed,
+                    existing=record.existing,
+                    produced=record.produced,
+                    skipped_missing_person=record.skipped_missing_person,
+                )
             else:
                 source.consecutive_failures = (source.consecutive_failures or 0) + 1
                 source.last_sync_error = record.error
-                if source.consecutive_failures >= MAX_CONSECUTIVE_SYNC_FAILURES:
+                auto_disabled = source.consecutive_failures >= MAX_CONSECUTIVE_SYNC_FAILURES
+                if auto_disabled:
                     source.is_enabled = False
                 source.save(update_fields=["consecutive_failures", "last_sync_error", "is_enabled", "updated_at"])
+                log.warning(
+                    "person-property run recorded: failed",
+                    consecutive_failures=source.consecutive_failures,
+                    auto_disabled=auto_disabled,
+                    error=record.error,
+                )
+                if auto_disabled:
+                    log.error(
+                        "person-property source auto-disabled after consecutive failures",
+                        consecutive_failures=source.consecutive_failures,
+                    )
     except Exception as e:
+        # Run bookkeeping must never fail the sync/backfill that produced it, but the failure itself
+        # is worth surfacing — a persistently failing recorder means the UI silently drifts from reality.
+        log.exception("person-property run recorder failed")
         capture_exception(e)
