@@ -3,9 +3,9 @@
 Status: draft for discussion.
 Companion to the [FinOps Attribution Pipeline RFC](https://github.com/PostHog/requests-for-comments-internal/pull/1210).
 
-The RFC settles the *what* (a unified `cost_attribution` table, a `finops.usage` envelope, vendor adapters) and the *why*.
-It deliberately leaves the *how* open — in the author's words, "it's very open atm".
-This doc is the missing half: how the pipeline materialises in this repo, and — the part worth getting right up front — how emission is **standardised** so that Kafka consumers, Postgres access, Celery tasks, Temporal activities, ClickHouse queries and vendor bills all attribute cost the *same way* instead of each team hand-rolling it.
+The RFC settles the _what_ (a unified `cost_attribution` table, a `finops.usage` envelope, vendor adapters) and the _why_.
+It deliberately leaves the _how_ open — in the author's words, "it's very open atm".
+This doc is the missing half: how the pipeline materialises in this repo, and — the part worth getting right up front — how emission is **standardised** so that Kafka consumers, Postgres access, Celery tasks, Temporal activities, ClickHouse queries and vendor bills all attribute cost the _same way_ instead of each team hand-rolling it.
 
 It is a design sketch, not a build plan. File references point at the real chokepoints so the design stays honest.
 
@@ -14,16 +14,16 @@ It is a design sketch, not a build plan. File references point at the real choke
 ## TL;DR — three decisions that make it standardised
 
 1. **Attribution is ambient, not per-call-site.**
-   Every place work happens in PostHog *already* establishes an attribution context for ClickHouse query tagging — [`posthog/clickhouse/query_tagging.py`](../../posthog/clickhouse/query_tagging.py) sets `product` / `team_id` / `org_id` / `feature` on a `contextvar` at each entry point (HTTP middleware, Celery signals, Temporal, Dagster), and the Node ingestion pipeline threads `team` through every step's `PipelineContext`.
+   Every place work happens in PostHog _already_ establishes an attribution context for ClickHouse query tagging — [`posthog/clickhouse/query_tagging.py`](../../posthog/clickhouse/query_tagging.py) sets `product` / `team_id` / `org_id` / `feature` on a `contextvar` at each entry point (HTTP middleware, Celery signals, Temporal, Dagster), and the Node ingestion pipeline threads `team` through every step's `PipelineContext`.
    The FinOps meter **reads that context**. A product engineer emitting usage supplies only what's genuinely new — the billable unit and the quantity — and inherits product/team/org for free. This is the single most important call: attribution correctness becomes the platform's job, done once at the chokepoint, not every caller's job done inconsistently.
 
 2. **Two record types: usage meters vs. cost records.**
-   The RFC's envelope mixes "a product consumed N units" with "this cost $X". Splitting them is what makes the success criterion (*sum of attributions == actual bill*) true **by construction**:
+   The RFC's envelope mixes "a product consumed N units" with "this cost $X". Splitting them is what makes the success criterion (_sum of attributions == actual bill_) true **by construction**:
    - **Usage meters** are dimensionless counts emitted by products: "processed 1,000 recordings", "activity ran 4.2 CPU-seconds", "read 8 GiB from ClickHouse". No dollars. Cheap, high-volume, product-owned.
-   - **Cost records** are dollars, produced by *one* central **allocation job** that takes a known vendor total and splits it across usage meters by ratio. Products never write dollars, so a product can't make the books not balance; unallocated cost is just the residual the ratios didn't cover.
+   - **Cost records** are dollars, produced by _one_ central **allocation job** that takes a known vendor total and splits it across usage meters by ratio. Products never write dollars, so a product can't make the books not balance; unallocated cost is just the residual the ratios didn't cover.
 
 3. **One schema, three transports — chosen by source class, not by team.**
-   Standardise the *schema and the dimension vocabulary*, then allow the cheapest transport per source: event push for live app usage, in-process metric aggregation for high-volume infra usage, and batch/derive for sources that already have good data (ClickHouse `query_log`, `$ai_generation` events, vendor bills). Every transport lands in the same `cost_attribution` table with the same dimension enums.
+   Standardise the _schema and the dimension vocabulary_, then allow the cheapest transport per source: event push for live app usage, in-process metric aggregation for high-volume infra usage, and batch/derive for sources that already have good data (ClickHouse `query_log`, `$ai_generation` events, vendor bills). Every transport lands in the same `cost_attribution` table with the same dimension enums.
 
 Everything below is these three decisions, spelled out.
 
@@ -33,17 +33,17 @@ Everything below is these three decisions, spelled out.
 
 The fragmentation the RFC calls out is real, but so is a lot of reusable substrate. Cataloguing it keeps the build small.
 
-| Capability | Where it lives today | Reuse as |
-| --- | --- | --- |
-| Ambient attribution (product/feature/team/org) per unit of work | `posthog/clickhouse/query_tagging.py` (`QueryTags`, `tag_queries`, `Product`/`Feature` enums, `add_fallback_query_tags`) | The attribution context the meter reads. Extend, don't replace. |
-| ClickHouse per-query usage (bytes/CPU/S3 ops) | `posthog/clickhouse/query_log_archive.py` (`read_bytes`, `memory_usage`, `ProfileEvents_*`); HogQL view `posthog/hogql/database/schema/query_log_archive.py` | ClickHouse usage meter — **derive**, don't emit. |
-| Per-request LLM cost, already priced per team/model | `services/llm-gateway/.../callbacks/posthog.py` (`$ai_generation` w/ `$ai_total_cost_usd`, `team_id`, `ai_product`); ingestion-time `nodejs/src/ingestion/pipelines/ai/costs/index.ts` | AI cost record — **derive** from existing events. |
-| Per-org usage rollup + billing delivery | `posthog/tasks/usage_report.py` (`OrgReport`, `UsageReportCounters`, `get_teams_with_*_in_period`, SQS to billing) | Per-org reporting shape and delivery path. |
-| Dedicated ingestion pipeline precedent | AI events: `rust/capture/src/ai_endpoint.rs`, `AiSinkMode` in `rust/capture/src/config.rs`, `nodejs/src/ingestion/pipelines/ai/consumer.ts`, `posthog/models/ai_events/sql.py` | The blueprint for a `finops.usage` pipeline. |
-| Staged, chart-toggled rollout of a dedicated endpoint | `posthog/ph_client.py` (`enable_dedicated_ai_endpoint_for_default_client`), `DedicatedAIEndpointRollout` in `posthog/settings/ingestion.py` | Rollout mechanism for the new pipeline. |
-| Scheduled third-party bill ingestion | `products/warehouse_sources/backend/.../sources/` (`SourceRegistry`; AWS CUR scaffold at `aws_cost_and_usage_report/source.py`, `FINANCE___ACCOUNTING` category; working Kubecost/Vantage/Brex sources) | Vendor-bill ingestion. AWS CUR is registered but unimplemented. |
-| "Define a cost model once, render to HogQL, expose per-team" | `products/engineering_analytics/backend/logic/cost.py` + SPEC.md §5 managed `DataWarehouseSavedQuery` views | Template for exposing cost views without a global HogQL view. |
-| Per-org revenue for margin joins | `products/revenue_analytics/` (`revenue_item`, `customer.py`; keyed on Stripe `customer_id`) | Revenue side of the margin join. Needs an identity bridge (below). |
+| Capability                                                      | Where it lives today                                                                                                                                                                                    | Reuse as                                                           |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Ambient attribution (product/feature/team/org) per unit of work | `posthog/clickhouse/query_tagging.py` (`QueryTags`, `tag_queries`, `Product`/`Feature` enums, `add_fallback_query_tags`)                                                                                | The attribution context the meter reads. Extend, don't replace.    |
+| ClickHouse per-query usage (bytes/CPU/S3 ops)                   | `posthog/clickhouse/query_log_archive.py` (`read_bytes`, `memory_usage`, `ProfileEvents_*`); HogQL view `posthog/hogql/database/schema/query_log_archive.py`                                            | ClickHouse usage meter — **derive**, don't emit.                   |
+| Per-request LLM cost, already priced per team/model             | `services/llm-gateway/.../callbacks/posthog.py` (`$ai_generation` w/ `$ai_total_cost_usd`, `team_id`, `ai_product`); ingestion-time `nodejs/src/ingestion/pipelines/ai/costs/index.ts`                  | AI cost record — **derive** from existing events.                  |
+| Per-org usage rollup + billing delivery                         | `posthog/tasks/usage_report.py` (`OrgReport`, `UsageReportCounters`, `get_teams_with_*_in_period`, SQS to billing)                                                                                      | Per-org reporting shape and delivery path.                         |
+| Dedicated ingestion pipeline precedent                          | AI events: `rust/capture/src/ai_endpoint.rs`, `AiSinkMode` in `rust/capture/src/config.rs`, `nodejs/src/ingestion/pipelines/ai/consumer.ts`, `posthog/models/ai_events/sql.py`                          | The blueprint for a `finops.usage` pipeline.                       |
+| Staged, chart-toggled rollout of a dedicated endpoint           | `posthog/ph_client.py` (`enable_dedicated_ai_endpoint_for_default_client`), `DedicatedAIEndpointRollout` in `posthog/settings/ingestion.py`                                                             | Rollout mechanism for the new pipeline.                            |
+| Scheduled third-party bill ingestion                            | `products/warehouse_sources/backend/.../sources/` (`SourceRegistry`; AWS CUR scaffold at `aws_cost_and_usage_report/source.py`, `FINANCE___ACCOUNTING` category; working Kubecost/Vantage/Brex sources) | Vendor-bill ingestion. AWS CUR is registered but unimplemented.    |
+| "Define a cost model once, render to HogQL, expose per-team"    | `products/engineering_analytics/backend/logic/cost.py` + SPEC.md §5 managed `DataWarehouseSavedQuery` views                                                                                             | Template for exposing cost views without a global HogQL view.      |
+| Per-org revenue for margin joins                                | `products/revenue_analytics/` (`revenue_item`, `customer.py`; keyed on Stripe `customer_id`)                                                                                                            | Revenue side of the margin join. Needs an identity bridge (below). |
 
 **Genuinely greenfield** (grep confirms zero prior art): `cost_attribution` / `cogs` / `effective_cost` / `billed_cost` / `chargeback` vocabulary, the usage→cost allocation job, and the `team_id`/`org_id` ↔ Stripe `customer_id` identity bridge. The RFC's `transform_clickhouse_query_load()` does not exist yet either — but it can lean entirely on `query_tagging` + `query_log_archive` for its inputs.
 
@@ -88,7 +88,7 @@ def current_attribution() -> Attribution:
     )
 ```
 
-Consequence: a Temporal activity that already runs under a workflow whose type maps to a product doesn't state its product when metering — it inherits it. When product is genuinely unknown, the record is written with `product=shared` / `allocation_method=residual`, which is exactly the RFC's "unallocated" bucket — and it's *loud* (it shows up in the coverage view) rather than silently misattributed.
+Consequence: a Temporal activity that already runs under a workflow whose type maps to a product doesn't state its product when metering — it inherits it. When product is genuinely unknown, the record is written with `product=shared` / `allocation_method=residual`, which is exactly the RFC's "unallocated" bucket — and it's _loud_ (it shows up in the coverage view) rather than silently misattributed.
 
 ### 2. Usage meters vs. cost records
 
@@ -101,20 +101,20 @@ Consequence: a Temporal activity that already runs under a workflow whose type m
 ```
 
 A **usage meter** row answers "how much of billable unit X did product P consume for team T?".
-It has `quantity` + `billable_unit` and *no* dollars.
+It has `quantity` + `billable_unit` and _no_ dollars.
 
 A **cost record** row answers "how many dollars of provider V's bill do we attribute to product P / team T?".
-It is produced only by the allocation job, which distributes a *known* provider total across usage meters. Because it distributes a known total, the sum is the total — the RFC's headline invariant holds automatically. `allocation_method` records *how* (`direct`, `proxy_metric`, `volume_ratio`, `residual`) and `allocation_detail` records the ratio used.
+It is produced only by the allocation job, which distributes a _known_ provider total across usage meters. Because it distributes a known total, the sum is the total — the RFC's headline invariant holds automatically. `allocation_method` records _how_ (`direct`, `proxy_metric`, `volume_ratio`, `residual`) and `allocation_detail` records the ratio used.
 
 This also makes ownership clean: **products own meters; finance/platform owns pricing.** A product team never needs to know what a CPU-second costs.
 
 ### 3. One schema, three transports
 
-| Transport | For | Mechanism | Precedent |
-| --- | --- | --- | --- |
-| **(a) Event push** | Live app-layer usage, low/medium volume, needs per-org granularity | `finops.usage` events via a dedicated capture pipeline | AI events pipeline (below) |
-| **(b) Metric aggregation** | High-volume infra usage (per Kafka message, per query) where one event per unit is too much | In-process per-key accumulator, flushed periodically to Kafka | `TopHog` (`nodejs/src/ingestion/framework/tophog/tophog.ts`) |
-| **(c) Batch / derive** | Sources that already have good data | Scheduled Dagster adapter transforms existing data into the schema | `usage_report.py`, warehouse sources |
+| Transport                  | For                                                                                         | Mechanism                                                          | Precedent                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------ |
+| **(a) Event push**         | Live app-layer usage, low/medium volume, needs per-org granularity                          | `finops.usage` events via a dedicated capture pipeline             | AI events pipeline (below)                                   |
+| **(b) Metric aggregation** | High-volume infra usage (per Kafka message, per query) where one event per unit is too much | In-process per-key accumulator, flushed periodically to Kafka      | `TopHog` (`nodejs/src/ingestion/framework/tophog/tophog.ts`) |
+| **(c) Batch / derive**     | Sources that already have good data                                                         | Scheduled Dagster adapter transforms existing data into the schema | `usage_report.py`, warehouse sources                         |
 
 The **standard is the schema + the dimension enums**, not the transport. An "adapter" (RFC term) is concretely a registered function `(raw source) -> list[UsageMeter | CostRecord]`, mirroring the warehouse `SourceRegistry` and the AI `processCost` step.
 
@@ -141,7 +141,7 @@ with meter.measure(billable_unit=BillableUnit.COMPUTE, system="temporal"):
 - `meter.record(...)` reads `current_attribution()`, stamps `environment`/`git_commit`/`service_name` (already available via `query_tagging.__get_constant_tags`), and hands the record to a transport.
 - **Transport in web/API processes**: append to a request-scoped buffer, flush on the same boundary the query tags reset on (`CHQueries.__call__`'s `finally`). One capture call per request, not per meter.
 - **Transport in Celery**: this is the classic footgun — `posthoganalytics.capture()` silently loses events in workers. Reuse the existing fix: `ph_scoped_capture()` (`posthog/ph_client.py`) already builds a dedicated client and flushes on exit. Flush FinOps meters in the same `postrun_signal_handler` where `reset_query_tags()` runs.
-- **Chokepoint auto-instrumentation** (zero per-call-site code) is where standardisation pays off — one hook per entry point emits a baseline "this unit of work ran" meter for *everything*:
+- **Chokepoint auto-instrumentation** (zero per-call-site code) is where standardisation pays off — one hook per entry point emits a baseline "this unit of work ran" meter for _everything_:
   - Celery: emit a `compute` meter with the task's wall time in `postrun_signal_handler` (`posthog/celery.py`), keyed by `id=task.name`.
   - Temporal: wrap `execute_activity` in `_PostHogClientActivityInboundInterceptor` (`posthog/temporal/common/posthog_client.py:63`) with a `try/finally` — `activity.info()` gives `workflow_type`/`activity_type` for the `workload` dimension. This is a better hook than the current lazy CH-only tagger because it fires even when the activity touches no ClickHouse.
   - Dagster: a global `run_status_sensor` (like `notify_slack_on_failure` in `posthog/dags/locations/shared.py`) emits a meter per run without per-asset opt-in.
@@ -206,7 +206,7 @@ Per-message team resolution matters for per-customer attribution: because `resol
 
 ### D. ClickHouse query cost (derive — do not emit)
 
-No new emission. `query_log_archive` already has `read_bytes`, `memory_usage`, `ProfileEvents_OSCPUVirtualTimeMicroseconds`, S3 op counts, *and* the `product`/`user_id` tags from `query_tagging`. A Dagster adapter (`transform_clickhouse_query_load()`, the RFC's named-but-unbuilt function) reads `query_log_archive` grouped by `(product, team_id)`, multiplies bytes/CPU by the ClickHouse-cluster unit cost derived from the AWS CUR + node bill, and writes cost records with `allocation_method="proxy_metric"`. **Gap to flag**: the HogQL view currently exposes `product` but not `team_id`/`org_id` — add them for per-customer ClickHouse cost.
+No new emission. `query_log_archive` already has `read_bytes`, `memory_usage`, `ProfileEvents_OSCPUVirtualTimeMicroseconds`, S3 op counts, _and_ the `product`/`user_id` tags from `query_tagging`. A Dagster adapter (`transform_clickhouse_query_load()`, the RFC's named-but-unbuilt function) reads `query_log_archive` grouped by `(product, team_id)`, multiplies bytes/CPU by the ClickHouse-cluster unit cost derived from the AWS CUR + node bill, and writes cost records with `allocation_method="proxy_metric"`. **Gap to flag**: the HogQL view currently exposes `product` but not `team_id`/`org_id` — add them for per-customer ClickHouse cost.
 
 ### E. Temporal activity (Python — wall-clock attribution)
 
@@ -282,7 +282,7 @@ Per this repo's automation ladder (linter > lint-staged > skill > docs), lock it
 
 Modeled on the AI pipeline's staged, chart-toggled rollout (`DedicatedAIEndpointRollout`), so nothing needs a deploy to advance.
 
-- **Phase 0 — schema + derive-only.** Ship `cost_attribution` + `usage_meters` tables and the allocation job. Wire the three *derive* adapters that need no new emission: ClickHouse (`query_log_archive`), AI (`$ai_generation`), and the first vendor bill (AWS CUR). This alone answers "what's our infra spend by product?" with zero product-team involvement — highest value, lowest coordination.
+- **Phase 0 — schema + derive-only.** Ship `cost_attribution` + `usage_meters` tables and the allocation job. Wire the three _derive_ adapters that need no new emission: ClickHouse (`query_log_archive`), AI (`$ai_generation`), and the first vendor bill (AWS CUR). This alone answers "what's our infra spend by product?" with zero product-team involvement — highest value, lowest coordination.
 - **Phase 1 — standardised emitters + auto-instrumentation.** Ship `posthog/finops/` and `nodejs/src/common/finops/` with the chokepoint hooks (Celery, Temporal, Kafka batch, pipeline step). Every unit of work now emits a baseline compute meter automatically. `finops_usage` Kafka topic + dedicated consumer, mirroring the AI pipeline.
 - **Phase 2 — per-customer + margins.** Populate `org_id` on app-layer meters, wire the revenue join (the `team_id`/`org_id` ↔ Stripe `customer_id` identity bridge is the real work here), light up `cost_per_customer_monthly` and margin views.
 - **Phase 3 — first-class product.** Promote to `products/finops/` with its own scenes, reusing `engineering_analytics`' "cost model in Python → managed HogQL view" pattern for the UI surfaces.
@@ -291,7 +291,7 @@ Modeled on the AI pipeline's staged, chart-toggled rollout (`DedicatedAIEndpoint
 
 ## Open questions
 
-- **Meter volume.** A baseline meter per Kafka batch is fine (TopHog-aggregated); a meter per *message* is not. Where exactly is the aggregation grain per consumer? Default to `(topic, groupId, team_id, billable_unit)` per flush window.
+- **Meter volume.** A baseline meter per Kafka batch is fine (TopHog-aggregated); a meter per _message_ is not. Where exactly is the aggregation grain per consumer? Default to `(topic, groupId, team_id, billable_unit)` per flush window.
 - **Postgres per-team.** Worth threading `team_id` into `postgresQuery`'s signature for COGS-relevant tables, or accept per-call-site only? Most Postgres is platform R&D, so probably the latter.
 - **Identity bridge.** Is there an existing `organization_id` ↔ Stripe `customer_id` map to reuse (`revenue_analytics_config.py` / `products/revenue_analytics/backend/joins.py`), or is a new mapping model needed?
 - **Reconciliation cadence.** Vendor bills arrive days-to-weeks after usage. The allocation job needs to re-run for closed periods when a bill finalises — `ReplacingMergeTree` on `source_ingested_at` handles the overwrite, but the schedule needs to account for late-arriving totals.
