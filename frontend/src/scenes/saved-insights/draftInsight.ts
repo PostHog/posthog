@@ -14,6 +14,20 @@ export interface DraftInsightQuery {
 /** Sentinel id for the local draft row in the saved insights table. Real insight ids are positive. */
 export const DRAFT_INSIGHT_ROW_ID = -1
 
+/** Storage can hold anything — a non-numeric timestamp would throw in draftInsightListItem and crash the list. */
+export function isValidDraftInsightQuery(value: unknown): value is DraftInsightQuery {
+    const draft = value as DraftInsightQuery | null
+    return (
+        !!draft &&
+        typeof draft === 'object' &&
+        !!draft.query &&
+        typeof draft.query === 'object' &&
+        typeof draft.query.kind === 'string' &&
+        typeof draft.timestamp === 'number' &&
+        Number.isFinite(draft.timestamp)
+    )
+}
+
 export function isDraftInsightRow(item: SavedInsightListItem): boolean {
     return item.id === DRAFT_INSIGHT_ROW_ID
 }

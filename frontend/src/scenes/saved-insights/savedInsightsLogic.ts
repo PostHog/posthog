@@ -35,7 +35,7 @@ import type { Node } from '../../queries/schema/schema-general'
 import type { DeleteDashboardForm } from '../dashboard/deleteDashboardLogic'
 import type { DuplicateDashboardForm } from '../dashboard/duplicateDashboardLogic'
 import { teamLogic } from '../teamLogic'
-import { DraftInsightQuery, draftInsightListItem } from './draftInsight'
+import { DraftInsightQuery, draftInsightListItem, isValidDraftInsightQuery } from './draftInsight'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -713,14 +713,19 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             lemonToast.error('Failed to restore insights')
         },
         loadDraftQuery: () => {
+            if (!values.currentTeamId) {
+                actions.setDraftQuery(null)
+                return
+            }
             const storageKey = `draft-query-${values.currentTeamId}`
             const stored = localStorage.getItem(storageKey)
             const parsed = stored ? parseDraftQueryFromLocalStorage(stored) : null
-            if (stored && !parsed?.query) {
-                // An unparseable draft would resurface on every visit, so drop it for good
+            const draft = isValidDraftInsightQuery(parsed) ? parsed : null
+            if (stored && !draft) {
+                // A malformed draft would resurface (or crash the row) on every visit, so drop it for good
                 localStorage.removeItem(storageKey)
             }
-            actions.setDraftQuery(parsed?.query ? parsed : null)
+            actions.setDraftQuery(draft)
         },
         discardDraftQuery: () => {
             const draft = values.draftQuery
@@ -737,8 +742,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 button: {
                     label: 'Undo',
                     action: () => {
-                        localStorage.setItem(storageKey, crushDraftQueryForLocalStorage(draft.query, draft.timestamp))
-                        actions.setDraftQuery(draft)
+                        // The editor may have written a newer draft since the discard — don't clobber it
+                        if (localStorage.getItem(storageKey) === null) {
+                            localStorage.setItem(
+                                storageKey,
+                                crushDraftQueryForLocalStorage(draft.query, draft.timestamp)
+                            )
+                        }
+                        actions.loadDraftQuery()
                     },
                 },
             })
