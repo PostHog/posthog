@@ -184,11 +184,11 @@ describe('ml-mirror anonymize concurrency', () => {
         }
     }
 
-    it('scrubs sessions concurrently while preserving within-session order', async () => {
-        let releaseScrubA!: () => void
-        let releaseScrubB!: () => void
-        scrubGates.set('sess-a:1', new Promise<void>((resolve) => (releaseScrubA = resolve)))
-        scrubGates.set('sess-b:3', new Promise<void>((resolve) => (releaseScrubB = resolve)))
+    it('scrubs messages concurrently, including messages of the same session', async () => {
+        let releaseFirstScrub!: () => void
+        let releaseSecondScrub!: () => void
+        scrubGates.set('sess-a:1', new Promise<void>((resolve) => (releaseFirstScrub = resolve)))
+        scrubGates.set('sess-a:2', new Promise<void>((resolve) => (releaseSecondScrub = resolve)))
 
         const recorder = {
             record: recordMock,
@@ -202,20 +202,18 @@ describe('ml-mirror anonymize concurrency', () => {
         )
 
         try {
-            // Both sessions' scrubs are in flight at once — sequential processing never starts the
-            // second scrub while the first is gated, so this is the concurrency proof.
-            await until(() => scrubStarts.has('sess-a:1') && scrubStarts.has('sess-b:3'))
-            // Within a session order is preserved: the second message must not start (let alone
-            // record) while the session's first scrub is still gated.
-            expect(scrubStarts.has('sess-a:2')).toBe(false)
-            expect(recordedOffsets('sess-a')).toEqual([])
+            // Both of sess-a's scrubs are in flight at once — sequential processing never starts
+            // the second scrub while the first is gated, and per-session grouping never starts a
+            // session's second message while its first is gated.
+            await until(() => scrubStarts.has('sess-a:1') && scrubStarts.has('sess-a:2'))
         } finally {
-            releaseScrubA()
-            releaseScrubB()
+            releaseFirstScrub()
+            releaseSecondScrub()
         }
         await run
 
-        expect(recordedOffsets('sess-a')).toEqual([1, 2])
+        // No ordering guarantees, so only membership is asserted.
+        expect(recordedOffsets('sess-a').sort()).toEqual([1, 2])
         expect(recordedOffsets('sess-b')).toEqual([3])
     })
 })

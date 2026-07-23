@@ -40,11 +40,10 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
 
     /**
-     * Cap on sessions scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
+     * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
      * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
      * compression). <= 0 (the default) resolves to min(available CPUs, threadpool size); an
-     * explicit positive value is used verbatim. Per-session event order is preserved at any
-     * setting; 1 restores fully sequential scrubbing.
+     * explicit positive value is used verbatim; 1 restores fully sequential scrubbing.
      */
     SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: number
 }
