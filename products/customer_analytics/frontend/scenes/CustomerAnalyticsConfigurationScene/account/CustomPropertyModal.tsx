@@ -145,9 +145,9 @@ function PersonSourceEditor(): JSX.Element {
                                 // loads the new table's columns for the pickers below.
                                 setCustomPropertyFormValue('keyColumn', null)
                                 setMappings(mappings.map((mapping) => ({ ...mapping, column: '', description: '' })))
-                                if (newValue) {
-                                    loadSelectedTableColumns({ tableId: newValue })
-                                }
+                                // Also load on clear (tableId null) so the pickers below drop the previous
+                                // table's stale columns; the loader returns an empty list for null.
+                                loadSelectedTableColumns({ tableId: newValue })
                             }}
                             // Search runs on the backend so the whole synced catalog is reachable, not just
                             // the first page loaded into the picker.
