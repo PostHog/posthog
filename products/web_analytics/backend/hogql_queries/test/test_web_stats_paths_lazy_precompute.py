@@ -306,19 +306,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_disqualifying_filter_falls_through(self):
-        # $pathname filter is outside the MVP allowlist.
-        with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_sampling_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(sampling=WebAnalyticsSampling(enabled=True)))
@@ -553,20 +540,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_window_over_max_days_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(date_from="2023-01-01", date_to="2024-01-07"))
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @parameterized.expand(
-        [
-            ("none_value", None),
-            ("list_value", ["example.com", "other.com"]),
-            ("empty_string", ""),
-        ]
-    )
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_non_string_host_value_falls_through(self, _name: str, host_value) -> None:
-        prop = EventPropertyFilter(key="$host", value=host_value, operator=PropertyOperator.EXACT)
-        with self._enable_lazy():
-            self._run(self._build_query(properties=[prop]))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @parameterized.expand(

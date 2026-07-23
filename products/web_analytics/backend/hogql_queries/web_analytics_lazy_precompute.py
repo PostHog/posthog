@@ -20,7 +20,7 @@ from posthog.schema import WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBr
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -167,6 +167,15 @@ class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
     pass
 
 
+class UnsupportedFilterType(LazyPrecomputeIneligible):
+    """A filter is not an event/person property — precompute only handles those,
+    since session/cohort filters are applied differently on the live path per family."""
+
+    def __init__(self, filter_type: object):
+        self.filter_type = filter_type
+        super().__init__(f"type={filter_type!r}")
+
+
 class MissingDateRange(LazyPrecomputeIneligible):
     pass
 
@@ -263,11 +272,17 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
         raise SessionsV2UuidMode()
 
-    # Any filter shape is accepted: `user_filter_expr` translates the whole list via
-    # `property_to_expr`, and each distinct filter set becomes its own cache key. Filters
-    # the INSERT can't express fail the job and fall back to the live query automatically,
-    # and the per-team distinct-shape ceiling in `web_ensure_precomputed` bounds how many
-    # namespaces a single team can mint.
+    # Any event/person filter shape is accepted (any key, operator, count), translated
+    # as a whole via `user_filter_expr`; each distinct set becomes its own cache key,
+    # bounded by the per-team shape ceiling in `web_ensure_precomputed`. Session and
+    # cohort filters are refused: the precompute INSERT applies the whole list userlessly,
+    # but the live runners handle those types differently per family (web vitals drops
+    # them entirely), so precomputing them would serve a different population than the
+    # live fallback. Those queries fall through to the live path, which applies them right.
+    for prop in query.properties or []:
+        if get_property_type(prop) not in ("event", "person"):
+            raise UnsupportedFilterType(get_property_type(prop))
+
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
     if date_from is None or date_to is None:

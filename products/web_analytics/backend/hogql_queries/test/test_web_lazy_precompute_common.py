@@ -9,10 +9,13 @@ from parameterized import parameterized
 from structlog.contextvars import get_contextvars
 
 from posthog.schema import (
+    CohortPropertyFilter,
     CompareFilter,
     DateRange,
     EventPropertyFilter,
+    PersonPropertyFilter,
     PropertyOperator,
+    SessionPropertyFilter,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -37,10 +40,12 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     STALE_WHILE_REVALIDATE_SECONDS,
     TEAM_SHAPE_SET_TTL_SECONDS,
     PerQueryOptedOut,
+    UnsupportedFilterType,
     _oom_pin_key,
     _team_shape_set_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
+    compute_shape_cap_key,
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
@@ -125,6 +130,25 @@ class TestCheckCommonEligibility(BaseTest):
         ]
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None, properties=props)
+
+    @parameterized.expand(
+        [
+            ("session", SessionPropertyFilter(key="$session_duration", value=10, operator=PropertyOperator.GT)),
+            ("cohort", CohortPropertyFilter(value=1)),
+        ]
+    )
+    def test_session_and_cohort_filters_fall_through_to_live(self, _name, prop) -> None:
+        # The userless precompute INSERT would apply these, but the live runners handle
+        # session/cohort filters differently per family (web vitals drops them), so
+        # precomputing them would serve a different population than the live fallback.
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            with self.assertRaises(UnsupportedFilterType):
+                self._check(use_precompute=None, properties=[prop])
+
+    def test_person_filter_is_accepted(self) -> None:
+        prop = PersonPropertyFilter(key="email", value="a@b.com", operator=PropertyOperator.EXACT)
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            self._check(use_precompute=None, properties=[prop])
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):
@@ -272,6 +296,34 @@ class TestComputeFiltersEligibilityHash(BaseTest):
         h = compute_filters_eligibility_hash(_overview(), "UTC")
         assert len(h) == 64
         int(h, 16)
+
+
+class TestComputeShapeCapKey(BaseTest):
+    def test_date_range_variants_share_one_slot(self) -> None:
+        # Buckets are reused across requested ranges (the namespace sentinelizes time
+        # windows), so date-range variants of one shape must map to one cap key —
+        # otherwise a user could exhaust the ceiling by replaying different timestamps.
+        a = compute_shape_cap_key(_overview(date_from="-7d"), "UTC")
+        b = compute_shape_cap_key(_overview(date_from="-30d"), "UTC")
+        assert a == b
+
+    def test_compare_filter_does_not_fragment(self) -> None:
+        # A compare query's current and previous period share the same namespace.
+        assert compute_shape_cap_key(_overview(compare=True), "UTC") == compute_shape_cap_key(_overview(), "UTC")
+
+    def test_filters_and_breakdown_still_fragment(self) -> None:
+        # Genuinely distinct namespaces must still occupy distinct slots.
+        base = compute_shape_cap_key(_stats(breakdown_by=WebStatsBreakdown.BROWSER), "UTC")
+        other_breakdown = compute_shape_cap_key(_stats(breakdown_by=WebStatsBreakdown.DEVICE_TYPE), "UTC")
+        filtered = compute_shape_cap_key(
+            _stats(
+                breakdown_by=WebStatsBreakdown.BROWSER,
+                properties=[EventPropertyFilter(key="$host", value="a.com", operator=PropertyOperator.EXACT)],
+            ),
+            "UTC",
+        )
+        assert base != other_breakdown
+        assert base != filtered
 
 
 class TestFiltersEligibilityHashContextvarBinding(ClickhouseTestMixin, APIBaseTest):
@@ -694,5 +746,5 @@ class TestPrecomputeShapeCapWiring(BaseTest):
         # The new shape was never added to the set (cap not consulted on the read path).
         assert not redis.get_client().sismember(
             _team_shape_set_key(self.team.pk),
-            compute_filters_eligibility_hash(self._runner().query, self.team.timezone),
+            compute_shape_cap_key(self._runner().query, self.team.timezone),
         )

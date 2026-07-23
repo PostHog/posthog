@@ -189,23 +189,9 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_disqualifying_filter_falls_through(self):
-        self._seed_two_sessions()
-        # $pathname is not in the MVP allowlist → gate returns False → no job created.
-        with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_session_property_falls_through(self):
-        # Session-level filters never qualify for MVP — only EventPropertyFilter on $host.
+        # Session and cohort filters fall through — precompute only serves event/person
+        # filters, since the live path applies session/cohort filters differently.
         with self._enable_lazy():
             self._run(
                 self._build_query(
@@ -398,18 +384,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     # --- Group B: gate strictness -------------------------------------------
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_multiple_host_filters_fall_through(self):
-        # Gate accepts at most one user-supplied property — multi-host inputs
-        # collide on a single-filter cache key and must be rejected.
-        self._seed_two_sessions()
-        host_a = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
-        host_b = EventPropertyFilter(key="$host", value="other.com", operator=PropertyOperator.EXACT)
-        with self._enable_lazy():
-            self._run(self._build_query(properties=[host_a, host_b]))
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
         # `events.$session_id_uuid` would produce `uniqState(UUID)` which the
         # `(uniq, String)` column rejects non-retryably. Gate must refuse.
@@ -418,22 +392,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query.modifiers = HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)
         with self._enable_lazy():
             self._run(query)
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @parameterized.expand(
-        [
-            ("none_value", None),
-            ("list_value", ["example.com", "other.com"]),
-            ("empty_string", ""),
-        ]
-    )
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_non_string_host_value_falls_through(self, _name: str, host_value) -> None:
-        self._seed_two_sessions()
-        prop = EventPropertyFilter(key="$host", value=host_value, operator=PropertyOperator.EXACT)
-        with self._enable_lazy():
-            self._run(self._build_query(properties=[prop]))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 

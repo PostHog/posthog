@@ -3,8 +3,8 @@
 Both the web overview lazy precompute and the web stats PATHS lazy precompute
 share the same rollout/safety gate (org feature flag + per-query opt-out,
 whole-hour timezone, no conversion goal, no sampling, no v2 UUID sessions,
-any filter shape, bounded date range) and the same TTL / session-pad / UTC-day
-helpers. Keeping a single source of truth avoids the two paths drifting apart.
+any event/person filter shape, bounded date range) and the same TTL / session-pad
+/ UTC-day helpers. Keeping a single source of truth avoids the paths drifting apart.
 The per-team distinct-shape ceiling (`try_reserve_precompute_shape`) lives here
 too, bounding how many namespaces the loosened filter gate lets a team mint.
 """
@@ -25,7 +25,7 @@ from prometheus_client import Counter
 from posthog.schema import SessionsV2JoinMode
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
@@ -347,7 +347,7 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     # of building; shapes the team already holds are unaffected. Reuses the eligibility hash
     # so a shape counts the same however it reaches this build path.
     if kwargs.get("run_inserts") and runner is not None:
-        shape_hash = compute_filters_eligibility_hash(runner.query, team.timezone)
+        shape_hash = compute_shape_cap_key(runner.query, team.timezone)
         if not try_reserve_precompute_shape(team.id, shape_hash):
             kwargs["run_inserts"] = False
             WEB_ANALYTICS_LAZY_PRECOMPUTE_SHAPE_CAPPED.labels(family=family or "unknown").inc()
@@ -517,6 +517,15 @@ class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
     pass
 
 
+class UnsupportedFilterType(LazyPrecomputeIneligible):
+    """A filter is not an event/person property — precompute only handles those,
+    since session/cohort filters are applied differently on the live path per family."""
+
+    def __init__(self, filter_type: object):
+        self.filter_type = filter_type
+        super().__init__(f"type={filter_type!r}")
+
+
 class MissingDateRange(LazyPrecomputeIneligible):
     pass
 
@@ -610,11 +619,18 @@ def check_common_eligibility(
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
 
-    # Any filter shape is accepted: `host_filter_expr` translates the whole list via
-    # `property_to_expr`, and each distinct filter set becomes its own cache key. Filters
-    # the INSERT can't express fail the job and fall back to the live query automatically,
-    # and the per-team distinct-shape ceiling in `web_ensure_precomputed` bounds how many
-    # namespaces a single team can mint.
+    # Any event/person filter shape is accepted (any key, any operator, any number),
+    # translated as a whole via `property_to_expr`; each distinct set becomes its own
+    # cache key, bounded by the per-team shape ceiling in `web_ensure_precomputed`.
+    # Session and cohort filters are refused: the precompute INSERT applies the whole
+    # list userlessly, but the live runners handle those types differently per family
+    # (web vitals drops them entirely), so precomputing them would serve a different
+    # population than the live fallback. Those queries fall through to the live path,
+    # which applies them correctly.
+    for prop in properties:
+        if get_property_type(prop) not in ("event", "person"):
+            raise UnsupportedFilterType(get_property_type(prop))
+
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:
         raise MissingDateRange()
@@ -654,8 +670,31 @@ def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
     filters (with values), date range, breakdown, conversion goal, sampling,
     interval, compare filter, test-accounts toggle, and team timezone.
     """
+    return _hash_query_fields(query, team_timezone, _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS)
+
+
+# The precompute namespace (`compute_query_hash`) sentinelizes its time-window
+# placeholders, so buckets are reused across requested date ranges: different
+# ranges — and a compare query's current vs. previous period — of the same
+# filter/breakdown shape map to ONE namespace. The shape cap therefore drops the
+# range-varying fields on top of the eligibility-hash ignores, so it counts
+# distinct namespaces rather than per-request shapes. Otherwise a user could
+# exhaust the ceiling by replaying one filter with different ISO timestamps until
+# new legitimate shapes are forced onto the live path (veria review).
+_SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS | frozenset(
+    {"dateRange", "compareFilter"}
+)
+
+
+def compute_shape_cap_key(query: Any, team_timezone: str) -> str:
+    """Namespace-identity key for the per-team shape cap: the eligibility hash with
+    the time-window fields dropped, so date-range variants of one shape share a slot."""
+    return _hash_query_fields(query, team_timezone, _SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS)
+
+
+def _hash_query_fields(query: Any, team_timezone: str, ignored_fields: frozenset[str]) -> str:
     dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
-    for key in _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS:
+    for key in ignored_fields:
         dumped.pop(key, None)
     payload = {"query": dumped, "timezone": team_timezone}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
