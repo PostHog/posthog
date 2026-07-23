@@ -139,9 +139,9 @@ def validate_target_config(target: str, target_config: dict) -> dict:
     """
     if target != "trace":
         return {}
-    config = {**(target_config or {})}
-    config.setdefault("strategy", "fixed_window")
     try:
+        config = {**(target_config or {})}
+        config.setdefault("strategy", "fixed_window")
         return _SETTLE_CONFIG_ADAPTER.validate_python(config).model_dump()
     except Exception as e:
         raise ValueError(f"Invalid target_config for trace: {str(e)}") from e

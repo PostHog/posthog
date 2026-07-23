@@ -1008,6 +1008,21 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.data["conditions"][0]["rollout_percentage"], rollout_percentage)
 
+    @parameterized.expand([(["a", "b"],), ("trace",), (5,)])
+    def test_non_dict_target_config_returns_400(self, bad_config):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Bad config eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return true"},
+                "output_type": "boolean",
+                "target": "trace",
+                "target_config": bad_config,
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class TestTestHogEndpoint(APIBaseTest):
     EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
