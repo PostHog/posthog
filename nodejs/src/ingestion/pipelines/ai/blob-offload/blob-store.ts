@@ -38,6 +38,16 @@ export class BlobStoreError extends Error {
     }
 }
 
+/**
+ * Embed the provider error's name in the wrapper message: the framework's log
+ * path (withStepRetry -> logger.error) serializes message and stack manually
+ * and drops `cause` chains, so the embedded name is the greppable
+ * discriminator in logs during incidents — AWS messages often omit the code.
+ */
+function describeProviderError(error: unknown): string {
+    return error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+}
+
 export interface BlobStore {
     /**
      * Ensure the blob is durably stored. Failures are thrown exclusively as
@@ -91,8 +101,9 @@ export class S3BlobStore implements BlobStore {
         // `.name`), so after narrowing to S3ServiceException the name check is
         // the only handle on them. Names on non-S3 errors are never interpreted.
         const isRetriable = !(error instanceof S3ServiceException && EVENT_SPECIFIC_S3_ERRORS.has(error.name))
-        const message = error instanceof Error ? error.message : String(error)
-        return new BlobStoreError(`S3 blob store failure: ${message}`, isRetriable, { cause: error })
+        return new BlobStoreError(`S3 blob store failure: ${describeProviderError(error)}`, isRetriable, {
+            cause: error,
+        })
     }
 
     private async timed<T>(
@@ -132,9 +143,11 @@ export class S3BlobStore implements BlobStore {
             try {
                 await fn()
             } catch (error) {
-                throw new BlobStoreError(`AI blob store healthcheck failed (${op}) for bucket "${Bucket}"`, true, {
-                    cause: error,
-                })
+                throw new BlobStoreError(
+                    `AI blob store healthcheck failed (${op}) for bucket "${Bucket}": ${describeProviderError(error)}`,
+                    true,
+                    { cause: error }
+                )
             }
         }
         await probe('put', () =>

@@ -235,7 +235,9 @@ describe('S3BlobStore', () => {
         send.mockRejectedValueOnce(cause)
         const error = await captureError(store().healthcheck())
         expect(error).toBeInstanceOf(BlobStoreError)
-        expect(error.message).toBe(`AI blob store healthcheck failed (${op}) for bucket "blobs"`)
+        expect(error.message).toBe(
+            `AI blob store healthcheck failed (${op}) for bucket "blobs": AccessDenied: AccessDenied`
+        )
         expect(error.isRetriable).toBe(true)
         expect(error.cause).toBe(cause)
     })
