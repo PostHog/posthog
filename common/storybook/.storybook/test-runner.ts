@@ -42,6 +42,12 @@ declare module 'storybook/internal/types' {
             /** Timeout in ms for waitForSelector. Defaults to Playwright's context timeout (PLAYWRIGHT_TIMEOUT_MS). */
             waitForSelectorTimeout?: number
             /**
+             * Override the per-test Jest timeout (ms) for stories whose render legitimately needs
+             * longer than the default. Use sparingly — a slow story is usually a bug, not a budget
+             * problem. Still scaled by the viewport-widths multiplier. Defaults to JEST_TIMEOUT_MS.
+             */
+            jestTimeout?: number
+            /**
              * By default we wait for images to have width as an indication the page is ready for screenshot testing
              * Some stories have broken images on purpose to test what the UI does
              * in those cases set `allowImagesWithoutWidth` to `true`
@@ -148,8 +154,8 @@ export default {
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
         const storyContext = await getStoryContext(page, context)
-        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
-        applyStoryTimeouts(page, viewportWidths)
+        const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
+        applyStoryTimeouts(page, viewportWidths, jestTimeout)
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
@@ -159,7 +165,7 @@ export default {
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
-        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
             : viewport || DEFAULT_VIEWPORT
@@ -181,7 +187,7 @@ export default {
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
         // Keep timeouts scaled in postVisit too, as retries can run through this path multiple times.
-        applyStoryTimeouts(page, viewportWidths)
+        applyStoryTimeouts(page, viewportWidths, jestTimeout)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
             if (viewportWidths?.length) {
@@ -583,10 +589,10 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
         .catch(() => undefined)
 }
 
-function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[]): void {
+function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[], jestTimeout?: number): void {
     // Multi-width stories effectively run several snapshots inside one smoke test.
     const timeoutMultiplier = viewportWidths?.length || 1
-    jest.setTimeout(JEST_TIMEOUT_MS * timeoutMultiplier)
+    jest.setTimeout((jestTimeout ?? JEST_TIMEOUT_MS) * timeoutMultiplier)
     page.context().setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS * timeoutMultiplier)
 }
 

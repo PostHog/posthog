@@ -185,6 +185,22 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
+    # Agent desktop app embedded browsers (Electron leaks the app name into the UA).
+    # Anchored on the Electron token so the Claude/ChatGPT mobile in-app browsers stay Regular.
+    "Claude/.*Electron": BotDefinition(
+        "Claude Desktop",
+        "ai_assistant",
+        "AI Agent",
+        "Anthropic",
+        documentation_url="https://claude.ai/download",
+    ),
+    "ChatGPT/.*Electron": BotDefinition(
+        "ChatGPT Desktop",
+        "ai_assistant",
+        "AI Agent",
+        "OpenAI",
+        documentation_url="https://openai.com/chatgpt/desktop/",
+    ),
     # Search Crawlers (Applebot/ avoids matching Applebot-Extended)
     "Applebot/": BotDefinition(
         "Applebot", "ai_search", "AI Agent", "Apple", documentation_url="https://bots.fyi/d/applebot"
@@ -642,6 +658,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "OzDocsCrawler": BotDefinition("OzDocs", "ai_crawler", "AI Agent", "Unknown"),
     "polygazer": BotDefinition("polygazer", "ai_crawler", "AI Agent", "Unknown"),
     "BIC-Probe": BotDefinition("BIC Probe", "ai_crawler", "AI Agent", "pracharvedam.ai"),
+    "AIWebIndex": BotDefinition(
+        "AIWebIndex", "ai_crawler", "AI Agent", "Lyrenth", documentation_url="https://lyrenth.com/bot"
+    ),
     # SEO / marketing crawlers
     "MBCrawler": BotDefinition(
         "Monitor Backlinks",

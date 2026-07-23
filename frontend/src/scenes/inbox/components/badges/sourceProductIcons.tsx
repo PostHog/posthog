@@ -72,7 +72,7 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
     [SignalSourceProduct.Conversations]: {
         Icon: IconSupport,
         color: 'var(--blue)',
-        label: 'Conversations',
+        label: 'Support',
     },
     [SignalSourceProduct.Pganalyze]: {
         Icon: IconDatabase,

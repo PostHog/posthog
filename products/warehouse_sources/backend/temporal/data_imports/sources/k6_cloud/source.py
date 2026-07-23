@@ -116,6 +116,7 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only test_runs carries incremental fields, so build_endpoint_schemas marks exactly it
         # incremental/append (matching the endpoint's `created_after` server-side filter).
@@ -127,7 +128,11 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
         )
 
     def validate_credentials(
-        self, config: K6CloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: K6CloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, is_forbidden = validate_k6_cloud_credentials(config.api_token, config.stack_id, schema_name)
         if is_valid:

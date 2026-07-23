@@ -52,6 +52,9 @@ export default defineConfig({
     workers: process.env.CI ? 3 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
+        // Enforces `mode: "run"` quarantine entries — tolerates their failures so
+        // flaky tests can't block CI (schema: .test_quarantine.json). No-op when empty.
+        ['./playwright.quarantine.reporter.ts'],
         ['html', { open: 'never' }],
         ...(process.env.CI ? [['junit', { outputFile: 'junit-results.xml' }] as const] : []),
         ...(process.env.CI ? [['json', { outputFile: 'results.json' }] as const] : []),

@@ -23,7 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    SHOPIFY_API_VERSION_2025_10,
+    SHOPIFY_API_VERSION_2026_07,
+    SHOPIFY_GRAPHQL_OBJECTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
@@ -43,8 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
-    supported_versions = ("2025-10",)
-    default_version = "2025-10"
+    supported_versions = (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07)
+    default_version = SHOPIFY_API_VERSION_2026_07
     api_docs_url = "https://shopify.dev/docs/api/release-notes"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -125,14 +129,22 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         )
 
     def validate_credentials(
-        self, config: ShopifySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # No schema_name → just probe the token, so connecting isn't blocked by a table the user
         # may not sync. With schema_name → also check that one resource's read scope.
         resources = [schema_name] if schema_name is not None else None
         try:
             if validate_shopify_credentials(
-                config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret, resources
+                config.shopify_store_id,
+                config.shopify_client_id,
+                config.shopify_client_secret,
+                resources,
+                self.resolve_api_version(api_version),
             ):
                 return True, None
             return False, "Invalid Shopify credentials"
@@ -142,10 +154,14 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             return False, str(e)
 
     def get_endpoint_permissions(
-        self, config: ShopifySourceConfig, team_id: int, endpoints: list[str]
+        self, config: ShopifySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return check_shopify_endpoint_permissions(
-            config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret, endpoints
+            config.shopify_store_id,
+            config.shopify_client_id,
+            config.shopify_client_secret,
+            endpoints,
+            self.resolve_api_version(api_version),
         )
 
     def get_schemas(
@@ -155,6 +171,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
@@ -188,6 +205,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             shopify_client_id=config.shopify_client_id,
             shopify_client_secret=config.shopify_client_secret,
             graphql_object_name=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,

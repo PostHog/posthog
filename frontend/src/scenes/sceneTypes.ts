@@ -140,6 +140,13 @@ export enum Scene {
     ReplaySettings = 'ReplaySettings',
     ReplaySingle = 'ReplaySingle',
     ReplayKiosk = 'ReplayKiosk',
+    ReplayVision = 'ReplayVision',
+    ReplayVisionScanner = 'ReplayVisionScanner',
+    ReplayVisionScannerEditor = 'ReplayVisionScannerEditor',
+    ReplayVisionObservation = 'ReplayVisionObservation',
+    ReplayVisionAction = 'ReplayVisionAction',
+    ReplayVisionActionEditor = 'ReplayVisionActionEditor',
+    ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
     RevenueAnalytics = 'RevenueAnalytics',
     SqlVariableEdit = 'SqlVariableEdit',
@@ -196,6 +203,8 @@ export enum Scene {
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
     AIObservability = 'AIObservability',
+    AIObservabilityCluster = 'AIObservabilityCluster',
+    AIObservabilityClusters = 'AIObservabilityClusters',
     AIObservabilityDataset = 'AIObservabilityDataset',
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
@@ -343,6 +352,15 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
     [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
 
+    // Replay vision
+    [Scene.ReplayVision]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionScanner]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionScannerEditor]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionObservation]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionAction]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
+
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 
@@ -394,6 +412,8 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // AI observability
     [Scene.AIObservability]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityCluster]: AccessControlResourceType.AiObservabilityClusters,
+    [Scene.AIObservabilityClusters]: AccessControlResourceType.AiObservabilityClusters,
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,

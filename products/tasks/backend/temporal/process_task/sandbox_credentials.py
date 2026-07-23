@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from django.db import transaction
+
 import redis
 
 from posthog.models.integration import Integration
@@ -13,6 +15,7 @@ from posthog.redis import get_client
 
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
+from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
@@ -116,6 +119,24 @@ def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str 
     _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, github_payload)
 
 
+def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
+    """Post-resolution eligibility gate for every path that injects a GitHub token into a LOOP
+    sandbox, mirroring `get_sandbox_github_token`: a loop run alive during or after its owner's
+    deactivation or team-access revocation must not receive a fresh token, whichever refresh path
+    resolved it (user-integration refresh, installation fallback, read-only re-mint, or sibling
+    propagation). Non-loop runs are unaffected."""
+    if (state or {}).get("loop_id") is None:
+        return False
+    with transaction.atomic():
+        eligible = loop_owner_eligible_for_credentials(task.created_by_id, task.team)
+    if not eligible:
+        logger.warning(
+            "loop_github_refresh_owner_ineligible",
+            extra={"task_id": str(task.id)},
+        )
+    return not eligible
+
+
 USER_TOKEN_REFRESH_INTERVAL_SECONDS: float = _GITHUB_REFRESH_INTERVAL_BY_PREFIX["ghu_"]
 # TTL covers a slow mint + propagation; wait stays under the refresh activity's 2 min timeout.
 _ROTATION_LOCK_TTL_SECONDS = 120
@@ -128,14 +149,10 @@ def _rotation_lock_key(user_integration_id: int) -> str:
 
 def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple[str, str, str | None]]:
     rows: list[tuple[str, str, str | None]] = []
-    runs = (
-        TaskRun.objects.filter(
-            status=TaskRun.Status.IN_PROGRESS,
-            task__github_user_integration_id=user_integration_id,
-        )
-        .select_related("task")
-        .only("id", "state", "task__repository", "task__github_user_integration_id", "task__origin_product")
-    )
+    runs = TaskRun.objects.filter(
+        status=TaskRun.Status.IN_PROGRESS,
+        task__github_user_integration_id=user_integration_id,
+    ).select_related("task", "task__team")
     for run in runs:
         sandbox_id = (run.state or {}).get("sandbox_id")
         if not sandbox_id:
@@ -146,6 +163,8 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple
         if get_pr_authorship_mode(run.task, run.state) != PrAuthorshipMode.USER:
             continue
         if is_caller_token_run(str(run.id), run.state):
+            continue
+        if _loop_owner_credentials_revoked(run.task, run.state):
             continue
         rows.append((str(run.id), sandbox_id, run.task.repository))
     return rows
@@ -246,6 +265,8 @@ class GitHubSandboxCredential:
         # one mid-run. Re-mint the same read-only grant instead; best-effort like the original.
         if ctx.github_read_access and ctx.repository is None:
             token = get_readonly_github_token(ctx.team_id)
+            if token and _loop_owner_credentials_revoked(task, ctx.state):
+                token = None
             if token:
                 apply_github_credentials_to_sandbox(sandbox, None, token)
             return CredentialRefreshOutcome(
@@ -331,6 +352,8 @@ class GitHubSandboxCredential:
             token = resolve_coordinated_user_token(integration)
         except (ReauthorizationRequired, UserIntegration.DoesNotExist) as e:
             fallback = self._installation_token_fallback(ctx, task, cause=e)
+            if fallback and _loop_owner_credentials_revoked(task, ctx.state):
+                fallback = None
             if not fallback:
                 return CredentialRefreshOutcome(
                     self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
@@ -339,6 +362,8 @@ class GitHubSandboxCredential:
             return CredentialRefreshOutcome(
                 self.kind, refreshed=True, next_refresh_seconds=github_refresh_interval_seconds(fallback)
             )
+        if token and _loop_owner_credentials_revoked(task, ctx.state):
+            token = None
         if token:
             apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
         return CredentialRefreshOutcome(

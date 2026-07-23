@@ -129,6 +129,15 @@ pub(crate) async fn handle_cascade(
                 return;
             }
         };
+        if diff.requires_write() {
+            writes.push((
+                diff.stage2_key,
+                Stage2State {
+                    in_cohort: diff.new_bit,
+                    last_evaluated_at_ms: evaluated_at_ms,
+                },
+            ));
+        }
         if !diff.flipped() {
             continue;
         }
@@ -142,13 +151,6 @@ pub(crate) async fn handle_cascade(
             origin: None,
             run_id: None,
         });
-        writes.push((
-            diff.stage2_key,
-            Stage2State {
-                in_cohort: diff.new_bit,
-                last_evaluated_at_ms: evaluated_at_ms,
-            },
-        ));
         // The external flip above is unconditional; only the onward hop is depth/cycle bounded.
         match should_emit(
             message,
@@ -180,31 +182,33 @@ pub(crate) async fn handle_cascade(
         }
     }
 
-    if changes.is_empty() {
+    if changes.is_empty() && writes.is_empty() {
         mark_processed(&merge.cascade_tracker, partition_id, offset);
         return;
     }
 
-    // Produce-before-state: both legs must ack before the bits commit (see the module doc).
-    let membership_errors = produce_membership(sink, changes).await;
-    if membership_errors > 0 {
-        warn!(
-            partition_id,
-            errors = membership_errors,
-            "cascade membership produce failed; holding the cascade offset for redelivery",
-        );
-        hold(&merge.cascade_tracker, partition_id, offset);
-        return;
-    }
-    let cascade_errors = produce_cascades(merge, outgoing).await;
-    if cascade_errors > 0 {
-        warn!(
-            partition_id,
-            errors = cascade_errors,
-            "cascade onward produce failed; holding the cascade offset for redelivery",
-        );
-        hold(&merge.cascade_tracker, partition_id, offset);
-        return;
+    if !changes.is_empty() {
+        // Produce-before-state: both legs must ack before flipped bits commit (see the module doc).
+        let membership_errors = produce_membership(sink, changes).await;
+        if membership_errors > 0 {
+            warn!(
+                partition_id,
+                errors = membership_errors,
+                "cascade membership produce failed; holding the cascade offset for redelivery",
+            );
+            hold(&merge.cascade_tracker, partition_id, offset);
+            return;
+        }
+        let cascade_errors = produce_cascades(merge, outgoing).await;
+        if cascade_errors > 0 {
+            warn!(
+                partition_id,
+                errors = cascade_errors,
+                "cascade onward produce failed; holding the cascade offset for redelivery",
+            );
+            hold(&merge.cascade_tracker, partition_id, offset);
+            return;
+        }
     }
 
     let mut staged = StagedBatch::default();
@@ -272,6 +276,7 @@ mod tests {
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::person_record::{MatchedSet, PersonRecord};
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
+    use crate::stage2::state::Stage2Ownership;
     use crate::store::{
         Behavioral, BehavioralKey, CohortStore, OffloadConfig, OffloadMode, PersonRecordKey,
         PersonRecords, StoreConfig,
@@ -441,6 +446,8 @@ mod tests {
             seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            register_transfer_enabled: false,
+            reconcile: crate::workers::ReconcileDeps::default(),
         };
         // The cascade was dispatched this tenure, so its ceiling is raised — mirrors the dispatcher.
         deps.cascade_tracker
@@ -562,6 +569,70 @@ mod tests {
         assert!(membership.changes().is_empty(), "no flip, no membership");
         assert!(cascade.messages().is_empty(), "no flip, no onward cascade");
         assert_eq!(committed(&deps), Some(OFFSET + 1), "still advances");
+    }
+
+    #[tokio::test]
+    async fn cascade_noop_claims_a_transferred_fallback_without_emitting() {
+        let (_dir, store) = temp_store();
+        let catalog = catalog(
+            vec![
+                (2, vec![behavioral_leaf()]),
+                (1, vec![person_leaf(), cohort_ref(2)]),
+            ],
+            true,
+        );
+        let alice = person(1);
+        write_behavioral(&store, behavioral_lsk(&catalog), alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
+        let key = Stage2Key {
+            partition_id: PARTITION,
+            team_id: TEAM as u64,
+            cohort_id: 1,
+            person_id: alice,
+        };
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(
+                    &key,
+                    &Stage2State {
+                        in_cohort: true,
+                        last_evaluated_at_ms: 0,
+                    }
+                    .encode_transferred_fallback(),
+                );
+            })
+            .unwrap();
+
+        let membership = CaptureSink::new();
+        let cascade = CaptureCascadeSink::new();
+        let (sink, deps) = deps(&membership, &cascade, true, 1000);
+        let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
+
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
+
+        let bytes = store.get_stage2(&key).unwrap().unwrap();
+        let (state, ownership) = Stage2State::decode_with_ownership(&bytes).unwrap();
+        assert!(state.in_cohort);
+        assert_eq!(ownership, Stage2Ownership::Local);
+        assert!(
+            membership.changes().is_empty(),
+            "ownership settlement is not a flip"
+        );
+        assert!(
+            cascade.messages().is_empty(),
+            "ownership settlement does not cascade"
+        );
+        assert_eq!(committed(&deps), Some(OFFSET + 1));
     }
 
     #[tokio::test]

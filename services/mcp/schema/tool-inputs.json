@@ -489,8 +489,15 @@
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string",
-                    "description": "The insight ID or short_id to run."
+                    "description": "The insight to run: its numeric `id` or 8-character `short_id`.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
                 },
                 "output_format": {
                     "default": "optimized",

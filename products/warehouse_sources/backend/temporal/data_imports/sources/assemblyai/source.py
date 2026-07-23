@@ -119,6 +119,7 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No server-side `created >= X` filter exists, so an "incremental" sync would still walk the
         # whole list every run — ship full refresh only (every endpoint is in both append_only and
@@ -140,7 +141,11 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
         )
 
     def validate_credentials(
-        self, config: AssemblyAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AssemblyAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_assemblyai_credentials(config.api_key, config.region):
             return True, None

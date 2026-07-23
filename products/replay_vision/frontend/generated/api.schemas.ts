@@ -11,9 +11,10 @@
  * * `schedule` - Schedule
  * * `threshold` - Threshold
  */
-export type TriggerTypeEnumApi = (typeof TriggerTypeEnumApi)[keyof typeof TriggerTypeEnumApi]
+export type VisionActionTriggerTypeEnumApi =
+    (typeof VisionActionTriggerTypeEnumApi)[keyof typeof VisionActionTriggerTypeEnumApi]
 
-export const TriggerTypeEnumApi = {
+export const VisionActionTriggerTypeEnumApi = {
     Schedule: 'schedule',
     Threshold: 'threshold',
 } as const
@@ -243,6 +244,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface VisionActionApi {
     readonly id: string
     /**
@@ -260,7 +264,7 @@ export interface VisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
@@ -307,6 +311,9 @@ export interface PaginatedVisionActionListApi {
     results: VisionActionApi[]
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface PatchedVisionActionApi {
     readonly id?: string
     /**
@@ -324,7 +331,7 @@ export interface PatchedVisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
@@ -702,12 +709,14 @@ export const ScannerProviderEnumApi = {
 
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
  * * `gemini-3.6-flash` - Gemini 3.6 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
     Gemini36Flash: 'gemini-3.6-flash',
 } as const
 
@@ -738,6 +747,9 @@ export interface FeedbackThemesApi {
     generated_at: string
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -780,6 +792,7 @@ export interface ReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -810,6 +823,11 @@ export interface ReplayScannerApi {
     readonly updated_at: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -821,6 +839,9 @@ export interface PaginatedReplayScannerListApi {
     results: ReplayScannerApi[]
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface PatchedReplayScannerApi {
     readonly id?: string
     /**
@@ -863,6 +884,7 @@ export interface PatchedReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -893,6 +915,11 @@ export interface PatchedReplayScannerApi {
     readonly updated_at?: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes?: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -1350,6 +1377,7 @@ export interface EstimateRequestApi {
     /** Proposed model; determines `credits_per_observation` in the response.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
 }

@@ -132,7 +132,7 @@ This keeps endpoint behavior declarative and easy to extend.
 
 ### Source behaviour goes in the source, never in the API layer
 
-The `data_warehouse` presentation layer (`products/data_warehouse/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
+The `warehouse_sources` presentation layer (`products/warehouse_sources/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
 Do **not** add `if source_type == ExternalDataSourceType.X` / `source.is_direct_<engine>` branches there — a CI guard (`.github/scripts/check-dwh-source-agnostic.py`) blocks new ones.
 
 When a source needs behaviour the API must invoke, expose it on the source instead:
