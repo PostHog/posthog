@@ -2259,6 +2259,24 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(run.status, expected_status)
         self.assertEqual(mock_report.call_count, expected_reports)
 
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_forged_envelope_timings_are_clamped(self, mock_report):
+        # The envelope comes from the sandbox, where user code can forge it; a JSON-legal
+        # 1e300 must not poison the shared histogram sums. Phases are sub-spans of the run,
+        # so the backend-measured duration (plus slack) is the ceiling.
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok", "timings": {"exec_s": 1e300, "input_wait_s": 0.2}}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        properties = mock_report.call_args[0][1]
+        self.assertLessEqual(properties["exec_seconds"], 120)  # clamped to duration + slack
+        self.assertEqual(properties["input_wait_seconds"], 0.2)  # honest values pass through
+
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action", side_effect=RuntimeError("boom"))
     def test_metrics_failure_never_fails_the_callback(self, _mock_report):
         run = self._create_run()

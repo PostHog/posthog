@@ -18,6 +18,7 @@ sandbox-side run). Direct (hogql) runs report them from the async query manager'
 ``clickhouse_s`` (pickup -> completion, i.e. HogQL compile + ClickHouse execution).
 """
 
+import math
 from typing import Any
 
 from django.utils import timezone
@@ -60,6 +61,11 @@ _PHASE_BY_TIMING_KEY = {
     "clickhouse_s": "clickhouse",
 }
 
+# Headroom over the backend-measured run duration when bounding sandbox-reported timings:
+# absorbs clock granularity and rounding without letting a forged value stretch far past
+# the run's real wall clock.
+_TIMING_CLOCK_SLACK_SECONDS = 60.0
+
 _otel = OtelInstrumentFactory("notebooks")
 
 NODE_RUN_SECONDS = Histogram(
@@ -91,7 +97,7 @@ def record_node_run_terminal(run: NotebookNodeRun, outcome: str) -> None:
         NODE_RUN_SECONDS.labels(node_type=run.node_type, outcome=outcome).observe(duration)
         _otel.record_histogram_twin(NODE_RUN_SECONDS, duration, {"node_type": run.node_type, "outcome": outcome})
 
-        timings = _sanitized_timings(run.envelope)
+        timings = _sanitized_timings(run.envelope, max_seconds=duration + _TIMING_CLOCK_SLACK_SECONDS)
         for key, seconds in timings.items():
             phase = _PHASE_BY_TIMING_KEY[key]
             NODE_RUN_PHASE_SECONDS.labels(phase=phase, node_type=run.node_type).observe(seconds)
@@ -102,14 +108,21 @@ def record_node_run_terminal(run: NotebookNodeRun, outcome: str) -> None:
         logger.exception("notebook_node_run_metrics_failed", run_id=str(run.id), outcome=outcome)
 
 
-def _sanitized_timings(envelope: Any) -> dict[str, float]:
+def _sanitized_timings(envelope: Any, max_seconds: float) -> dict[str, float]:
+    """Bound the envelope's self-reported timings before they touch shared histograms.
+
+    The envelope is produced inside the sandbox, where user code can forge it — an absurd
+    but JSON-legal value like 1e300 would permanently poison the process-wide histogram
+    sums for every tenant. Every phase is a sub-span of the run, so the backend-measured
+    run duration (plus clock slack) is a hard ceiling; anything above it is clamped.
+    """
     raw = envelope.get("timings") if isinstance(envelope, dict) else None
     if not isinstance(raw, dict):
         return {}
     return {
-        key: float(value)
+        key: min(float(value), max_seconds)
         for key, value in raw.items()
-        if key in _PHASE_BY_TIMING_KEY and isinstance(value, int | float) and value >= 0
+        if key in _PHASE_BY_TIMING_KEY and isinstance(value, int | float) and math.isfinite(value) and value >= 0
     }
 
 
