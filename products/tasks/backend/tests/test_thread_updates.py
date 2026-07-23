@@ -9,11 +9,12 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.tasks.backend.facade.api import (
+    list_mentions,
     list_thread_messages,
     post_canvas_created_thread_update,
     post_pr_created_thread_update,
 )
-from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage, TaskThreadMessageMention
 
 _FLAG_TARGET = "products.tasks.backend.facade.api.posthoganalytics.feature_enabled"
 
@@ -85,6 +86,23 @@ class TestAgentThreadUpdates(TestCase):
         post_pr_created_thread_update(self.task_run, "https://github.com/posthog/posthog/pull/2")
 
         self.assertEqual(len(self._messages(self.task)), 2)
+
+    @parameterized.expand(
+        [
+            ("javascript_scheme", "javascript:alert(1)"),
+            ("markdown_breakout_paren", "https://example.com/pr)+[click](https://evil.example)"),
+            ("embedded_newline", "https://example.com/pr\n![tracker](https://evil.example/p.png)"),
+            ("embedded_bracket", "https://github.com/own]er/repo/pull/1"),
+            ("no_host", "https:///pull/1"),
+        ]
+    )
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_pr_created_skips_unsafe_urls(self, _name, pr_url, _flag) -> None:
+        # pr_url flows from task-run output into a markdown [label](url) token in a
+        # shared thread; anything that can't be a plain http(s) URL is dropped.
+        post_pr_created_thread_update(self.task_run, pr_url)
+
+        self.assertEqual(self._messages(self.task), [])
 
     @parameterized.expand(
         [
@@ -187,3 +205,35 @@ class TestAgentThreadUpdates(TestCase):
 
         assert messages is not None
         self.assertEqual([message.event for message in messages], ["", "canvas_created"])
+
+    def test_list_mentions_excludes_legacy_turn_complete_mentions(self) -> None:
+        # turn_complete messages @-mentioned the task creator and indexed that
+        # mention; with the messages hidden from threads, their mention rows must
+        # not surface notifications pointing at rows the thread no longer shows.
+        human_message = TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            author=self.user,
+            content="@[Casey Creator](creator@example.com) thoughts?",
+        )
+        turn_message = TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            author_kind=TaskThreadMessage.AuthorKind.AGENT,
+            event="turn_complete",
+            payload={"run_id": str(self.task_run.id)},
+            content="@[Casey Creator](creator@example.com) Turn complete.",
+        )
+        for message in (human_message, turn_message):
+            TaskThreadMessageMention.objects.for_team(self.team.id).create(
+                team=self.team,
+                message=message,
+                task=self.task,
+                mentioned_user=self.user,
+                created_at=message.created_at,
+            )
+
+        with team_scope(self.team.id):
+            mentions = list_mentions(self.team.id, self.user.id)
+
+        self.assertEqual([mention.message_id for mention in mentions], [human_message.id])

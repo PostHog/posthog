@@ -5172,7 +5172,9 @@ def list_mentions(
         mentioned_user_id=user_id,
         # task__in keeps the visibility rules single-sourced in _visible_task_qs.
         task__in=_visible_task_qs(team_id, user_id),
-    )
+        # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
+        # so their indexed mentions must not surface notifications pointing at them.
+    ).exclude(message__event="turn_complete")
     if since is not None:
         qs = qs.filter(created_at__gt=since)
     mentions = qs.select_related("message__author", "task__channel").order_by("-created_at")[:limit]
@@ -5327,6 +5329,25 @@ def post_canvas_created_thread_update(
 
 _GITHUB_PR_URL_PATTERN = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)", re.IGNORECASE)
 
+# Characters that could break out of a markdown [label](url) token or smuggle
+# extra markdown into the rendered thread message.
+_PR_URL_UNSAFE_CHARS = set(" \t\n\r()[]<>\"'`\\")
+
+_PR_URL_MAX_LENGTH = 2048
+
+
+def _is_safe_pr_url(pr_url: str) -> bool:
+    """Whether ``pr_url`` is a plain http(s) URL safe to embed in a markdown link.
+
+    ``pr_url`` originates from task-run output APIs, so it is caller-controlled.
+    Real PR URLs never contain whitespace, quotes, brackets, or parentheses;
+    anything that does is rejected rather than escaped.
+    """
+    if not pr_url or len(pr_url) > _PR_URL_MAX_LENGTH or any(char in _PR_URL_UNSAFE_CHARS for char in pr_url):
+        return False
+    parsed = urlparse(pr_url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
 
 def _pr_display_label(pr_url: str) -> str:
     match = _GITHUB_PR_URL_PATTERN.search(pr_url)
@@ -5346,24 +5367,30 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
     recording the PR must not fail because its announcement couldn't be written.
     """
     try:
+        if not _is_safe_pr_url(pr_url):
+            return
         task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
         # Threads hang off a task's channel feed; a channel-less task has no audience.
         if task is None or task.channel_id is None:
             return
         if task.created_by is None or not _agent_thread_updates_enabled(task.created_by):
             return
-        if (
-            TaskThreadMessage.objects.for_team(task.team_id)
-            .filter(task_id=task.id, event="pr_created", payload__pr_url=pr_url)
-            .exists()
-        ):
-            return
-        label = _pr_display_label(pr_url)
-        _create_agent_thread_message(
-            task,
-            f"[{label}]({pr_url}) has been opened",
-            event="pr_created",
-            payload={"pr_url": pr_url},
-        )
+        # The agent-output path and the webhook backstop can race on the same PR;
+        # locking the task row makes the dedupe check-and-create atomic across them.
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(task_id=task.id, event="pr_created", payload__pr_url=pr_url)
+                .exists()
+            ):
+                return
+            label = _pr_display_label(pr_url)
+            _create_agent_thread_message(
+                task,
+                f"[{label}]({pr_url}) has been opened",
+                event="pr_created",
+                payload={"pr_url": pr_url},
+            )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
