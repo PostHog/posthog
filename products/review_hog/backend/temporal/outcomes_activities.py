@@ -44,6 +44,8 @@ async def classify_team_outcomes_activity(input: ClassifyTeamOutcomesInputs) -> 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=input.team_id)
     since = timezone.now() - timedelta(days=input.lookback_days)
     with ph_scoped_capture() as capture:
-        classified = await classify_team(team=team, since=since, capture=capture)
+        # flush lets the classifier block on delivery before stamping a report done — the stamp
+        # must never outrun the event buffer.
+        classified = await classify_team(team=team, since=since, capture=capture, flush=capture.flush)
     logger.info("Classified %d finding outcomes for team %s", classified, input.team_id)
     return classified

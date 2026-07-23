@@ -1,10 +1,15 @@
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 from asgiref.sync import async_to_sync
+
+from posthog.models.team import Team
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -15,10 +20,14 @@ from products.review_hog.backend.reviewer.artefact_content import (
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.classify import (
+    _ClassifiedOutcome,
     _gather_report_inputs,
+    _load_persisted_outcomes,
+    _mark_outcomes_emitted,
     _PublishedFinding,
     _ReportInputs,
     classify_report,
+    classify_team,
 )
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -71,6 +80,7 @@ class TestClassifyReportDecision:
         with (
             patch(f"{_CLASSIFY}._gather_report_inputs", return_value=inputs),
             patch(f"{_CLASSIFY}._persist_outcomes"),
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted"),
             patch(f"{_CLASSIFY}.judge_addressed", new=AsyncMock(return_value=judge_return)) as judge,
         ):
             async_to_sync(classify_report)(
@@ -105,17 +115,21 @@ class TestClassifyReportDecision:
         assert captured[0]["properties"]["classification_method"] == "no_signal"
 
     def test_event_uuid_is_deterministic_per_finding(self):
-        # Overlapping sweeps (or a retry) can re-emit; a stable uuid per (report, finding) lets PostHog
-        # dedup rather than double-count. Switching to uuid4/a timestamp would regress this.
+        # The uuid is the consumer-side dedup key: ClickHouse never collapses duplicate uuids (the
+        # events table's sort key includes the ingestion timestamp), so a crash-window re-emit is only
+        # harmless because consumers can aggregate per distinct uuid. Switching to uuid4/a timestamp
+        # would make crash-window duplicates indistinguishable from real events.
         report = ReviewReport(repository="o/r", pr_number=7)
         first, _ = self._run(inputs=self._inputs(comment=None, compare_files=_FAR), report=report)
         second, _ = self._run(inputs=self._inputs(comment=None, compare_files=_FAR), report=report)
         assert first[0]["uuid"] == second[0]["uuid"]
 
-    def test_failure_mid_report_persists_no_outcomes(self):
-        # Discovery reads "any finding_outcome artefact" as "report done", so persisting per finding
-        # would strand the rest of a report when the judge dies partway: the retry and every later
-        # sweep would skip it. Nothing may persist unless the whole report classified.
+    def test_failure_mid_report_persists_and_emits_nothing(self):
+        # A judge death partway must leave no trace on either side: a partial artefact write would
+        # strand the report's remaining findings, and any event emitted before the outcomes are
+        # durably decided could conflict with what a retry re-decides (a human reply landing in the
+        # gap flips `ignored` to `reacted`) — the double-row corruption the persist-first order
+        # exists to prevent.
         published = [
             _PublishedFinding(finding=_finding(), verdict=_verdict(), comment=None),
             _PublishedFinding(
@@ -130,9 +144,11 @@ class TestClassifyReportDecision:
             distinct_id="user-distinct",
             judge_user_id=0,
         )
+        captured: list[dict[str, Any]] = []
         with (
             patch(f"{_CLASSIFY}._gather_report_inputs", return_value=inputs),
             patch(f"{_CLASSIFY}._persist_outcomes") as persist,
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted") as mark,
             patch(f"{_CLASSIFY}.judge_addressed", new=AsyncMock(side_effect=[True, RuntimeError("judge died")])),
             pytest.raises(RuntimeError),
         ):
@@ -140,9 +156,71 @@ class TestClassifyReportDecision:
                 team_id=1,
                 report=ReviewReport(repository="o/r", pr_number=7),
                 final_head="head_sha",
-                capture=lambda **kw: None,
+                capture=lambda **kw: captured.append(kw),
             )
         persist.assert_not_called()
+        mark.assert_not_called()
+        assert captured == []
+
+    def test_no_events_emitted_when_persist_fails(self):
+        # Guards the persist-before-emit order itself: if emission ever moves back ahead of the
+        # durable write, a crash between the two re-decides outcomes on retry and ships conflicting
+        # rows for the same finding.
+        captured: list[dict[str, Any]] = []
+        with (
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=self._inputs(comment=None, compare_files=_FAR)),
+            patch(f"{_CLASSIFY}._persist_outcomes", side_effect=RuntimeError("db died")),
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted") as mark,
+            pytest.raises(RuntimeError),
+        ):
+            async_to_sync(classify_report)(
+                team_id=1,
+                report=ReviewReport(repository="o/r", pr_number=7),
+                final_head="head_sha",
+                capture=lambda **kw: captured.append(kw),
+            )
+        assert captured == []
+        mark.assert_not_called()
+
+    def test_resume_emits_stored_outcomes_flushes_then_marks(self):
+        # The crash-recovery path: outcomes were persisted but the emitted stamp never landed. The
+        # sweep must re-emit exactly what is stored — recomputing here could flip an outcome (a reply
+        # arriving between attempts) and ship a conflicting duplicate — and must not spend GitHub,
+        # judge, or warehouse work. The stamp may only land after flush(), else a hard kill between
+        # the two silently loses the buffered events while the report reads as done.
+        report = ReviewReport(repository="o/r", pr_number=7)
+        stored = _ClassifiedOutcome(
+            finding=_finding(),
+            verdict=_verdict(),
+            outcome="reacted",
+            method="comment_reply",
+            reviewed_head="base_sha",
+            final_head="head_sha",
+        )
+        captured: list[dict[str, Any]] = []
+        order: list[str] = []
+        with (
+            patch(f"{_CLASSIFY}.unclassified_published_reports", return_value=[report]),
+            patch(f"{_CLASSIFY}._report_ids_with_persisted_outcomes", return_value={str(report.id)}),
+            patch(f"{_CLASSIFY}._load_persisted_outcomes", return_value=([stored], "user-distinct")),
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted", side_effect=lambda **kw: order.append("mark")),
+            patch(f"{_CLASSIFY}._gather_report_inputs", side_effect=AssertionError("resume must not refetch GitHub")),
+            patch(
+                f"{_CLASSIFY}.list_recently_merged_pull_requests",
+                side_effect=AssertionError("resume must not need the warehouse"),
+            ),
+        ):
+            classified = async_to_sync(classify_team)(
+                team=Team(id=1),
+                since=timezone.now(),
+                capture=lambda **kw: captured.append(kw),
+                flush=lambda: order.append("flush"),
+            )
+        assert classified == 1
+        assert captured[0]["properties"]["outcome"] == "reacted"
+        assert captured[0]["properties"]["classification_method"] == "comment_reply"
+        assert captured[0]["uuid"] == str(uuid5(NAMESPACE_URL, f"reviewhog_finding_outcome:{report.id}:{_ISSUE_KEY}"))
+        assert order == ["flush", "mark"]
 
     def test_event_carries_join_keys_and_finding_metadata(self):
         captured, _judge = self._run(inputs=self._inputs(comment=None, compare_files=_FAR))
@@ -229,7 +307,7 @@ class TestGatherAndIdempotency(BaseTest):
 
         assert [pf.finding.issue_key for pf in inputs.published] == [_ISSUE_KEY]
 
-    def test_finding_outcome_artefact_excludes_the_report_from_discovery(self):
+    def test_discovery_tracks_the_emitted_stamp_not_artefact_presence(self):
         report = self._report()
         assert list(unclassified_published_reports(self.team.id)) == [report]
 
@@ -247,7 +325,9 @@ class TestGatherAndIdempotency(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-        assert unclassified_published_reports(self.team.id) == []
+        # Artefacts mean "decided", not "delivered": a report that crashed between persist and the
+        # emitted stamp must stay discoverable, or its events are silently lost forever.
+        assert list(unclassified_published_reports(self.team.id)) == [report]
         # And the durable record round-trips as its typed content.
         artefact = ReviewReportArtefact.objects.for_team(self.team.id).get(
             report_id=str(report.id), type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME
@@ -255,3 +335,35 @@ class TestGatherAndIdempotency(BaseTest):
         parsed = parse_artefact_content(artefact.type, artefact.content)
         assert isinstance(parsed, FindingOutcomeArtefact)
         assert (parsed.outcome, parsed.method) == ("ignored", "no_signal")
+
+        _mark_outcomes_emitted(team_id=self.team.id, report_id=str(report.id))
+        assert unclassified_published_reports(self.team.id) == []
+
+    def test_resume_rebuilds_stored_outcomes_verbatim(self):
+        # `_load_persisted_outcomes` must reproduce exactly what the interrupted attempt decided —
+        # outcome, method, and the heads it compared — from the durable rows alone. Any re-derivation
+        # here (or a bad join back to the finding/verdict) would make the crash-window re-emit differ
+        # from the original event.
+        report = self._report()
+        ReviewReportArtefact.add_finding_outcome(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FindingOutcomeArtefact(
+                issue_key=_ISSUE_KEY,
+                run_index=1,
+                outcome="reacted",
+                method="comment_reply",
+                reviewed_head="base_sha",
+                final_head="head_sha",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        outcomes, distinct_id = _load_persisted_outcomes(team_id=self.team.id, report=report)
+
+        assert distinct_id == self.user.distinct_id
+        [outcome] = outcomes
+        assert (outcome.outcome, outcome.method) == ("reacted", "comment_reply")
+        assert (outcome.reviewed_head, outcome.final_head) == ("base_sha", "head_sha")
+        assert outcome.finding.issue_key == _ISSUE_KEY
+        assert outcome.verdict.category == "bug"

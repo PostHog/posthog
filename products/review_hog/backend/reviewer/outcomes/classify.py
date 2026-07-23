@@ -3,21 +3,29 @@
 Per report: pull the post-review compare and the PR's review comments, pair the report's published
 findings with their inline comments, then decide each finding's outcome in precedence order —
 `reacted` (a human replied or reacted, cheap and certain) beats `addressed` (a post-review commit
-touched the finding's lines AND the judge confirms it resolved it) beats `ignored`. One
-`reviewhog_finding_outcome` event per finding carries a deterministic uuid so overlapping sweeps
-can't double-count; the durable `finding_outcome` artefacts (the idempotency markers) are written
-last, in one transaction for the whole report, so a crash mid-report leaves no marker — the next
-sweep redoes the report and the re-emitted events dedup on their uuids.
+touched the finding's lines AND the judge confirms it resolved it) beats `ignored`.
+
+Delivery contract (at-least-once, never conflicting): a report's outcomes are decided once and
+persisted as `finding_outcome` artefacts in one transaction *before* any event is emitted, so a
+retry or overlapping sweep can never re-decide an outcome (re-deciding could flip it — a human
+reply landing between attempts). The per-report `ReviewReport.outcomes_emitted_at` stamp — the
+completion marker discovery reads — is set only after the events were flushed to capture; a crash
+between persist and stamp re-enters emission from the stored artefacts, and those re-emits are
+byte-identical (same deterministic uuid and properties). ClickHouse does NOT collapse duplicate
+uuids (the events table's ReplacingMergeTree sort key includes the ingestion timestamp), so the
+uuid is a consumer-side dedup key: aggregate per distinct `uuid` for exact counts.
 """
 
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
@@ -28,9 +36,11 @@ from products.engineering_analytics.backend.facade.api import list_recently_merg
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewUserSettings
 from products.review_hog.backend.reviewer.artefact_content import (
+    ArtefactContentValidationError,
     FindingOutcomeArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
+    parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
@@ -59,11 +69,27 @@ class Capture(Protocol):
     def __call__(self, **kwargs: Any) -> None: ...
 
 
+# Blocks until buffered events are transmitted; called before the emitted stamp is written.
+Flush = Callable[[], None]
+
+
 @dataclass(frozen=True)
 class _PublishedFinding:
     finding: ReviewIssueFinding
     verdict: ValidationVerdict
     comment: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class _ClassifiedOutcome:
+    """One finding's decided fate plus everything its event needs — buildable from durable rows alone."""
+
+    finding: ReviewIssueFinding
+    verdict: ValidationVerdict
+    outcome: str
+    method: str
+    reviewed_head: str
+    final_head: str
 
 
 @dataclass(frozen=True)
@@ -186,40 +212,147 @@ class _SkipReport(Exception):
     """Raised when a single report can't be classified (bad auth) — skip it, don't stop the sweep."""
 
 
-def _persist_outcomes(
-    *,
-    team_id: int,
-    report_id: str,
-    outcomes: list[tuple[ReviewIssueFinding, str, str]],
-    reviewed_head: str,
-    final_head: str,
-) -> None:
+def _persist_outcomes(*, team_id: int, report_id: str, outcomes: list[_ClassifiedOutcome]) -> None:
     """Write the report's `finding_outcome` artefacts in one transaction — all findings or none.
 
-    Discovery treats any `finding_outcome` artefact as "this report is classified", so a partial
-    write would silently strand the remaining findings; atomicity makes the marker mean what
-    discovery reads it as.
+    An artefact means "this finding's outcome is decided, never re-decide it": the emit and resume
+    paths both read outcomes from these rows, so a partial write would strand the report between
+    decided-and-not (re-runs would double-append). Atomicity keeps the record all-or-nothing.
     """
     with transaction.atomic():
-        for finding, outcome, method in outcomes:
+        for oc in outcomes:
             ReviewReportArtefact.add_finding_outcome(
                 team_id=team_id,
                 report_id=report_id,
                 content=FindingOutcomeArtefact(
-                    issue_key=finding.issue_key,
-                    run_index=finding.run_index,
-                    outcome=outcome,
-                    method=method,
-                    reviewed_head=reviewed_head,
-                    final_head=final_head,
-                    judge_model=OUTCOME_JUDGE_MODEL if method in ("judge_confirmed", "judge_rejected") else None,
+                    issue_key=oc.finding.issue_key,
+                    run_index=oc.finding.run_index,
+                    outcome=oc.outcome,
+                    method=oc.method,
+                    reviewed_head=oc.reviewed_head,
+                    final_head=oc.final_head,
+                    judge_model=OUTCOME_JUDGE_MODEL if oc.method in ("judge_confirmed", "judge_rejected") else None,
                 ),
                 attribution=ArtefactAttribution.system(),
             )
 
 
-async def classify_report(*, team_id: int, report: ReviewReport, final_head: str, capture: Capture) -> int:
-    """Classify one report's published findings: emit an event per finding, then persist all outcomes.
+def _mark_outcomes_emitted(*, team_id: int, report_id: str) -> None:
+    ReviewReport.objects.for_team(team_id).filter(id=report_id).update(outcomes_emitted_at=timezone.now())
+
+
+def _report_ids_with_persisted_outcomes(team_id: int, reports: list[ReviewReport]) -> set[str]:
+    """Which of these reports already carry `finding_outcome` artefacts — decided but not yet emitted."""
+    return {
+        str(report_id)
+        for report_id in ReviewReportArtefact.objects.for_team(team_id)
+        .filter(
+            report_id__in=[report.id for report in reports],
+            type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME,
+        )
+        .values_list("report_id", flat=True)
+    }
+
+
+def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[list[_ClassifiedOutcome], str]:
+    """Rebuild a report's decided outcomes (and event distinct_id) from its durable rows.
+
+    The resume path after a crash between persist and the emitted stamp: outcomes come from the
+    `finding_outcome` artefacts (latest-wins per `issue_key`), the event metadata from the stored
+    findings/verdicts they rule on — so the re-emitted events are identical to what the interrupted
+    attempt sent, never a recomputation that could disagree with it.
+    """
+    stored: dict[str, FindingOutcomeArtefact] = {}
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=str(report.id), type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
+        .order_by("created_at", "id")
+    )
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable finding_outcome artefact %s: %s", row.id, e)
+            continue
+        assert isinstance(content, FindingOutcomeArtefact)
+        stored[content.issue_key] = content
+
+    bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id)])
+    pairs = {finding.issue_key: (finding, verdict) for finding, verdict in bundle.all_valid(str(report.id))}
+    outcomes: list[_ClassifiedOutcome] = []
+    for issue_key, ruling in stored.items():
+        pair = pairs.get(issue_key)
+        if pair is None:
+            logger.warning("finding_outcome for %s has no matching finding on report %s", issue_key, report.id)
+            continue
+        finding, verdict = pair
+        outcomes.append(
+            _ClassifiedOutcome(
+                finding=finding,
+                verdict=verdict,
+                outcome=ruling.outcome,
+                method=ruling.method,
+                reviewed_head=ruling.reviewed_head,
+                final_head=ruling.final_head,
+            )
+        )
+    return outcomes, _finding_distinct_id(report, report.repository)
+
+
+async def _emit_and_mark(
+    *,
+    team_id: int,
+    report: ReviewReport,
+    distinct_id: str,
+    outcomes: list[_ClassifiedOutcome],
+    capture: Capture,
+    flush: Flush | None,
+) -> None:
+    """Emit every decided outcome, flush, then stamp the report emitted — strictly in that order.
+
+    The stamp is the completion marker discovery reads, so it must trail the flush: stamping an
+    unflushed buffer would silently lose the events if the process dies before delivery. A crash
+    before the stamp only re-runs this function from the persisted outcomes — duplicates are
+    byte-identical, and consumers dedup on the event uuid.
+    """
+    repository = report.repository
+    for oc in outcomes:
+        capture(
+            distinct_id=distinct_id,
+            event=_EVENT,
+            # Deterministic per (report, finding): the consumer-side dedup key. ClickHouse itself
+            # does not collapse duplicate uuids (the events table's ReplacingMergeTree sort key
+            # includes the ingestion timestamp), so exact counts aggregate per distinct uuid.
+            uuid=str(uuid5(NAMESPACE_URL, f"{_EVENT}:{report.id}:{oc.finding.issue_key}")),
+            properties={
+                "team_id": team_id,
+                "repository": repository,
+                "pr_number": report.pr_number,
+                "review_report_id": str(report.id),
+                "issue_key": oc.finding.issue_key,
+                "run_index": oc.finding.run_index,
+                "file": oc.finding.file,
+                "priority": effective_priority(oc.finding.priority, oc.verdict.adjusted_priority).value,
+                "category": oc.verdict.category,
+                "source_perspective": oc.finding.source_perspective,
+                "is_directly_related_to_changes": oc.finding.is_directly_related_to_changes,
+                "outcome": oc.outcome,
+                "classification_method": oc.method,
+                "reviewed_head": oc.reviewed_head,
+                "final_head": oc.final_head,
+            },
+        )
+    if flush is not None:
+        await database_sync_to_async(flush, thread_sensitive=False)()
+    await database_sync_to_async(_mark_outcomes_emitted, thread_sensitive=False)(
+        team_id=team_id, report_id=str(report.id)
+    )
+
+
+async def classify_report(
+    *, team_id: int, report: ReviewReport, final_head: str, capture: Capture, flush: Flush | None = None
+) -> int:
+    """Classify one report's published findings: persist all outcomes, then emit an event per finding.
 
     Returns the number of findings classified. GitHub errors for this one PR (a 4xx on the compare or
     comments) raise `GitHubAPIError` for the caller to skip; rate-limit / budget exhaustion propagate
@@ -228,9 +361,8 @@ async def classify_report(*, team_id: int, report: ReviewReport, final_head: str
     inputs = await database_sync_to_async(_gather_report_inputs, thread_sensitive=False)(
         team_id=team_id, report=report, final_head=final_head
     )
-    repository = report.repository
     compared = parse_compare_files(inputs.compare_files)
-    outcomes: list[tuple[ReviewIssueFinding, str, str]] = []
+    outcomes: list[_ClassifiedOutcome] = []
 
     for pf in inputs.published:
         finding, verdict = pf.finding, pf.verdict
@@ -255,48 +387,42 @@ async def classify_report(*, team_id: int, report: ReviewReport, final_head: str
         else:
             outcome, method = "ignored", "no_signal"
 
-        outcomes.append((finding, outcome, method))
-        capture(
-            distinct_id=inputs.distinct_id,
-            event=_EVENT,
-            # Deterministic per (report, finding): a re-emit (overlapping sweeps, a retry) carries the
-            # same uuid, so PostHog dedups it rather than double-counting the outcome.
-            uuid=str(uuid5(NAMESPACE_URL, f"{_EVENT}:{report.id}:{finding.issue_key}")),
-            properties={
-                "team_id": team_id,
-                "repository": repository,
-                "pr_number": report.pr_number,
-                "review_report_id": str(report.id),
-                "issue_key": finding.issue_key,
-                "run_index": finding.run_index,
-                "file": finding.file,
-                "priority": effective_priority(finding.priority, verdict.adjusted_priority).value,
-                "category": verdict.category,
-                "source_perspective": finding.source_perspective,
-                "is_directly_related_to_changes": finding.is_directly_related_to_changes,
-                "outcome": outcome,
-                "classification_method": method,
-                "reviewed_head": inputs.reviewed_head,
-                "final_head": final_head,
-            },
+        outcomes.append(
+            _ClassifiedOutcome(
+                finding=finding,
+                verdict=verdict,
+                outcome=outcome,
+                method=method,
+                reviewed_head=inputs.reviewed_head,
+                final_head=final_head,
+            )
         )
 
-    # Markers land last, atomically, and only after every event went out: a crash anywhere above
-    # leaves the report discoverable for the next sweep, and the re-emitted events dedup on their
-    # deterministic uuids instead of double-counting.
+    # Persist before any emit: once decided, an outcome is never re-decided. A crash before this
+    # write leaves no artefacts and no events (a clean redo); after it, the next sweep re-enters
+    # emission from these rows via the resume path.
     await database_sync_to_async(_persist_outcomes, thread_sensitive=False)(
+        team_id=team_id, report_id=str(report.id), outcomes=outcomes
+    )
+    await _emit_and_mark(
         team_id=team_id,
-        report_id=str(report.id),
+        report=report,
+        distinct_id=inputs.distinct_id,
         outcomes=outcomes,
-        reviewed_head=inputs.reviewed_head,
-        final_head=final_head,
+        capture=capture,
+        flush=flush,
     )
 
     return len(inputs.published)
 
 
 async def classify_team(
-    *, team: Team, since: datetime, capture: Capture, max_reports: int = OUTCOME_MAX_REPORTS_PER_SWEEP
+    *,
+    team: Team,
+    since: datetime,
+    capture: Capture,
+    max_reports: int = OUTCOME_MAX_REPORTS_PER_SWEEP,
+    flush: Flush | None = None,
 ) -> int:
     """Classify this team's unclassified merged reports, capped at ``max_reports`` per sweep.
 
@@ -308,11 +434,30 @@ async def classify_team(
     if not reports:
         return 0
 
-    by_repo: dict[str, list[ReviewReport]] = defaultdict(list)
+    classified = 0
+    # Reports whose outcomes were persisted but never stamped emitted (a crash between persist and
+    # flush) resume here: emission from the stored artefacts needs no GitHub, judge, or warehouse
+    # work — which also exempts them from the per-sweep report cap — and never re-decides.
+    resumable_ids = await database_sync_to_async(_report_ids_with_persisted_outcomes, thread_sensitive=False)(
+        team.id, reports
+    )
+    pending: list[ReviewReport] = []
     for report in reports:
+        if str(report.id) not in resumable_ids:
+            pending.append(report)
+            continue
+        outcomes, distinct_id = await database_sync_to_async(_load_persisted_outcomes, thread_sensitive=False)(
+            team_id=team.id, report=report
+        )
+        await _emit_and_mark(
+            team_id=team.id, report=report, distinct_id=distinct_id, outcomes=outcomes, capture=capture, flush=flush
+        )
+        classified += len(outcomes)
+
+    by_repo: dict[str, list[ReviewReport]] = defaultdict(list)
+    for report in pending:
         by_repo[report.repository].append(report)
 
-    classified = 0
     reports_done = 0
     for repository, repo_reports in by_repo.items():
         try:
@@ -337,7 +482,11 @@ async def classify_team(
                 return classified
             try:
                 classified += await classify_report(
-                    team_id=team.id, report=report, final_head=merged_head_by_number[report.pr_number], capture=capture
+                    team_id=team.id,
+                    report=report,
+                    final_head=merged_head_by_number[report.pr_number],
+                    capture=capture,
+                    flush=flush,
                 )
                 reports_done += 1
             except _SkipReport as e:

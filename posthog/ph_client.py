@@ -92,6 +92,27 @@ def get_regional_ph_client(**kwargs: Any):
     return get_client(region, **kwargs)
 
 
+class ScopedCapture:
+    """The callable `ph_scoped_capture` yields: enqueues events, and exposes `flush()`.
+
+    `__call__` only enqueues into the client's buffer; delivery happens on the background
+    consumer and at context exit. Callers that checkpoint durable "events delivered" state
+    (e.g. an idempotency stamp) must call `flush()` first — it blocks until the buffer is
+    sent, so a crash after the checkpoint can't lose events that were never transmitted.
+    """
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
+        if is_cloud() and self._client:
+            self._client.capture(*args, **kwargs)
+
+    def flush(self) -> None:
+        if self._client:
+            self._client.flush()
+
+
 @contextmanager
 def ph_scoped_capture():
     """Use this instead of posthoganalytics.capture() in Celery tasks — the global
@@ -105,14 +126,10 @@ def ph_scoped_capture():
     """
     ph_client = get_client()
 
-    def capture_ph_event(*args: Any, **kwargs: Any) -> None:
-        if is_cloud() and ph_client:
-            ph_client.capture(*args, **kwargs)
-
     # Flush even when the caller's block raises — events already captured
     # before the exception shouldn't be dropped with the buffer.
     try:
-        yield capture_ph_event
+        yield ScopedCapture(ph_client)
     finally:
         ph_client.shutdown()
 

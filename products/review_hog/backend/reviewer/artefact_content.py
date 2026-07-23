@@ -100,9 +100,10 @@ class ValidationVerdict(BaseModel):
 class FindingOutcomeArtefact(BaseModel):
     """Content for a `finding_outcome` artefact: the classified fate of one published finding.
 
-    Written by the outcome-telemetry batch after the PR merged, one row per published finding. Its
-    presence marks the finding as already classified — the batch skips a report once all its
-    published findings carry one, which is the idempotency guard against overlapping sweeps.
+    Written by the outcome-telemetry batch after the PR merged, one row per published finding,
+    *before* the finding's event is emitted. Presence means the outcome is decided and is never
+    re-decided: an interrupted sweep re-emits from these rows, and the report only leaves the sweep
+    once `ReviewReport.outcomes_emitted_at` (the emission completion marker) is stamped.
     """
 
     issue_key: str = Field(description="The `ReviewIssueFinding.issue_key` this outcome rules on.")
