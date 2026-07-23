@@ -298,6 +298,7 @@ Optional, task-specific guidance is served through the same tool:
 - `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
 - `learn analytics` loads detailed analytics guidance and examples.
 - `learn visualizations` loads rendering guidance when visualizations are available.
+- `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
 - `learn feedback` loads feedback guidance when feedback is available.
 - `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
 - `learn -s <query>` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Results from both sources are merged into one relevance order.

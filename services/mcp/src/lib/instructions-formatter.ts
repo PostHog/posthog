@@ -137,6 +137,13 @@ export class InstructionsFormatter {
         }
 
         entries.push({
+            id: 'urls',
+            title: 'URL patterns',
+            description: 'Load before writing any PostHog app link or URL.',
+            content: this.compose([URL_PATTERNS], ctx, { compact: false }),
+        })
+
+        entries.push({
             id: 'feedback',
             title: 'Feedback',
             description: 'Send feedback about PostHog.',
@@ -189,7 +196,9 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ENV_CONTEXT,
-                URL_PATTERNS,
+                // URL patterns live behind `learn urls` to protect the schema budget;
+                // with learn unavailable there is no topic to load, so stay inline.
+                ...(learnSection ? [] : [URL_PATTERNS]),
             ],
             renderCtx,
             {

@@ -246,6 +246,7 @@ describe('InstructionsFormatter', () => {
             )
             expect(result).toContain('- analytics:')
             expect(result).toContain('- visualizations:')
+            expect(result).toContain('- urls:')
             expect(result).toContain('- feedback:')
             expect(result).toContain('(posthog|project):<skill> [path...]')
             expect(result).toContain('SCHEMA DRILL-DOWN RULE')
@@ -262,6 +263,7 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### Retrieving data')
             expect(result).not.toContain('### Examples')
             expect(result).not.toContain('### Rendering visualizations')
+            expect(result).not.toContain('### URL patterns')
             expect(result).not.toContain('### Sharing feedback on PostHog')
             expect(result).not.toContain('- `query-trends` — time series')
             expect(result).not.toMatch(
@@ -274,13 +276,14 @@ describe('InstructionsFormatter', () => {
             const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'feedback'])
+            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'urls', 'feedback'])
             expect(analytics?.content).toContain('### Retrieving data')
             expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
             expect(entries.find((entry) => entry.id === 'visualizations')?.content).toContain(
                 '### Rendering visualizations'
             )
+            expect(entries.find((entry) => entry.id === 'urls')?.content).toContain('### URL patterns')
             expect(entries.find((entry) => entry.id === 'feedback')?.content).toContain(
                 '### Sharing feedback on PostHog'
             )
@@ -295,6 +298,7 @@ describe('InstructionsFormatter', () => {
 
             expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
+                'urls',
                 'feedback',
             ])
             const result = formatter.buildClaudeExecCommandReference(ctx)
@@ -311,6 +315,17 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('learn <topic...> - load one or more learning topics')
             expect(result).not.toContain('learn skills')
             expect(result).not.toContain('learn posthog:<skill>')
+        })
+
+        it('keeps URL patterns inline when learn is unavailable', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, {
+                learnEnabled: false,
+                skillsEnabled: false,
+            })
+
+            expect(result).toContain('### URL patterns')
+            expect(result).not.toContain('- urls:')
         })
     })
 
