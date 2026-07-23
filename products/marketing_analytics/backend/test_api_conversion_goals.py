@@ -96,9 +96,11 @@ class TestConversionGoalWrites(APIBaseTest):
                 "data_warehouse_node_without_table",
                 {"kind": "DataWarehouseNode", "id": "x", "conversion_goal_name": "x", "schema_map": SCHEMA_MAP},
             ),
+            ("goal_is_a_string", "sign_up"),
+            ("goal_is_a_list", [{"kind": "EventsNode", "conversion_goal_name": "x", "schema_map": SCHEMA_MAP}]),
         ]
     )
-    def test_malformed_goal_is_rejected(self, _name: str, goal: dict):
+    def test_malformed_goal_is_rejected(self, _name: str, goal: object):
         response = self.client.post(f"{self.base_url}/create", {"goal": goal}, format="json")
 
         assert response.status_code == 400, response.json()
