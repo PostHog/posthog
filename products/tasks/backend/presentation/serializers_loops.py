@@ -223,13 +223,15 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
                 )
             }
         )
-    if shorthand_actions and has_bare_event:
+    # The folded `actions` filter applies to every event in the trigger, so shorthand spanning
+    # several events (or mixed with bare events) would make unrequested event/action pairs fire.
+    if shorthand_actions and (has_bare_event or len(events) > 1):
         raise serializers.ValidationError(
             {
                 "events": (
-                    "Cannot mix `event.action` shorthand with bare events in one trigger because "
-                    "action filters apply to every event. Use bare events with `filters.actions`, "
-                    "or separate triggers."
+                    "`event.action` shorthand supports a single event per trigger because the "
+                    "folded `actions` filter applies to every event. Use one trigger per event, "
+                    "or bare events with `filters.actions`."
                 )
             }
         )
@@ -292,7 +294,8 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
             "`{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes "
             "`{github_integration_id, repository, events, filters}` where `events` is one or more of "
             f"{', '.join(f'`{event}`' for event in loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)} "
-            "(`event.action` shorthand like `issues.opened` is folded into an `actions` filter) and "
+            "(`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one "
+            "event per trigger) and "
             "`filters` takes `{actions, branches, labels}`; api takes no config."
         ),
     )

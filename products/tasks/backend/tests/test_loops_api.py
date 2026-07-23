@@ -687,6 +687,9 @@ class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
             # silently apply to the bare event too.
             ("shorthand_mixed_with_bare_event", ["issues.opened", "push"]),
             ("shorthand_mixed_with_its_own_bare_event", ["issues.opened", "issues"]),
+            # Cross-event shorthand would flatten into a cartesian product: pull_request.opened
+            # would fire here even though only pull_request.synchronize was requested.
+            ("shorthand_spanning_multiple_events", ["issues.opened", "pull_request.synchronize"]),
         ]
     )
     def test_invalid_events_are_rejected(self, _name, events):
