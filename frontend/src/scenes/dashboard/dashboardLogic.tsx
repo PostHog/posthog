@@ -50,6 +50,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import {
     calculateDuplicateLayout,
@@ -557,6 +558,9 @@ export interface dashboardLogicActions {
             toDashboard: number
             toDashboardName: string
         }
+    }
+    openAddInsightModal: () => {
+        value: true
     }
     overrideVariableValue: (
         variableId: string,
@@ -1105,7 +1109,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -1292,6 +1296,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         setButtonTileId: (buttonTileId: number | 'new' | null) => ({ buttonTileId }),
+        openAddInsightModal: true,
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
 
         /**
@@ -3738,6 +3743,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        openAddInsightModal: () => {
+            if (values.dashboardMode === DashboardMode.Edit && values.hasUnsavedLayoutChanges) {
+                if (
+                    !window.confirm(
+                        'Discard unsaved layout changes?\nAdding an insight reloads the dashboard and discards them.'
+                    )
+                ) {
+                    return
+                }
+                actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }
+            addInsightToDashboardLogic.actions.showAddInsightToDashboardModal()
+        },
         cancelEditMode: () => {
             const discard = (): void =>
                 actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
@@ -4102,12 +4120,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 onSubmit: async () => {
                     const tileFilterOverrides = logic.values.overrides
+                    const wasIgnored = !!tile.filters_overrides?.ignoreDashboardFilters
+                    const isIgnored = !!tileFilterOverrides.ignoreDashboardFilters
 
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
                     })
 
                     tile.filters_overrides = tileFilterOverrides
+                    if (wasIgnored !== isIgnored) {
+                        eventUsageLogic.actions.reportDashboardTileIgnoreDashboardFiltersToggled(
+                            props.id,
+                            tile.insight?.id ?? null,
+                            isIgnored
+                        )
+                    }
                     actions.refreshDashboardItem({ tile })
                     lemonToast.success('Tile filters saved')
                 },

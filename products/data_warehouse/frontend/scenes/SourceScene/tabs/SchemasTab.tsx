@@ -644,8 +644,16 @@ function SchemaBulkActions({
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
 }): JSX.Element {
-    const { bulkEnable, bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } =
-        useActions(sourceSettingsLogic)
+    const {
+        bulkEnable,
+        bulkDisable,
+        bulkSetFrequency,
+        bulkSyncNow,
+        bulkResync,
+        bulkDeleteData,
+        pausePolling,
+        resumePolling,
+    } = useActions(sourceSettingsLogic)
     const { bulkEnableLoading } = useValues(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
@@ -726,6 +734,11 @@ function SchemaBulkActions({
             </LemonButton>
             <More
                 size="small"
+                // Pause the 5s source refresh while the menu is open — a poll re-renders the table
+                // and dismisses the menu out from under the user.
+                dropdown={{
+                    onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                }}
                 overlay={
                     <>
                         <LemonButton
@@ -792,11 +805,18 @@ function SchemaRowMore({
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
+    const { pausePolling, resumePolling } = useActions(sourceSettingsLogic)
+
     return (
         <SourceEditorAction source={source}>
             {({ disabledReason }) => (
                 <More
                     disabledReason={disabledReason}
+                    // Pause the 5s source refresh while the menu is open — a poll re-renders the
+                    // table and dismisses the menu out from under the user.
+                    dropdown={{
+                        onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                    }}
                     overlay={
                         <>
                             <Tooltip

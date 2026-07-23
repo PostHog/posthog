@@ -92,7 +92,7 @@ class TestRenderFinalBody:
                 0,
                 IssuePriority.SHOULD_FIX,
                 None,
-                ["Nothing worth raising this time, so here's a calming gif instead:", "![", "pr-assets"],
+                ["Nothing worth raising this time, so here's a calming picture instead:", "![", "pr-assets"],
                 ["Published", "stayed below"],
             ),
             # Posted on a prior crashed attempt (marker skip): published, but no link to render.
@@ -123,6 +123,20 @@ class TestRenderFinalBody:
         for fragment in absent:
             assert fragment not in body, f"unexpected {fragment!r} in:\n{body}"
         assert status_marker("rid") in body
+
+    @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
+    def test_uses_the_randomly_selected_clean_review_media(self, mock_choice: MagicMock) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=0,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+        )
+
+        assert "![A happy dog](https://example.test/dog.png)" in body
+        mock_choice.assert_called_once()
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:

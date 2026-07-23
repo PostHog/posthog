@@ -28,8 +28,10 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::pg::PgFallback;
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
-use personhog_leader::service::PersonHogLeaderService;
+use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use tokio::net::TcpListener;
@@ -350,7 +352,7 @@ pub async fn start_leader_pod(
     // gRPC leader service sharing the same cache
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -358,6 +360,8 @@ pub async fn start_leader_pod(
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         recovery,
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -419,7 +423,7 @@ pub async fn start_leader_pod_with_lease_ttl(
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -427,6 +431,8 @@ pub async fn start_leader_pod_with_lease_ttl(
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         recovery,
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -501,14 +507,19 @@ pub async fn start_leader_with_pg_fallback(
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
-        Some(pool),
+        Some(PgFallback {
+            pool,
+            table: "posthog_person".to_string(),
+        }),
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(&mock_cluster.bootstrap_servers()),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

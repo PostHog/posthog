@@ -68,11 +68,16 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: LightfieldSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LightfieldSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         valid, scopes, error = check_token(config.api_key, self.default_version)
         if not valid:
@@ -91,7 +96,7 @@ class LightfieldSource(SimpleSource[LightfieldSourceConfig]):
         return True, None
 
     def get_endpoint_permissions(
-        self, config: LightfieldSourceConfig, team_id: int, endpoints: list[str]
+        self, config: LightfieldSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         try:
             valid, scopes, _ = check_token(config.api_key, self.default_version)

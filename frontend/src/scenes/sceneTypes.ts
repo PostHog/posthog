@@ -164,6 +164,8 @@ export enum Scene {
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
+    Skill = 'Skill',
+    Skills = 'Skills',
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
@@ -203,6 +205,8 @@ export enum Scene {
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
     AIObservability = 'AIObservability',
+    AIObservabilityCluster = 'AIObservabilityCluster',
+    AIObservabilityClusters = 'AIObservabilityClusters',
     AIObservabilityDataset = 'AIObservabilityDataset',
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
@@ -410,6 +414,8 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // AI observability
     [Scene.AIObservability]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityCluster]: AccessControlResourceType.AiObservabilityClusters,
+    [Scene.AIObservabilityClusters]: AccessControlResourceType.AiObservabilityClusters,
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
@@ -417,6 +423,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
+
+    // Skills
+    [Scene.Skill]: AccessControlResourceType.LlmSkill,
+    [Scene.Skills]: AccessControlResourceType.LlmSkill,
 
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.

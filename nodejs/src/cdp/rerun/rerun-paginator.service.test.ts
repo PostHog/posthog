@@ -220,7 +220,6 @@ describe('RerunPaginatorService integration', () => {
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         team = await getFirstTeam(hub.postgres)
 
-
         hogFunction = await _insertHogFunction(hub.postgres, team.id, {
             type: 'destination',
             hog: 'print("hi")',

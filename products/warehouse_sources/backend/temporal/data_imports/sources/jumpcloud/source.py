@@ -125,6 +125,7 @@ The `events` table requires a Directory Insights subscription. If you're an MSP/
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only Directory Insights events expose a server-side time filter (start_time), so
         # only that stream is incremental. Merge-only: the start_time boundary may re-return
@@ -151,7 +152,11 @@ The `events` table requires a Directory Insights subscription. If you're an MSP/
         return schemas
 
     def validate_credentials(
-        self, config: JumpcloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JumpcloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_jumpcloud_credentials(config.api_key, config.org_id, config.region, schema_name)
 

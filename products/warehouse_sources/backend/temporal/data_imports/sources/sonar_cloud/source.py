@@ -128,6 +128,7 @@ Generate a **user token** under **My Account → Security** in SonarQube Cloud, 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -146,7 +147,11 @@ Generate a **user token** under **My Account → Security** in SonarQube Cloud, 
         return schemas
 
     def validate_credentials(
-        self, config: SonarCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SonarCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = validate_sonar_cloud_credentials(config.token, config.organization, config.region)
         if status == 200:
