@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, timedelta
 from typing import cast
 
@@ -123,7 +124,7 @@ from products.signals.backend.task_attribution import (
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
-from products.signals.backend.tasks import sync_signals_refund_credit
+from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -1452,6 +1453,40 @@ class SignalReportViewSet(
 
             return Response(reviewers)
 
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["task:write"])
+    def reviewers(self, request, **kwargs):
+        """Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
+        has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
+        PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
+        can still be assigned one. App-only: agents append reviewers via the artefacts POST instead."""
+        report = cast(SignalReport, self.get_object())
+
+        write_serializer = SignalReportArtefactWriteSerializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+        entries = write_serializer.validated_data["content"]
+
+        try:
+            new_artefact, seen = append_suggested_reviewers(
+                team=self.team,
+                report_id=str(report.id),
+                entries=entries,
+                request=request,
+            )
+        except ReviewerWriteError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Return the read-shape (enriched) so the client sees the canonical result, matching the artefact PUT.
+        login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
+        read_serializer = SignalReportArtefactSerializer(
+            new_artefact,
+            context={
+                **self.get_serializer_context(),
+                "signals_github_login_to_user_map": login_map,
+            },
+        )
+        return Response(read_serializer.data)
+
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
         report = cast(SignalReport, self.get_object())
@@ -2032,6 +2067,215 @@ _REPORT_ID_PARAMETER = OpenApiParameter(
 )
 
 
+class ReviewerWriteError(Exception):
+    """A reviewer write payload that couldn't be resolved. Callers surface it as a 400 `{"error": ...}`."""
+
+
+def _schedule_reviewer_added_slack_notifications(
+    *, team_id: int, report_id: str, added_logins: Sequence[str], actor_user_id: int | None
+) -> None:
+    """After commit, Slack-notify reviewers a human just added to this report.
+
+    Enqueued on commit so nothing is sent if the write rolls back, and so delivery's
+    network calls (metadata lookups, Slack) run on a worker instead of holding up the
+    request. Best-effort — a Slack failure must never break the reviewer edit.
+    """
+    # robust=True: a broker outage while enqueuing must not 500 an edit that already committed.
+    transaction.on_commit(
+        lambda: send_reviewer_added_slack_notifications.delay(
+            report_id=report_id,
+            team_id=team_id,
+            added_github_logins=list(added_logins),
+            exclude_user_id=actor_user_id,
+        ),
+        robust=True,
+    )
+
+
+def append_suggested_reviewers(
+    *,
+    team: Team,
+    report_id: str,
+    entries: list[dict],
+    request: Request,
+) -> tuple[SignalReportArtefact, set[str]]:
+    """Append a new `suggested_reviewers` status row for a report, merging forward from the current
+    (latest) reviewers. Works whether or not the report already has a reviewers artefact — the first
+    write for a report with none simply creates the first row. Shared by the app-only reviewers PUT
+    on both the report and artefact viewsets. Returns the new artefact and the set of canonical logins
+    written (for read-time enrichment). Raises `ReviewerWriteError` on unresolvable entries."""
+    # App/user-only write (agents append reviewers via the artefacts POST), so always attribute to
+    # the requesting user — never the X-PostHog-Task-Id header. A task-attributed reviewers row has
+    # no created_by_id, which makes auto-start treat the list as agent-authored and run the
+    # implementation task as a named colleague instead of the editor — the reviewer-impersonation
+    # path the `triggering_user_id` guard in `auto_start` exists to close.
+    user_id = request.user.id
+    if user_id is None:  # unreachable behind authentication, but keeps attribution honest
+        raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
+    attribution = ArtefactAttribution.from_user(user_id)
+
+    # Resolve any user_uuid → canonical github_login via team org membership.
+    uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]
+    uuid_to_login: dict[str, str] = (
+        get_org_member_github_logins_by_user_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+    )
+
+    # Resolve canonical login per entry. Fail loudly if a user_uuid does not
+    # map to an org member with a GitHub identity on this team.
+    # The bool tuple elements distinguish "github_name / reason explicitly supplied
+    # (incl. empty string to clear)" from "field absent" — the merge step below
+    # only falls back to the prior value when the field is absent.
+    resolved_entries: list[tuple[str, str | None, bool, str | None, bool]] = []
+    for idx, entry in enumerate(entries):
+        user_uuid = entry.get("user_uuid")
+        if user_uuid is not None:
+            resolved_login = uuid_to_login.get(str(user_uuid))
+            if not resolved_login:
+                raise ReviewerWriteError(
+                    f"content[{idx}]: user_uuid '{user_uuid}' is not an org member of this team "
+                    "with a linked GitHub identity."
+                )
+            login_lc = resolved_login.lower()
+        else:
+            raw_login = entry.get("github_login") or ""
+            login_lc = raw_login.strip().lower()
+            if not login_lc:
+                raise ReviewerWriteError(f"content[{idx}]: github_login resolved to empty after normalization.")
+
+        explicit_name = "github_name" in entry
+        github_name = entry.get("github_name") if explicit_name else None
+        explicit_reason = "reason" in entry
+        reason = entry.get("reason") if explicit_reason else None
+        resolved_entries.append((login_lc, github_name, explicit_name, reason, explicit_reason))
+
+    # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
+    # write reads the current (latest) reviewers and appends a new row, so without the lock two
+    # simultaneous edits would both read the same row and one would be silently lost.
+    seen: set[str] = set()
+    with transaction.atomic():
+        report = (
+            SignalReport.objects.select_for_update()
+            .filter(id=report_id, team_id=team.id)
+            .exclude(status=SignalReport.Status.DELETED)
+            .first()
+        )
+        if report is None:
+            # The report was concurrently soft-deleted between the caller's fetch and this lock;
+            # don't append a stale reviewers row to a dead report.
+            raise NotFound()
+
+        # Merge commits/names forward from the *current* reviewers (the latest status row).
+        # `suggested_reviewers` is append-only and latest-wins.
+        current = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        try:
+            prior_content = json.loads(current.content) if current else []
+        except (json.JSONDecodeError, ValueError):
+            prior_content = []
+        prior_commits_by_login: dict[str, list] = {}
+        prior_name_by_login: dict[str, str | None] = {}
+        prior_reason_by_login: dict[str, str | None] = {}
+        prior_logins: list[str] = []
+        if isinstance(prior_content, list):
+            for prior in prior_content:
+                if not isinstance(prior, dict):
+                    continue
+                login = (prior.get("github_login") or "").strip().lower()
+                if not login:
+                    continue
+                prior_logins.append(login)
+                commits = prior.get("relevant_commits")
+                if isinstance(commits, list):
+                    prior_commits_by_login[login] = commits
+                prior_name = prior.get("github_name")
+                if isinstance(prior_name, str):
+                    prior_name_by_login[login] = prior_name
+                prior_reason = prior.get("reason")
+                if isinstance(prior_reason, str):
+                    prior_reason_by_login[login] = prior_reason
+
+        # Dedupe by canonical login, preserve first-seen order.
+        new_content: list[dict] = []
+        for login_lc, github_name, explicit_name, reason, explicit_reason in resolved_entries:
+            if login_lc in seen:
+                continue
+            seen.add(login_lc)
+            # If the client supplied github_name (incl. ""), honour it. Otherwise
+            # carry over the prior one so kept reviewers don't lose their name.
+            # Same rule for reason.
+            effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
+            effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
+            new_content.append(
+                {
+                    "github_login": login_lc,
+                    "github_name": effective_name,
+                    "relevant_commits": prior_commits_by_login.get(login_lc, []),
+                    "reason": effective_reason or None,
+                }
+            )
+
+        # Append a new status row rather than mutating in place: a human reviewer edit becomes a
+        # point-in-time entry in the work log, and latest-wins keeps it current. Appending a
+        # reviewers status also re-evaluates auto-start (handled in `append_status`, on commit).
+        new_artefact = SignalReportArtefact.append_status(
+            team_id=team.id,
+            report_id=str(report_id),
+            content=SuggestedReviewers.model_validate(new_content),
+            attribution=attribution,
+        )
+
+        # Human reviewer corrections are a routing signal (scouts query them via the
+        # activity log to learn who owns an area), so log them — but only genuine
+        # membership changes by a human, not agent writes or order-only rewrites.
+        # `new_content` is deduped above; dedupe `prior_logins` too (a legacy or
+        # hand-crafted prior row may carry duplicates) so before/after read symmetrically.
+        prior_logins = list(dict.fromkeys(prior_logins))
+        new_logins = [entry["github_login"] for entry in new_content]
+        if attribution.kind == "user" and set(prior_logins) != set(new_logins):
+            log_activity(
+                organization_id=None,
+                team_id=team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=report_id,
+                scope="SignalReport",
+                activity="suggested_reviewers_changed",
+                detail=Detail(
+                    name=report.title,
+                    changes=[
+                        Change(
+                            type="SignalReport",
+                            action="changed",
+                            field="suggested_reviewers",
+                            before=prior_logins,
+                            after=new_logins,
+                        )
+                    ],
+                ),
+            )
+
+            # A human added reviewers: ping the newly-added ones on their own Slack channel so
+            # someone added after generation still hears about an actionable report, mirroring
+            # the notification sent when it first went ready. Removals aren't notified.
+            prior_login_set = set(prior_logins)
+            added_logins = [login for login in new_logins if login not in prior_login_set]
+            if added_logins:
+                _schedule_reviewer_added_slack_notifications(
+                    team_id=team.id,
+                    report_id=str(report_id),
+                    added_logins=added_logins,
+                    actor_user_id=attribution.user_id,
+                )
+
+    return new_artefact, seen
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List a report's artefacts",
@@ -2164,155 +2408,15 @@ class SignalReportArtefactViewSet(
         write_serializer.is_valid(raise_exception=True)
         entries = write_serializer.validated_data["content"]
 
-        # Resolved before the locked transaction below — header validation must not hold the lock.
-        attribution = resolve_request_attribution(request, self.team.id)
-
-        # Resolve any user_uuid → canonical github_login via team org membership.
-        uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]
-        uuid_to_login: dict[str, str] = (
-            get_org_member_github_logins_by_user_uuid(self.team.id, uuids_to_resolve) if uuids_to_resolve else {}
-        )
-
-        # Resolve canonical login per entry. Fail loudly if a user_uuid does not
-        # map to an org member with a GitHub identity on this team.
-        # The bool tuple elements distinguish "github_name / reason explicitly supplied
-        # (incl. empty string to clear)" from "field absent" — the merge step below
-        # only falls back to the prior value when the field is absent.
-        resolved_entries: list[tuple[str, str | None, bool, str | None, bool]] = []
-        for idx, entry in enumerate(entries):
-            user_uuid = entry.get("user_uuid")
-            if user_uuid is not None:
-                resolved_login = uuid_to_login.get(str(user_uuid))
-                if not resolved_login:
-                    return Response(
-                        {
-                            "error": (
-                                f"content[{idx}]: user_uuid '{user_uuid}' is not an org member of this team "
-                                "with a linked GitHub identity."
-                            )
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                login_lc = resolved_login.lower()
-            else:
-                raw_login = entry.get("github_login") or ""
-                login_lc = raw_login.strip().lower()
-                if not login_lc:
-                    return Response(
-                        {"error": f"content[{idx}]: github_login resolved to empty after normalization."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-            explicit_name = "github_name" in entry
-            github_name = entry.get("github_name") if explicit_name else None
-            explicit_reason = "reason" in entry
-            reason = entry.get("reason") if explicit_reason else None
-            resolved_entries.append((login_lc, github_name, explicit_name, reason, explicit_reason))
-
-        # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
-        # PUT reads the current (latest) reviewers and appends a new row, so without the lock two
-        # simultaneous edits would both read the same row and one would be silently lost.
-        seen: set[str] = set()
-        with transaction.atomic():
-            report = (
-                SignalReport.objects.select_for_update().filter(id=artefact.report_id, team_id=self.team_id).first()
-            )
-
-            # Merge commits/names forward from the *current* reviewers (the latest status row), not
-            # necessarily the addressed one — `suggested_reviewers` is append-only and latest-wins.
-            current = (
-                SignalReportArtefact.objects.filter(
-                    report_id=artefact.report_id,
-                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                )
-                .order_by("-created_at")
-                .first()
-            )
-            try:
-                prior_content = json.loads((current or artefact).content)
-            except (json.JSONDecodeError, ValueError):
-                prior_content = []
-            prior_commits_by_login: dict[str, list] = {}
-            prior_name_by_login: dict[str, str | None] = {}
-            prior_reason_by_login: dict[str, str | None] = {}
-            prior_logins: list[str] = []
-            if isinstance(prior_content, list):
-                for prior in prior_content:
-                    if not isinstance(prior, dict):
-                        continue
-                    login = (prior.get("github_login") or "").strip().lower()
-                    if not login:
-                        continue
-                    prior_logins.append(login)
-                    commits = prior.get("relevant_commits")
-                    if isinstance(commits, list):
-                        prior_commits_by_login[login] = commits
-                    prior_name = prior.get("github_name")
-                    if isinstance(prior_name, str):
-                        prior_name_by_login[login] = prior_name
-                    prior_reason = prior.get("reason")
-                    if isinstance(prior_reason, str):
-                        prior_reason_by_login[login] = prior_reason
-
-            # Dedupe by canonical login, preserve first-seen order.
-            new_content: list[dict] = []
-            for login_lc, github_name, explicit_name, reason, explicit_reason in resolved_entries:
-                if login_lc in seen:
-                    continue
-                seen.add(login_lc)
-                # If the client supplied github_name (incl. ""), honour it. Otherwise
-                # carry over the prior one so kept reviewers don't lose their name.
-                # Same rule for reason.
-                effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
-                effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
-                new_content.append(
-                    {
-                        "github_login": login_lc,
-                        "github_name": effective_name,
-                        "relevant_commits": prior_commits_by_login.get(login_lc, []),
-                        "reason": effective_reason or None,
-                    }
-                )
-
-            # Append a new status row rather than mutating in place: a human reviewer edit becomes a
-            # point-in-time entry in the work log, and latest-wins keeps it current. Appending a
-            # reviewers status also re-evaluates auto-start (handled in `append_status`, on commit).
-            new_artefact = SignalReportArtefact.append_status(
-                team_id=self.team.id,
+        try:
+            new_artefact, seen = append_suggested_reviewers(
+                team=self.team,
                 report_id=str(artefact.report_id),
-                content=SuggestedReviewers.model_validate(new_content),
-                attribution=attribution,
+                entries=entries,
+                request=request,
             )
-
-            # Human reviewer corrections are a routing signal (scouts query them via the
-            # activity log to learn who owns an area), so log them — but only genuine
-            # membership changes by a human, not agent writes or order-only rewrites.
-            # `new_content` is deduped above; dedupe `prior_logins` too (a legacy or
-            # hand-crafted prior row may carry duplicates) so before/after read symmetrically.
-            prior_logins = list(dict.fromkeys(prior_logins))
-            new_logins = [entry["github_login"] for entry in new_content]
-            if attribution.kind == "user" and set(prior_logins) != set(new_logins):
-                log_activity(
-                    organization_id=None,
-                    team_id=self.team.id,
-                    user=cast(User, request.user),
-                    was_impersonated=is_impersonated_session(request),
-                    item_id=artefact.report_id,
-                    scope="SignalReport",
-                    activity="suggested_reviewers_changed",
-                    detail=Detail(
-                        name=report.title if report else None,
-                        changes=[
-                            Change(
-                                type="SignalReport",
-                                action="changed",
-                                field="suggested_reviewers",
-                                before=prior_logins,
-                                after=new_logins,
-                            )
-                        ],
-                    ),
-                )
+        except ReviewerWriteError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Return the read-shape (enriched) so the client sees the canonical result.
         login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}

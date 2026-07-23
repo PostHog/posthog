@@ -46,18 +46,36 @@ class TestAnnouncementAPI(APIBaseTest):
         announcement = Announcement.all_teams.get(id=data["id"])
         assert AnnouncementDelivery.all_teams.filter(announcement=announcement).count() == 2
 
+    @patch("products.customer_analytics.backend.facade.api.send_announcement")
     @patch(HELPER)
-    def test_create_isolates_non_member_channel(self, mock_channels):
+    def test_create_enqueues_send_task_after_commit(self, mock_channels, mock_task):
         mock_channels.return_value = self._member_channels()
 
-        response = self.client.post(self.base_url, {"message": "hi", "channels": ["C1", "D_secret_dm"]}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.base_url, {"message": "hi", "channels": ["C1"]}, format="json")
 
         assert response.status_code == status.HTTP_201_CREATED
+        mock_task.delay.assert_called_once_with(response.json()["id"], self.team.pk)
+
+    @patch("products.customer_analytics.backend.logic.announcements.post_support_message")
+    @patch(HELPER)
+    def test_create_isolates_non_member_channel_and_never_posts_to_it(self, mock_channels, mock_post):
+        mock_channels.return_value = self._member_channels()
+        mock_post.return_value = "1.0"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self.base_url, {"message": "hi", "channels": ["C1", "D_secret_dm"]}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert [call.args[1] for call in mock_post.call_args_list] == ["C1"]
         announcement = Announcement.all_teams.get(id=response.json()["id"])
+        assert announcement.status == Announcement.Status.PARTIALLY_FAILED
         by_channel = {d.slack_channel_id: d for d in AnnouncementDelivery.all_teams.filter(announcement=announcement)}
         assert by_channel["D_secret_dm"].status == AnnouncementDelivery.Status.FAILED
         assert by_channel["D_secret_dm"].error == "not_in_channel"
-        assert by_channel["C1"].status == AnnouncementDelivery.Status.PENDING
+        assert by_channel["C1"].status == AnnouncementDelivery.Status.SENT
 
     @patch(HELPER)
     def test_create_rejects_when_slack_not_connected(self, mock_channels):

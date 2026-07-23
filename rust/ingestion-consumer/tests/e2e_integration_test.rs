@@ -488,6 +488,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
+                eager_deferred_flush: false,
             },
             handle,
         );
@@ -564,6 +565,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
                 debug_recorder: None,
+                eager_deferred_flush: false,
             },
             handle,
         );
@@ -1293,6 +1295,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
         &b1[0].worker,
         b1[0].messages.len(),
         &b1[0].routing_keys,
+        false,
         false,
     );
     let f2 = dispatcher.flush_deferred("batch-2");
@@ -2037,6 +2040,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            eager_deferred_flush: false,
         },
         handle2,
     );
@@ -2113,6 +2117,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
+            eager_deferred_flush: false,
         },
         handle,
     );
