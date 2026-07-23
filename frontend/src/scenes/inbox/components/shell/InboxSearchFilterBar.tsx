@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCheck, IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
@@ -104,6 +104,14 @@ function ScoutSubFilter({
     onToggle: (scout: string) => void
 }): JSX.Element {
     const [expanded, setExpanded] = useState(scoutFilter.length > 0)
+    // Auto-expand whenever a scout selection appears — including URL navigation or persisted-state
+    // hydration into an already-mounted popover — so active filters stay visible. Still collapsible
+    // by hand once no scout is selected.
+    useEffect(() => {
+        if (scoutFilter.length > 0) {
+            setExpanded(true)
+        }
+    }, [scoutFilter.length])
     return (
         <div className="pl-5">
             <button
