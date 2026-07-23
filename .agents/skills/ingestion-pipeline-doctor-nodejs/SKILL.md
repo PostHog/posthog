@@ -52,8 +52,6 @@ See `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` for 
 | Composition     | `pipeline-composition-doctor` | Builder chain, concurrency, grouping, branching, retries  |
 | Testing         | `pipeline-testing-doctor`     | Test helpers, assertions, fake timers, doc-test style     |
 
-For fan-out/fan-in usage (`fanOut().via().fanIn()` — per-element sub-work like per-blob uploads), use the dedicated `reviewing-fanout-fanin-pipelines` skill instead.
-
 ## Quick convention reference
 
 **Steps**: Factory function returning a named inner function. Generic `<T extends Input>` for type extension. No `any`. Config via closure.
@@ -63,6 +61,8 @@ For fan-out/fan-in usage (`fanOut().via().fanIn()` — per-element sub-work like
 **Composition**: `messageAware` wraps the pipeline. `handleResults` inside `messageAware`. `handleSideEffects` after. `concurrentlyPerGroup` for per-entity work. `gather` before chunk steps.
 
 **Batching lifecycle hooks** (`BatchingPipeline` beforeBatch/afterBatch): enrich-only. Hooks may enrich elements and batch context but must return exactly the elements they received — a count change is a broken invariant and `feed()` throws. Filtering belongs in sub-pipeline steps that return `drop()`. An empty `feed()` is a no-op (no hooks, no capacity). Details: `nodejs/src/ingestion/framework/docs/14-batching.test.ts`.
+
+**Fan-out/fan-in** (`fanOut(fn).via((sub) => …).fanIn(fn)`): per-element sub-work with cardinality restored — one element fans out to N sub-elements (e.g. per-blob uploads), a regular sub-pipeline processes them (`maxConcurrency` on the sub `concurrently` block, `retry` on the per-sub step), and fan-in folds the OK results back into the parent. Reach for it over `concurrently`/`concurrentlyPerGroup` when the unit of concurrency is smaller than the element; hand-rolled `p-limit`/`Promise.all` inside a step is the tell. Sequencing is compile-time enforced (an unclosed stage cannot build). Sub-result contract: OK collected; DROP excludes the sub silently; DLQ fails the parent with aggregated reasons; REDIRECT is excluded with a warning — sub redirects never escape the stage. Sub-pipelines are context-agnostic: team/message data goes in the sub-element value, and context-gated surface (`teamAware`, `handleIngestionWarnings`, …) is uncallable. Fan-out/fan-in functions are cheap, synchronous, and named. Parents emit unordered as they complete. Details: `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts`.
 
 **Testing**: Step tests call factory directly. Use `consumeAll()`/`collectChunks()` helpers. Fake timers for async. Type guards for result assertions. No `any`.
 
