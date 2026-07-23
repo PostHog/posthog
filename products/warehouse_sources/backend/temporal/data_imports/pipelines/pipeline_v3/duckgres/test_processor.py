@@ -10,6 +10,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _mark_duckgres_batch_applied,
     _process_backfill_batch,
     _process_batch,
+    _session_cache,
+    process_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
@@ -555,3 +557,176 @@ class TestBackfillProcessing:
             _process_backfill_batch(conn, batch, _make_schema())
 
         insert.assert_not_called()
+
+
+class TestLiveSessionReuse:
+    """Reusing the duckgres session across a group's live batches removes the
+    dominant per-batch fixed costs measured in prod on 2026-07-22: worker
+    session create, the describe probe's cold catalog enumeration, and the
+    first-write metadata touch (~20-40s combined per batch)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_cache_and_orm(self):
+        _session_cache.clear()
+        patches = [
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.close_old_connections"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.ExternalDataJob"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.Team"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._process_batch"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.setup_duckgres_session"
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._create_extract_read_secret"
+            ),
+        ]
+        self.mocks = [p.start() for p in patches]
+        (_, self.mock_job, self.mock_team, self.mock_inner, self.mock_setup, self.mock_secret) = self.mocks
+        self.mock_team.objects.only.return_value.get.return_value.organization_id = "org-a"
+        yield
+        for p in patches:
+            p.stop()
+        _session_cache.clear()
+
+    def _connect_patch(self):
+        return patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._connect_to_duckgres"
+        )
+
+    def test_consecutive_live_batches_reuse_one_connection_and_preamble(self):
+        with self._connect_patch() as mock_connect:
+            mock_connect.return_value = MagicMock()
+            process_batch(_make_batch(batch_index=1))
+            process_batch(_make_batch(batch_index=2))
+
+        assert mock_connect.call_count == 1
+        assert self.mock_setup.call_count == 1
+        assert self.mock_secret.call_count == 1
+        assert self.mock_inner.call_count == 2
+
+    def test_groups_get_separate_connections(self):
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = [MagicMock(), MagicMock()]
+            process_batch(_make_batch(schema_id="schema-1"))
+            process_batch(_make_batch(schema_id="schema-2"))
+
+        assert mock_connect.call_count == 2
+
+    def test_failed_apply_drops_the_cached_connection(self):
+        conn1, conn2 = MagicMock(), MagicMock()
+        self.mock_inner.side_effect = [RuntimeError("apply failed"), None]
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = [conn1, conn2]
+            with pytest.raises(RuntimeError):
+                process_batch(_make_batch(batch_index=1))
+            process_batch(_make_batch(batch_index=2))
+
+        conn1.close.assert_called_once()
+        assert mock_connect.call_count == 2
+
+    def test_expired_session_is_replaced(self, monkeypatch):
+        conn1, conn2 = MagicMock(), MagicMock()
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.time",
+            MagicMock(monotonic=lambda: clock["now"]),
+        )
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = [conn1, conn2]
+            process_batch(_make_batch(batch_index=1))
+            clock["now"] += 10_000  # far past both idle TTL and absolute age cap
+            process_batch(_make_batch(batch_index=2))
+
+        conn1.close.assert_called_once()
+        assert mock_connect.call_count == 2
+
+    def test_absolute_age_cap_survives_steady_reuse(self, monkeypatch):
+        # The extract-read secret embeds expiring session credentials, so the
+        # cap must track the ORIGINAL session creation, not the last reuse.
+        conn1, conn2 = MagicMock(), MagicMock()
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.time",
+            MagicMock(monotonic=lambda: clock["now"]),
+        )
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = [conn1, conn2]
+            for i in range(12):  # reuse every 61s: idle TTL never trips, age cap must
+                process_batch(_make_batch(batch_index=i))
+                clock["now"] += 61.0
+
+        conn1.close.assert_called_once()
+        assert mock_connect.call_count == 2
+
+    def test_evict_stale_closes_idle_sessions_without_new_traffic(self, monkeypatch):
+        # Review finding (Greptile P1 / hex-security): eviction must not depend
+        # on a later acquire()/store() — a drained group's session would pin a
+        # duckgres worker indefinitely. The sweeper calls _evict_stale on a
+        # timer; this exercises it directly with a controlled clock.
+        conn1 = MagicMock()
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.time",
+            MagicMock(monotonic=lambda: clock["now"]),
+        )
+        with self._connect_patch() as mock_connect:
+            mock_connect.return_value = conn1
+            process_batch(_make_batch(batch_index=1))
+
+        clock["now"] += 91.0
+        _session_cache._evict_stale()
+
+        conn1.close.assert_called_once()
+
+    def test_store_starts_the_sweeper_thread_once(self):
+        with self._connect_patch() as mock_connect:
+            mock_connect.return_value = MagicMock()
+            process_batch(_make_batch(batch_index=1))
+            process_batch(_make_batch(batch_index=2))
+
+        assert _session_cache._sweeper_started is True
+
+    def test_org_change_invalidates_the_cached_session(self):
+        # Review finding (veria): the cache key must include the org so a team
+        # transferred between organizations can never keep writing through the
+        # previous org's authenticated connection.
+        conn1, conn2 = MagicMock(), MagicMock()
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = [conn1, conn2]
+            process_batch(_make_batch(batch_index=1))
+            self.mock_team.objects.only.return_value.get.return_value.organization_id = "org-b"
+            process_batch(_make_batch(batch_index=2))
+
+        assert mock_connect.call_count == 2
+
+    def test_per_org_session_cap_evicts_the_oldest_entry(self):
+        # hex-security follow-up: retained sessions must never accumulate past
+        # a small per-org bound, even across many sequentially drained groups —
+        # each cached session pins a duckgres worker.
+        conns = [MagicMock() for _ in range(5)]
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = conns
+            for i in range(5):
+                process_batch(_make_batch(schema_id=f"schema-{i}"))
+
+        assert len(_session_cache._entries) == 4
+        conns[0].close.assert_called_once()
+        for c in conns[1:]:
+            c.close.assert_not_called()
+
+    def test_cache_miss_resolves_the_team_once(self):
+        # greptile follow-up: org resolution feeds both the cache key and the
+        # connection config — one ORM lookup per batch, not two.
+        with self._connect_patch() as mock_connect:
+            mock_connect.return_value = MagicMock()
+            process_batch(_make_batch(batch_index=1))
+
+        assert self.mock_team.objects.only.return_value.get.call_count == 1
