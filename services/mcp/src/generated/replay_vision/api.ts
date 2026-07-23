@@ -3,10 +3,69 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const VisionActionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const VisionActionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    scanner: zod.string().optional().describe('Filter to the actions belonging to one scanner.'),
+})
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const VisionActionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this vision action.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
+ */
+export const VisionActionsRunsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    vision_action_id: zod.string(),
+})
+
+export const VisionActionsRunsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
+ */
+export const VisionActionsRunsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this vision action run.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    vision_action_id: zod.string(),
+})
 
 /**
  * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
