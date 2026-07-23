@@ -162,6 +162,7 @@ async def test_assume_role_step_passes_with_assumable_role(
 async def test_assume_role_step_fails_with_wrong_external_id(
     external_aws_role_arn: str,
     destination_aws_role_arn: str,
+    external_id: str | None,
     aorganization,
 ):
     """A mismatched external id surfaces an AccessDenied failure."""
@@ -179,6 +180,7 @@ async def test_assume_role_step_fails_with_wrong_external_id(
 async def test_assume_role_step_fails_without_external_id_condition(
     external_aws_role_arn: str,
     destination_aws_role_arn: str,
+    external_id: str | None,
     aorganization,
 ):
     """A role whose trust policy omits the external id condition is rejected."""
