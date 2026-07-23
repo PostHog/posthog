@@ -1,7 +1,12 @@
 // AUTO-GENERATED from products/visual_review/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+
 import {
     VisualReviewReposListQueryParams,
     VisualReviewReposRetrieveParams,
@@ -20,9 +25,6 @@ import {
     VisualReviewRunsToleratedHashesListParams,
     VisualReviewRunsToleratedHashesListQueryParams,
 } from '@/generated/visual_review/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const VisualReviewReposListSchema = VisualReviewReposListQueryParams
 

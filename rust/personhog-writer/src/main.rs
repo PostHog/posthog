@@ -13,11 +13,10 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use common_kafka::kafka_producer::create_kafka_producer;
 use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::config::Config;
 use personhog_writer::consumer::ConsumerTask;
-use personhog_writer::kafka::{PersonConsumer, WarningsProducer};
+use personhog_writer::kafka::PersonConsumer;
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::PersonWriteStore;
 use personhog_writer::writer::WriterTask;
@@ -137,23 +136,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
     tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
 
-    // Ingestion warnings producer
-    let warnings_producer = create_kafka_producer(&config.kafka, writer_handle.clone())
-        .await
-        .map(|producer| {
-            WarningsProducer::new(producer, config.kafka_ingestion_warnings_topic.clone())
-        })
-        .ok();
-
-    if warnings_producer.is_some() {
-        tracing::info!(
-            "Ingestion warnings enabled (topic: {})",
-            config.kafka_ingestion_warnings_topic
-        );
-    } else {
-        tracing::warn!("Ingestion warnings disabled (Kafka producer creation failed)");
-    }
-
     // Writer task
     let pg_store = PgStore::new(pool, config.pg_target_table.clone());
     let store = PersonWriteStore::new(
@@ -161,17 +143,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         personhog_writer::store::StoreConfig {
             chunk_size: config.upsert_batch_size,
             row_fallback_concurrency: config.row_fallback_concurrency,
-            properties_size_threshold: config.properties_size_threshold,
-            properties_trim_target: config.properties_trim_target,
         },
     );
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        store,
-        flush_rx,
-        writer_handle,
-        warnings_producer,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
 
     tokio::spawn(async move {
         writer_task.run().await;

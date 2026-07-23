@@ -92,7 +92,7 @@ class TestRunOrchestration:
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
-            patch(f"{_MODULE}._filter_existing_persons", return_value={"a", "b"}) as existing,
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}) as existing,
             patch(f"{_MODULE}._produce_intents", return_value=2) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
             patch(f"{_MODULE}._stamp_provenance") as stamp,
@@ -102,7 +102,7 @@ class TestRunOrchestration:
             result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
 
         # ghost is filtered out; only a and b are produced.
-        produced_items = produce.call_args.args[2]
+        produced_items = produce.call_args.args[3]
         assert sorted(d for d, _ in produced_items) == ["a", "b"]
         assert result.produced == 2
 
@@ -199,7 +199,7 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
             patch(f"{_MODULE}._read_delta_bundles", return_value=(accumulated, 5)) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
-            patch(f"{_MODULE}._filter_existing_persons", return_value={"a"}),
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
             patch(f"{_MODULE}._stamp_provenance"),
@@ -310,3 +310,68 @@ class TestSnapshotCompaction:
 
         assert len(keys) == 1
         assert hashes == {"a": "h2", "b": "h2"}
+
+
+class TestGroupTarget:
+    """The group branch: a group source produces a $groupidentify-shaped intent and checks group
+    existence, keyed per group type."""
+
+    def _group_source(self):
+        return PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group", group_type_index=0)
+
+    def test_produce_intents_group_payload(self):
+        captured: list[dict] = []
+        producer = MagicMock()
+        producer.produce.side_effect = lambda **kw: captured.append(kw)
+        with patch(f"{_MODULE}.producer_scope") as producer_scope:
+            producer_scope.return_value.__enter__.return_value = producer
+            produced = pps._produce_intents(
+                1,
+                "tok",
+                self._group_source(),
+                [("acme", {"tier": "pro"})],
+                team_uuid="team-uuid",
+                group_type_name="organization",
+            )
+        assert produced == 1
+        data = captured[0]["data"]
+        assert data["kind"] == "group"
+        assert data["group_type"] == "organization"
+        assert data["group_key"] == "acme"
+        assert data["distinct_id"] == "team-uuid"  # $groupidentify placeholder
+        assert data["properties"] == {"tier": "pro"}
+        # keyed per (team, group_type_index, group_key) so per-group ordering is preserved
+        assert captured[0]["key"] == "1:0:acme"
+
+    def test_filter_existing_ids_uses_group_lookup(self):
+        group = MagicMock(group_key="acme")
+        with patch(f"{_MODULE}.get_groups_by_identifiers", return_value=[group]) as lookup:
+            result = pps._filter_existing_ids(9, self._group_source(), ["acme", "ghost"])
+        lookup.assert_called_once_with(9, 0, ["acme", "ghost"])
+        assert result == {"acme"}  # ghost dropped: no existing group
+
+    @pytest.mark.asyncio
+    async def test_unresolved_group_type_skips_producing(self):
+        # If the group type can't be resolved (deleted/misconfigured), the consumer would DLQ every
+        # $groupidentify missing a group_type — so the source must be skipped, not produced.
+        team = MagicMock(api_token="tok", uuid="team-uuid")
+        rows = [{"group_key": "acme", "plan": "pro"}]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
+            patch(f"{_MODULE}._group_type_name", return_value=None),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
+            patch(f"{_MODULE}._stamp_provenance") as stamp,
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, schema_id="schema-1", job_id="job-1")
+
+        produce.assert_not_called()
+        stamp.assert_not_called()
+        write_snapshot.assert_not_awaited()
+        assert result.produced == 0
