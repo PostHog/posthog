@@ -13,14 +13,12 @@ All sends are best-effort.
 
 from __future__ import annotations
 
-import re
 import json
 import logging
 from collections.abc import Iterable
 
 from django.conf import settings
 
-from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import User
@@ -40,6 +38,13 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.slack_formatting import (
+    escape_slack_mrkdwn as _escape_mrkdwn,
+    is_safe_slack_http_url as _is_safe_http_url,
+    markdown_to_slack_mrkdwn as _markdown_to_slack_mrkdwn,
+    slack_channel_id_from_target as _channel_id_from_target,
+    truncate_slack_section as _truncate_slack_section,
+)
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -48,8 +53,6 @@ _ACTIONABLE_VALUES = frozenset(
 )
 
 logger = logging.getLogger(__name__)
-
-_SLACK_MRKDWN_CONVERTER = SlackMarkdownConverter()
 
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
@@ -231,11 +234,6 @@ def _team_notification_channel(team_id: int) -> str | None:
     return channel or None
 
 
-def _channel_id_from_target(value: str) -> str:
-    """Mirror `getSlackChannelIdFromTargetValue` in the frontend."""
-    return value.split("|", 1)[0].strip()
-
-
 def _channel_display_name(value: str) -> str:
     pipe = value.find("|")
     if pipe == -1:
@@ -278,44 +276,6 @@ def lookup_slack_user_id_by_email(slack: SlackIntegration, email: str) -> str | 
     if not isinstance(slack_user, dict) or not slack_user.get("id"):
         return None
     return str(slack_user["id"])
-
-
-def _escape_mrkdwn(text: str) -> str:
-    """Neutralize Slack control syntax (`&`, `<`, `>`) so untrusted text can't inject mentions/links."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-# Matches a converter-emitted Slack angle token: `<dest>` or `<dest|label>`. Input `<`/`>`
-# are escaped before conversion, so any literal angle bracket here was produced by the converter.
-_SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
-
-
-def _defang_unsafe_slack_tokens(text: str) -> str:
-    """Render any non-URL `<dest|label>` token the converter emitted as inert literal text.
-
-    `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form without checking
-    the scheme, so untrusted signal content could smuggle a broadcast or ping via `[x](!channel)`
-    or `[x](@U123)`. Tokens whose destination isn't a plain http(s) URL get their angle brackets
-    escaped so Slack shows the text instead of firing a mention.
-    """
-
-    def _replace(match: re.Match[str]) -> str:
-        if _is_safe_http_url(match.group(1)):
-            return match.group(0)
-        return match.group(0).replace("<", "&lt;").replace(">", "&gt;")
-
-    return _SLACK_ANGLE_TOKEN_RE.sub(_replace, text)
-
-
-def _markdown_to_slack_mrkdwn(text: str) -> str:
-    """Convert signal markdown to Slack mrkdwn, then neutralize any injected mentions.
-
-    Escaping runs first so raw `<@U…>`/`<!channel>` in untrusted content can't reach Slack;
-    after conversion, `_defang_unsafe_slack_tokens` strips any mention/broadcast the converter
-    synthesized from a `[text](!channel)`-style link. Kept local rather than shared with the
-    other `SlackMarkdownConverter` call sites: they render trusted LLM output, signals does not.
-    """
-    return _defang_unsafe_slack_tokens(_SLACK_MRKDWN_CONVERTER.convert(_escape_mrkdwn(text)))
 
 
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
@@ -416,9 +376,6 @@ def _build_message_blocks(
 
 # Bound how many evidence signals we post into a thread so a large report can't flood a channel.
 _MAX_THREAD_SIGNALS = 30
-# Slack section text caps at 3000 chars; leave headroom for the ellipsis.
-_SIGNAL_CONTENT_MAX_LEN = 2900
-
 # Explicit "Product · Signal type" labels, mirroring `signalCardSourceLine` in the canonical Inbox UI
 # (PostHog Code's apps/code/.../detail/SignalCard.tsx). Keep in sync with it.
 _SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
@@ -458,15 +415,6 @@ def _signal_source_line(source_product: str, source_type: str, extra: dict | Non
     product_label = source_product.replace("_", " ")
     type_label = source_type.replace("_", " ")
     return f"{product_label} · {type_label}" if type_label else product_label
-
-
-def _is_safe_http_url(value: object) -> bool:
-    # mrkdwn link injection guard: only plain http(s) URLs without the chars that break `<url|text>`.
-    if not isinstance(value, str):
-        return False
-    if not (value.startswith("http://") or value.startswith("https://")):
-        return False
-    return not any(char in value for char in ("<", ">", "|"))
 
 
 def _signal_detail_parts(source_product: str, extra: dict) -> list[str]:
@@ -520,8 +468,7 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
         # text past Slack's section limit. Truncating post-defang output stays safe — a
         # trailing cut can't synthesize a live mention (no closing `>` can appear).
         rendered = _markdown_to_slack_mrkdwn(content)
-        if len(rendered) > _SIGNAL_CONTENT_MAX_LEN:
-            rendered = rendered[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
+        rendered = _truncate_slack_section(rendered)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered}})
 
     detail_parts = _signal_detail_parts(source_product, extra)
