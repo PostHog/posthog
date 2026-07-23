@@ -10,8 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class GNewsSourceConfig(config.Config):
     api_key: str
     query: str
-    category: Literal[
-        "general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"
-    ] = config.value(default="general")
+    category: Literal["general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"] = config.value(default="general")
     language: str | None = None
     country: str | None = None

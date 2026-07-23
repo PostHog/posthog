@@ -10,7 +10,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class CodecovSourceConfig(config.Config):
     owner_username: str
     api_token: str
-    service: Literal["github", "gitlab", "bitbucket", "github_enterprise", "gitlab_enterprise", "bitbucket_server"] = (
-        config.value(default="github")
-    )
+    service: Literal["github", "gitlab", "bitbucket", "github_enterprise", "gitlab_enterprise", "bitbucket_server"] = config.value(default="github")
     repositories: str | None = None
