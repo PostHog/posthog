@@ -239,13 +239,13 @@ export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
     {
         value: 'focused',
-        label: 'High activity only',
-        description: 'Only scans the recordings with the most going on. Stretches your budget furthest.',
+        label: 'Highest activity only',
+        description: 'Only scans the recordings with the most going on.',
     },
     {
         value: 'balanced',
-        label: 'Skip low activity',
-        description: 'Skips low-activity recordings, scans everything else.',
+        label: 'Skip lowest activity',
+        description: 'Skips the lowest-activity recordings, scans everything else.',
     },
     {
         value: 'comprehensive',
