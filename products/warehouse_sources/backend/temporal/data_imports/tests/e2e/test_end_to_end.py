@@ -4193,6 +4193,8 @@ async def test_mysql_full_refresh_keyset_pages_whole_table(team, mysql_config, m
     )
 
     # chunk_size 2 over 5 rows -> keyset pages of [2, 2, 1].
+    # `ignore_assertions` skips `_run`'s single-row expectation (the other MySQL tests load one row);
+    # the multi-row assertion below is what proves keyset paging landed the whole table.
     with mock.patch.object(MySQLImplementation, "get_chunk_size", return_value=2):
         await _run(
             team=team,
@@ -4201,6 +4203,7 @@ async def test_mysql_full_refresh_keyset_pages_whole_table(team, mysql_config, m
             source_type="MySQL",
             job_inputs=_mysql_job_inputs(mysql_config),
             mock_data_response=[],
+            ignore_assertions=True,
         )
 
     res = await sync_to_async(execute_hogql_query)("SELECT id, payload FROM mysql_keyset_full ORDER BY id", team)
