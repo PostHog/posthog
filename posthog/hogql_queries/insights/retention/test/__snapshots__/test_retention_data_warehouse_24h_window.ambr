@@ -1,0 +1,38 @@
+# serializer version: 1
+# name: TestRetentionDataWarehouse24hWindow.test_same_table_dwh_start_and_return_24h_window
+  '''
+  SELECT actor_activity.start_interval_index AS start_event_matching_interval,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         count(DISTINCT actor_activity.actor_id) AS count
+  FROM
+    (SELECT actors_with_t0.actor_id AS actor_id,
+            floor(divide(dateDiff('hour', assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), actors_with_t0.t_0), 24)) AS start_interval_index,
+            arrayJoin(arrayDistinct(arrayConcat([0], arrayFilter(x -> ifNull(greaterOrEquals(x, 0), 0), groupUniqArray(if(and(equals(posthog_test_warehouse_activity.activity_type, 'renewed'), and(greaterOrEquals(toTimeZone(posthog_test_warehouse_activity.occurred_at, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(posthog_test_warehouse_activity.occurred_at, 'UTC'), toDateTime64('2025-01-06 00:00:00.000000', 6, 'UTC'))), greaterOrEquals(toTimeZone(posthog_test_warehouse_activity.occurred_at, 'UTC'), actors_with_t0.t_0)), floor(divide(dateDiff('hour', actors_with_t0.t_0, toTimeZone(posthog_test_warehouse_activity.occurred_at, 'UTC')), 24)), -1)))))) AS intervals_from_base
+     FROM
+       (SELECT posthog_test_warehouse_activity.person_id AS actor_id,
+               min(toTimeZone(posthog_test_warehouse_activity.occurred_at, 'UTC')) AS t_0
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse_24h_window/posthog_test_warehouse_activity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `person_id` UUID, `activity_type` String, `occurred_at` DateTime64(3, \'UTC\')') AS posthog_test_warehouse_activity
+        WHERE and(equals(posthog_test_warehouse_activity.activity_type, 'signed_up'), and(greaterOrEquals(posthog_test_warehouse_activity.occurred_at, toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(posthog_test_warehouse_activity.occurred_at, toDateTime64('2025-01-06 00:00:00.000000', 6, 'UTC'))))
+        GROUP BY actor_id) AS actors_with_t0
+     LEFT JOIN s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse_24h_window/posthog_test_warehouse_activity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `person_id` UUID, `activity_type` String, `occurred_at` DateTime64(3, \'UTC\')') AS posthog_test_warehouse_activity ON equals(actors_with_t0.actor_id, posthog_test_warehouse_activity.person_id)
+     GROUP BY actors_with_t0.actor_id,
+              actors_with_t0.t_0) AS actor_activity
+  GROUP BY start_event_matching_interval,
+           intervals_from_base
+  ORDER BY start_event_matching_interval ASC,
+           intervals_from_base ASC
+  LIMIT 100000 SETTINGS format_csv_allow_double_quotes=1,
+                        readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        optimize_rewrite_aggregate_function_with_if=0,
+                        optimize_min_inequality_conjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
+  '''
+# ---
