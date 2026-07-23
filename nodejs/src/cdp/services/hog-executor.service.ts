@@ -8,14 +8,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { fetchAttribution } from '~/common/utils/fetch-attribution'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
-import {
-    FetchOptions,
-    FetchResponse,
-    InvalidRequestError,
-    ResolutionError,
-    SecureRequestError,
-    fetch,
-} from '~/common/utils/request'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 import { tryCatch } from '~/common/utils/try-catch'
 import { UUIDT } from '~/common/utils/utils'
@@ -107,10 +100,11 @@ const cdpBlockedRequests = new Counter({
 // SecureRequestError (private/link-local IP), ResolutionError (DNS failed or every
 // resolved IP was unsafe) and InvalidRequestError (bad scheme/URL) all mean the request
 // was refused before or during connection — never a response from the destination.
+// Matched by name, not instanceof: tests that mock ~/common/utils/request leave the
+// error classes undefined, and instanceof against undefined throws.
 export function isBlockedRequestError(error: unknown): boolean {
-    return (
-        error instanceof SecureRequestError || error instanceof ResolutionError || error instanceof InvalidRequestError
-    )
+    const name = (error as { name?: string } | null)?.name
+    return name === 'SecureRequestError' || name === 'ResolutionError' || name === 'InvalidRequestError'
 }
 
 // Emit ops-visible attribution for a blocked request. The customer-facing `addLog`
