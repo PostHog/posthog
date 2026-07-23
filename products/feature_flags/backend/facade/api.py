@@ -116,7 +116,13 @@ def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request
         flag, data=data, partial=True, context=_serializer_context(team, user, request, method="PATCH")
     )
     serializer.is_valid(raise_exception=True)
-    return serializer.save()
+    saved = serializer.save()
+    if saved.has_encrypted_payloads:
+        # The serializer swaps the saved ciphertext for its response form (redacted or
+        # decrypted) on the in-memory instance; reload so a subsequent write of this
+        # instance cannot persist the placeholder over the stored ciphertext.
+        saved.refresh_from_db(fields=["filters"])
+    return saved
 
 
 def set_flag_active(

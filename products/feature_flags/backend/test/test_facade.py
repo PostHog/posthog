@@ -221,16 +221,20 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
             },
         )
 
-        update_flag(
+        updated = update_flag(
             flag,
             {"filters": set_feature_enrollment(flag.get_filters(), None)},
             team=self.team,
             user=None,
         )
+        # Reusing the returned instance for a further write must not persist the
+        # serializer's in-memory redaction placeholder over the stored ciphertext.
+        set_flag_active(updated, False, team=self.team, user=None)
 
         flag.refresh_from_db()
         assert flag.filters["feature_enrollment"] is None
         assert flag.filters["payloads"]["true"] == token
+        assert flag.active is False
 
     def test_system_write_rejects_user_bearing_request(self):
         flag = self._create_flag(active=True)
