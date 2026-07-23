@@ -1288,6 +1288,9 @@ class ExternalDataSourceType(models.TextChoices):
     TALLY = "Tally", "Tally"
     NUNTLY = "Nuntly", "Nuntly"
     VTURB = "Vturb", "Vturb"
+    MELTWATER = "Meltwater", "Meltwater"
+    USERCOM = "UserCom", "UserCom"
+    LATITUDE = "Latitude", "Latitude"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

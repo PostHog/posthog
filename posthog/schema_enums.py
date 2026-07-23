@@ -2430,6 +2430,9 @@ class ExternalDataSourceType(StrEnum):
     TALLY = "Tally"
     NUNTLY = "Nuntly"
     VTURB = "Vturb"
+    MELTWATER = "Meltwater"
+    USER_COM = "UserCom"
+    LATITUDE = "Latitude"
 
 
 class ExternalQueryErrorCode(StrEnum):
