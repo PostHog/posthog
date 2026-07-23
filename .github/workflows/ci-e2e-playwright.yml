@@ -355,7 +355,13 @@ jobs:
                   # Fetch the current tip of the base branch (scoped, blobless, no tags),
                   # then diff origin/$BASE_REF...HEAD (3-dot = merge-base) so master
                   # commits merged into the branch aren't counted as changes.
-                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  # This runs before Python, so tag a fetch failure with its own detail —
+                  # otherwise classify sees only a failed step and reports an empty detail.
+                  if ! git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                      echo "::warning::git fetch of base ref failed — full run"
+                      echo "reason_detail=git_fetch_failed" >> "$GITHUB_OUTPUT"
+                      exit 1
+                  fi
                   if [ ! -f tools/playwright_spec_selection.py ] || [ ! -f tools/playwright_area_map.json ]; then
                       echo "::notice::spec selector/map absent on this checkout (unrebased branch) — full run"
                       exit 1
@@ -369,6 +375,7 @@ jobs:
               id: classify
               env:
                   SELECT_OUTCOME: ${{ steps.select.outcome }}
+                  SELECT_REASON_DETAIL: ${{ steps.select.outputs.reason_detail }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -385,7 +392,16 @@ jobs:
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/spec-selection.json ]]; then
                       echo "::warning::spec selector produced no output — running the FULL suite"
                       MODE=full
-                      REASON_CATEGORY=selector_error
+                      # Distinguish an unrebased branch (script/map not present yet — expected,
+                      # self-resolves on rebase) from a genuine selector failure worth investigating.
+                      if [[ ! -f tools/playwright_spec_selection.py ]] || [[ ! -f tools/playwright_area_map.json ]]; then
+                          REASON_CATEGORY=selector_unavailable
+                      else
+                          REASON_CATEGORY=selector_error
+                          # A bash-stage fetch failure exits before Python and tags itself here;
+                          # the Python paths carry their own detail in the JSON below.
+                          REASON_DETAIL="${SELECT_REASON_DETAIL:-}"
+                      fi
                   else
                       MODE=$(jq -r '.mode' /tmp/spec-selection.json)
                       SELECTED_COUNT=$(jq -r '.selected_count' /tmp/spec-selection.json)

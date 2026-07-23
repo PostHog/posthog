@@ -41,9 +41,13 @@ DatabricksErrors = {
     "PERMISSION_DENIED": "Your Databricks credentials don't have permission to access this data. Grant USE CATALOG, USE SCHEMA, and SELECT to the connecting principal, then try again.",
     "INSUFFICIENT_PERMISSIONS": "Your Databricks credentials don't have permission to access this data. Grant USE CATALOG, USE SCHEMA, and SELECT to the connecting principal, then try again.",
     "TABLE_OR_VIEW_NOT_FOUND": "The catalog has no `information_schema` — this usually means it's a legacy `hive_metastore` catalog. The Databricks source requires a Unity Catalog catalog.",
+    # Raised when the SQL warehouse referenced by the HTTP path was mistyped or deleted — a common
+    # setup mistake that otherwise falls through to the generic "could not connect" message.
+    "RESOURCE_DOES_NOT_EXIST": "Can't find the SQL warehouse referenced by the HTTP path. Check the HTTP path points to an existing, running SQL warehouse.",
     "nodename nor servname provided": "Can't resolve the server hostname. Check the server hostname and try again.",
     "Name or service not known": "Can't resolve the server hostname. Check the server hostname and try again.",
     "Failed to resolve": "Can't resolve the server hostname. Check the server hostname and try again.",
+    "is blocked by Databricks IP ACL for workspace": "PostHog's IP address is blocked by your Databricks workspace's IP access control list. Add PostHog's IP addresses to the workspace's IP ACL, then try again.",
 }
 
 
@@ -179,6 +183,9 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             "INSUFFICIENT_PERMISSIONS": "Your Databricks credentials don't have permission to access this data. Grant USE CATALOG, USE SCHEMA, and SELECT to the connecting principal, then resync.",
             # Raised when the SQL warehouse referenced by the HTTP path was deleted.
             "RESOURCE_DOES_NOT_EXIST": "The SQL warehouse referenced by the HTTP path no longer exists. Update the HTTP path to a running SQL warehouse, then resync.",
+            # Workspace-level IP ACL rejection — a customer-side network config that retrying can
+            # never satisfy. Match the stable phrase, ignoring the appended IP and workspace id.
+            "is blocked by Databricks IP ACL for workspace": "PostHog's IP address is blocked by your Databricks workspace's IP access control list. Add PostHog's IP addresses to the workspace's IP ACL, then resync.",
         }
 
     def validate_credentials(

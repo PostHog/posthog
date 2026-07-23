@@ -19,6 +19,7 @@ from products.engineering_analytics.backend.logic._shared import (
     _DEFAULT_WINDOW,
     _parse_date,
     _parse_window,
+    _require_repo,
     _split_repo,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
@@ -35,16 +36,12 @@ logger = structlog.get_logger(__name__)
 
 
 def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRLifecycle | None:
-    owner, name = _split_repo(repo)
-    if not (owner and name):
-        raise ValueError("repo must be in 'owner/name' format")
+    owner, name = _require_repo(repo)
     return query_pr_lifecycle(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
 def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> list[WorkflowRunDetail]:
-    owner, name = _split_repo(repo)
-    if not (owner and name):
-        raise ValueError("repo must be in 'owner/name' format")
+    owner, name = _require_repo(repo)
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
@@ -63,16 +60,12 @@ def build_resolve_branch(
 
 
 def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:
-    owner, name = _split_repo(repo)
-    if not (owner and name):
-        raise ValueError("repo must be in 'owner/name' format")
+    owner, name = _require_repo(repo)
     return query_ci_failure_logs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
 def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRCostSummary:
-    owner, name = _split_repo(repo)
-    if not (owner and name):
-        raise ValueError("repo must be in 'owner/name' format")
+    owner, name = _require_repo(repo)
     # LLM token spend is an additive component joined by branch from the events table, merged onto the
     # CI cost summary. Kept sequential: HogQL table resolution reads warehouse metadata through the
     # request's DB connection, which worker threads don't share.

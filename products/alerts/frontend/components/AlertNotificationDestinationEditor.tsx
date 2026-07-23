@@ -11,6 +11,7 @@ import {
     LemonTagType,
 } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
 import { IntegrationType } from '~/types'
@@ -32,8 +33,8 @@ interface AlertNotificationDestinationButtonAction {
 
 export interface AlertNotificationDestinationView {
     key: string
-    title: string
-    detail?: string | null
+    title: ReactNode
+    detail?: ReactNode
     tags?: { label: string; type?: LemonTagType }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
     onDelete: () => void
@@ -66,7 +67,9 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
     }
     slack: {
         notificationType: NotificationType
+        integrations?: IntegrationType[]
         integration?: IntegrationType
+        onIntegrationChange?: (integrationId: number | null) => void
         channelValue: string | null
         onChannelValueChange: (value: string | null) => void
     }
@@ -211,11 +214,31 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     if (notificationType.value === slack.notificationType) {
         if (slack.integration) {
             slackDestinationInput = (
-                <SlackChannelPicker
-                    value={slack.channelValue ?? undefined}
-                    onChange={slack.onChannelValueChange}
-                    integration={slack.integration}
-                />
+                <div className="space-y-3">
+                    {(slack.integrations?.length ?? 0) > 1 ? (
+                        <fieldset className="space-y-1">
+                            <legend className="text-sm font-medium">Slack workspace</legend>
+                            <IntegrationChoice
+                                integration="slack"
+                                value={slack.integration.id}
+                                onChange={(integrationId) => {
+                                    if (integrationId !== slack.integration?.id) {
+                                        slack.onIntegrationChange?.(integrationId)
+                                    }
+                                }}
+                                allowClear={false}
+                            />
+                        </fieldset>
+                    ) : null}
+                    <fieldset className="space-y-1">
+                        <legend className="text-sm font-medium">Channel</legend>
+                        <SlackChannelPicker
+                            value={slack.channelValue ?? undefined}
+                            onChange={slack.onChannelValueChange}
+                            integration={slack.integration}
+                        />
+                    </fieldset>
+                </div>
             )
         } else {
             slackDestinationInput = <SlackNotConfiguredBanner />

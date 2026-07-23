@@ -671,6 +671,67 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
 
+    def test_print_cohort_hogql_query_drops_order_by_on_stripped_alias(self):
+        """An ActorsQuery ordering by a computed select alias must not dangle once we collapse the SELECT.
+
+        Without clearing ORDER BY, the alias is stripped from the SELECT but still referenced by the
+        ORDER BY, so HogQL resolution raises `QueryError: Unable to resolve field: <alias>`.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Ordered Actors Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "select": ["actor_id", "count() as event_count"],
+                "orderBy": ["event_count DESC"],
+                "source": {
+                    "kind": "InsightActorsQuery",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        # Total-value aggregation so the actors query targets all matched people
+                        # rather than a single interval (which would require a `day`).
+                        "trendsFilter": {"display": "BoldNumber"},
+                    },
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # Before the fix this raised `QueryError: Unable to resolve field: event_count`.
+        # Producing SQL at all is the core regression check; the top-level ORDER BY must be gone
+        # and the SELECT collapsed to the actor column. (`event_count` may still appear as a
+        # harmless unused column in an inner subquery, which the collapse does not descend into.)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertNotIn("order by", sql.lower())
+        self.assertIn("as actor_id", sql.lower())
+
+    def test_print_cohort_hogql_query_keeps_order_by_and_limit_for_bounded_query(self):
+        """A bounded cohort query (ORDER BY + LIMIT on a real column) must stay deterministic.
+
+        Here the ORDER BY targets a real column that survives the SELECT collapse, so dropping it
+        would leave the LIMIT selecting an arbitrary, non-deterministic subset on every recalculation.
+        Both the ordering and the limit must be preserved.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Bounded Actors Cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT id AS actor_id, created_at FROM persons ORDER BY created_at DESC LIMIT 100",
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("order by", sql.lower())
+        self.assertIn("limit 100", sql.lower())
+        self.assertIn("as actor_id", sql.lower())
+
 
 class TestGetNestedCohortIds(BaseTest):
     def test_no_cohort_references(self):
