@@ -33,7 +33,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     database_stats_enabled,
     is_database_stats_schema_row,
-    maybe_append_database_stats_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -69,6 +68,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     source_requires_ssl,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.stats import (
+    POSTGRES_STATS_CATALOGS,
+    fetch_postgres_stats_columns,
     postgres_database_stats_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
@@ -220,6 +221,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
+
+    database_stats_catalogs = POSTGRES_STATS_CATALOGS
 
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
@@ -775,6 +778,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
+        stats_columns: dict[str, list[tuple[str, str, bool]]] = {}
 
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_postgres_schemas(
@@ -911,6 +915,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     # xmin availability (heap tables + matviews, PG13+). Postgres-only: the generic
                     # `supports_xmin` default stays False for every other source.
                     xmin_capable_tables = _xmin_capable_tables_from_conn(conn, config.schema, names)
+
+                    # Statistics catalogs declare the columns this server actually has, so
+                    # the synthetic tables match its Postgres version. Best-effort like the
+                    # metadata above: a failure here only leaves the statistics tables out.
+                    if database_stats_enabled(config):
+                        try:
+                            stats_columns = fetch_postgres_stats_columns(conn)
+                        except Exception as e:
+                            structlog.get_logger().warning(
+                                "Failed to read database statistics catalog columns", exc_info=e
+                            )
             except Exception as e:
                 # Connection-level failure for the best-effort PK/index/RLS metadata lookup. The
                 # schema listing already succeeded above (`db_schemas`), so degrade quietly — log a
@@ -983,7 +998,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 )
             )
 
-        return maybe_append_database_stats_schemas(config, schemas, names)
+        # No catalog columns means the metadata connection above failed, so offer no
+        # statistics tables at all this round rather than the handful that don't need a
+        # server lookup — the next discovery pass surfaces the full set.
+        stats_schemas = self._database_stats_schemas(config, schemas, names, stats_columns) if stats_columns else []
+        return [*schemas, *stats_schemas]
 
     def validate_credentials(
         self,
@@ -1169,9 +1188,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             source_table_name = source_table_name or inferred_table
 
         # Same gates as the SQLSource base (which this override replaces wholesale). The
-        # row's metadata settles the collision case: a user's own table named
-        # database_stats_* keeps syncing as a table.
-        if database_stats_enabled(config) and is_database_stats_schema_row(inputs.schema_name, schema_metadata):
+        # row's metadata settles the collision case: a user's own table under a
+        # `system_tables` schema keeps syncing as a table.
+        if database_stats_enabled(config) and is_database_stats_schema_row(
+            inputs.schema_name, schema_metadata, self.database_stats_catalogs
+        ):
             return self.database_stats_source(config, inputs)
 
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here

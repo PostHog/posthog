@@ -14,14 +14,11 @@ import structlog
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
-    DATABASE_STATS_COLUMNS,
-    DATABASE_STATS_INDEXES,
-    DATABASE_STATS_QUERIES,
-    DATABASE_STATS_SCHEMA_NAMES,
-    DATABASE_STATS_SERVER,
-    DATABASE_STATS_TABLES,
+    SNAPSHOT_COLUMNS,
+    stats_table_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresDatabaseStatsConfig,
@@ -30,101 +27,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.stats import (
-    _collect_indexes,
-    _collect_queries,
-    _collect_server,
-    _collect_tables,
+    POSTGRES_STATS_CATALOGS,
+    _collect_statements,
+    fetch_postgres_stats_columns,
     postgres_database_stats_source,
 )
 
 logger = structlog.get_logger()
 
-
-def _column_names(schema_name: str) -> set[str]:
-    return {name for name, _, _ in DATABASE_STATS_COLUMNS[schema_name]}
+_SNAPSHOT_COLUMN_NAMES = {name for name, _, _ in SNAPSHOT_COLUMNS}
 
 
-def _stats_config(enabled: bool | None) -> PostgresSourceConfig:
-    return PostgresSourceConfig(
-        host="localhost",
-        database="db",
-        user="user",
-        password="password",
-        port=5432,
-        database_stats=None if enabled is None else PostgresDatabaseStatsConfig(enabled=enabled),
-    )
-
-
-@contextmanager
-def _fake_tunnel(*args, **kwargs):
-    yield ("localhost", 5432)
-
-
-class TestGetSchemasInjection:
-    DISCOVERED = {
-        "users": PostgresDiscoveredSchema(
-            source_catalog=None,
-            source_schema="public",
-            source_table_name="users",
-            columns=[("id", "integer", False), ("updated_at", "timestamp with time zone", True)],
-        )
-    }
-
-    @contextmanager
-    def _patched_discovery(self, discovered: dict[str, PostgresDiscoveredSchema]):
-        base = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
-        with (
-            patch(f"{base}.get_postgres_schemas", return_value=discovered),
-            patch(f"{base}.get_postgres_foreign_keys", return_value={}),
-            # The PK/index/RLS/xmin metadata connection is best-effort: raising here exercises
-            # the degradation path and keeps the test off the network.
-            patch(f"{base}.pg_connection", side_effect=Exception("no metadata connection")),
-            patch.object(PostgresSource, "with_ssh_tunnel", side_effect=_fake_tunnel),
-        ):
-            yield
-
-    def test_stats_schemas_appended_when_enabled(self):
-        with self._patched_discovery(self.DISCOVERED):
-            schemas = PostgresSource().get_schemas(_stats_config(enabled=True), team_id=1)
-        names = [s.name for s in schemas]
-        assert names == ["users", *DATABASE_STATS_SCHEMA_NAMES]
-
-    @pytest.mark.parametrize("enabled", [False, None])
-    def test_stats_schemas_absent_when_disabled(self, enabled):
-        with self._patched_discovery(self.DISCOVERED):
-            schemas = PostgresSource().get_schemas(_stats_config(enabled=enabled), team_id=1)
-        assert [s.name for s in schemas] == ["users"]
-
-    def test_names_filter_applies_to_stats_schemas(self):
-        with self._patched_discovery(self.DISCOVERED):
-            schemas = PostgresSource().get_schemas(
-                _stats_config(enabled=True), team_id=1, names=["users", DATABASE_STATS_SERVER]
-            )
-        assert [s.name for s in schemas] == ["users", DATABASE_STATS_SERVER]
-
-    def test_discovered_table_collision_drops_stats_schema(self):
-        discovered = {
-            **self.DISCOVERED,
-            "public.database_stats_queries": PostgresDiscoveredSchema(
-                source_catalog=None,
-                source_schema="public",
-                source_table_name="database_stats_queries",
-                columns=[("id", "integer", False)],
-            ),
-        }
-        with self._patched_discovery(discovered):
-            schemas = PostgresSource().get_schemas(_stats_config(enabled=True), team_id=1)
-        names = [s.name for s in schemas]
-        # The user's qualified table survives; the bare injected schema is dropped.
-        assert "public.database_stats_queries" in names
-        assert DATABASE_STATS_QUERIES not in names
-        assert DATABASE_STATS_SERVER in names
+def _snapshot_base() -> tuple[datetime, str]:
+    """The (collected_at, snapshot_id) pair the harness normally stamps a snapshot with."""
+    return datetime.now(UTC), uuid.uuid4().hex
 
 
 @pytest.fixture
 def autocommit_pg_connection():
-    # Raw autocommit connection to the test DB — the same way the collector connects in
-    # production (each probe is its own transaction).
+    # Raw autocommit connection to the test DB — the same way the collectors connect in
+    # production (each catalog read is its own transaction).
     sd = django_connection.settings_dict
     conn = psycopg.connect(
         host=sd["HOST"] or None,
@@ -140,50 +62,104 @@ def autocommit_pg_connection():
         conn.close()
 
 
+class TestPostgresStatsCatalogs:
+    def test_every_catalog_is_keyed_by_its_table_name(self):
+        for table_name, catalog in POSTGRES_STATS_CATALOGS.items():
+            assert catalog.table_name == table_name
+            assert catalog.catalog_relation or catalog.static_columns, table_name
+
+    @pytest.mark.django_db
+    def test_columns_come_from_the_server(self, autocommit_pg_connection):
+        columns = fetch_postgres_stats_columns(autocommit_pg_connection)
+
+        # Mirrored catalogs report their real columns; a catalog this server doesn't
+        # expose (pg_stat_statements without the extension) is simply absent.
+        assert {name for name, _, _ in columns["pg_stat_user_tables"]} >= {
+            "relid",
+            "schemaname",
+            "relname",
+            "seq_scan",
+            "n_dead_tup",
+            "last_autovacuum",
+        }
+        with autocommit_pg_connection.cursor() as cur:
+            cur.execute("SELECT count(*) FROM pg_extension WHERE extname = 'pg_stat_statements'")
+            installed = cur.fetchone()[0] > 0
+        assert ("pg_stat_statements" in columns) is installed
+
+
 class TestPostgresStatsCollectors:
-    """Runs the collectors against the Django test database itself — a real Postgres with
-    real statistics catalogs, plus the realistic degradation case of pg_stat_statements
-    usually not being installed."""
+    """Runs the collectors against the Django test database — a real Postgres with real
+    statistics catalogs."""
+
+    def _expected_columns(self, table_name: str, server_columns: dict) -> set[str]:
+        catalog = POSTGRES_STATS_CATALOGS[table_name]
+        declared = list(catalog.static_columns) or server_columns[table_name]
+        return (
+            _SNAPSHOT_COLUMN_NAMES
+            | {name for name, _, _ in declared}
+            | {name for name, _, _ in catalog.computed_columns}
+        )
 
     @pytest.mark.django_db
-    def test_tables_snapshot_matches_declared_columns(self, autocommit_pg_connection):
-        rows = _collect_tables(autocommit_pg_connection, logger, *_snapshot_base())
-        assert rows, "expected at least one user table in the test database"
-        assert set(rows[0].keys()) == _column_names(DATABASE_STATS_TABLES)
+    @pytest.mark.parametrize(
+        "table_name",
+        [
+            "pg_stat_user_tables",
+            "pg_stat_user_indexes",
+            "pg_statio_user_tables",
+            "pg_stat_database",
+            "pg_settings",
+            "pg_stat_activity_summary",
+        ],
+    )
+    def test_snapshot_keeps_the_catalog_columns_verbatim(self, autocommit_pg_connection, table_name):
+        # The point of collecting raw: what lands is the catalog's own columns plus the
+        # snapshot identity and any computed extras — nothing renamed, nothing dropped.
+        server_columns = fetch_postgres_stats_columns(autocommit_pg_connection)
+        collector = POSTGRES_STATS_CATALOGS[table_name].collector
+
+        rows = collector(autocommit_pg_connection, logger, *_snapshot_base())
+
+        assert rows, f"expected rows for {table_name} in the test database"
+        assert set(rows[0].keys()) == self._expected_columns(table_name, server_columns)
 
     @pytest.mark.django_db
-    def test_indexes_snapshot_matches_declared_columns(self, autocommit_pg_connection):
-        rows = _collect_indexes(autocommit_pg_connection, logger, *_snapshot_base())
-        assert rows, "expected at least one index in the test database"
-        assert set(rows[0].keys()) == _column_names(DATABASE_STATS_INDEXES)
+    def test_snapshot_identity_is_shared_across_rows(self, autocommit_pg_connection):
+        collected_at, snapshot_id = _snapshot_base()
+        rows = POSTGRES_STATS_CATALOGS["pg_stat_user_tables"].collector(
+            autocommit_pg_connection, logger, collected_at, snapshot_id
+        )
+        assert {r["snapshot_id"] for r in rows} == {snapshot_id}
+        assert {r["collected_at"] for r in rows} == {collected_at}
 
     @pytest.mark.django_db
-    def test_server_snapshot_has_core_metrics(self, autocommit_pg_connection):
-        rows = _collect_server(autocommit_pg_connection, logger, *_snapshot_base())
-        assert rows
-        assert all(set(r.keys()) == _column_names(DATABASE_STATS_SERVER) for r in rows)
-        metric_names = {r["metric_name"] for r in rows}
-        assert {"server_version", "connections_total", "numbackends", "setting_max_connections"} <= metric_names
+    def test_replication_slots_snapshot_is_scoped_and_lag_aware(self, autocommit_pg_connection):
+        # No slots on the test database, but the query must still run — it carries the
+        # standby check and the current-database filter.
+        rows = POSTGRES_STATS_CATALOGS["pg_replication_slots"].collector(
+            autocommit_pg_connection, logger, *_snapshot_base()
+        )
+        assert rows == []
 
     @pytest.mark.django_db
-    def test_queries_snapshot_degrades_without_extension(self, autocommit_pg_connection):
-        rows = _collect_queries(autocommit_pg_connection, logger, *_snapshot_base())
+    def test_statements_snapshot_degrades_without_extension(self, autocommit_pg_connection):
+        rows = _collect_statements(autocommit_pg_connection, logger, *_snapshot_base())
         with autocommit_pg_connection.cursor() as cur:
             cur.execute("SELECT count(*) FROM pg_extension WHERE extname = 'pg_stat_statements'")
             installed = cur.fetchone()[0] > 0
         if installed:
-            assert rows and set(rows[0].keys()) == _column_names(DATABASE_STATS_QUERIES)
+            assert rows and _SNAPSHOT_COLUMN_NAMES <= set(rows[0].keys())
         else:
             assert rows == []
 
     @pytest.mark.django_db
-    def test_schema_scoped_snapshots_cover_only_that_schema(self, autocommit_pg_connection):
-        # The test database has tables in `public`; a source scoped to another schema must
-        # come back empty rather than exposing schemas it doesn't import.
-        assert _collect_tables(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="public")
-        assert _collect_indexes(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="public")
-        assert _collect_tables(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="not_a_schema") == []
-        assert _collect_indexes(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="not_a_schema") == []
+    @pytest.mark.parametrize("table_name", ["pg_stat_user_tables", "pg_stat_user_indexes", "pg_statio_user_tables"])
+    def test_schema_scoped_snapshots_cover_only_that_schema(self, autocommit_pg_connection, table_name):
+        collector = POSTGRES_STATS_CATALOGS[table_name].collector
+
+        assert collector(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="public")
+        assert collector(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="not_a_schema") == []
 
     @pytest.mark.django_db
     def test_blank_schema_is_treated_as_unscoped(self):
@@ -195,7 +171,7 @@ class TestPostgresStatsCollectors:
             user=sd["USER"] or "",
             password=sd["PASSWORD"] or "",
             database=sd["NAME"],
-            schema_name=DATABASE_STATS_TABLES,
+            schema_name=stats_table_name("pg_stat_user_tables"),
             require_ssl=False,
             logger=logger,
             source_schema="   ",
@@ -203,23 +179,23 @@ class TestPostgresStatsCollectors:
         assert list(cast(Iterable[Any], response.items())) != []
 
 
-def _snapshot_base() -> tuple[datetime, str]:
-    """The (collected_at, snapshot_id) pair the harness normally stamps a snapshot with."""
-    return datetime.now(UTC), uuid.uuid4().hex
+class _ScriptedColumn:
+    def __init__(self, name: str):
+        self.name = name
 
 
 class _ScriptedCursor:
     """Minimal psycopg cursor stand-in: routes execute() by SQL substring.
 
-    Lets tests drive the collector paths the CI database can't produce — an installed
-    pg_stat_statements (with modern or legacy columns, masked text), failing probes, a
-    standby server — without a network connection.
+    Drives the statement-collector paths the CI database can't produce — an installed
+    pg_stat_statements, on modern or legacy column names — without a network connection.
     """
 
     def __init__(self, script: list[tuple[str, Any]], executed: list[str] | None = None):
         self._script = script
         self._executed = executed if executed is not None else []
         self._rows: list[tuple] = []
+        self.description: list[_ScriptedColumn] = []
 
     def __enter__(self):
         return self
@@ -234,7 +210,9 @@ class _ScriptedCursor:
             if fragment in text:
                 if isinstance(outcome, Exception):
                     raise outcome
-                self._rows = list(outcome)
+                columns, rows = outcome
+                self.description = [_ScriptedColumn(name) for name in columns]
+                self._rows = list(rows)
                 return
         raise AssertionError(f"unexpected query in scripted cursor: {text}")
 
@@ -254,108 +232,72 @@ class _ScriptedConnection:
         return _ScriptedCursor(self._script, self.executed)
 
 
-class TestCollectQueriesScripted:
-    _EXTENSION = ("FROM pg_extension e", [("public",)])
+class TestCollectStatementsScripted:
+    _EXTENSION = ("FROM pg_extension e", (["nspname"], [("public",)]))
+    _MODERN_ROWS = (
+        ["userid", "dbid", "queryid", "query", "calls", "total_exec_time", "wal_bytes"],
+        [(10, 5, 123, "SELECT * FROM users WHERE id = $1", 10, 250.0, 4096)],
+    )
 
-    def test_modern_columns_with_masked_text(self):
-        script = [
-            self._EXTENSION,
-            (
-                "total_exec_time",
-                [
-                    ("123", "SELECT * FROM users WHERE id = $1", 10, 250.0, 25.0, 10, 5, 1, 0),
-                    ("456", "<insufficient privilege>", 3, 90.0, None, 3, None, None, None),
-                ],
-            ),
-        ]
-        rows = _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
+    def test_every_catalog_column_survives(self):
+        conn = _ScriptedConnection([self._EXTENSION, ("total_exec_time", self._MODERN_ROWS)])
+        rows = _collect_statements(cast(Any, conn), logger, *_snapshot_base())
 
-        assert [r["query_fingerprint"] for r in rows] == ["123", "456"]
-        assert rows[0]["query_text"] == "SELECT * FROM users WHERE id = $1"
-        assert rows[0]["total_exec_time_ms"] == 250.0
-        # Masked text becomes NULL; counters stay usable.
-        assert rows[1]["query_text"] is None
-        assert rows[1]["mean_exec_time_ms"] is None
-        assert rows[1]["calls"] == 3
+        # Columns this collector used to drop on the floor (wal_bytes, userid, dbid) now
+        # land untouched — that's the whole point of snapshotting the catalog as-is.
+        assert set(rows[0].keys()) == _SNAPSHOT_COLUMN_NAMES | set(self._MODERN_ROWS[0])
+        assert rows[0]["wal_bytes"] == 4096
+        assert rows[0]["query"] == "SELECT * FROM users WHERE id = $1"
 
     def test_legacy_column_names_fall_back(self):
-        script = [
-            self._EXTENSION,
-            ("total_exec_time", psycopg.errors.UndefinedColumn("no such column")),
-            ("total_time", [("789", "SELECT 1", 1, 5.0, 5.0, 1, 0, 0, 0)]),
-        ]
-        rows = _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
-        assert len(rows) == 1
-        assert rows[0]["query_fingerprint"] == "789"
-        assert rows[0]["total_exec_time_ms"] == 5.0
+        legacy = (["queryid", "query", "calls", "total_time"], [(789, "SELECT 1", 1, 5.0)])
+        conn = _ScriptedConnection(
+            [
+                self._EXTENSION,
+                ('ORDER BY "total_exec_time"', psycopg.errors.UndefinedColumn("no such column")),
+                ('ORDER BY "total_time"', legacy),
+            ]
+        )
+        rows = _collect_statements(cast(Any, conn), logger, *_snapshot_base())
+        assert rows[0]["total_time"] == 5.0
 
-    def test_unexpected_column_set_skips_family(self):
-        script = [
-            self._EXTENSION,
-            ("total_exec_time", psycopg.errors.UndefinedColumn("no such column")),
-            ("total_time", psycopg.errors.UndefinedColumn("still no such column")),
-        ]
-        assert _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base()) == []
-
-    def test_schema_scope_does_not_filter_unattributable_statements(self):
-        # pg_stat_statements records no schema, so a schema-restricted source still gets
-        # database-wide statement stats — filtering would empty the family, not scope it.
-        script = [self._EXTENSION, ("total_exec_time", [])]
-        conn = _ScriptedConnection(script)
-        _collect_queries(cast(Any, conn), logger, *_snapshot_base(), source_schema="analytics")
-
-        statements_query = next(q for q in conn.executed if "shared_blks_hit" in q)
-        assert "schemaname" not in statements_query
+    def test_unexpected_column_set_skips_the_catalog(self):
+        conn = _ScriptedConnection(
+            [
+                self._EXTENSION,
+                ('ORDER BY "total_exec_time"', psycopg.errors.UndefinedColumn("no such column")),
+                ('ORDER BY "total_time"', psycopg.errors.UndefinedColumn("still no such column")),
+            ]
+        )
+        assert _collect_statements(cast(Any, conn), logger, *_snapshot_base()) == []
 
     def test_statements_are_scoped_to_the_connected_database(self):
         # pg_stat_statements is cluster-wide; without the dbid filter another database's
         # query text would land in this team's warehouse table.
-        script = [self._EXTENSION, ("total_exec_time", [])]
-        conn = _ScriptedConnection(script)
-        _collect_queries(cast(Any, conn), logger, *_snapshot_base())
+        conn = _ScriptedConnection([self._EXTENSION, ("total_exec_time", self._MODERN_ROWS)])
+        _collect_statements(cast(Any, conn), logger, *_snapshot_base(), source_schema="analytics")
 
-        statements_query = next(q for q in conn.executed if "shared_blks_hit" in q)
+        statements_query = next(q for q in conn.executed if "pg_stat_statements" in q and "ORDER BY" in q)
         assert "dbid = (SELECT oid FROM pg_database WHERE datname = current_database())" in statements_query
+        # ...and no schema filter: pg_stat_statements records no schema, so filtering
+        # would empty the table rather than scope it.
+        assert "schemaname" not in statements_query
 
 
-class TestCollectServerScripted:
-    def test_failing_probe_is_isolated_and_standby_skips_slots(self):
-        script = [
-            ("SHOW server_version", RuntimeError("probe exploded")),
-            ("FROM pg_stat_database", []),  # no row for current_database() → probe returns nothing
-            ("FROM pg_stat_activity", [(7,)]),
-            ("FROM pg_settings", [("max_connections", "100", None)]),
-            ("FROM pg_extension", [(1,)]),
-            ("pg_is_in_recovery", [(True,)]),  # standby: replication-slot lag not measurable
-        ]
-        rows = _collect_server(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
-        metrics = {r["metric_name"] for r in rows}
+def _stats_config(enabled: bool | None) -> PostgresSourceConfig:
+    return PostgresSourceConfig(
+        host="localhost",
+        database="db",
+        user="user",
+        password="password",
+        port=5432,
+        database_stats=None if enabled is None else PostgresDatabaseStatsConfig(enabled=enabled),
+    )
 
-        assert "server_version" not in metrics  # failed probe skipped, others survived
-        assert "numbackends" not in metrics  # empty pg_stat_database row
-        assert "connections_total" in metrics
-        assert "setting_max_connections" in metrics
-        assert "extension_pg_stat_statements" in metrics
-        assert "replication_slot_lag_bytes" not in metrics
 
-    def test_replication_slot_lag_on_primary(self):
-        script = [
-            ("SHOW server_version", [("16.4",)]),
-            ("FROM pg_stat_database", [(1, 2, 3, 4, 5, 6, 7, 8)]),
-            ("FROM pg_stat_activity", [(1,)]),
-            ("FROM pg_settings", []),
-            ("FROM pg_extension", [(0,)]),
-            ("pg_is_in_recovery", [(False,)]),
-            ("FROM pg_replication_slots", [("cdc_slot", True, 12345.0), ("stale_slot", False, None)]),
-        ]
-        conn = _ScriptedConnection(script)
-        rows = _collect_server(cast(Any, conn), logger, *_snapshot_base())
-        slots = {r["metric_text"]: r["metric_value"] for r in rows if r["metric_name"] == "replication_slot_lag_bytes"}
-
-        assert slots == {"cdc_slot": 12345.0, "stale_slot": None}
-        # Slots are a cluster-wide catalog — another database's slot names must not leak.
-        slots_query = next(q for q in conn.executed if "pg_replication_slots" in q)
-        assert "WHERE database = current_database()" in slots_query
+@contextmanager
+def _fake_tunnel(*args, **kwargs):
+    yield ("localhost", 5432)
 
 
 @contextmanager
@@ -363,31 +305,36 @@ def _fake_tunnel_to(settings_dict):
     yield (settings_dict["HOST"] or "localhost", int(settings_dict["PORT"] or 5432))
 
 
-class TestStatsSourceRouting:
-    @pytest.mark.django_db
-    def test_source_for_pipeline_routes_stats_schema_to_collector(self, team):
-        sd = django_connection.settings_dict
-        source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            destination_id=str(uuid.uuid4()),
-            team=team,
-            status="running",
-            source_type="Postgres",
-            job_inputs={},
+class TestGetSchemasInjection:
+    DISCOVERED = {
+        "users": PostgresDiscoveredSchema(
+            source_catalog=None,
+            source_schema="public",
+            source_table_name="users",
+            columns=[("id", "integer", False), ("updated_at", "timestamp with time zone", True)],
         )
-        # Pre-SSL-cutoff creation date so the routing test can connect to the local
-        # (non-SSL) test database.
-        ExternalDataSource.objects.filter(id=source.id).update(created_at="2023-01-01T00:00:00Z")
-        source.refresh_from_db()
-        schema_row = ExternalDataSchema.objects.create(
-            name=DATABASE_STATS_SERVER,
-            team_id=team.pk,
-            source_id=source.pk,
-            sync_type="append",
-            sync_type_config={"incremental_field": "collected_at", "incremental_field_type": "DateTime"},
-        )
+    }
+    _STATS_COLUMNS = {name: [("some_column", "bigint", True)] for name in POSTGRES_STATS_CATALOGS}
 
+    @contextmanager
+    def _patched_discovery(self, discovered: dict[str, PostgresDiscoveredSchema]):
+        base = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
+        with (
+            patch(f"{base}.get_postgres_schemas", return_value=discovered),
+            patch(f"{base}.get_postgres_foreign_keys", return_value={}),
+            patch(f"{base}.fetch_postgres_stats_columns", return_value=self._STATS_COLUMNS),
+            # The PK/index/RLS/xmin metadata connection is best-effort; a real connection
+            # isn't available here, so exercise the degradation path.
+            patch(f"{base}.pg_connection", side_effect=Exception("no metadata connection")),
+            patch.object(PostgresSource, "with_ssh_tunnel", side_effect=_fake_tunnel),
+        ):
+            yield
+
+    @pytest.mark.django_db
+    def test_stats_tables_are_appended_with_the_server_s_own_columns(self):
+        # Real connection to the test database: the declared columns must be the ones
+        # this server reports, not a hardcoded list.
+        sd = django_connection.settings_dict
         config = PostgresSourceConfig(
             host=sd["HOST"] or "localhost",
             database=sd["NAME"],
@@ -396,8 +343,63 @@ class TestStatsSourceRouting:
             port=int(sd["PORT"] or 5432),
             database_stats=PostgresDatabaseStatsConfig(enabled=True),
         )
-        inputs = SourceInputs(
-            schema_name=DATABASE_STATS_SERVER,
+        base = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
+        with (
+            patch(f"{base}.get_postgres_schemas", return_value=self.DISCOVERED),
+            patch(f"{base}.get_postgres_foreign_keys", return_value={}),
+            patch.object(
+                PostgresSource,
+                "with_ssh_tunnel",
+                side_effect=lambda *a, **kw: _fake_tunnel_to(sd),
+            ),
+        ):
+            schemas = PostgresSource().get_schemas(config, team_id=1)
+
+        by_name = {s.name: s for s in schemas}
+        assert "users" in by_name
+        assert stats_table_name("pg_stat_user_tables") in by_name
+
+        declared = [c[0] for c in by_name[stats_table_name("pg_stat_user_tables")].columns]
+        assert declared[:2] == ["collected_at", "snapshot_id"]
+        assert {"relname", "seq_scan", "n_dead_tup"} <= set(declared)
+        assert declared[-1] == "total_size_bytes"
+
+    def test_stats_tables_absent_when_metadata_connection_fails(self):
+        # Statistics columns are read on the same connection as the PK/index metadata, so
+        # when that connection dies there are no columns to declare and the statistics
+        # tables are left out rather than declared empty.
+        with self._patched_discovery(self.DISCOVERED):
+            schemas = PostgresSource().get_schemas(_stats_config(enabled=True), team_id=1)
+        assert [s.name for s in schemas] == ["users"]
+
+    @pytest.mark.parametrize("enabled", [False, None])
+    def test_stats_tables_absent_when_disabled(self, enabled):
+        with self._patched_discovery(self.DISCOVERED):
+            schemas = PostgresSource().get_schemas(_stats_config(enabled=enabled), team_id=1)
+        assert [s.name for s in schemas] == ["users"]
+
+
+class TestStatsSourceRouting:
+    def _source(self, team, *, job_inputs=None, pre_ssl_cutoff=False) -> ExternalDataSource:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Postgres",
+            job_inputs=job_inputs or {},
+        )
+        if pre_ssl_cutoff:
+            # Pre-SSL-cutoff creation date so the test can reach the local (non-SSL)
+            # test database.
+            ExternalDataSource.objects.filter(id=source.id).update(created_at="2023-01-01T00:00:00Z")
+            source.refresh_from_db()
+        return source
+
+    def _inputs(self, team, source, schema_row) -> SourceInputs:
+        return SourceInputs(
+            schema_name=schema_row.name,
             schema_id=str(schema_row.id),
             source_id=str(source.id),
             team_id=team.pk,
@@ -411,35 +413,48 @@ class TestStatsSourceRouting:
             reset_pipeline=False,
         )
 
-        response = PostgresSource().source_for_pipeline(config, inputs)
+    @pytest.mark.django_db
+    def test_source_for_pipeline_routes_a_stats_table_to_its_collector(self, team):
+        sd = django_connection.settings_dict
+        source = self._source(team, pre_ssl_cutoff=True)
+        schema_row = ExternalDataSchema.objects.create(
+            name=stats_table_name("pg_stat_user_tables"),
+            team_id=team.pk,
+            source_id=source.pk,
+            sync_type="append",
+            sync_type_config={"incremental_field": "collected_at", "incremental_field_type": "DateTime"},
+        )
+        config = PostgresSourceConfig(
+            host=sd["HOST"] or "localhost",
+            database=sd["NAME"],
+            user=sd["USER"] or "",
+            password=sd["PASSWORD"] or "",
+            port=int(sd["PORT"] or 5432),
+            database_stats=PostgresDatabaseStatsConfig(enabled=True),
+        )
 
-        assert response.name == DATABASE_STATS_SERVER
+        response = PostgresSource().source_for_pipeline(config, self._inputs(team, source, schema_row))
+
+        # Storage name, normalized the same way any qualified table's is (dots become
+        # underscores) so HogQL reads from where the pipeline wrote.
+        assert response.name == NamingConvention.normalize_identifier(stats_table_name("pg_stat_user_tables"))
         rows = list(cast(Iterable[Any], response.items()))
-        assert rows, "expected server metrics from the test database"
-        assert {r["metric_name"] for r in rows} >= {"server_version", "connections_total"}
-        assert all(set(r.keys()) == _column_names(DATABASE_STATS_SERVER) for r in rows)
+        assert rows, "expected table statistics from the test database"
+        assert {"relname", "seq_scan", "total_size_bytes"} <= set(rows[0].keys())
 
     @pytest.mark.django_db
     def test_colliding_real_table_syncs_as_a_table_despite_toggle(self, team):
-        # Greptile finding on #72975: a user's own bare table named database_stats_server
-        # must keep the normal table-sync path. Its row carries source_table_name in the
-        # reconciled schema_metadata; injected stats rows never do.
-        source = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            destination_id=str(uuid.uuid4()),
-            team=team,
-            status="running",
-            source_type="Postgres",
-            job_inputs={},
-        )
+        # A user's own table in a schema called `system_tables` must keep the normal
+        # table-sync path. Its row carries source_table_name in the reconciled
+        # schema_metadata; injected statistics rows never do.
+        source = self._source(team)
         schema_row = ExternalDataSchema.objects.create(
-            name=DATABASE_STATS_SERVER,
+            name=stats_table_name("pg_settings"),
             team_id=team.pk,
             source_id=source.pk,
             sync_type="full_refresh",
             sync_type_config={
-                "schema_metadata": {"source_schema": "public", "source_table_name": "database_stats_server"}
+                "schema_metadata": {"source_schema": "system_tables", "source_table_name": "pg_settings"}
             },
         )
         config = PostgresSourceConfig(
@@ -450,27 +465,12 @@ class TestStatsSourceRouting:
             port=5432,
             database_stats=PostgresDatabaseStatsConfig(enabled=True),
         )
-        inputs = SourceInputs(
-            schema_name=DATABASE_STATS_SERVER,
-            schema_id=str(schema_row.id),
-            source_id=str(source.id),
-            team_id=team.pk,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            db_incremental_field_earliest_value=None,
-            incremental_field=None,
-            incremental_field_type=None,
-            job_id=str(uuid.uuid4()),
-            logger=logger,
-            reset_pipeline=False,
-        )
-        sentinel = object()
         base = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
         with (
             patch(f"{base}.postgres_source", return_value=MagicMock(name="table_response")) as table_source,
-            patch(f"{base}.postgres_database_stats_source", return_value=sentinel) as stats_source,
+            patch(f"{base}.postgres_database_stats_source") as stats_source,
         ):
-            PostgresSource().source_for_pipeline(config, inputs)
+            PostgresSource().source_for_pipeline(config, self._inputs(team, source, schema_row))
 
         table_source.assert_called_once()
         stats_source.assert_not_called()

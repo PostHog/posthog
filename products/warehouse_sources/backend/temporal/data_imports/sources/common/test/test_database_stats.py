@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Iterable
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,15 +12,14 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
-    DATABASE_STATS_COLUMNS,
-    DATABASE_STATS_SCHEMA_NAMES,
-    DATABASE_STATS_SERVER,
+    DATABASE_STATS_SCHEMA,
+    DatabaseStatsCatalog,
+    build_database_stats_schemas,
     build_database_stats_source_response,
-    build_database_stats_source_schemas,
     database_stats_enabled,
     is_database_stats_schema,
     is_database_stats_schema_row,
-    maybe_append_database_stats_schemas,
+    stats_table_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -28,6 +28,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 
 logger = structlog.get_logger()
+
+
+def _catalog(table_name: str = "some_stat_view", **kwargs) -> DatabaseStatsCatalog:
+    return DatabaseStatsCatalog(
+        table_name=table_name,
+        description=f"Snapshots of {table_name}.",
+        collector=kwargs.pop("collector", MagicMock(return_value=[])),
+        catalog_relation=kwargs.pop("catalog_relation", table_name),
+        **kwargs,
+    )
+
+
+_CATALOGS = {c.table_name: c for c in (_catalog("some_stat_view"), _catalog("other_stat_view"))}
+_COLUMNS = {
+    "some_stat_view": [("relname", "name", True), ("seq_scan", "bigint", True)],
+    "other_stat_view": [("datname", "name", True)],
+}
 
 
 def _discovered(name: str) -> SourceSchema:
@@ -47,60 +64,89 @@ class TestDatabaseStatsEnabled:
         assert database_stats_enabled(SimpleNamespace(database_stats=stats_config)) is expected
 
 
-class TestBuildDatabaseStatsSourceSchemas:
-    def test_builds_all_four_schemas_with_append_defaults(self):
-        schemas = build_database_stats_source_schemas(["public.users", "orders"])
+class TestStatsTableNaming:
+    def test_tables_are_presented_under_the_system_tables_schema(self):
+        assert stats_table_name("pg_settings") == f"{DATABASE_STATS_SCHEMA}.pg_settings"
 
-        assert [s.name for s in schemas] == list(DATABASE_STATS_SCHEMA_NAMES)
-        defaults = build_default_schemas(schemas)
+    def test_only_this_source_s_catalogs_are_recognised(self):
+        assert is_database_stats_schema(stats_table_name("some_stat_view"), _CATALOGS) is True
+        assert is_database_stats_schema(stats_table_name("not_a_catalog"), _CATALOGS) is False
+        assert is_database_stats_schema("some_stat_view", _CATALOGS) is False
+        assert is_database_stats_schema(stats_table_name("some_stat_view"), {}) is False
+
+
+class TestBuildDatabaseStatsSchemas:
+    def test_schemas_declare_snapshot_columns_then_the_catalog_s_own(self):
+        schemas = build_database_stats_schemas(_CATALOGS, _COLUMNS, ["public.users"])
+
+        assert [s.name for s in schemas] == [
+            stats_table_name("some_stat_view"),
+            stats_table_name("other_stat_view"),
+        ]
+        assert [c[0] for c in schemas[0].columns] == ["collected_at", "snapshot_id", "relname", "seq_scan"]
+
+    def test_computed_columns_are_appended(self):
+        catalogs = {"some_stat_view": _catalog(computed_columns=(("total_size_bytes", "bigint", True),))}
+        schemas = build_database_stats_schemas(catalogs, _COLUMNS, [])
+        assert [c[0] for c in schemas[0].columns][-1] == "total_size_bytes"
+
+    def test_static_columns_replace_the_server_lookup(self):
+        catalogs = {"derived": _catalog("derived", catalog_relation=None, static_columns=(("state", "text", True),))}
+        schemas = build_database_stats_schemas(catalogs, {}, [])
+        assert [c[0] for c in schemas[0].columns] == ["collected_at", "snapshot_id", "state"]
+
+    def test_catalog_the_server_does_not_expose_is_skipped(self):
+        # e.g. pg_stat_statements when the extension isn't installed: no columns, so the
+        # table isn't offered at all rather than declared empty.
+        schemas = build_database_stats_schemas(_CATALOGS, {"some_stat_view": _COLUMNS["some_stat_view"]}, [])
+        assert [s.name for s in schemas] == [stats_table_name("some_stat_view")]
+
+    def test_snapshots_default_to_append_on_collected_at(self):
+        defaults = build_default_schemas(build_database_stats_schemas(_CATALOGS, _COLUMNS, []))
         for default in defaults:
             assert default["should_sync"] is True
             assert default["sync_type"] == "append"
             assert default["incremental_field"] == "collected_at"
 
-    def test_collision_with_discovered_table_drops_that_schema(self):
-        # Bare↔qualified equivalence: `public.database_stats_server` must collide with the
-        # bare injected name, matching sync_old_schemas_with_new_schemas' matching rules.
-        schemas = build_database_stats_source_schemas(["public.database_stats_server"])
-        assert DATABASE_STATS_SERVER not in [s.name for s in schemas]
-        assert len(schemas) == len(DATABASE_STATS_SCHEMA_NAMES) - 1
+    @pytest.mark.parametrize("discovered_name", ["system_tables.some_stat_view", "some_stat_view"])
+    def test_collision_with_a_discovered_table_drops_that_catalog(self, discovered_name):
+        # Both the qualified name and a bare one collide, matching
+        # sync_old_schemas_with_new_schemas' bare↔qualified equivalence.
+        schemas = build_database_stats_schemas(_CATALOGS, _COLUMNS, [discovered_name])
+        assert [s.name for s in schemas] == [stats_table_name("other_stat_view")]
 
-    def test_every_schema_declares_snapshot_columns(self):
-        for name in DATABASE_STATS_SCHEMA_NAMES:
-            declared = {column_name for column_name, _, _ in DATABASE_STATS_COLUMNS[name]}
-            assert {"collected_at", "snapshot_id"} <= declared
+    def test_names_filter_limits_the_tables(self):
+        schemas = build_database_stats_schemas(_CATALOGS, _COLUMNS, [], ["users", stats_table_name("other_stat_view")])
+        assert [s.name for s in schemas] == [stats_table_name("other_stat_view")]
 
 
-class TestMaybeAppendDatabaseStatsSchemas:
-    def test_config_without_toggle_returns_listing_unchanged(self):
-        schemas = [_discovered("users")]
-        assert maybe_append_database_stats_schemas(SimpleNamespace(), schemas, None) is schemas
+class TestIsDatabaseStatsSchemaRow:
+    def test_non_stats_name_is_never_a_stats_row(self):
+        assert is_database_stats_schema_row("public.users", None, _CATALOGS) is False
 
-    def test_disabled_toggle_returns_listing_unchanged(self):
-        schemas = [_discovered("users")]
-        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=False))
-        assert maybe_append_database_stats_schemas(config, schemas, None) is schemas
+    @pytest.mark.parametrize("schema_metadata", [None, {}, {"source_table_name": None}])
+    def test_stats_name_without_source_table_is_a_stats_row(self, schema_metadata):
+        assert is_database_stats_schema_row(stats_table_name("some_stat_view"), schema_metadata, _CATALOGS) is True
 
-    def test_enabled_toggle_appends_stats_schemas(self):
-        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
-        result = maybe_append_database_stats_schemas(config, [_discovered("users")], None)
-        assert [s.name for s in result] == ["users", *DATABASE_STATS_SCHEMA_NAMES]
-
-    def test_names_filter_limits_appended_schemas(self):
-        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
-        result = maybe_append_database_stats_schemas(config, [_discovered("users")], ["users", DATABASE_STATS_SERVER])
-        assert [s.name for s in result] == ["users", DATABASE_STATS_SERVER]
+    def test_stats_name_backed_by_a_real_table_is_not_a_stats_row(self):
+        metadata = {"source_schema": "system_tables", "source_table_name": "some_stat_view"}
+        assert is_database_stats_schema_row(stats_table_name("some_stat_view"), metadata, _CATALOGS) is False
 
 
 class _StubSQLSource(SQLSource):
-    """Minimal concrete SQLSource: only what source_for_pipeline touches."""
+    """Minimal concrete SQLSource: only what get_schemas and source_for_pipeline touch."""
 
-    def __init__(self, implementation: Any):
+    def __init__(self, implementation: Any, catalogs: Any = None, stats_columns: Any = None):
         self._implementation = implementation
+        self.database_stats_catalogs = catalogs or {}
+        self._stats_columns = stats_columns or {}
 
     @property
     def get_implementation(self) -> Any:
         return self._implementation
+
+    def fetch_database_stats_columns(self, conn: Any, config: Any) -> dict[str, list[tuple[str, str, bool]]]:
+        return self._stats_columns
 
     @property
     def source_type(self):  # pragma: no cover - not exercised
@@ -120,10 +166,10 @@ class _StubSQLSource(SQLSource):
         raise NotImplementedError
 
 
-def _inputs(schema_name: str) -> SourceInputs:
+def _inputs(schema_name: str, schema_id: str = "schema-id") -> SourceInputs:
     return SourceInputs(
         schema_name=schema_name,
-        schema_id="schema-id",
+        schema_id=schema_id,
         source_id="source-id",
         team_id=1,
         should_use_incremental_field=False,
@@ -138,43 +184,37 @@ def _inputs(schema_name: str) -> SourceInputs:
 
 
 class TestSQLSourceGetSchemasStatsInjection:
-    def _source_with_empty_listing(self) -> _StubSQLSource:
+    def _source(self, columns_by_table: dict) -> _StubSQLSource:
         implementation = MagicMock()
-        implementation.get_columns.return_value = {}
-        return _StubSQLSource(implementation)
+        implementation.get_columns.return_value = columns_by_table
+        return _StubSQLSource(implementation, catalogs=_CATALOGS, stats_columns=_COLUMNS)
 
-    def test_empty_listing_still_surfaces_stats_schemas_when_enabled(self):
+    def test_empty_listing_still_surfaces_stats_tables_when_enabled(self):
         # A database with no (matching) user tables — or a names filter listing only
-        # stats schemas — must still surface them when the source opted in.
+        # statistics tables — must still surface them when the source opted in.
         config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
-        schemas = self._source_with_empty_listing().get_schemas(cast(Any, config), team_id=1)
-        assert [s.name for s in schemas] == list(DATABASE_STATS_SCHEMA_NAMES)
+        schemas = self._source({}).get_schemas(cast(Any, config), team_id=1)
+        assert [s.name for s in schemas] == [
+            stats_table_name("some_stat_view"),
+            stats_table_name("other_stat_view"),
+        ]
 
     def test_empty_listing_stays_empty_without_toggle(self):
-        schemas = self._source_with_empty_listing().get_schemas(cast(Any, SimpleNamespace()), team_id=1)
+        schemas = self._source({}).get_schemas(cast(Any, SimpleNamespace()), team_id=1)
         assert schemas == []
 
-
-class TestIsDatabaseStatsSchemaRow:
-    def test_non_stats_name_is_never_a_stats_row(self):
-        assert is_database_stats_schema_row("users", None) is False
-
-    @pytest.mark.parametrize("schema_metadata", [None, {}, {"source_table_name": None}])
-    def test_stats_name_without_source_table_is_a_stats_row(self, schema_metadata):
-        assert is_database_stats_schema_row(DATABASE_STATS_SERVER, schema_metadata) is True
-
-    def test_stats_name_backed_by_a_real_table_is_not_a_stats_row(self):
-        metadata = {"source_table_name": "database_stats_server", "source_schema": "public"}
-        assert is_database_stats_schema_row(DATABASE_STATS_SERVER, metadata) is False
+    def test_source_without_catalogs_is_untouched(self):
+        implementation = MagicMock()
+        implementation.get_columns.return_value = {}
+        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
+        assert _StubSQLSource(implementation).get_schemas(cast(Any, config), team_id=1) == []
 
 
 def _schema_row(team, name: str, schema_metadata: dict | None) -> ExternalDataSchema:
-    import uuid as _uuid
-
     source = ExternalDataSource.objects.create(
-        source_id=str(_uuid.uuid4()),
-        connection_id=str(_uuid.uuid4()),
-        destination_id=str(_uuid.uuid4()),
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
         team=team,
         status="running",
         source_type="Postgres",
@@ -191,40 +231,36 @@ def _schema_row(team, name: str, schema_metadata: dict | None) -> ExternalDataSc
 
 class TestSQLSourceStatsRouting:
     @pytest.mark.django_db
-    def test_stats_schema_with_toggle_enabled_requires_override(self, team):
-        row = _schema_row(team, DATABASE_STATS_SERVER, None)
-        source = _StubSQLSource(MagicMock())
+    def test_stats_table_with_toggle_enabled_requires_override(self, team):
+        row = _schema_row(team, stats_table_name("some_stat_view"), None)
+        source = _StubSQLSource(MagicMock(), catalogs=_CATALOGS)
         config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
-        inputs = _inputs(DATABASE_STATS_SERVER)
-        inputs.schema_id = str(row.id)
         with pytest.raises(NotImplementedError):
-            source.source_for_pipeline(cast(Any, config), inputs)
+            source.source_for_pipeline(cast(Any, config), _inputs(row.name, str(row.id)))
 
     @pytest.mark.django_db
     def test_colliding_real_table_goes_to_build_pipeline_despite_toggle(self, team):
-        # A user's own table named database_stats_* (its row carries source_table_name)
-        # must keep syncing as a table even with statistics enabled.
         row = _schema_row(
             team,
-            DATABASE_STATS_SERVER,
-            {"source_table_name": "database_stats_server", "source_schema": "public"},
+            stats_table_name("some_stat_view"),
+            {"source_schema": "system_tables", "source_table_name": "some_stat_view"},
         )
         implementation = MagicMock()
-        source = _StubSQLSource(implementation)
+        source = _StubSQLSource(implementation, catalogs=_CATALOGS)
         config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
-        inputs = _inputs(DATABASE_STATS_SERVER)
-        inputs.schema_id = str(row.id)
+        inputs = _inputs(row.name, str(row.id))
 
         source.source_for_pipeline(cast(Any, config), inputs)
 
         implementation.build_pipeline.assert_called_once_with(config, inputs)
 
-    def test_stats_named_schema_without_toggle_goes_to_build_pipeline(self):
-        # No opt-in: short-circuits before any row lookup, so no database needed.
+    def test_source_without_catalogs_never_looks_up_a_row(self):
+        # No catalogs means no statistics feature, so routing short-circuits before any
+        # database access — the schema_id here doesn't exist.
         implementation = MagicMock()
         source = _StubSQLSource(implementation)
-        config = SimpleNamespace()
-        inputs = _inputs(DATABASE_STATS_SERVER)
+        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
+        inputs = _inputs(stats_table_name("some_stat_view"))
 
         source.source_for_pipeline(cast(Any, config), inputs)
 
@@ -232,9 +268,9 @@ class TestSQLSourceStatsRouting:
 
     def test_regular_schema_goes_to_build_pipeline_with_toggle_enabled(self):
         implementation = MagicMock()
-        source = _StubSQLSource(implementation)
+        source = _StubSQLSource(implementation, catalogs=_CATALOGS)
         config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
-        inputs = _inputs("users")
+        inputs = _inputs("public.users")
 
         source.source_for_pipeline(cast(Any, config), inputs)
 
@@ -242,50 +278,50 @@ class TestSQLSourceStatsRouting:
 
 
 class TestBuildDatabaseStatsSourceResponse:
-    def test_unknown_schema_name_raises(self):
+    def _open_connection(self) -> MagicMock:
+        open_connection = MagicMock()
+        open_connection.return_value.__enter__ = MagicMock(return_value=object())
+        open_connection.return_value.__exit__ = MagicMock(return_value=False)
+        return open_connection
+
+    def test_unknown_table_raises(self):
         with pytest.raises(ValueError):
             build_database_stats_source_response(
-                schema_name="not_a_stats_schema",
+                schema_name=stats_table_name("not_a_catalog"),
+                catalogs=_CATALOGS,
                 collectors={},
                 open_connection=MagicMock(),
                 logger=logger,
             )
 
-    def test_collector_failure_yields_empty_snapshot(self):
+    def test_collector_failure_yields_an_empty_snapshot(self):
         def _boom(conn, log, collected_at, snapshot_id):
-            raise RuntimeError("family exploded")
-
-        open_connection = MagicMock()
-        open_connection.return_value.__enter__ = MagicMock(return_value=object())
-        open_connection.return_value.__exit__ = MagicMock(return_value=False)
+            raise RuntimeError("catalog exploded")
 
         response = build_database_stats_source_response(
-            schema_name=DATABASE_STATS_SERVER,
-            collectors={DATABASE_STATS_SERVER: _boom},
-            open_connection=open_connection,
+            schema_name=stats_table_name("some_stat_view"),
+            catalogs=_CATALOGS,
+            collectors={"some_stat_view": _boom},
+            open_connection=self._open_connection(),
             logger=logger,
         )
         assert list(cast(Iterable[Any], response.items())) == []
 
-    def test_rows_are_stamped_with_shared_snapshot_identity(self):
+    def test_rows_are_stamped_with_one_shared_snapshot_identity(self):
         seen: dict[str, Any] = {}
 
         def _collector(conn, log, collected_at, snapshot_id):
             seen["collected_at"] = collected_at
             seen["snapshot_id"] = snapshot_id
-            return [{"collected_at": collected_at, "snapshot_id": snapshot_id, "metric_name": "x"}]
-
-        open_connection = MagicMock()
-        open_connection.return_value.__enter__ = MagicMock(return_value=object())
-        open_connection.return_value.__exit__ = MagicMock(return_value=False)
+            return [{"collected_at": collected_at, "snapshot_id": snapshot_id, "relname": "users"}]
 
         response = build_database_stats_source_response(
-            schema_name=DATABASE_STATS_SERVER,
-            collectors={DATABASE_STATS_SERVER: _collector},
-            open_connection=open_connection,
+            schema_name=stats_table_name("some_stat_view"),
+            catalogs=_CATALOGS,
+            collectors={"some_stat_view": _collector},
+            open_connection=self._open_connection(),
             logger=logger,
         )
         rows = list(cast(Iterable[Any], response.items()))
         assert rows[0]["snapshot_id"] == seen["snapshot_id"]
         assert rows[0]["collected_at"] == seen["collected_at"]
-        assert is_database_stats_schema(DATABASE_STATS_SERVER)

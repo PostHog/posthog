@@ -1,15 +1,17 @@
-"""Postgres collector for the opt-in database-statistics schemas.
+"""Postgres statistics catalogs for the opt-in database-statistics schemas.
 
-Each sync run of an injected ``database_stats_*`` schema appends one snapshot of the
-matching statistics catalog, tagged with ``collected_at``/``snapshot_id``. Counters are
-stored raw and cumulative (deltas are derived downstream). Every family degrades on
-permission or availability problems by returning no rows for the parts it can't read —
-a restricted user still gets everything Postgres exposes to PUBLIC, and a missing
-``pg_stat_statements`` extension only empties the queries family.
+Each catalog is snapshotted as the server exposes it — ``SELECT *`` plus the snapshot
+identity, and, where Postgres only offers a value as a function call (relation sizes,
+index definitions, slot lag), one clearly-named computed column. No renaming, no
+reshaping, no dropped columns: ``pg_stat_user_tables`` in the warehouse has the columns
+a DBA expects from ``pg_stat_user_tables``.
+
+Every catalog degrades independently: one the credentials can't read appends an empty
+snapshot with a warning rather than failing the sync, so a plain read-only user still
+gets everything Postgres exposes to PUBLIC.
 """
 
-import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import datetime
 from functools import partial
@@ -21,52 +23,44 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
-    DATABASE_STATS_INDEXES,
-    DATABASE_STATS_QUERIES,
-    DATABASE_STATS_SERVER,
-    DATABASE_STATS_TABLES,
+    DatabaseStatsCatalog,
     build_database_stats_source_response,
+    snapshot_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _normalize_selected_schema,
     pg_connection,
 )
 
-# Row caps per snapshot. Queries are ranked by cumulative execution time so the cap keeps
-# the statements that matter; tables/indexes are ranked by size for the same reason.
-QUERIES_SNAPSHOT_LIMIT = 500
+# Row caps per snapshot. Statements are ranked by cumulative execution time and tables
+# and indexes by size, so the cap keeps the rows that matter.
+STATEMENTS_SNAPSHOT_LIMIT = 500
 TABLES_SNAPSHOT_LIMIT = 5_000
 INDEXES_SNAPSHOT_LIMIT = 10_000
 
-# pg_stat_statements shows every statement's counters to any user, but replaces the text
-# of other users' queries with this literal unless the role has pg_read_all_stats.
-_INSUFFICIENT_PRIVILEGE_TEXT = "<insufficient privilege>"
-
-# Appended to the table/index catalog queries when the source is scoped to one schema, so
-# the snapshot covers only what that source imports. `pg_stat_statements` has no schema
-# attribution to filter on — see the note on `_collect_queries`.
-_SCHEMA_PREDICATE = "WHERE s.schemaname = %s"
-
-# Settings worth snapshotting for health analysis: memory/planner knobs, autovacuum, and
-# connection limits. Stored as text metrics (values keep Postgres' native unit strings).
-_SETTINGS_OF_INTEREST = (
-    "max_connections",
-    "shared_buffers",
-    "work_mem",
-    "maintenance_work_mem",
-    "effective_cache_size",
-    "random_page_cost",
-    "autovacuum",
-    "autovacuum_vacuum_scale_factor",
-    "autovacuum_analyze_scale_factor",
-    "max_wal_size",
-    "wal_level",
-    "statement_timeout",
-)
+# Restricts the table and index catalogs to the schema the source imports from. Applied
+# only when the source is scoped to one schema; `pg_stat_statements` carries no schema
+# attribution to filter on — see `_collect_statements`.
+_SCHEMA_PREDICATE = sql.SQL("WHERE s.schemaname = {schema}")
 
 
-def _base_row(collected_at: datetime, snapshot_id: str) -> dict[str, Any]:
-    return {"collected_at": collected_at, "snapshot_id": snapshot_id}
+class _PostgresStatsCollector(Protocol):
+    """A Postgres collector: the generic contract plus this engine's schema scope."""
+
+    def __call__(
+        self,
+        conn: psycopg.Connection,
+        logger: FilteringBoundLogger,
+        collected_at: datetime,
+        snapshot_id: str,
+        source_schema: str | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+
+def _scope_predicate(source_schema: str | None) -> sql.SQL | sql.Composed:
+    if not source_schema:
+        return sql.SQL("")
+    return _SCHEMA_PREDICATE.format(schema=sql.Literal(source_schema))
 
 
 def _pg_stat_statements_relation(cur: psycopg.Cursor) -> sql.Identifier | None:
@@ -89,7 +83,7 @@ def _pg_stat_statements_relation(cur: psycopg.Cursor) -> sql.Identifier | None:
     return sql.Identifier(row[0], "pg_stat_statements")
 
 
-def _collect_queries(
+def _collect_statements(
     conn: psycopg.Connection,
     logger: FilteringBoundLogger,
     collected_at: datetime,
@@ -98,38 +92,39 @@ def _collect_queries(
 ) -> list[dict[str, Any]]:
     """Snapshot per-statement stats for the connected database.
 
-    Unlike the table and index catalogs, `pg_stat_statements` records no schema for a
-    statement — a single entry can touch several schemas, or none resolvable without
-    parsing SQL against the server's `search_path`. So this family stays scoped to the
-    database, like the other server-level metrics, and `source_schema` only marks that a
-    scope exists. On a schema-restricted source that means normalized text here can
-    mention objects in other schemas of the same database.
+    Scoped to the current `dbid`: pg_stat_statements is cluster-wide (one row per
+    userid/dbid/queryid), so other databases' query text must never land in this team's
+    warehouse, and an unscoped top-N would spend its budget on their traffic.
+
+    Not scoped by schema: pg_stat_statements records no schema for a statement — one
+    entry can touch several schemas, or none resolvable without parsing SQL against the
+    server's `search_path`. Omitting unattributable rows would empty the table rather
+    than scope it, so on a schema-restricted source the normalized text here can mention
+    objects in other schemas of the same database.
     """
     with conn.cursor() as cur:
         relation = _pg_stat_statements_relation(cur)
         if relation is None:
-            logger.info("database_stats: pg_stat_statements is not installed, queries snapshot will be empty")
+            logger.info("database_stats: pg_stat_statements is not installed, snapshot will be empty")
             return []
 
-        # pg_stat_statements is cluster-wide (one row per userid/dbid/queryid), so scope it
-        # to the connected database: other databases' query text must never land in this
-        # team's warehouse, and an unscoped top-N would spend its budget on their traffic.
-        # Column names changed in pg_stat_statements 1.8 (total_time -> total_exec_time);
-        # try the modern names first and fall back for older extension versions.
-        for time_cols in ("total_exec_time, mean_exec_time", "total_time, mean_time"):
+        # `total_exec_time` was `total_time` before pg_stat_statements 1.8; order by
+        # whichever this server has so the row cap keeps the most expensive statements.
+        for order_column in ("total_exec_time", "total_time"):
             try:
                 cur.execute(
                     sql.SQL(
                         """
-                        SELECT queryid::text, query, calls, {time_cols}, rows,
-                               shared_blks_hit, shared_blks_read, temp_blks_written
-                        FROM {relation}
+                        SELECT * FROM {relation}
                         WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-                        ORDER BY 4 DESC
-                        LIMIT %s
+                        ORDER BY {order_column} DESC
+                        LIMIT {limit}
                         """
-                    ).format(time_cols=sql.SQL(time_cols), relation=relation),
-                    (QUERIES_SNAPSHOT_LIMIT,),
+                    ).format(
+                        relation=relation,
+                        order_column=sql.Identifier(order_column),
+                        limit=sql.Literal(STATEMENTS_SNAPSHOT_LIMIT),
+                    )
                 )
                 break
             except psycopg.errors.UndefinedColumn:
@@ -138,26 +133,7 @@ def _collect_queries(
             logger.warning("database_stats: pg_stat_statements has an unexpected column set, skipping")
             return []
 
-        rows = []
-        for queryid, query_text, calls, total_time, mean_time, n_rows, blks_hit, blks_read, temp_written in cur:
-            rows.append(
-                {
-                    **_base_row(collected_at, snapshot_id),
-                    "query_fingerprint": queryid,
-                    # Without pg_read_all_stats other users' query text is masked — store
-                    # NULL so downstream never treats the placeholder as a real statement.
-                    "query_text": None if query_text == _INSUFFICIENT_PRIVILEGE_TEXT else query_text,
-                    "calls": calls,
-                    "total_exec_time_ms": float(total_time) if total_time is not None else None,
-                    "mean_exec_time_ms": float(mean_time) if mean_time is not None else None,
-                    "rows_processed": n_rows,
-                    "cache_hit_blocks": blks_hit,
-                    "cache_read_blocks": blks_read,
-                    "temp_blocks_written": temp_written,
-                    "extra": None,
-                }
-            )
-        return rows
+        return snapshot_rows(cur, collected_at, snapshot_id)
 
 
 def _collect_tables(
@@ -169,60 +145,17 @@ def _collect_tables(
 ) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
-            f"""
-            SELECT s.schemaname, s.relname,
-                   pg_total_relation_size(s.relid),
-                   c.reltuples::bigint,
-                   s.n_live_tup, s.n_dead_tup, s.seq_scan, s.idx_scan, s.n_mod_since_analyze,
-                   s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze,
-                   io.heap_blks_hit, io.heap_blks_read
-            FROM pg_stat_user_tables s
-            JOIN pg_class c ON c.oid = s.relid
-            LEFT JOIN pg_statio_user_tables io ON io.relid = s.relid
-            {_SCHEMA_PREDICATE if source_schema else ""}
-            ORDER BY 3 DESC
-            LIMIT %s
-            """,
-            ((source_schema, TABLES_SNAPSHOT_LIMIT) if source_schema else (TABLES_SNAPSHOT_LIMIT,)),
+            sql.SQL(
+                """
+                SELECT s.*, pg_total_relation_size(s.relid) AS total_size_bytes
+                FROM pg_stat_user_tables s
+                {scope}
+                ORDER BY pg_total_relation_size(s.relid) DESC
+                LIMIT {limit}
+                """
+            ).format(scope=_scope_predicate(source_schema), limit=sql.Literal(TABLES_SNAPSHOT_LIMIT))
         )
-        rows = []
-        for (
-            schema_name,
-            table_name,
-            total_size,
-            row_estimate,
-            live_rows,
-            dead_rows,
-            seq_scans,
-            index_scans,
-            mods_since_analyze,
-            last_vacuum,
-            last_autovacuum,
-            last_analyze,
-            last_autoanalyze,
-            heap_blks_hit,
-            heap_blks_read,
-        ) in cur:
-            rows.append(
-                {
-                    **_base_row(collected_at, snapshot_id),
-                    "schema_name": schema_name,
-                    "table_name": table_name,
-                    "total_size_bytes": total_size,
-                    "row_estimate": row_estimate,
-                    "live_rows": live_rows,
-                    "dead_rows": dead_rows,
-                    "seq_scans": seq_scans,
-                    "index_scans": index_scans,
-                    "mods_since_analyze": mods_since_analyze,
-                    "last_vacuum_at": last_vacuum,
-                    "last_autovacuum_at": last_autovacuum,
-                    "last_analyze_at": last_analyze,
-                    "last_autoanalyze_at": last_autoanalyze,
-                    "extra": json.dumps({"heap_blks_hit": heap_blks_hit, "heap_blks_read": heap_blks_read}),
-                }
-            )
-        return rows
+        return snapshot_rows(cur, collected_at, snapshot_id)
 
 
 def _collect_indexes(
@@ -234,186 +167,239 @@ def _collect_indexes(
 ) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
-            f"""
-            SELECT s.schemaname, s.relname, s.indexrelname,
-                   pg_relation_size(s.indexrelid),
-                   s.idx_scan,
-                   i.indisunique, i.indisprimary,
-                   pg_get_indexdef(s.indexrelid)
-            FROM pg_stat_user_indexes s
-            JOIN pg_index i ON i.indexrelid = s.indexrelid
-            {_SCHEMA_PREDICATE if source_schema else ""}
-            ORDER BY 4 DESC
-            LIMIT %s
-            """,
-            ((source_schema, INDEXES_SNAPSHOT_LIMIT) if source_schema else (INDEXES_SNAPSHOT_LIMIT,)),
+            sql.SQL(
+                """
+                SELECT s.*,
+                       pg_relation_size(s.indexrelid) AS index_size_bytes,
+                       pg_get_indexdef(s.indexrelid) AS index_definition
+                FROM pg_stat_user_indexes s
+                {scope}
+                ORDER BY pg_relation_size(s.indexrelid) DESC
+                LIMIT {limit}
+                """
+            ).format(scope=_scope_predicate(source_schema), limit=sql.Literal(INDEXES_SNAPSHOT_LIMIT))
         )
-        rows = []
-        for schema_name, table_name, index_name, size_bytes, idx_scan, is_unique, is_primary, definition in cur:
-            rows.append(
-                {
-                    **_base_row(collected_at, snapshot_id),
-                    "schema_name": schema_name,
-                    "table_name": table_name,
-                    "index_name": index_name,
-                    "index_size_bytes": size_bytes,
-                    "index_scans": idx_scan,
-                    "is_unique": is_unique,
-                    "is_primary": is_primary,
-                    "definition": definition,
-                    "extra": None,
-                }
-            )
-        return rows
+        return snapshot_rows(cur, collected_at, snapshot_id)
 
 
-def _collect_server(
+def _collect_statio_tables(
     conn: psycopg.Connection,
     logger: FilteringBoundLogger,
     collected_at: datetime,
     snapshot_id: str,
     source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Server-level metrics as one row per metric (EAV — the set is heterogeneous).
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                """
+                SELECT s.* FROM pg_statio_user_tables s
+                {scope}
+                LIMIT {limit}
+                """
+            ).format(scope=_scope_predicate(source_schema), limit=sql.Literal(TABLES_SNAPSHOT_LIMIT))
+        )
+        return snapshot_rows(cur, collected_at, snapshot_id)
 
-    Server metrics describe the database and cluster, not any one schema, so
-    `source_schema` doesn't narrow them.
+
+def _collect_database(
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
+) -> list[dict[str, Any]]:
+    """Database-wide counters — one row, for the connected database only."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM pg_stat_database WHERE datname = current_database()")
+        return snapshot_rows(cur, collected_at, snapshot_id)
+
+
+def _collect_settings(
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
+) -> list[dict[str, Any]]:
+    """Server configuration. Cluster-wide by nature — settings aren't per-schema."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM pg_settings")
+        return snapshot_rows(cur, collected_at, snapshot_id)
+
+
+def _collect_replication_slots(
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
+) -> list[dict[str, Any]]:
+    """Replication slots for the connected database, with retained-WAL lag.
+
+    Slots are a cluster-wide catalog, so scope to the connected database: another
+    database's slot names and lag must not land here. Logical slots (including our own
+    CDC slots, the reason this is collected) carry `database`; physical slots have it
+    NULL and belong to no database, so the same filter excludes them.
+
+    `pg_current_wal_lsn()` errors on a standby, so lag is only computed on a primary.
     """
-    base = _base_row(collected_at, snapshot_id)
-    rows: list[dict[str, Any]] = []
-
-    def _metric(name: str, value: float | None = None, text: str | None = None, extra: dict | None = None) -> None:
-        rows.append(
-            {
-                **base,
-                "metric_name": name,
-                "metric_value": value,
-                "metric_text": text,
-                "extra": json.dumps(extra) if extra else None,
-            }
-        )
-
-    def _probe(name: str, fn: Callable[[psycopg.Cursor], None]) -> None:
-        # Each probe is its own cursor + guard: one unreadable view must not empty the
-        # whole server snapshot (autocommit keeps a failed probe from poisoning the rest).
-        try:
-            with conn.cursor() as cur:
-                fn(cur)
-        except Exception as e:
-            logger.warning("database_stats: server probe failed, skipping", probe=name, error=str(e))
-
-    def _version(cur: psycopg.Cursor) -> None:
-        cur.execute("SHOW server_version")
-        row = cur.fetchone()
-        if row:
-            _metric("server_version", text=row[0])
-
-    def _database_totals(cur: psycopg.Cursor) -> None:
-        cur.execute(
-            """
-            SELECT numbackends, xact_commit, xact_rollback, blks_hit, blks_read,
-                   deadlocks, temp_files, temp_bytes
-            FROM pg_stat_database
-            WHERE datname = current_database()
-            """
-        )
-        row = cur.fetchone()
-        if row is None:
-            return
-        for name, value in zip(
-            (
-                "numbackends",
-                "xact_commit",
-                "xact_rollback",
-                "blks_hit",
-                "blks_read",
-                "deadlocks",
-                "temp_files",
-                "temp_bytes",
-            ),
-            row,
-        ):
-            _metric(name, value=float(value) if value is not None else None)
-
-    def _connections(cur: psycopg.Cursor) -> None:
-        # Deliberately cluster-wide: `max_connections` is a cluster-wide limit, so only a
-        # cluster-wide backend count answers "how close is this server to saturation?".
-        # It's a bare count — no names, no query text — so it carries nothing about what
-        # other databases are running.
-        cur.execute("SELECT count(*) FROM pg_stat_activity")
-        row = cur.fetchone()
-        if row:
-            _metric("connections_total", value=float(row[0]))
-
-    def _settings(cur: psycopg.Cursor) -> None:
-        cur.execute(
-            "SELECT name, setting, unit FROM pg_settings WHERE name = ANY(%s)",
-            (list(_SETTINGS_OF_INTEREST),),
-        )
-        for name, setting, unit in cur:
-            _metric(f"setting_{name}", text=setting, extra={"unit": unit} if unit else None)
-
-    def _pg_stat_statements_installed(cur: psycopg.Cursor) -> None:
-        cur.execute("SELECT count(*) FROM pg_extension WHERE extname = 'pg_stat_statements'")
-        row = cur.fetchone()
-        if row:
-            _metric("extension_pg_stat_statements", value=float(row[0]))
-
-    def _replication_slots(cur: psycopg.Cursor) -> None:
-        # pg_current_wal_lsn() raises on a standby, so lag is only measurable on a primary.
+    with conn.cursor() as cur:
         cur.execute("SELECT pg_is_in_recovery()")
         row = cur.fetchone()
-        if row is None or row[0]:
-            return
-        # Slots are a cluster-wide catalog: scope to the connected database so another
-        # database's slot names and lag never land here. Logical slots (including our own
-        # CDC slots, the reason this metric exists) carry `database`; physical slots have
-        # it NULL and belong to no database, so they're excluded by the same filter.
+        in_recovery = bool(row[0]) if row else False
+
+        lag = (
+            sql.SQL("NULL::bigint")
+            if in_recovery
+            else sql.SQL("pg_wal_lsn_diff(pg_current_wal_lsn(), s.restart_lsn)::bigint")
+        )
+        cur.execute(
+            sql.SQL(
+                """
+                SELECT s.*, {lag} AS retained_wal_bytes
+                FROM pg_replication_slots s
+                WHERE s.database = current_database()
+                """
+            ).format(lag=lag)
+        )
+        return snapshot_rows(cur, collected_at, snapshot_id)
+
+
+def _collect_activity_summary(
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
+) -> list[dict[str, Any]]:
+    """Backend counts by state — deliberately an aggregate, not a mirror.
+
+    Raw `pg_stat_activity` is a point-in-time list of live sessions carrying client
+    addresses, usernames and (for the connecting role's own backends) query text. The
+    signal wanted here is connection saturation, which a count answers, so this stays
+    aggregated. Cluster-wide on purpose: `max_connections` is a cluster-wide limit, so
+    only a cluster-wide count answers "how close is this server to saturation?", and
+    counts by state reveal nothing about what other databases are running.
+    """
+    with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT slot_name, active,
-                   pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)
-            FROM pg_replication_slots
-            WHERE database = current_database()
+            SELECT coalesce(state, 'unknown') AS state,
+                   count(*)::bigint AS backends,
+                   count(*) FILTER (WHERE datname = current_database())::bigint AS backends_current_database
+            FROM pg_stat_activity
+            GROUP BY 1
             """
         )
-        for slot_name, active, lag_bytes in cur:
-            _metric(
-                "replication_slot_lag_bytes",
-                value=float(lag_bytes) if lag_bytes is not None else None,
-                text=slot_name,
-                extra={"active": bool(active)},
-            )
-
-    _probe("server_version", _version)
-    _probe("database_totals", _database_totals)
-    _probe("connections", _connections)
-    _probe("settings", _settings)
-    _probe("pg_stat_statements_installed", _pg_stat_statements_installed)
-    _probe("replication_slots", _replication_slots)
-
-    return rows
+        return snapshot_rows(cur, collected_at, snapshot_id)
 
 
-class _PostgresStatsCollector(Protocol):
-    """A Postgres collector: the generic contract plus this engine's schema scope."""
-
-    def __call__(
-        self,
-        conn: psycopg.Connection,
-        logger: FilteringBoundLogger,
-        collected_at: datetime,
-        snapshot_id: str,
-        source_schema: str | None = None,
-    ) -> list[dict[str, Any]]: ...
-
-
-_COLLECTORS: dict[str, _PostgresStatsCollector] = {
-    DATABASE_STATS_QUERIES: _collect_queries,
-    DATABASE_STATS_TABLES: _collect_tables,
-    DATABASE_STATS_INDEXES: _collect_indexes,
-    DATABASE_STATS_SERVER: _collect_server,
+POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
+    catalog.table_name: catalog
+    for catalog in (
+        DatabaseStatsCatalog(
+            table_name="pg_stat_statements",
+            description=(
+                "Snapshots of pg_stat_statements for this database: per-statement call counts, "
+                "execution time, rows and block I/O. Counters are cumulative since the last "
+                "statistics reset. Requires the pg_stat_statements extension."
+            ),
+            collector=_collect_statements,
+            catalog_relation="pg_stat_statements",
+        ),
+        DatabaseStatsCatalog(
+            table_name="pg_stat_user_tables",
+            description=(
+                "Snapshots of pg_stat_user_tables: sequential and index scans, live and dead "
+                "rows, and vacuum/analyze timestamps, plus total_size_bytes."
+            ),
+            collector=_collect_tables,
+            catalog_relation="pg_stat_user_tables",
+            computed_columns=(("total_size_bytes", "bigint", True),),
+        ),
+        DatabaseStatsCatalog(
+            table_name="pg_stat_user_indexes",
+            description=(
+                "Snapshots of pg_stat_user_indexes: per-index scan counts, plus index_size_bytes and index_definition."
+            ),
+            collector=_collect_indexes,
+            catalog_relation="pg_stat_user_indexes",
+            computed_columns=(
+                ("index_size_bytes", "bigint", True),
+                ("index_definition", "text", True),
+            ),
+        ),
+        DatabaseStatsCatalog(
+            table_name="pg_statio_user_tables",
+            description="Snapshots of pg_statio_user_tables: per-table buffer cache hits and disk reads.",
+            collector=_collect_statio_tables,
+            catalog_relation="pg_statio_user_tables",
+        ),
+        DatabaseStatsCatalog(
+            table_name="pg_stat_database",
+            description=(
+                "Snapshots of pg_stat_database for this database: commits, rollbacks, cache hits, "
+                "deadlocks, temp files and conflicts."
+            ),
+            collector=_collect_database,
+            catalog_relation="pg_stat_database",
+        ),
+        DatabaseStatsCatalog(
+            table_name="pg_settings",
+            description="Snapshots of pg_settings: the server's configuration parameters and their sources.",
+            collector=_collect_settings,
+            catalog_relation="pg_settings",
+        ),
+        DatabaseStatsCatalog(
+            table_name="pg_replication_slots",
+            description=(
+                "Snapshots of pg_replication_slots for this database, plus retained_wal_bytes "
+                "(NULL on a standby, where it can't be measured)."
+            ),
+            collector=_collect_replication_slots,
+            catalog_relation="pg_replication_slots",
+            computed_columns=(("retained_wal_bytes", "bigint", True),),
+        ),
+        DatabaseStatsCatalog(
+            table_name="pg_stat_activity_summary",
+            description=(
+                "Backend counts by state, cluster-wide and for this database. An aggregate of "
+                "pg_stat_activity rather than a copy, so no session details are collected."
+            ),
+            collector=_collect_activity_summary,
+            static_columns=(
+                ("state", "text", True),
+                ("backends", "bigint", True),
+                ("backends_current_database", "bigint", True),
+            ),
+        ),
+    )
 }
+
+
+def fetch_postgres_stats_columns(conn: psycopg.Connection) -> dict[str, list[tuple[str, str, bool]]]:
+    """Column metadata for each catalog, as this server reports it.
+
+    Read from information_schema so the declared schema matches the server's version
+    instead of a hardcoded guess, and so a catalog the server doesn't expose (an
+    extension that isn't installed) is simply absent.
+    """
+    relations = [c.catalog_relation for c in POSTGRES_STATS_CATALOGS.values() if c.catalog_relation]
+    columns: dict[str, list[tuple[str, str, bool]]] = {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT table_name, column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_name = ANY(%s)
+            ORDER BY table_name, ordinal_position
+            """,
+            (relations,),
+        )
+        for table_name, column_name, data_type, is_nullable in cur:
+            columns.setdefault(table_name, []).append((column_name, data_type, is_nullable == "YES"))
+    return columns
 
 
 def postgres_database_stats_source(
@@ -427,10 +413,10 @@ def postgres_database_stats_source(
     logger: FilteringBoundLogger,
     source_schema: str | None = None,
 ) -> SourceResponse:
-    """Build the response for one stats schema.
+    """Build the response for one statistics table.
 
-    `schema_name` is the stats table being synced (`database_stats_*`); `source_schema` is
-    the Postgres schema the source imports from, which scopes the catalogs that carry
+    `schema_name` is the table being synced (`system_tables.<catalog>`); `source_schema`
+    is the Postgres schema the source imports from, which scopes the catalogs that carry
     schema attribution.
     """
     selected_schema = _normalize_selected_schema(source_schema)
@@ -441,14 +427,19 @@ def postgres_database_stats_source(
             with pg_connection(
                 host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
             ) as conn:
-                # Autocommit so a failed probe (permissions, version quirks) is its own
-                # transaction and can't poison the rest of the snapshot.
+                # Autocommit so a failed catalog read (permissions, version quirks) is its
+                # own transaction and can't poison anything that follows.
                 conn.autocommit = True
                 yield conn
 
+    collectors: Mapping[str, Any] = {
+        name: partial(catalog.collector, source_schema=selected_schema)
+        for name, catalog in POSTGRES_STATS_CATALOGS.items()
+    }
     return build_database_stats_source_response(
         schema_name=schema_name,
-        collectors={name: partial(fn, source_schema=selected_schema) for name, fn in _COLLECTORS.items()},
+        catalogs=POSTGRES_STATS_CATALOGS,
+        collectors=collectors,
         open_connection=open_connection,
         logger=logger,
     )
