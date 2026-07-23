@@ -1097,15 +1097,27 @@ def replace_loop_skill_bundles(
     # Previous paths come from the row read under the lock, not the earlier fetch: if a
     # concurrent replace committed in between, its objects are what this swap supersedes
     # and must be the ones deleted, or they'd be stranded with no manifest referencing them.
+    # A delete that committed in between is re-checked the same way — its lock-holder
+    # already cleared the manifest, so this request must discard its own uploads instead
+    # of resurrecting bundles on a deleted loop.
+    previous_paths: list[str] = []
+    lost_delete_race = False
     with transaction.atomic():
         locked = Loop.objects.unscoped().select_for_update().get(pk=loop.pk)
-        previous_paths = [
-            entry["storage_path"]
-            for entry in (locked.skill_bundles or [])
-            if isinstance(entry, dict) and entry.get("storage_path")
-        ]
-        locked.skill_bundles = entries
-        locked.save(update_fields=["skill_bundles", "updated_at"])
+        if locked.deleted:
+            lost_delete_race = True
+        else:
+            previous_paths = [
+                entry["storage_path"]
+                for entry in (locked.skill_bundles or [])
+                if isinstance(entry, dict) and entry.get("storage_path")
+            ]
+            locked.skill_bundles = entries
+            locked.save(update_fields=["skill_bundles", "updated_at"])
+
+    if lost_delete_race:
+        _delete_skill_bundle_objects(loop.id, written_paths)
+        return None
 
     new_paths = {entry["storage_path"] for entry in entries}
     _delete_skill_bundle_objects(
@@ -1132,14 +1144,20 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
 
     # A deleted loop never fires again, so its skill bundle objects are dead weight with
     # no retention TTL — release them now and clear the manifest so the row stays honest.
-    bundle_paths = [
-        entry["storage_path"]
-        for entry in (loop.skill_bundles or [])
-        if isinstance(entry, dict) and entry.get("storage_path")
-    ]
+    # The paths are read under the same row lock the skill-bundle replace takes, so a
+    # replace racing this delete either commits first (its objects are what we read and
+    # remove here) or locks after us, sees `deleted`, and cleans up its own uploads.
+    with transaction.atomic():
+        locked = Loop.objects.unscoped().select_for_update().get(pk=loop.pk)
+        bundle_paths = [
+            entry["storage_path"]
+            for entry in (locked.skill_bundles or [])
+            if isinstance(entry, dict) and entry.get("storage_path")
+        ]
+        locked.deleted = True
+        locked.skill_bundles = []
+        locked.save(update_fields=["deleted", "skill_bundles", "updated_at"])
     loop.deleted = True
-    loop.skill_bundles = []
-    loop.save(update_fields=["deleted", "skill_bundles", "updated_at"])
     _delete_skill_bundle_objects(loop.id, bundle_paths)
     loop_service.delete_loop_schedules(loop)
     return True

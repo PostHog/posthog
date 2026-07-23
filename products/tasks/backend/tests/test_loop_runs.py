@@ -569,6 +569,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         result = fire_loop(loop, trigger, "fire-1", "ctx")
 
         self.assertTrue(result.created)
+        assert result.task_run_id is not None
         task_run = TaskRun.objects.get(id=result.task_run_id)
         expected_target = f"{task_run.get_artifact_s3_prefix()}/abcdef01_my-skill.zip"
         mock_copy.assert_called_once_with(entry["storage_path"], expected_target)

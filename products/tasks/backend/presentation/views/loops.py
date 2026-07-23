@@ -34,6 +34,10 @@ from products.tasks.backend.presentation.serializers_loops import (
 )
 
 MAX_LOOP_TRIGGER_PAYLOAD_BYTES = 64 * 1024
+# Whole-request ceiling for the skill_bundles replace. Sits above Django's 20MB
+# DATA_UPLOAD_MAX_MEMORY_SIZE so the effective bound stays Django's; this keeps the
+# endpoint's own limit explicit and testable if the global setting ever moves.
+MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES = 64 * 1024 * 1024
 
 
 def _loop_limit_response(exc: "loops_facade.LoopLimitError") -> Response:
@@ -291,13 +295,20 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: LoopSerializer,
             403: OpenApiResponse(description="Not permitted to change this loop's skills"),
             404: OpenApiResponse(description="Loop not found"),
+            413: OpenApiResponse(description="Request body exceeds the skill bundle size ceiling"),
         },
     )
     @action(detail=True, methods=["put"], url_path="skill_bundles", required_scopes=["loop:write"])
     def skill_bundles(self, request, pk=None, **kwargs):
-        # Request parsing is bounded before this runs: Django's DATA_UPLOAD_MAX_MEMORY_SIZE
-        # (20MB, posthog/settings/web.py) rejects larger bodies, so oversized base64 payloads
-        # never reach the serializer. The facade's per-bundle decoded-size cap is the backstop.
+        # Reject oversized requests from the declared Content-Length, before request.data
+        # parses (and retains) the body. Django's DATA_UPLOAD_MAX_MEMORY_SIZE (20MB,
+        # posthog/settings/web.py) bounds the body independently; this explicit gate keeps
+        # the endpoint's own ceiling visible and returns a structured 413 either way.
+        if _content_length(request) > MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES:
+            return Response(
+                {"detail": (f"Skill bundle request exceeds {MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES // (1024 * 1024)}MB.")},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
         serializer = LoopSkillBundlesWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

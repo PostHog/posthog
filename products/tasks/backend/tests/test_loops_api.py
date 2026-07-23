@@ -341,6 +341,40 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
         self.assertIn("first", deleted_paths[0])
         self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
 
+    @patch("products.tasks.backend.presentation.views.loops.MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES", 10)
+    def test_replace_rejects_an_oversized_request_up_front(self):
+        loop = self._create_loop(self.owner_client)
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, response.content)
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_racing_a_delete_discards_its_uploads(self, mock_write, mock_tag, mock_delete):
+        # The soft delete commits between this request's fetch and its manifest swap; the
+        # swap must notice the deleted row and discard its own fresh uploads, not
+        # resurrect bundles on a deleted loop.
+        loop = self._create_loop(self.owner_client)
+
+        def soft_delete_mid_request(*args, **kwargs):
+            Loop.objects.unscoped().filter(id=loop["id"]).update(deleted=True)
+
+        mock_write.side_effect = soft_delete_mid_request
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+        mock_delete.assert_called_once()
+        discarded_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(discarded_paths), 1)
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
     @patch("posthog.storage.object_storage.delete_objects")
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
