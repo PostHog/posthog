@@ -5,6 +5,10 @@ from temporalio import activity
 
 from posthog.temporal.common.client import async_connect
 
+from products.replay_vision.backend.enqueue_claims import (
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+)
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import in_flight_headroom
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -44,8 +48,11 @@ def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFl
         team=Count("id"),
         scanner=Count("id", filter=Q(scanner_id=inputs.scanner_id)),
     )
+    # On-demand scans hold enqueue claims until their rows persist.
+    team = counts["team"] + pending_enqueue_claims_for_team(inputs.team_id)
+    scanner = counts["scanner"] + pending_enqueue_claims_for_scanner(inputs.scanner_id)
     # The workflow makes the same call on these counts; recorded here because metrics
     # can't be emitted from deterministic workflow code.
-    if in_flight_headroom(counts["scanner"], counts["team"]) <= 0:
+    if in_flight_headroom(scanner, team) <= 0:
         record_sweep_outcome("throttled")
-    return InFlightApplyCounts(scanner=counts["scanner"], team=counts["team"])
+    return InFlightApplyCounts(scanner=scanner, team=team)

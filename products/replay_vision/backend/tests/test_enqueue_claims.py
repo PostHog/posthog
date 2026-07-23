@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.redis import get_client
 
 from products.replay_vision.backend.enqueue_claims import (
+    _RELEASE_GRACE_SECONDS,
     _scanner_key,
     _team_key,
     pending_enqueue_claims_for_scanner,
@@ -45,8 +46,7 @@ class TestEnqueueClaims(SimpleTestCase):
         ]
     )
     def test_claims_beyond_the_allowance_are_rejected(self, _name: str, cap_constant: str) -> None:
-        # The whole point of the claim: a second concurrent caller must see the first one's slot.
-        # A read-then-write regression would admit both.
+        # A read-then-write regression would admit both concurrent callers.
         with patch(f"products.replay_vision.backend.enqueue_claims.{cap_constant}", 1):
             assert self._claim("wf-1") is True
             assert self._claim("wf-2") is False
@@ -57,19 +57,23 @@ class TestEnqueueClaims(SimpleTestCase):
             assert self._claim("wf-1", team_rows=2) is False
 
     def test_reclaiming_the_same_workflow_id_consumes_no_new_slot(self) -> None:
-        # Deterministic workflow ids mean duplicate requests and retries re-claim the same member;
-        # if that consumed a slot, a retried scan could starve the team's own headroom.
+        # Duplicate requests and retries re-claim the same member; consuming a slot would starve headroom.
         with patch("products.replay_vision.backend.enqueue_claims.MAX_IN_FLIGHT_APPLIES_PER_TEAM", 1):
             assert self._claim("wf-1") is True
             assert self._claim("wf-1") is True
             assert self._claim("wf-2") is False
 
-    def test_release_frees_the_slot(self) -> None:
-        # The create activity's release is what keeps caps from starving until the TTL.
+    def test_release_decays_the_claim_instead_of_deleting_it(self) -> None:
+        # Deleting on release would reopen the stale-row-count race; the slot frees after the grace.
         with patch("products.replay_vision.backend.enqueue_claims.MAX_IN_FLIGHT_APPLIES_PER_TEAM", 1):
             assert self._claim("wf-1") is True
             release_enqueue_claim(team_id=self.team_id, scanner_id=self.scanner_id, workflow_id="wf-1")
-            assert self._claim("wf-2") is True
+            assert self._claim("wf-2") is False
+            with patch(
+                "products.replay_vision.backend.enqueue_claims.time.time",
+                return_value=time.time() + _RELEASE_GRACE_SECONDS + 1,
+            ):
+                assert self._claim("wf-2") is True
 
     def test_expired_claims_are_evicted_and_do_not_count(self) -> None:
         # The TTL score is the crash net: a claim whose workflow died must not hold its slot forever.

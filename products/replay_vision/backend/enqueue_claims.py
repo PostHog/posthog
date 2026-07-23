@@ -1,11 +1,9 @@
 """Atomic enqueue-slot claims for on-demand scans.
 
 The in-flight caps count ReplayObservation rows, but a row only appears once the apply workflow's
-first activity runs, so concurrent requests can race past the caps in that gap. A claim is taken
+first activity runs, so concurrent requests could race past the caps in that gap. A claim is taken
 atomically (single Lua eval, same shape as posthog/clickhouse/client/limit.py) before the workflow
-starts and released once the row exists; the TTL score reclaims claims from crashed workflows.
-Fail-open: the caps are backpressure guardrails, not billing, so Redis trouble degrades to the
-snapshot behavior instead of blocking scans.
+starts and decays once the row exists. Fail-open: the caps are backpressure guardrails, not billing.
 """
 
 import time
@@ -25,11 +23,13 @@ logger = structlog.get_logger(__name__)
 # Must exceed worst-case enqueue-to-first-activity lag; crashed claims are reclaimed after this long.
 _CLAIM_TTL_SECONDS = 15 * 60
 
+# Decay window: claim and just-persisted row overlap, so stale row counts can't under-count.
+_RELEASE_GRACE_SECONDS = 60
+
 _TEAM_KEY_PREFIX = "@posthog/replay-vision/enqueued-team"
 _SCANNER_KEY_PREFIX = "@posthog/replay-vision/enqueued-scanner"
 
-# Re-claiming an existing member (same deterministic workflow id) only refreshes its expiry, so
-# duplicate requests and retries never consume a second slot.
+# Re-claiming an existing member (same deterministic workflow id) never consumes a second slot.
 _CLAIM_LUA = """
 local team_key = KEYS[1]
 local scanner_key = KEYS[2]
@@ -76,11 +76,7 @@ def try_claim_enqueue_slot(
     team_in_flight_rows: int,
     scanner_in_flight_rows: int,
 ) -> bool:
-    """Atomically claim one enqueue slot against both in-flight caps; True when the scan may start.
-
-    The claim pools cover only the not-yet-persisted gap, so each pool's allowance is its cap minus
-    the caller's snapshot of persisted in-flight rows.
-    """
+    """Atomically claim one enqueue slot against both in-flight caps; True when the scan may start."""
     team_allowance = MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight_rows
     scanner_allowance = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight_rows
     try:
@@ -102,11 +98,12 @@ def try_claim_enqueue_slot(
 
 
 def release_enqueue_claim(*, team_id: int, scanner_id: UUID, workflow_id: str) -> None:
-    """Free a claim once its observation row exists (or the start failed); unreleased claims self-expire."""
+    """Decay a claim once its observation row exists (or the start failed); unreleased claims self-expire."""
+    expiry = time.time() + _RELEASE_GRACE_SECONDS
     try:
         pipeline = redis.get_client().pipeline()
-        pipeline.zrem(_team_key(team_id), workflow_id)
-        pipeline.zrem(_scanner_key(scanner_id), workflow_id)
+        pipeline.zadd(_team_key(team_id), {workflow_id: expiry}, xx=True)
+        pipeline.zadd(_scanner_key(scanner_id), {workflow_id: expiry}, xx=True)
         pipeline.execute()
     except Exception:
         logger.warning("replay_vision.enqueue_claim.release_failed", team_id=team_id, exc_info=True)

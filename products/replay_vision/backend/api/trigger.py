@@ -79,10 +79,7 @@ def start_apply_scanner_workflow(
     scanner_in_flight_rows: int | None = None,
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the deterministic apply-scanner workflow for one (scanner, session); never raises.
-
-    An atomic enqueue-slot claim guards the caps before the workflow starts; callers that already
-    counted in-flight rows can pass the counts to save two queries.
-    """
+    An atomic enqueue-slot claim guards the in-flight caps; pass row counts to save two queries."""
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
     if team_in_flight_rows is None:
         team_in_flight_rows = ReplayObservation.in_flight_for_team(scanner.team_id).count()
@@ -128,8 +125,7 @@ def start_apply_scanner_workflow(
             release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
             return workflow_id, WorkflowStartOutcome.FAILED
         logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
-        # Keep the claim: releasing could drop a racing caller's live claim for the same workflow
-        # id, while a lingering one only under-admits until released or expired.
+        # Keep the claim: decaying it could cut short a racing caller's live claim for the same id.
         return workflow_id, WorkflowStartOutcome.ALREADY_RUNNING
     except Exception:
         logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
