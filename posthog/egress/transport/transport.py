@@ -16,7 +16,15 @@ import requests
 from posthog.egress.limiter.policies import Priority
 
 
-class EgressBudgetExhausted(Exception):
+class RetryableEgressError(Exception):
+    """A transient outbound-egress condition a retrying caller should back off and retry rather than
+    treat as a defect: our own limiter shedding a sheddable call before it's sent
+    (:class:`EgressBudgetExhausted`), or a provider throwing back a transient server-side blip. The
+    Temporal activity interceptor skips this whole family, so a retryable hiccup is never reported to
+    error tracking."""
+
+
+class EgressBudgetExhausted(RetryableEgressError):
     """A *sheddable* (non-CRITICAL) outbound call was denied by the egress limiter before it was sent.
     Callers that can defer should catch this and back off/retry — it means our own shared budget is
     spent, not that the third-party API returned an error. CRITICAL calls are never raised on; they

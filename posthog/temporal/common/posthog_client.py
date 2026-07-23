@@ -14,7 +14,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.egress.transport.transport import RetryableEgressError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -66,11 +66,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
-            # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # Cancellations (worker drain, activity timeout, workflow cancellation) and retryable
+            # egress conditions (our own limiter shedding a sheddable call, or a provider throwing
+            # back a transient server-side blip like GitHub's "503 Egress is over the account limit")
+            # are expected control flow, not defects — re-raise without reporting to error tracking.
+            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, RetryableEgressError):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
