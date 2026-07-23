@@ -6,21 +6,46 @@ import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools
 
 import type { Schemas } from '@/api/generated'
 
-import { StamphogDigestChannelsCreateBody, StamphogDigestChannelsDestroyParams, StamphogDigestChannelsListQueryParams, StamphogDigestRunsListQueryParams, StamphogPullRequestsListQueryParams, StamphogPullRequestsRetrieveParams, StamphogRepoConfigsDestroyParams, StamphogRepoConfigsListQueryParams, StamphogRepoConfigsRetrieveParams, StamphogReviewRunsListQueryParams, StamphogReviewRunsRetrieveParams } from '@/generated/stamphog/api'
+import {
+    StamphogDigestChannelsCreateBody,
+    StamphogDigestChannelsDestroyParams,
+    StamphogDigestChannelsListQueryParams,
+    StamphogDigestRunsListQueryParams,
+    StamphogPullRequestsListQueryParams,
+    StamphogPullRequestsRetrieveParams,
+    StamphogRepoConfigsDestroyParams,
+    StamphogRepoConfigsListQueryParams,
+    StamphogRepoConfigsRetrieveParams,
+    StamphogReviewRunsListQueryParams,
+    StamphogReviewRunsRetrieveParams,
+} from '@/generated/stamphog/api'
 
 const StamphogDigestChannelsCreateSchema = StamphogDigestChannelsCreateBody
 
-const stamphogDigestChannelsCreate = (): ToolBase<typeof StamphogDigestChannelsCreateSchema, Schemas.DigestChannel> => ({
+const stamphogDigestChannelsCreate = (): ToolBase<
+    typeof StamphogDigestChannelsCreateSchema,
+    Schemas.DigestChannel
+> => ({
     name: 'stamphog-digest-channels-create',
     schema: StamphogDigestChannelsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof StamphogDigestChannelsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.audience_key !== undefined) body["audience_key"] = params.audience_key
-        if (params.slack_integration_id !== undefined) body["slack_integration_id"] = params.slack_integration_id
-        if (params.slack_channel_id !== undefined) body["slack_channel_id"] = params.slack_channel_id
-        if (params.slack_channel_name !== undefined) body["slack_channel_name"] = params.slack_channel_name
-        if (params.enabled !== undefined) body["enabled"] = params.enabled
+        if (params.audience_key !== undefined) {
+            body['audience_key'] = params.audience_key
+        }
+        if (params.slack_integration_id !== undefined) {
+            body['slack_integration_id'] = params.slack_integration_id
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
         const result = await context.api.request<Schemas.DigestChannel>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/digest_channels/`,
@@ -47,7 +72,10 @@ const stamphogDigestChannelsDelete = (): ToolBase<typeof StamphogDigestChannelsD
 
 const StamphogDigestChannelsListSchema = StamphogDigestChannelsListQueryParams
 
-const stamphogDigestChannelsList = (): ToolBase<typeof StamphogDigestChannelsListSchema, WithPostHogUrl<Schemas.PaginatedDigestChannelList>> => ({
+const stamphogDigestChannelsList = (): ToolBase<
+    typeof StamphogDigestChannelsListSchema,
+    WithPostHogUrl<Schemas.PaginatedDigestChannelList>
+> => ({
     name: 'stamphog-digest-channels-list',
     schema: StamphogDigestChannelsListSchema,
     handler: async (context: Context, params: z.infer<typeof StamphogDigestChannelsListSchema>) => {
@@ -66,7 +94,10 @@ const stamphogDigestChannelsList = (): ToolBase<typeof StamphogDigestChannelsLis
 
 const StamphogDigestRunsListSchema = StamphogDigestRunsListQueryParams
 
-const stamphogDigestRunsList = (): ToolBase<typeof StamphogDigestRunsListSchema, WithPostHogUrl<Schemas.PaginatedDigestRunList>> => ({
+const stamphogDigestRunsList = (): ToolBase<
+    typeof StamphogDigestRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedDigestRunList>
+> => ({
     name: 'stamphog-digest-runs-list',
     schema: StamphogDigestRunsListSchema,
     handler: async (context: Context, params: z.infer<typeof StamphogDigestRunsListSchema>) => {
@@ -101,7 +132,10 @@ const stamphogPullRequestsGet = (): ToolBase<typeof StamphogPullRequestsGetSchem
 
 const StamphogPullRequestsListSchema = StamphogPullRequestsListQueryParams
 
-const stamphogPullRequestsList = (): ToolBase<typeof StamphogPullRequestsListSchema, WithPostHogUrl<Schemas.PaginatedStamphogPullRequestList>> => ({
+const stamphogPullRequestsList = (): ToolBase<
+    typeof StamphogPullRequestsListSchema,
+    WithPostHogUrl<Schemas.PaginatedStamphogPullRequestList>
+> => ({
     name: 'stamphog-pull-requests-list',
     schema: StamphogPullRequestsListSchema,
     handler: async (context: Context, params: z.infer<typeof StamphogPullRequestsListSchema>) => {
@@ -152,7 +186,10 @@ const stamphogRepoConfigsGet = (): ToolBase<typeof StamphogRepoConfigsGetSchema,
 
 const StamphogRepoConfigsListSchema = StamphogRepoConfigsListQueryParams
 
-const stamphogRepoConfigsList = (): ToolBase<typeof StamphogRepoConfigsListSchema, WithPostHogUrl<Schemas.PaginatedStamphogRepoConfigList>> => ({
+const stamphogRepoConfigsList = (): ToolBase<
+    typeof StamphogRepoConfigsListSchema,
+    WithPostHogUrl<Schemas.PaginatedStamphogRepoConfigList>
+> => ({
     name: 'stamphog-repo-configs-list',
     schema: StamphogRepoConfigsListSchema,
     handler: async (context: Context, params: z.infer<typeof StamphogRepoConfigsListSchema>) => {
@@ -186,7 +223,10 @@ const stamphogReviewRunsGet = (): ToolBase<typeof StamphogReviewRunsGetSchema, S
 
 const StamphogReviewRunsListSchema = StamphogReviewRunsListQueryParams
 
-const stamphogReviewRunsList = (): ToolBase<typeof StamphogReviewRunsListSchema, WithPostHogUrl<Schemas.PaginatedReviewRunList>> => ({
+const stamphogReviewRunsList = (): ToolBase<
+    typeof StamphogReviewRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedReviewRunList>
+> => ({
     name: 'stamphog-review-runs-list',
     schema: StamphogReviewRunsListSchema,
     handler: async (context: Context, params: z.infer<typeof StamphogReviewRunsListSchema>) => {
@@ -202,7 +242,10 @@ const stamphogReviewRunsList = (): ToolBase<typeof StamphogReviewRunsListSchema,
                 status: params.status,
             },
         })
-        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['output'])) } as typeof result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['output'])),
+        } as typeof result
         return await withPostHogUrl(context, filtered, '/stamphog')
     },
 })
