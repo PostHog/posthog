@@ -28,7 +28,7 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 logger = logging.getLogger(__name__)
 
 SCAN_JUDGE_MODEL = "@cf/zai-org/glm-5.2"
-SCAN_JUDGE_PRODUCT: "Product" = "posthog_code"
+SCAN_JUDGE_PRODUCT: "Product" = "custom_image_scans"
 
 SCAN_JUDGE_SYSTEM_PROMPT = """You are a security judge reviewing a declarative sandbox image spec before it is built and published.
 

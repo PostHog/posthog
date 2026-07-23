@@ -220,6 +220,15 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
     ),
+    # Server-side security review before a custom sandbox image is built. Keep this separate from
+    # posthog_code: the Django worker authenticates with the shared API key and the scan is work
+    # performed by PostHog, rather than user-initiated agent usage.
+    "custom_image_scans": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"@cf/zai-org/glm-5.2"}),
+        allow_api_keys=True,
+        credit_bucket=None,
+    ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-mini"}),
