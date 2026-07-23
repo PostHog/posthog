@@ -230,6 +230,7 @@ def save_progress_state(path: str, state: ProgressState) -> None:
 def _run_variant(
     insight: Insight, use_dwh: bool, modifiers: HogQLQueryModifiers, override: Optional[dict[str, Any]]
 ) -> list:
+    assert insight.query is not None  # classify_insight has already validated the query shape
     source = deepcopy(insight.query["source"])
     if override is not None:
         source["dateRange"] = override

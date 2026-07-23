@@ -346,9 +346,10 @@ class TestIntersectStableMismatch(TestCase):
         dwh = [
             _result(None, "Day 0", [_value(5, "Day 0"), _value(10, "Day 1"), _value(10, "Day 2"), _value(7, "Day 3")])
         ]
-        kwargs = {"latest_interval_start": _DT + timedelta(days=3), "interval_delta": timedelta(days=1)}
-        first = diff_retention_results(legacy, dwh, **kwargs)
-        second = diff_retention_results(legacy, dwh, **kwargs)
+        latest = _DT + timedelta(days=3)
+        delta = timedelta(days=1)
+        first = diff_retention_results(legacy, dwh, latest_interval_start=latest, interval_delta=delta)
+        second = diff_retention_results(legacy, dwh, latest_interval_start=latest, interval_delta=delta)
         result = intersect_stable_mismatch(first, second)
         self.assertEqual(result.status, "MISMATCH")
         self.assertEqual(result.trailing_cell_diffs, first.trailing_cell_diffs)

@@ -39,7 +39,6 @@ import json
 import time
 import uuid
 import argparse
-import traceback
 import statistics
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
@@ -568,7 +567,14 @@ def intersect_stable_mismatch(first: CorrectnessDiff, second: CorrectnessDiff) -
 
 
 def _fmt_exception(exc: BaseException, max_chars: int = 500) -> str:
+    """Exception class plus the first line of the message, length-capped.
+
+    Reports must never accumulate raw failure internals: ClickHouse errors embed the full SQL and a
+    server stack trace in the message, so anything beyond the first line is dropped and the rest is
+    truncated. This is the only form in which failures are persisted.
+    """
     message = str(exc)
+    message = message.splitlines()[0] if message else ""
     if len(message) > max_chars:
         message = message[:max_chars] + "…"
     return f"{type(exc).__name__}: {message}"
@@ -854,10 +860,6 @@ def _attempt_variant(
         return run, None
     except Exception as exc:
         return None, exc
-
-
-def _exception_traceback(exc: BaseException, max_chars: int = 2000) -> str:
-    return "".join(traceback.format_exception(exc))[-max_chars:]
 
 
 def compute_interval_context(insight: Insight, modifiers: HogQLQueryModifiers, *, freeze: bool) -> IntervalContext:
@@ -1287,8 +1289,6 @@ def _render_errors(out: Callable[[str], None], errors: list[InsightFinding]) -> 
             out("```")
             out(f.error_detail)
             out("```\n")
-        # Includes the surviving variant's HogQL when one side succeeded — context for diagnosis.
-        _render_source_and_hogql(out, f)
 
 
 def _render_skipped(out: Callable[[str], None], skipped: list[InsightFinding]) -> None:
@@ -1452,7 +1452,15 @@ class Command(BaseCommand):
         except Exception as exc:
             finding.status = "ERROR"
             finding.error_type = type(exc).__name__
-            finding.error_detail = traceback.format_exc()[-4000:]
+            finding.error_detail = _fmt_exception(exc)
+        if finding.status.startswith("ERROR"):
+            # Failures persist only identifying metadata (insight id/URL) and the one-line error
+            # summary — never the query payload or generated SQL, so ordinary query errors don't
+            # accumulate internals in the Markdown report or JSON output. Reproduce a single
+            # failure with --insight-id to inspect it in full.
+            finding.source_json = None
+            finding.legacy_hogql = None
+            finding.dwh_hogql = None
         return finding
 
     def _run_comparison(self, insight: Insight, run_id: str, options: dict[str, Any], finding: InsightFinding) -> None:
@@ -1501,8 +1509,9 @@ class Command(BaseCommand):
                 capture_query_ids=capture,
             )
 
-        # Keep whatever the surviving side produced: its HogQL (for diagnosis) and its query ids
-        # (so resource stats still show how expensive the succeeding variant was).
+        # Keep whatever the surviving side produced: its HogQL (for diagnosis; cleared again for
+        # error findings) and its query ids (so resource stats still show how expensive the
+        # succeeding variant was).
         if legacy_run is not None:
             finding.legacy_hogql = _trim(legacy_run.hogql, options["max_source_json_chars"])
             finding.legacy_query_ids = legacy_run.query_ids
@@ -1511,13 +1520,7 @@ class Command(BaseCommand):
             finding.dwh_query_ids = dwh_run.query_ids
 
         if legacy_exc is not None or dwh_exc is not None:
-            finding.status, finding.error_type, summary = attribute_variant_errors(legacy_exc, dwh_exc)
-            detail_parts = [summary]
-            if legacy_exc is not None:
-                detail_parts.append(f"--- legacy traceback ---\n{_exception_traceback(legacy_exc)}")
-            if dwh_exc is not None:
-                detail_parts.append(f"--- dwh traceback ---\n{_exception_traceback(dwh_exc)}")
-            finding.error_detail = "\n\n".join(detail_parts)
+            finding.status, finding.error_type, finding.error_detail = attribute_variant_errors(legacy_exc, dwh_exc)
             return
 
         assert legacy_run is not None and dwh_run is not None
