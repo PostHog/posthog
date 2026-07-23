@@ -178,6 +178,18 @@ class TestEvaluationReportDeletionCascade(BaseTest):
         self.assertTrue(report.deleted)
         self.assertFalse(report.enabled)
 
+    def test_disabling_evaluation_disables_its_report(self):
+        evaluation = self._create_evaluation()
+        report = self._report_for(evaluation)
+
+        evaluation.enabled = False
+        evaluation.save()
+
+        report.refresh_from_db()
+        self.assertFalse(report.enabled)
+        # Disabling only pauses the report; it is not soft-deleted like the delete cascade does.
+        self.assertFalse(report.deleted)
+
     def test_deleting_evaluation_leaves_other_evaluations_reports_alone(self):
         keep = self._report_for(self._create_evaluation())
         doomed_eval = self._create_evaluation()
