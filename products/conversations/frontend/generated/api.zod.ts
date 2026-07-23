@@ -312,56 +312,6 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
     .describe('Payload for posting a reply or internal note to a ticket.')
 
 /**
- * Add one or more tags to multiple tickets in a single request.
- *
- * Existing tags on each ticket are preserved; only tags not already present
- * are added. Only tickets belonging to the current team are affected;
- * other-team UUIDs are silently ignored. Each added tag is recorded on the
- * ticket's activity timeline by the TaggedItem model activity signal.
- */
-export const conversationsTicketsBulkAddTagsCreateBodyIdsMax = 500
-
-export const conversationsTicketsBulkAddTagsCreateBodyTagsItemMax = 200
-
-export const conversationsTicketsBulkAddTagsCreateBodyTagsMax = 50
-
-export const ConversationsTicketsBulkAddTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.uuid())
-        .max(conversationsTicketsBulkAddTagsCreateBodyIdsMax)
-        .describe('List of ticket UUIDs to add tags to.'),
-    tags: zod
-        .array(zod.string().max(conversationsTicketsBulkAddTagsCreateBodyTagsItemMax))
-        .max(conversationsTicketsBulkAddTagsCreateBodyTagsMax)
-        .describe('Tags to add to every selected ticket. Existing tags on each ticket are preserved.'),
-})
-
-/**
- * Remove one or more tags from multiple tickets in a single request.
- *
- * Tags not present on a ticket are ignored. Only tickets belonging to the
- * current team are affected; other-team UUIDs are silently ignored. Each
- * removed tag is recorded on the ticket's activity timeline by the
- * TaggedItem model activity signal.
- */
-export const conversationsTicketsBulkRemoveTagsCreateBodyIdsMax = 500
-
-export const conversationsTicketsBulkRemoveTagsCreateBodyTagsItemMax = 200
-
-export const conversationsTicketsBulkRemoveTagsCreateBodyTagsMax = 50
-
-export const ConversationsTicketsBulkRemoveTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.uuid())
-        .max(conversationsTicketsBulkRemoveTagsCreateBodyIdsMax)
-        .describe('List of ticket UUIDs to remove tags from.'),
-    tags: zod
-        .array(zod.string().max(conversationsTicketsBulkRemoveTagsCreateBodyTagsItemMax))
-        .max(conversationsTicketsBulkRemoveTagsCreateBodyTagsMax)
-        .describe('Tags to remove from every selected ticket. Tags not present on a ticket are ignored.'),
-})
-
-/**
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs
@@ -385,39 +335,33 @@ export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zo
 })
 
 /**
- * Bulk update tags on multiple objects.
+ * Add, remove, or replace tags across multiple tickets in one request.
  *
- * PAT access: this action has no ``required_scopes=`` on the decorator —
- * inheriting viewsets must add ``"bulk_update_tags"`` to their
- * ``scope_object_write_actions`` list to accept personal API keys.
- * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
- * "This action does not support personal API key access". Done per-viewset
- * so granting ``<scope>:write`` for one resource doesn't leak access to
- * sibling resources that share this mixin.
- *
- * Accepts:
- * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
- *
- * Actions:
- * - "add": Add tags to existing tags on each object
- * - "remove": Remove specific tags from each object
- * - "set": Replace all tags on each object with the provided list
+ * Reuses the shared tag machinery (``apply_bulk_tag_changes``) with the UUID-keyed request
+ * serializer. Overrides ``TaggedItemViewSetMixin.bulk_update_tags`` because that assumes
+ * integer PKs and runs an object-level editor check; tickets are UUID-keyed and aren't an
+ * object-level access-controlled resource, so team membership (enforced by the queryset) is
+ * the only boundary, matching the single-ticket update path. No ``activity_context`` is
+ * passed: ticket tag changes are already mirrored onto the ticket's activity timeline by the
+ * TaggedItem signal, so passing one would double-log.
  */
 export const conversationsTicketsBulkUpdateTagsCreateBodyIdsMax = 500
 
-export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number())
-        .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
-        .describe('List of object IDs to update tags on.'),
-    action: zod
-        .enum(['add', 'remove', 'set'])
-        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
-        .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
-        ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
-})
+export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
+    .object({
+        ids: zod
+            .array(zod.uuid())
+            .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
+            .describe('List of object UUIDs to update tags on.'),
+        action: zod
+            .enum(['add', 'remove', 'set'])
+            .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+            .describe(
+                "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+            ),
+        tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    })
+    .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 
 /**
  * Create a new outbound ticket and send the first message to the customer.

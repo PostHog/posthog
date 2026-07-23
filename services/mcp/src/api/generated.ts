@@ -13291,27 +13291,6 @@ export namespace Schemas {
       last_seen: string | null;
     }
 
-    export interface BulkAddTagsRequest {
-      /**
-         * List of ticket UUIDs to add tags to.
-         * @maxItems 500
-         */
-      ids: string[];
-      /**
-         * Tags to add to every selected ticket. Existing tags on each ticket are preserved.
-         * @maxItems 50
-         * @items.maxLength 200
-         */
-      tags: string[];
-    }
-
-    export interface BulkAddTagsResponse {
-      /** Number of tickets that received at least one new tag. */
-      updated: number;
-      /** UUIDs of the tickets that received at least one new tag. */
-      ids: string[];
-    }
-
     /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
@@ -13555,25 +13534,37 @@ export namespace Schemas {
       results: BulkObserveResult[];
     }
 
-    export interface BulkRemoveTagsRequest {
+    /**
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set
+     */
+    export type BulkUpdateTagsActionEnum = typeof BulkUpdateTagsActionEnum[keyof typeof BulkUpdateTagsActionEnum];
+
+
+    export const BulkUpdateTagsActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
+    /**
+     * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+     */
+    export interface BulkTicketTagsRequest {
       /**
-         * List of ticket UUIDs to remove tags from.
+         * List of object UUIDs to update tags on.
          * @maxItems 500
          */
       ids: string[];
-      /**
-         * Tags to remove from every selected ticket. Tags not present on a ticket are ignored.
-         * @maxItems 50
-         * @items.maxLength 200
-         */
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      action: BulkUpdateTagsActionEnum;
+      /** Tag names to add, remove, or set. */
       tags: string[];
-    }
-
-    export interface BulkRemoveTagsResponse {
-      /** Number of tickets that had at least one tag removed. */
-      updated: number;
-      /** UUIDs of the tickets that had at least one tag removed. */
-      ids: string[];
     }
 
     /**
@@ -13616,20 +13607,6 @@ export namespace Schemas {
       /** UUIDs of the tickets whose status changed. */
       ids: string[];
     }
-
-    /**
-     * * `add` - add
-     * * `remove` - remove
-     * * `set` - set
-     */
-    export type BulkUpdateTagsActionEnum = typeof BulkUpdateTagsActionEnum[keyof typeof BulkUpdateTagsActionEnum];
-
-
-    export const BulkUpdateTagsActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
 
     export interface BulkUpdateTagsError {
       id: number;

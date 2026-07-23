@@ -943,48 +943,6 @@ export interface TicketReplyRequestApi {
     rich_content?: unknown
 }
 
-export interface BulkAddTagsRequestApi {
-    /**
-     * List of ticket UUIDs to add tags to.
-     * @maxItems 500
-     */
-    ids: string[]
-    /**
-     * Tags to add to every selected ticket. Existing tags on each ticket are preserved.
-     * @maxItems 50
-     * @items.maxLength 200
-     */
-    tags: string[]
-}
-
-export interface BulkAddTagsResponseApi {
-    /** Number of tickets that received at least one new tag. */
-    updated: number
-    /** UUIDs of the tickets that received at least one new tag. */
-    ids: string[]
-}
-
-export interface BulkRemoveTagsRequestApi {
-    /**
-     * List of ticket UUIDs to remove tags from.
-     * @maxItems 500
-     */
-    ids: string[]
-    /**
-     * Tags to remove from every selected ticket. Tags not present on a ticket are ignored.
-     * @maxItems 50
-     * @items.maxLength 200
-     */
-    tags: string[]
-}
-
-export interface BulkRemoveTagsResponseApi {
-    /** Number of tickets that had at least one tag removed. */
-    updated: number
-    /** UUIDs of the tickets that had at least one tag removed. */
-    ids: string[]
-}
-
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.
@@ -1021,12 +979,15 @@ export const BulkUpdateTagsActionEnumApi = {
     Set: 'set',
 } as const
 
-export interface BulkUpdateTagsRequestApi {
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkTicketTagsRequestApi {
     /**
-     * List of object IDs to update tags on.
+     * List of object UUIDs to update tags on.
      * @maxItems 500
      */
-    ids: number[]
+    ids: string[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
      *
      * * `add` - add
@@ -1037,19 +998,25 @@ export interface BulkUpdateTagsRequestApi {
     tags: string[]
 }
 
-export interface BulkUpdateTagsItemApi {
-    id: number
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
     tags: string[]
 }
 
-export interface BulkUpdateTagsErrorApi {
-    id: number
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found'. */
     reason: string
 }
 
-export interface BulkUpdateTagsResponseApi {
-    updated: BulkUpdateTagsItemApi[]
-    skipped: BulkUpdateTagsErrorApi[]
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
 export interface ComposeTicketApi {

@@ -2217,6 +2217,20 @@ function captureLivestream401Debug(url: string, authHeader: string | undefined, 
     }
 }
 
+// Tickets share the mixin's `bulk_update_tags` endpoint (`{ids, action, tags}` ->
+// `{updated: [{id, tags}], skipped}`); adapt it to the add/remove callers, which just need
+// how many changed and their ids.
+async function bulkUpdateTicketTags(
+    ids: string[],
+    action: 'add' | 'remove',
+    tags: string[]
+): Promise<{ updated: number; ids: string[] }> {
+    const response = (await new ApiRequest().conversationsTickets().withAction('bulk_update_tags').create({
+        data: { ids, action, tags },
+    })) as { updated: { id: string }[]; skipped: { id: string }[] }
+    return { updated: response.updated.length, ids: response.updated.map((u) => u.id) }
+}
+
 const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
@@ -7117,17 +7131,11 @@ const api = {
         },
 
         async bulkAddTags(ids: string[], tags: string[]): Promise<{ updated: number; ids: string[] }> {
-            return await new ApiRequest()
-                .conversationsTickets()
-                .withAction('bulk_add_tags')
-                .create({ data: { ids, tags } })
+            return await bulkUpdateTicketTags(ids, 'add', tags)
         },
 
         async bulkRemoveTags(ids: string[], tags: string[]): Promise<{ updated: number; ids: string[] }> {
-            return await new ApiRequest()
-                .conversationsTickets()
-                .withAction('bulk_remove_tags')
-                .create({ data: { ids, tags } })
+            return await bulkUpdateTicketTags(ids, 'remove', tags)
         },
 
         async submitAiFeedback(
