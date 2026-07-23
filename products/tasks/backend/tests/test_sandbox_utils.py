@@ -5,8 +5,9 @@ from django.test import override_settings
 
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
-from posthog.models.user_integration import UserGitHubIntegration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
 
+from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import (
     can_mint_readonly_github_token,
@@ -119,3 +120,33 @@ def test_readonly_request_takes_priority_over_full_credential_path(
 
     assert token == "READONLY_TOKEN"
     mock_full.assert_not_called()
+
+
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
+def test_reauthorization_required_surfaces_as_credential_unavailable(
+    mock_full: MagicMock, _mock_log: MagicMock
+) -> None:
+    # ReauthorizationRequired is a user-actionable "re-link your GitHub account" signal, not a
+    # system fault. Provisioning must surface it as CredentialUnavailableError (fatal, non-retryable,
+    # not captured to error tracking) rather than wrapping it in GitHubAuthenticationError, which
+    # captures the raw exception and floods error tracking with noise.
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        _resolve_sandbox_github_token,
+    )
+
+    mock_full.side_effect = ReauthorizationRequired("relink GitHub")
+    ctx = TaskProcessingContext(
+        task_id="t",
+        run_id="r",
+        team_id=1,
+        team_uuid="u",
+        organization_id="o",
+        github_integration_id=5,
+        repository="acme/repo",
+        distinct_id="d",
+        state={},
+    )
+
+    with pytest.raises(CredentialUnavailableError):
+        _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
