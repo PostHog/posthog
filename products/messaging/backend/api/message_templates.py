@@ -272,6 +272,7 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(tags=["messaging_templates"], extensions={"x-product": "workflows"})
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
