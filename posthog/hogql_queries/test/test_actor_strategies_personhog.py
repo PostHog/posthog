@@ -71,6 +71,24 @@ class TestPersonStrategyGetActors(BaseTest):
         assert entry["distinct_ids"][0] == "user@example.com"
         assert set(entry["distinct_ids"]) == {anonymous_id, "user@example.com"}
 
+    def test_distinct_id_limit_keeps_identified(self):
+        # The identified ID is seeded after more anonymous IDs than the fetch limit; the
+        # fetch must order identified-first before truncating, or the identified ID would
+        # be dropped before the post-fetch sort ever sees it.
+        anonymous_ids = [f"0190f8e1-1234-7abc-89de-f012345678{suffix}" for suffix in ("aa", "ab", "ac")]
+        person = create_person(
+            team=self.team,
+            distinct_ids=[*anonymous_ids, "user@example.com"],
+            properties={},
+        )
+
+        strategy = _make_strategy(self.team)
+        result = strategy.get_actors([str(person.uuid)], limit_per_person=2)
+
+        entry = result[str(person.uuid)]
+        assert len(entry["distinct_ids"]) == 2
+        assert entry["distinct_ids"][0] == "user@example.com"
+
     def test_multiple_persons(self):
         p1 = create_person(team=self.team, distinct_ids=["u1"], properties={"n": "1"})
         p2 = create_person(team=self.team, distinct_ids=["u2"], properties={"n": "2"})

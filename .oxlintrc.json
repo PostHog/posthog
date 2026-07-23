@@ -22,7 +22,6 @@
         "frontend/src/queries/validators.js",
         "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
-        "services/mcp/**/generated/**",
         "services/mcp/schema/tool-inputs.json",
         "products/**/frontend/generated/**"
     ],
@@ -200,6 +199,12 @@
             "files": ["*.stories.tsx"],
             "rules": {
                 "react-hooks/rules-of-hooks": "off"
+            }
+        },
+        {
+            "files": ["services/mcp/src/generated/**/*.ts"],
+            "rules": {
+                "no-useless-escape": "off"
             }
         },
         {
