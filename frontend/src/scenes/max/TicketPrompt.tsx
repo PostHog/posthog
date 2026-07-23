@@ -44,7 +44,7 @@ export function TicketPrompt({
     const [hasSubmitted, setHasSubmitted] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
-    const { sendSupportRequest } = useValues(supportLogic)
+    const { sendSupportRequest, conversationsFlagEnabled } = useValues(supportLogic)
     const { resetSendSupportRequest, closeSupportForm } = useActions(supportLogic)
     const { appendMessageToConversation } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
@@ -95,6 +95,15 @@ export function TicketPrompt({
         const finalMessage = appendTicketMetadata(body, { conversationId, traceId })
         if (!finalMessage) {
             lemonToast.error('Please add a description before creating a ticket.')
+            return
+        }
+        // The Zendesk form variant requires the triage fields the kea-forms validator would have
+        // enforced before this direct submit
+        if (
+            !conversationsFlagEnabled &&
+            (!sendSupportRequest.kind || !sendSupportRequest.target_area || !sendSupportRequest.severity_level)
+        ) {
+            lemonToast.error('Please choose a message type, topic, and severity level.')
             return
         }
 
