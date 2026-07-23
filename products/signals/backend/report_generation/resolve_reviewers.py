@@ -171,16 +171,26 @@ def resolve_suggested_reviewers(
             if login not in login_names:
                 login_names[login] = author_info.name
 
-    # Return top reviewers by weighted score
-    return [
-        _ResolvedReviewer(
-            login=login,
-            name=login_names.get(login),
-            commits=login_commits.get(login, []),
-            weight=weight,
+    # Take reviewers by weighted score, but skip anyone who no longer has access to the repo:
+    # authors come from git history, so a past contributor who has since left the GitHub org (or
+    # lost repo access) shouldn't be suggested. Fail open on an unknown access signal (missing
+    # permission, rate limit, error) so we never drop a valid reviewer on ambiguity.
+    reviewers: list[_ResolvedReviewer] = []
+    for login, weight in login_weights.most_common():
+        if len(reviewers) >= MAX_SUGGESTED_REVIEWERS:
+            break
+        if github.is_repository_collaborator(repository, login) is False:
+            logger.info("Skipping suggested reviewer %s without access to %s", login, repository)
+            continue
+        reviewers.append(
+            _ResolvedReviewer(
+                login=login,
+                name=login_names.get(login),
+                commits=login_commits.get(login, []),
+                weight=weight,
+            )
         )
-        for login, weight in login_weights.most_common(MAX_SUGGESTED_REVIEWERS)
-    ]
+    return reviewers
 
 
 @dataclass
