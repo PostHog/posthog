@@ -181,14 +181,29 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
     def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
         from posthog.caching.fetch_from_cache import encode_split_cached_response
 
-        if isinstance(response.get("results"), list):
-            # Split format keeps `results` as its own JSON segment so cache hits can skip
-            # parsing it — see fetch_from_cache.SplitCachedResponse. Pods that predate this
-            # format treat split entries as cache misses and recompute, so entries written
-            # during a rolling deploy may be recomputed once — accepted, deploys are quick.
-            fresh_response_serialized = encode_split_cached_response(response)
-        else:
-            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
+        try:
+            if isinstance(response.get("results"), list):
+                # Split format keeps `results` as its own JSON segment so cache hits can skip
+                # parsing it — see fetch_from_cache.SplitCachedResponse. Pods that predate this
+                # format treat split entries as cache misses and recompute, so entries written
+                # during a rolling deploy may be recomputed once — accepted, deploys are quick.
+                fresh_response_serialized = encode_split_cached_response(response)
+            else:
+                fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
+        except TypeError as e:
+            # orjson raises TypeError ("Integer exceeds 64-bit range") when a result carries an
+            # integer outside the signed/unsigned 64-bit range — e.g. a very large ClickHouse
+            # aggregate or numeric property. Such a result simply can't be cached, but the caller
+            # already has it in hand, so skip the write and let the query succeed rather than
+            # failing it. Subsequent requests recompute. Covers both the split and legacy paths.
+            logger.warning(
+                "query_cache_serialize_error",
+                cache_key=self.cache_key,
+                team_id=self.team_id,
+                exc_info=True,
+            )
+            capture_exception(e)
+            return
         data_size = len(fresh_response_serialized)
 
         # Set cache with per-team size limit enforcement
