@@ -67,7 +67,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             width: 140,
             align: 'right',
             tooltip:
-                'Owned tests an in-job retry recovered in this window, vs the previous one. Only tests with that recovery proof count as flaky.',
+                'Owned tests one commit was seen both failing and passing in this window, vs the previous one. Only tests with that recovery proof count as flaky.',
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
             render: (_, row) => <CountWithDelta current={row.flakyTestCount} prior={row.flakyTestCountPrior} />,
         },
@@ -95,13 +95,14 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
         },
         {
             title: 'Recoveries',
-            key: 'rerunPassedRunCount',
+            key: 'sameCommitRecoveryRunCount',
             width: 130,
             align: 'right',
-            tooltip: 'Runs where an in-job retry recovered an owned test after it failed. This is what proves a flake.',
-            sorter: (a, b) => a.rerunPassedRunCount - b.rerunPassedRunCount,
+            tooltip:
+                'Runs where one commit both failed and passed an owned test (a re-run went green, or an in-job retry recovered it). This is what proves a flake.',
+            sorter: (a, b) => a.sameCommitRecoveryRunCount - b.sameCommitRecoveryRunCount,
             render: (_, row) => (
-                <CountWithDelta current={row.rerunPassedRunCount} prior={row.rerunPassedRunCountPrior} />
+                <CountWithDelta current={row.sameCommitRecoveryRunCount} prior={row.sameCommitRecoveryRunCountPrior} />
             ),
         },
     ]

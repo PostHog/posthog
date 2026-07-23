@@ -31559,14 +31559,14 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
       selector: string;
-      /** confirmed_flake: an in-job retry recovered the test in the same run, so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+      /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
        * * `confirmed_flake` - CONFIRMED_FLAKE
        * * `suspected_regression` - SUSPECTED_REGRESSION
        * * `quarantined` - QUARANTINED */
       classification: FlakyTestItemClassificationEnum;
-      /** Runs where an in-job pytest retry recovered the test after it failed. Above zero is the only proof of flakiness this data carries, and it reaches only tests hand-marked @pytest.mark.flaky(reruns=N), since Backend CI runs without --reruns so failures stay visible. */
-      rerun_passed_run_count: number;
+      /** Runs where one commit both failed and passed the test: a 'Re-run failed jobs' attempt went green on the same commit, or an in-job pytest retry (tests hand-marked @pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit and never counts. */
+      same_commit_recovery_run_count: number;
       /** Distinct CI runs whose recorded outcome was failed or error. A run counts once however many matrix legs it failed in. */
       failed_run_count: number;
       /** Distinct pull requests among the failed runs. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_run_count). */
@@ -68445,11 +68445,11 @@ export namespace Schemas {
     export interface TeamCIHealthItem {
       /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
       owner_team: string;
-      /** Owned tests an in-job retry recovered in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
+      /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
       flaky_test_count: number;
       /** Same count over the equal-length window immediately before date_from. */
       flaky_test_count_prior: number;
-      /** Owned tests that failed with no recorded in-run recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
+      /** Owned tests that failed with no recorded same-commit recovery and still hit the blast-radius bar (a master/main failure, or min_failed_prs distinct PRs). Not flakes: absence of proof, not proof. */
       regression_test_count: number;
       /** Same count over the prior window. */
       regression_test_count_prior: number;
@@ -68457,10 +68457,10 @@ export namespace Schemas {
       failed_run_count: number;
       /** Same count over the prior window. */
       failed_run_count_prior: number;
-      /** Runs where an in-job pytest retry recovered an owned test after it failed. */
-      rerun_passed_run_count: number;
+      /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+      same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
-      rerun_passed_run_count_prior: number;
+      same_commit_recovery_run_count_prior: number;
       /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
