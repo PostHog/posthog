@@ -160,8 +160,11 @@ class BoundedResolver(Resolver):
     ):
         super().__init__(*args, **kwargs)
         self.initial_view_name = initial_view_name
-        # seeded with the current view name so it counts as "visited" for cycle detection
+        # views whose bodies are currently being visited; seeded with the current view name so
+        # it counts as "visited" for cycle detection
         self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
+        # set by visit_join_expr, consumed by the body visit it triggers
+        self._pending_view_name: str | None = None
         self.max_view_depth = max_view_depth
         self.deadline_seconds = deadline_seconds
         self.enforce_bounds = enforce_bounds
@@ -236,13 +239,49 @@ class BoundedResolver(Resolver):
                         # soft mode: still expand, but record the overshoot via max_view_depth_observed
                     if next_depth > self.max_view_depth_observed:
                         self.max_view_depth_observed = next_depth
-                    self.resolving_views.add(view_name)
+                    # Hand the name to the body visit rather than marking it resolving here: the
+                    # base resolver walks node.next_join from inside visit_join_expr, so anything
+                    # marked around super() stays marked while later tables in the same FROM
+                    # resolve, and siblings would read as cycles.
+                    previous_pending = self._pending_view_name
+                    self._pending_view_name = view_name
                     try:
                         return super().visit_join_expr(node)
                     finally:
-                        self.resolving_views.discard(view_name)
+                        self._pending_view_name = previous_pending
 
         return super().visit_join_expr(node)
+
+    def _enter_view_body(self, stamped_view_name: str | None) -> str | None:
+        """Mark the view whose body is about to be visited, returning the name to pop after.
+
+        The base resolver inlines a view by replacing the table with its parsed body and
+        visiting that body before it walks `next_join`, so the body visit — not the JoinExpr
+        subtree — is what "on the current path" means for cycle detection. It stamps
+        `view_name` on `ast.SelectQuery` bodies only, so union-bodied views rely on the name
+        `visit_join_expr` left in `_pending_view_name`.
+        """
+        view_name = stamped_view_name or self._pending_view_name
+        self._pending_view_name = None
+        if view_name is not None:
+            self.resolving_views.add(view_name)
+        return view_name
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        view_name = self._enter_view_body(node.view_name)
+        try:
+            return super().visit_select_query(node)
+        finally:
+            if view_name is not None:
+                self.resolving_views.discard(view_name)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        view_name = self._enter_view_body(None)
+        try:
+            return super().visit_select_set_query(node)
+        finally:
+            if view_name is not None:
+                self.resolving_views.discard(view_name)
 
 
 def bounded_resolver_factory_for_view(
@@ -426,16 +465,20 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
             continue
 
         while join is not None:
+            # every table in the FROM is a parent, so keep walking next_join past
+            # subqueries and expanded views rather than stopping at the first one
             if isinstance(join.table, ast.SelectQuery):
                 if join.table.view_name is not None:
                     parents.add(join.table.view_name)
-                    break
+                else:
+                    queries.append(join.table)
 
-                queries.append(join.table)
-                break
+                join = join.next_join
+                continue
             elif isinstance(join.table, ast.SelectSetQuery):
                 queries.extend(list(extract_select_queries(join.table)))
-                break
+                join = join.next_join
+                continue
 
             if join.table_args is not None:
                 # Table functions like numbers(), s3(), etc. are not real parents
