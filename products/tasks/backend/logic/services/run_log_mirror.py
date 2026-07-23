@@ -110,7 +110,7 @@ def mirror_entries(
             "task_id": task_id,
             "team_id": team_id,
             "origin_product": origin_product,
-            "body": _body(notification, session_update),
+            "body": _body(notification, update, session_update),
         }
         method = notification.get("method")
         if isinstance(method, str):
@@ -142,6 +142,8 @@ def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> Non
     # The run uuid without dashes is a valid 16-byte hex trace id, matching the
     # request_id -> trace id mapping the production collector applies.
     trace_id = run_id.replace("-", "")
+    trace_fields = {"traceId": trace_id} if len(trace_id) == 32 else {}
+    event_attribute = {"key": "event", "value": {"stringValue": _LOG_EVENT_NAME}}
     log_records = []
     for severity, fields in records:
         severity_text, severity_number = _OTLP_SEVERITIES[severity]
@@ -151,9 +153,9 @@ def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> Non
                 "severityText": severity_text,
                 "severityNumber": severity_number,
                 "body": {"stringValue": fields["body"]},
-                **({"traceId": trace_id} if len(trace_id) == 32 else {}),
+                **trace_fields,
                 "attributes": [
-                    {"key": "event", "value": {"stringValue": _LOG_EVENT_NAME}},
+                    event_attribute,
                     *[
                         {"key": key, "value": _otlp_attribute_value(value)}
                         for key, value in fields.items()
@@ -194,7 +196,7 @@ def _otlp_attribute_value(value: Any) -> dict[str, Any]:
 def _time_unix_nano(entry_timestamp: Any) -> int:
     if isinstance(entry_timestamp, str):
         try:
-            return int(datetime.fromisoformat(entry_timestamp.replace("Z", "+00:00")).timestamp() * 1_000_000_000)
+            return int(datetime.fromisoformat(entry_timestamp).timestamp() * 1_000_000_000)
         except (ValueError, OverflowError):
             pass
     return time.time_ns()
@@ -222,10 +224,9 @@ def _severity(notification: dict) -> str:
     return "info"
 
 
-def _body(notification: dict, session_update: str | None) -> str:
+def _body(notification: dict, update: dict, session_update: str | None) -> str:
     raw_params = notification.get("params")
     params: dict = raw_params if isinstance(raw_params, dict) else {}
-    update = _session_update(notification)
 
     body: str | None = None
     if session_update in _READABLE_SESSION_UPDATES:
