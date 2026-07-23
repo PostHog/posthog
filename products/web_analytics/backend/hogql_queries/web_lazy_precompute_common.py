@@ -179,17 +179,23 @@ REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 # window; a full dashboard is ~8 families and a compare-period burst doubles some, so
 # the budget comfortably covers legitimate use while bounding worker-held delayed tasks
 # and background query volume alike.
+#
+# Scope: this budget only ever applies to USER-FACING requests. Both enqueue callers
+# are unreachable from warming traffic — the check-miss enqueue in
+# `web_ensure_precomputed` is gated on `not is_background_warming_request()`, and
+# `handle_stale_served` can only fire for reads that received the stale grace, which
+# warming requests never do. Dagster/celery warmers are unaffected.
 REVALIDATION_TEAM_BUDGET_PER_WINDOW = 25
 
 # Head start for the interactive burst: warms enqueued by a dashboard load run on the
 # same team/cluster query slots as the dashboard's own live queries, so firing them
 # immediately makes the background work contend with the very read it is serving.
-# Dashboard bursts finish in seconds; the warm's purpose is the NEXT visit, so a
-# fixed delay costs nothing and removes the contention deterministically.
-# Celery holds countdown tasks worker-side until runnable, but the per-shape
-# debounce bounds in-flight delayed tasks to at most one per (team, family,
-# shape) per debounce window — a trickle, not a queue-occupying backlog.
-REVALIDATION_START_DELAY_SECONDS = 90
+# Dashboard bursts finish in seconds — 20s comfortably outlasts the slowest
+# burst observed while keeping the warm (whose purpose is the NEXT visit)
+# close behind. Celery holds countdown tasks worker-side until runnable, but
+# the per-shape debounce bounds in-flight delayed tasks to at most one per
+# (team, family, shape) per debounce window — a trickle, not a backlog.
+REVALIDATION_START_DELAY_SECONDS = 20
 
 
 def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
