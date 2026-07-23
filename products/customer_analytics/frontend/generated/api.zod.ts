@@ -572,7 +572,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                'Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
             ),
         source_column: zod
             .string()
@@ -583,13 +583,13 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person.'
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
             ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
             .describe(
-                "Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources."
+                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources."
             ),
         is_enabled: zod
             .boolean()
@@ -599,7 +599,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
     )
 
 export const customPropertySourcesUpdateBodySourceColumnMax = 400
