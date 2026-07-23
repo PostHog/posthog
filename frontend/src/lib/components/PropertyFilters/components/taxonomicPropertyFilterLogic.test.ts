@@ -169,6 +169,18 @@ describe('taxonomicPropertyFilterLogic', () => {
             )
         })
 
+        it('creates EventMetadata filter from a bare-key recent that has no item.id', () => {
+            // Key-only recents (e.g. the "Event" recent, key `event`) arrive without an `id`.
+            // Guarding the `$group_` check keeps the handler from throwing so setFilter still runs.
+            selectAndExpect(
+                TaxonomicFilterGroupType.EventMetadata,
+                'event',
+                PropertyFilterType.EventMetadata,
+                { type: PropertyFilterType.EventMetadata, key: 'event' },
+                { name: 'Event' }
+            )
+        })
+
         it('closes the dropdown after selecting an item', () => {
             const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)!
             logic.actions.openDropdown()
