@@ -88,6 +88,12 @@ TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 # needs the unified conversion goals CTE, not just campaign_costs.
 ROAS_COLUMN = "ROAS"
 
+# Suffix for the CAC column, joined to the "Cost per" prefix to read "Cost per customer". The
+# prefix makes it inherit the currency / higher-is-worse formatting the cost-per columns use.
+# It counts each customer goal's conversions as customers, which holds when that goal marks a
+# once-per-person conversion moment; see the aggregator for the assumption.
+CAC_COLUMN_SUFFIX = "customer"
+
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
 
