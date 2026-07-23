@@ -364,9 +364,10 @@ tools:
             coordinator to auto-register it. The same call can optionally set its schedule (rolling
             `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *' that takes
             precedence when set), `enabled`, and `emit` (false = dry-run). Cron schedules use the project timezone
-            automatically and occurrences must be at least 30 minutes apart. The skill must already exist on the project
-            (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
-            fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
+            automatically and occurrences must be at least 30 minutes apart. The same call can configure
+            `output_destinations`. The skill must already exist on the project (author it via the skills store first).
+            Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled
+            config is activity-logged, since running a scout drives spend.
     scout-config-delete:
         operation: signals_scout_config_destroy
         enabled: true
@@ -398,10 +399,10 @@ tools:
         description: >
             List the per-scout configs for this project. Each `signals-scout-*` skill has one row with its schedule
             (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and
-            `emit` (dry-run) posture. A freshly authored scout appears once its config is registered: immediately via
-            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
-            tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with
-            `scout-config-update` to tune them.
+            `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is
+            registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or
+            on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to
+            the inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -434,8 +435,9 @@ tools:
             five-field cron `run_cron_schedule` like '30 9 * * *', '0 9,17 * * *', or '0 9 * * 1-5' that takes
             precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to
             the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30
-            minutes apart; set null to return to the rolling interval. `skill_name` is fixed. Enabling records who
-            flipped it on and is activity-logged, since running a scout drives spend.
+            minutes apart; set null to return to the rolling interval. You can also configure
+            `output_destinations.slack` with a Slack integration and channel. `skill_name` is fixed. Enabling records
+            who flipped it on and is activity-logged, since running a scout drives spend.
     scout-edit-report:
         operation: signals_scout_edit_report
         enabled: true
