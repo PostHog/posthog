@@ -60,6 +60,25 @@ if [ -n "$gone_dups" ]; then
 fi
 [ -z "$new_dups$gone_dups" ] && echo "duplicates match baseline ($(printf '%s\n' "$baseline_dups" | grep -c .) objects)"
 
+# Windows guard: golden/ and sql/ are committed and checked out on every platform, so
+# no file may bear a Windows-reserved device name — git refuses to check those out
+# (core.protectNTFS) and NTFS rejects them, breaking the repo for Windows contributors.
+# The gen scripts alias such roles via golden_name (lib.sh); this asserts none slipped
+# through (a new reserved-name role, or a hand-added file).
+echo "== filenames: no Windows-reserved names in golden/ and sql/ =="
+reserved=""
+while IFS= read -r f; do
+  is_reserved_basename "$f" && reserved="$reserved  $f"$'\n'
+done < <(find "$GOLDEN" "$HCL/sql" -type f \( -name '*.hcl' -o -name '*.sql' \))
+if [ -n "$reserved" ]; then
+  echo "FAIL: committed schema files use Windows-reserved device names:"
+  printf '%s' "$reserved"
+  echo "  rename via a golden_name alias in lib.sh (and codegen/gen_migration.py), then regen."
+  rc=1
+else
+  echo "no reserved filenames"
+fi
+
 # Hoisted into assignments (not `for x in $(...)`) so set -e aborts on a failed
 # load instead of silently iterating zero times — see lib.sh.
 envs="$(manifest_envs)"
@@ -75,7 +94,7 @@ done
 for env in $envs; do
   roles="$(manifest_roles "$env")"
   for role in $roles; do
-    golden="$GOLDEN/$env/$role.hcl"
+    golden="$GOLDEN/$env/$(golden_name "$role").hcl"
     if [ ! -f "$golden" ]; then
       echo "== $env/$role: no golden (validate only) =="
       continue
