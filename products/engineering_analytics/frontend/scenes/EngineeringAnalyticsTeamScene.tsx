@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -19,22 +19,38 @@ import { CountWithDelta } from '../components/MetricTile'
 import { Section } from '../components/Section'
 import { compactHoursLabel } from '../lib/format'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
-import { TEAMS_WINDOW_DATE_OPTIONS, TEAMS_WINDOW_LABELS, UNOWNED_TEAM, isTeamsWindow } from './teamsLogic'
+import {
+    TEAMS_WINDOW_DATE_OPTIONS,
+    TEAMS_WINDOW_LABELS,
+    TEST_SURFACE_OPTIONS,
+    UNOWNED_TEAM,
+    isTeamsWindow,
+    isTestSurface,
+} from './teamsLogic'
 
 export const scene: SceneExport<TeamDetailLogicProps> = {
     component: EngineeringAnalyticsTeamScene,
     logic: teamDetailLogic,
-    paramsToProps: ({ params: { ownerTeam }, searchParams: { source, window } }) => ({
+    paramsToProps: ({ params: { ownerTeam }, searchParams: { source, surface, window } }) => ({
         ownerTeam: decodeURIComponent(ownerTeam ?? ''),
         sourceId: source ?? null,
         window: isTeamsWindow(window) ? window : null,
+        surface: isTestSurface(surface) ? surface : null,
     }),
 }
 
 export function EngineeringAnalyticsTeamScene(): JSX.Element {
-    const { activity, activityLoading, mergeTrend, mergeTrendLoading, mergeTrendSeries, window, ownerTeam } =
-        useValues(teamDetailLogic)
-    const { setWindow } = useActions(teamDetailLogic)
+    const {
+        activity,
+        activityLoading,
+        mergeTrend,
+        mergeTrendLoading,
+        mergeTrendSeries,
+        window,
+        ownerTeam,
+        testSurface,
+    } = useValues(teamDetailLogic)
+    const { setWindow, setTestSurface } = useActions(teamDetailLogic)
     const { timezone } = useValues(teamLogic)
     const chartTheme = useChartTheme()
 
@@ -42,6 +58,12 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
     const isUnowned = ownerTeam === UNOWNED_TEAM
 
     const testColumns: LemonTableColumns<TeamTestSignalRow> = [
+        {
+            title: 'Surface',
+            key: 'surface',
+            width: 100,
+            render: (_, row) => <LemonTag size="small">{row.surface}</LemonTag>,
+        },
         {
             title: 'Test',
             key: 'nodeid',
@@ -101,12 +123,20 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                         </>
                     }
                 />
-                <DateFilter
-                    dateFrom={window}
-                    onChange={(from) => isTeamsWindow(from) && setWindow(from)}
-                    dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
-                    size="small"
-                />
+                <div className="flex items-center gap-2">
+                    <LemonSegmentedButton
+                        size="small"
+                        value={testSurface}
+                        onChange={setTestSurface}
+                        options={TEST_SURFACE_OPTIONS}
+                    />
+                    <DateFilter
+                        dateFrom={window}
+                        onChange={(from) => isTeamsWindow(from) && setWindow(from)}
+                        dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
+                        size="small"
+                    />
+                </div>
             </div>
 
             {!isUnowned && (
@@ -142,7 +172,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 </Section>
             )}
 
-            <Section id="team-tests" title="Owned tests with signal" busy={activityLoading}>
+            <Section id="team-tests" title="Recent owned test signals" busy={activityLoading}>
                 <LemonTable
                     data-attr="engineering-analytics-team-tests-table"
                     size="small"
@@ -152,7 +182,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     loading={activityLoading}
                     pagination={{ pageSize: 25 }}
                     useURLForSorting={false}
-                    emptyState="No owned tests with signal in this window."
+                    emptyState="No recent owned test signals in this window."
                     nouns={['test', 'tests']}
                 />
                 {activity?.truncatedTests && (

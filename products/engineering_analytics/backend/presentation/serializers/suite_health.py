@@ -29,6 +29,7 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
                 "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
             },
+            "surface": {"help_text": "Test surface that produced this signal: backend or frontend."},
             "classification": {
                 "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
                 "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it "
@@ -50,15 +51,15 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "branches carry no PR number and are excluded here (still in failed_run_count).",
             },
             "master_failed_run_count": {
-                "help_text": "Failed runs on the default branch (master/main approximation): the 'matters right "
-                "now' signal that a test is breaking the trunk, not just PR branches.",
+                "help_text": "Failed runs on the default branch (master/main approximation) in the requested window.",
             },
             "quarantined_failed_run_count": {
                 "help_text": "Runs where the test failed while quarantined (xfail): already masked in CI, still "
                 "failing.",
             },
             "last_signal_at": {
-                "help_text": "Most recent failure, recovery, or xfail run for this test in the window.",
+                "help_text": "Most recent failure, in-job recovery, or xfail signal in the window. A cross-attempt "
+                "pass proves recovery but does not advance recency.",
             },
         }
 
@@ -66,7 +67,7 @@ class FlakyTestItemSerializer(DataclassSerializer):
 class FlakyTestListSerializer(DataclassSerializer):
     items = FlakyTestItemSerializer(
         many=True,
-        help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs.",
+        help_text="Tests with recent signals, ranked by blast radius: master failures, then PRs hit, then runs.",
     )
 
     class Meta:
@@ -76,6 +77,7 @@ class FlakyTestListSerializer(DataclassSerializer):
                 "help_text": "True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows.",
             },
             "limit": {"help_text": "Maximum number of tests returned in `items`."},
+            "surface": {"help_text": "Requested test surface: all, backend, or frontend."},
         }
 
 

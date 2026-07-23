@@ -37,18 +37,16 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
 - **`pr-lifecycle`** — a single PR's timeline: a header plus ordered events — opened, then a CI started/finished
   pair **per workflow run** (many on a multi-workflow repo, interleaved by time), then merged/closed. Answers
   "where is PR N stuck". `metric_quality` is `partial`.
-- **`engineering-analytics-flaky-tests`** — the active test-health queue from the per-test CI spans, over a
-  window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span or run attempt.
+- **`posthog:engineering-analytics-flaky-tests`** — recent test-health signals from supported CI services, over a
+  window (`date_from` default `-7d`, max 30 days), with `surface=all|backend|frontend` (default `all`). Evidence is counted per CI run, never per span or run attempt.
   `classification` is `confirmed_flake` only where the evidence proves nondeterminism
-  (`same_commit_recovery_run_count > 0`: one commit both failed and passed the test, via a "Re-run failed jobs"
-  attempt going green or an in-job retry); `quarantined` means failing while masked as xfail;
+  (`same_commit_recovery_run_count > 0`: the same job/configuration on one commit both failed and passed the test,
+  via a "Re-run failed jobs" attempt going green or an in-job retry); `quarantined` means failing while masked as xfail;
   `suspected_regression` means only failures were recorded, which is absence of proof, not proof of a real break.
   A test qualifies on any same-commit recovery, an xfail, any master/main failure, or failures on ≥
   `min_failed_prs` distinct PRs (`failed_pr_count`). Answers "what is this failing test costing us" and picks
-  quarantine candidates. **It does not answer "which tests are flaky"**: this queue only sees Backend CI, and
-  recovery proof only arrives when someone re-runs failed jobs (or a test is hand-marked
-  `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
-  emitted, so there is no honest denominator.
+  quarantine candidates. **It does not establish current resolution or a failure rate**: ordinary fast passes are
+  mostly not emitted, and a pass in another shard, configuration, or workflow run is not recovery proof.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
@@ -76,14 +74,14 @@ These are structural limits of today's snapshot data — state them, don't paper
 
 ## Choosing a tool
 
-| The question                                           | Tool                                | How                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Is CI getting slower? Which workflow is the long pole? | `workflow-health`                   | Call over two adjacent windows (e.g. `date_from=-14d`, then `date_from=-28d` `date_to=-14d`); compare `p50_seconds` and `p95_seconds` per workflow. Lead with the median but always check p95 separately — they move independently.                                                            |
-| Which open PRs have failing or pending CI?             | `pull-requests`                     | Keep rows where `ci.failing > 0` or `ci.pending > 0`. `pending` means unsettled (or stale) — not a settled failure.                                                                                                                                                                            |
-| Which PRs are stuck open longest?                      | `pull-requests`                     | Keep `state = open`, not `is_draft`, not `author.is_bot`; sort by `created_at` ascending (oldest first).                                                                                                                                                                                       |
-| How long are PRs taking to merge? Per author?          | `pull-requests`                     | Over merged rows (`merged_at` set, not bot, not draft), aggregate `open_to_merge_seconds` — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows.             |
-| Where is PR N stuck?                                   | `pr-lifecycle`                      | Walk the sorted events: `opened → first CI started`, the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long open→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so. |
-| What is a failing test costing us? What to quarantine? | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky": only `confirmed_flake` rows are proven, and only for tests hand-marked with reruns.                                                  |
+| The question                                           | Tool                                        | How                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Is CI getting slower? Which workflow is the long pole? | `workflow-health`                           | Call over two adjacent windows (e.g. `date_from=-14d`, then `date_from=-28d` `date_to=-14d`); compare `p50_seconds` and `p95_seconds` per workflow. Lead with the median but always check p95 separately — they move independently.                                                            |
+| Which open PRs have failing or pending CI?             | `pull-requests`                             | Keep rows where `ci.failing > 0` or `ci.pending > 0`. `pending` means unsettled (or stale) — not a settled failure.                                                                                                                                                                            |
+| Which PRs are stuck open longest?                      | `pull-requests`                             | Keep `state = open`, not `is_draft`, not `author.is_bot`; sort by `created_at` ascending (oldest first).                                                                                                                                                                                       |
+| How long are PRs taking to merge? Per author?          | `pull-requests`                             | Over merged rows (`merged_at` set, not bot, not draft), aggregate `open_to_merge_seconds` — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows.             |
+| Where is PR N stuck?                                   | `pr-lifecycle`                              | Walk the sorted events: `opened → first CI started`, the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long open→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so. |
+| What is a failing test costing us? What to quarantine? | `posthog:engineering-analytics-flaky-tests` | Default window is `-7d`; select `all`, `backend`, or `frontend`. Rows are ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky", only `confirmed_flake` rows have same-job, same-commit recovery proof.                               |
 
 ## The high-value chain
 

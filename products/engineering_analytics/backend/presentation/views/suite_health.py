@@ -36,6 +36,14 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         operation_id="engineering_analytics_flaky_tests",
         parameters=[
             OpenApiParameter(
+                name="surface",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["all", "backend", "frontend"],
+                description="Test surface to include. Defaults to all.",
+            ),
+            OpenApiParameter(
                 name="date_from",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -69,7 +77,7 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
         },
         description=(
-            "The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a "
+            "Recent backend and frontend test-health signals from per-test CI spans, over a "
             "window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run "
             "attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed "
             "jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when it fails while "
@@ -87,6 +95,7 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
+                surface=request.query_params.get("surface") or None,
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,

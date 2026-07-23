@@ -29,6 +29,14 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
         operation_id="engineering_analytics_team_ci_health",
         parameters=[
             OpenApiParameter(
+                name="surface",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["all", "backend", "frontend"],
+                description="Test surface to include. Defaults to all.",
+            ),
+            OpenApiParameter(
                 name="date_from",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -64,14 +72,14 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
         },
         description=(
-            "Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as "
+            "Per-owning-team rollup of recent CI test signals, over the same run evidence as "
             "flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was "
             "seen both failing and passing in the window, regression_test_count is owned tests that failed "
             "with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
             "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "
-            "emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); unstamped "
-            "spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest "
-            "owner only. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "emission time through OwnersResolver (distributed owners.yaml, with product.yaml aliases); unstamped "
+            "spans aggregate under the literal team 'unowned'. Ownership remains capture-time truth when a path is "
+            "re-stamped. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -83,6 +91,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
+                surface=request.query_params.get("surface") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -93,6 +102,14 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
     @extend_schema(
         operation_id="engineering_analytics_team_ci_activity",
         parameters=[
+            OpenApiParameter(
+                name="surface",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["all", "backend", "frontend"],
+                description="Test surface to include. Defaults to all.",
+            ),
             OpenApiParameter(
                 name="owner_team",
                 type=OpenApiTypes.STR,
@@ -142,6 +159,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 test_limit=_optional_int_param(request, "test_limit"),
+                surface=request.query_params.get("surface") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

@@ -1,9 +1,10 @@
-"""Test-health orchestration: the active test-health queue and the broken-tests panel."""
+"""Test-health orchestration for recent test signals and the broken-tests panel."""
 
 from products.engineering_analytics.backend.facade.contracts import (
     BROKEN_TEST_SPARKLINE_HOURS,
     BrokenTestsResult,
     FlakyTestList,
+    TestSurface,
 )
 from products.engineering_analytics.backend.logic._shared import _parse_date, _parse_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
@@ -33,6 +34,7 @@ def build_flaky_tests(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    surface: str | None = None,
 ) -> FlakyTestList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
@@ -45,12 +47,17 @@ def build_flaky_tests(
     limit = limit if limit is not None else _DEFAULT_FLAKY_LIMIT
     if not 1 <= limit <= _MAX_FLAKY_LIMIT:
         raise ValueError(f"limit must be between 1 and {_MAX_FLAKY_LIMIT}")
+    try:
+        test_surface = TestSurface(surface or TestSurface.ALL)
+    except ValueError as exc:
+        raise ValueError("surface must be one of: all, backend, frontend") from exc
     return query_flaky_tests(
         curated=curated,
         date_from=parsed_from,
         date_to=parsed_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        surface=test_surface,
     )
 
 

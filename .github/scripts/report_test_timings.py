@@ -12,7 +12,7 @@
 # [tool.uv.sources]
 # posthog-owners = { path = "../../tools/owners" }
 # ///
-"""Emit OTLP traces from Backend CI JUnit XML artifacts.
+"""Emit OTLP traces from CI JUnit XML artifacts.
 
 Reads `junit-results-*` artifacts (downloaded by the workflow) and emits one
 trace per job (shard) shaped:
@@ -67,7 +67,10 @@ from posthog_owners import OwnersResolver
 logger = logging.getLogger("report_test_timings")
 
 DEFAULT_OTLP_ENDPOINT = "https://us.i.posthog.com/i/v1/traces"
-SERVICE_NAME = "ci-backend"
+DEFAULT_SERVICE_NAME = "ci-backend"
+OWNERSHIP_CATALOG_SERVICE_NAME = "ci-ownership-catalog"
+OWNERSHIP_CATALOG_SPAN_NAME = "ownership.catalog"
+SUPPORTED_FRAMEWORKS = ("pytest", "jest")
 INSTRUMENTATION_NAME = "posthog-ci-test-timings"
 INSTRUMENTATION_VERSION = "0.1.0"
 # ~150 KB serialized at this size — well under capture-logs' 2 MiB body limit.
@@ -276,7 +279,29 @@ def parse_testsuite_properties(suite_elem: Any) -> dict[str, str]:
     return result
 
 
-def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
+def normalize_jest_file(file: str, junit_cwd: str) -> str:
+    """Resolve jest-junit's package-relative `file` to a repository-relative path."""
+    normalized = file.replace("\\", "/")
+    workspace = os.environ.get("GITHUB_WORKSPACE", "").replace("\\", "/").rstrip("/")
+    if workspace and normalized.startswith(f"{workspace}/"):
+        return normalized[len(workspace) + 1 :]
+    if normalized.startswith("/"):
+        return ""
+    repository_path = os.path.normpath(f"{junit_cwd}/{normalized}" if junit_cwd else normalized).replace("\\", "/")
+    return "" if repository_path == ".." or repository_path.startswith("../") else repository_path
+
+
+def jest_identity(file: str, name: str) -> str:
+    return f"{file}::{name}" if file and name else name or file
+
+
+def parse_shard(
+    xml_path: Path,
+    info: ArtifactInfo,
+    *,
+    framework: str = "pytest",
+    junit_cwd: str = "",
+) -> Shard | None:
     """One Shard per junit XML file. Tolerant of malformed input."""
     try:
         root = ET.parse(xml_path).getroot()
@@ -310,6 +335,12 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
         classname = tc.get("classname", "")
         name = tc.get("name", "")
         file = tc.get("file", "")
+        if framework == "jest":
+            file = normalize_jest_file(file, junit_cwd)
+            nodeid = selector = jest_identity(file, name)
+        else:
+            nodeid = to_nodeid(classname, name)
+            selector = to_selector(file, classname, name)
         outcome, attempts = classify_testcase(tc)
         try:
             duration = float(tc.get("time", "0"))
@@ -320,11 +351,11 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
         cursor = test_end
         tests.append(
             TestCase(
-                nodeid=to_nodeid(classname, name),
+                nodeid=nodeid,
                 classname=classname,
                 name=name,
                 file=file,
-                selector=to_selector(file, classname, name),
+                selector=selector,
                 duration_seconds=duration,
                 start=test_start,
                 end=test_end,
@@ -347,11 +378,11 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
     )
 
 
-def collect_shards(artifacts_root: Path) -> list[Shard]:
+def collect_shards(artifacts_root: Path, *, framework: str = "pytest", junit_cwd: str = "") -> list[Shard]:
     shards: list[Shard] = []
     for artifact in collect_artifact_infos(artifacts_root):
         for xml_path in sorted(artifact.path.rglob("junit*.xml")):
-            shard = parse_shard(xml_path, artifact)
+            shard = parse_shard(xml_path, artifact, framework=framework, junit_cwd=junit_cwd)
             if shard is not None:
                 shards.append(shard)
     return shards
@@ -544,23 +575,33 @@ def owner_team_lookup() -> Callable[[str], str]:
         if not file:
             return ""
         try:
-            owners = resolver.resolve(file).owners
+            resolution = resolver.resolve(file)
         except Exception:
             logger.exception("owners resolution failed for %s; emitting span without team attribution", file)
             return ""
-        return owners[0] if owners else ""
+        if resolution.status != "active" or not resolution.owners:
+            return ""
+        primary = resolution.owners[0]
+        return "" if primary.startswith("@") else primary
 
     return lookup
 
 
-def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
+def emit_traces(
+    shards: list[Shard],
+    endpoint: str,
+    token: str,
+    *,
+    service_name: str = DEFAULT_SERVICE_NAME,
+    framework: str = "pytest",
+) -> None:
     """Emit one trace per job: a `<workflow> / <job>` root span with test children, shipped via OTLP HTTP."""
     run_id = os.environ.get("GITHUB_RUN_ID", "0")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    workflow = os.environ.get("GITHUB_WORKFLOW", "") or SERVICE_NAME
+    workflow = os.environ.get("GITHUB_WORKFLOW", "") or service_name
 
     id_generator = _FixedTraceIdGenerator()
-    resource = Resource.create({"service.name": SERVICE_NAME, **workflow_resource_attributes()})
+    resource = Resource.create({"service.name": service_name, **workflow_resource_attributes()})
     provider = TracerProvider(resource=resource, id_generator=id_generator)
     exporter = OTLPSpanExporter(endpoint=endpoint, headers={"Authorization": f"Bearer {token}"})
     provider.add_span_processor(BatchSpanProcessor(exporter, max_export_batch_size=SPAN_BATCH_SIZE))
@@ -575,12 +616,34 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
         # Mutate the shared generator before each job so its root span (and the test
         # children that inherit the active parent's trace ID) form a distinct trace.
         id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
-        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_of)
+        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_of, framework)
 
     provider.shutdown()
 
 
-def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_of: Callable[[str], str]) -> bool:
+def emit_ownership_catalog(endpoint: str, token: str) -> None:
+    """Emit one repository-scoped heartbeat containing the active primary team roster."""
+    teams = OwnersResolver().active_primary_teams()
+    resource = Resource.create({"service.name": OWNERSHIP_CATALOG_SERVICE_NAME, **workflow_resource_attributes()})
+    provider = TracerProvider(resource=resource)
+    exporter = OTLPSpanExporter(endpoint=endpoint, headers={"Authorization": f"Bearer {token}"})
+    provider.add_span_processor(BatchSpanProcessor(exporter, max_export_batch_size=SPAN_BATCH_SIZE))
+    tracer = provider.get_tracer(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION)
+    span = tracer.start_span(OWNERSHIP_CATALOG_SPAN_NAME)
+    span.set_attribute("ownership.catalog_version", 1)
+    span.set_attribute("ownership.primary_teams_json", json.dumps(teams, separators=(",", ":")))
+    span.set_attribute("ownership.primary_team_count", len(teams))
+    span.end()
+    provider.shutdown()
+
+
+def _emit_shard_span(
+    tracer: trace.Tracer,
+    shard: Shard,
+    root_name: str,
+    owner_of: Callable[[str], str],
+    framework: str = "pytest",
+) -> bool:
     """Emit the job's root span and its test children. Returns True iff any child has Error."""
     info = shard.info
     shard_span = tracer.start_span(root_name, start_time=_to_ns(shard.start))
@@ -612,6 +675,8 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_o
             test_span = tracer.start_span(test.nodeid, start_time=_to_ns(test.start))
             test_span.set_attribute("test.outcome", test.outcome)
             test_span.set_attribute("test.attempts", test.attempts)
+            test_span.set_attribute("test.framework", framework)
+            test_span.set_attribute("test.job_key", job_trace_key(info))
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
             if test.selector:
@@ -645,7 +710,28 @@ def emission_tokens(env: Mapping[str, str]) -> list[str]:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
-    parser.add_argument("artifacts_root", type=Path, help="directory of downloaded junit-results-* artifacts")
+    parser.add_argument(
+        "artifacts_root",
+        type=Path,
+        nargs="?",
+        help="directory of downloaded junit-results-* artifacts",
+    )
+    parser.add_argument(
+        "--framework",
+        choices=SUPPORTED_FRAMEWORKS,
+        default="pytest",
+        help="JUnit producer to normalize (default: pytest)",
+    )
+    parser.add_argument(
+        "--service-name",
+        default=DEFAULT_SERVICE_NAME,
+        help=f"OTel service.name for emitted spans (default: {DEFAULT_SERVICE_NAME})",
+    )
+    parser.add_argument(
+        "--junit-cwd",
+        default="",
+        help="repository-relative working directory used by the JUnit producer",
+    )
     parser.add_argument(
         "--min-duration-seconds",
         type=float,
@@ -658,6 +744,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=f"OTLP /v1/traces endpoint (default: $POSTHOG_OTLP_TRACES_ENDPOINT or {DEFAULT_OTLP_ENDPOINT})",
     )
     parser.add_argument("--dry-run", action="store_true", help="parse and summarize, do not emit")
+    parser.add_argument(
+        "--emit-ownership-catalog",
+        action="store_true",
+        help="emit the repository ownership roster heartbeat instead of JUnit spans",
+    )
     return parser.parse_args(argv)
 
 
@@ -665,12 +756,30 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
+    if args.emit_ownership_catalog:
+        if args.dry_run or os.environ.get("DRY_RUN") == "1":
+            logger.info("ownership catalog: %d active primary teams", len(OwnersResolver().active_primary_teams()))
+            return 0
+        tokens = emission_tokens(os.environ)
+        if not tokens:
+            logger.warning("none of %s set; skipping emit", ", ".join(TOKEN_ENV_VARS))
+            return 0
+        for token in tokens:
+            try:
+                emit_ownership_catalog(args.otlp_endpoint, token)
+            except Exception:
+                logger.exception("failed to emit ownership catalog")
+        return 0
+
+    if args.artifacts_root is None:
+        logger.error("artifacts_root is required unless --emit-ownership-catalog is set")
+        return 0
     if not args.artifacts_root.exists():
         logger.error("artifacts_root does not exist: %s", args.artifacts_root)
         return 0
 
     try:
-        shards = collect_shards(args.artifacts_root)
+        shards = collect_shards(args.artifacts_root, framework=args.framework, junit_cwd=args.junit_cwd)
     except Exception:
         logger.exception("failed to collect shards")
         return 0
@@ -720,7 +829,13 @@ def main(argv: list[str] | None = None) -> int:
     for token in tokens:
         # Per-token isolation: one project's ingest failing must not block the other's.
         try:
-            emit_traces(shards, args.otlp_endpoint, token)
+            emit_traces(
+                shards,
+                args.otlp_endpoint,
+                token,
+                service_name=args.service_name,
+                framework=args.framework,
+            )
             logger.info("emitted %d testcase spans to %s", post_filter, args.otlp_endpoint)
         except Exception:
             logger.exception("failed to emit traces")
