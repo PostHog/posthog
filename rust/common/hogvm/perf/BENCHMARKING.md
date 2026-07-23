@@ -2,8 +2,9 @@
 
 ## Prerequisites
 
-- `share/GeoLite2-City.mmdb` must exist at the repo root (gitignored; a normal dev setup
-  (`hogli start` / `./bin/start`) downloads it).
+- `share/GeoLite2-City.mmdb` must exist at the repo root (gitignored). On a fresh checkout
+  run `./bin/download-mmdb` from the repo root — it fetches the database from
+  mmdbcdn.posthog.net. (A normal dev setup via `hogli start` / `./bin/start` also runs it.)
 - The napi addon crate lives at `rust/common/hogvm/node` and has its own workspace — build it
   from that directory, not the rust workspace root.
 
@@ -22,6 +23,9 @@ semantic drift), then runs 100k iterations and prints `us/op`.
 
 - Baseline at branch creation: **96.6 us/op** (M-series mac, default release profile with LTO).
 - Runs vary ±3–5%; take the median of 3 runs before claiming a win or a regression.
+- Numbers are machine-relative: on any new machine (e.g. a fresh CI or sandbox runner),
+  re-measure the unmodified HEAD first and compare candidate changes against that
+  same-machine baseline — never against numbers recorded on other hardware.
 - After an *intentional, verified* semantic change (should be rare — the geoip output is
   pinned), regenerate the fixture with `--write-expected` and justify it in the commit message.
 - Overrides: `profile_geoip <bytecode.json> <globals.json> <mmdb> [iters]`.
@@ -59,6 +63,24 @@ sample $! 15 -file /tmp/geoip-sample.txt
 the canonical metric build — profile with it, measure with the canonical command.)
 
 In the sample output, the "Sort by top of stack" section is the flat self-time profile.
+
+## Profiling (Linux)
+
+Same build, sampled with `perf`:
+
+```bash
+cd rust/common/hogvm/node
+CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_LTO=false \
+  cargo build --release --features noop --bin profile_geoip
+perf record -F 997 -g --call-graph dwarf -o /tmp/geoip-perf.data -- \
+  "${CARGO_TARGET_DIR:-target}/release/profile_geoip" "" "" "" 300000
+perf report -i /tmp/geoip-perf.data --stdio --no-children --sort symbol | head -60
+```
+
+`--no-children` is the flat self-time profile (the equivalent of the macOS "Sort by top of
+stack" section). If `perf record` is blocked by `kernel.perf_event_paranoid`, try
+`sudo sysctl kernel.perf_event_paranoid=1`; failing that, fall back to
+`valgrind --tool=callgrind` (much slower — use relative costs only).
 
 ## End-to-end comparison vs legacy plugin and node VM
 

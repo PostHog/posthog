@@ -27,8 +27,15 @@ canonical harness, without changing observable semantics.
 
 - Metric: `us/op` from `cargo run --release --features noop --bin profile_geoip`
   (run from `rust/common/hogvm/node`; median of 3 runs).
-- Baseline at branch creation: 96.6 us/op.
-- Target: below 80 us/op. Stretch: below 60 us/op.
+- All numbers are machine-relative. The figures below are from the original dev machine
+  (M-series mac); sessions may run on different hardware, so never compare a measurement
+  against a LOG.md entry recorded on another machine. At the start of every session,
+  measure the unmodified HEAD on the current machine and gate every decision on the
+  same-machine before -> after ratio.
+- Baseline at branch creation: 96.6 us/op. Target: below 80 us/op (~17% cumulative
+  reduction). Stretch: below 60 us/op (~38% cumulative reduction). On other hardware,
+  track progress as the cumulative reduction implied by the committed same-machine
+  ratios in LOG.md.
 - Reaching the target does not end the loop early — keep iterating until a stop condition
   in the loop protocol fires; the target is the bar for calling the loop a success.
 
@@ -38,6 +45,14 @@ canonical harness, without changing observable semantics.
   approaches. Do not re-try refuted approaches (template rewrites; chasing the mmdb lookup;
   further serde/token-decode work).
 - `rust/common/hogvm/perf/BENCHMARKING.md` — how to measure, profile, and gate.
+
+## Environment setup (fresh checkout)
+
+- Run `./bin/download-mmdb` from the repo root — the harness needs
+  `share/GeoLite2-City.mmdb` (gitignored; downloaded from mmdbcdn.posthog.net).
+  If the download fails or the host is unreachable, stop and report it: nothing can be
+  measured without the database.
+- On Linux, profiling uses `perf` — see the Linux recipe in BENCHMARKING.md.
 
 ## Hard constraints
 
@@ -58,20 +73,28 @@ canonical harness, without changing observable semantics.
 
 ## Loop protocol (one hypothesis per iteration)
 
+0. Orient: read LOG.md. If it already ends with a closing summary, the loop is complete —
+   report that and exit immediately; do not measure or change anything. Otherwise measure
+   the unmodified HEAD (canonical harness, median of 3) as this session's baseline and
+   record it with the iteration log entry.
 1. Profile: use the sampling recipe in BENCHMARKING.md; identify the current top cost.
 2. Hypothesize: one specific change and its predicted saving. Log it before implementing.
 3. Implement the single change, as small as possible.
 4. Gate: run all correctness checks above.
-5. Measure: canonical harness, median of 3. Compare against the previous iteration's median.
+5. Measure: canonical harness, median of 3. Compare against this session's same-machine
+   baseline from step 0 — never against a median logged on another machine.
 6. Decide:
    - Improvement ≥ 2%: commit (`perf(hogvm): <what> (<before> -> <after> us/op)`).
    - Below 2% or a regression: revert the change, keep the knowledge.
 7. Log the iteration in `rust/common/hogvm/perf/LOG.md` (create on first iteration): date,
-   hypothesis, diff summary, measurement, verdict. Negative results are valuable — record
-   them so later iterations don't repeat them.
-8. Stop conditions: the stretch goal (60 us/op) is reached, or 3 consecutive iterations end
+   machine/OS, same-machine baseline, hypothesis, diff summary, measurement, verdict.
+   Negative results are valuable — record them so later iterations don't repeat them.
+8. Stop conditions: the stretch goal is reached (60 us/op on the original machine, or the
+   equivalent ~38% cumulative same-machine reduction), or 3 consecutive iterations end
    with no committed improvement — then write a closing summary in LOG.md with the final
-   numbers and, if the target was not reached, what a bigger refactor would need.
+   numbers and, if the target was not reached, what a bigger refactor would need. The
+   closing summary is the loop's terminal marker: any later session that finds it exits
+   at step 0.
 
 ## Ranked starting backlog (from the profile in FINDINGS.md)
 
