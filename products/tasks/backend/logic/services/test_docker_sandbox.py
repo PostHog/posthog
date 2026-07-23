@@ -437,11 +437,11 @@ class TestDockerSandboxUnit:
                 "task-123",
                 "run-456",
                 branch="main",
-                agent_protocol="pi",
+                agent_runtime="pi",
             )
 
         assert mock_build.call_count == 2
-        assert mock_build.call_args_list[1].kwargs["agent_protocol"] == "pi"
+        assert mock_build.call_args_list[1].kwargs["agent_runtime"] == "pi"
 
     def test_parse_repo_mount_map_empty(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -655,7 +655,7 @@ class TestDockerSandboxUnit:
                     "task-123",
                     "run-456",
                     "background",
-                    agent_protocol="pi",
+                    agent_runtime="pi",
                     runtime_adapter="codex",
                     provider="openai",
                     model="gpt-5.3-codex",
@@ -666,7 +666,7 @@ class TestDockerSandboxUnit:
                 )
 
         command = _agent_server_launch_command(mock_execute)
-        assert "POSTHOG_AGENT_PROTOCOL=pi" in command
+        assert "POSTHOG_AGENT_RUNTIME=pi" in command
         assert "POSTHOG_SANDBOX_ID=abc123" in command
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command

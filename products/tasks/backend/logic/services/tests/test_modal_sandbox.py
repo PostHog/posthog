@@ -554,7 +554,7 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
-            agent_protocol="pi",
+            agent_runtime="pi",
             runtime_adapter="codex",
             provider="openai",
             model="gpt-5.3-codex",
@@ -565,7 +565,7 @@ class TestModalSandboxAgentServer:
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
-        assert "POSTHOG_AGENT_PROTOCOL=pi" in command
+        assert "POSTHOG_AGENT_RUNTIME=pi" in command
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
