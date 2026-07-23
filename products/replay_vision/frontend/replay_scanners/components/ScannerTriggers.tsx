@@ -22,6 +22,7 @@ import {
 import { RecordingsUniversalFilterAddFilterPopover } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
@@ -32,7 +33,8 @@ import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
-const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
+// Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
+const SCANNER_BASE_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SuggestedFilters,
     TaxonomicFilterGroupType.Replay,
     TaxonomicFilterGroupType.Events,
@@ -73,9 +75,11 @@ function ScannerFilterGroup(): JSX.Element {
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
+    const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -208,7 +212,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                             <UniversalFilters
                                 rootKey={`replay-scanner-${scanner.id}`}
                                 group={universal.filter_group}
-                                taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                taxonomicGroupTypes={scannerFilterTypes}
                                 onChange={(filterGroup) => applyUniversal({ ...universal, filter_group: filterGroup })}
                             >
                                 {universal.filter_group.values.length > 0 &&
@@ -216,7 +220,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                         <UniversalFilters
                                             rootKey={`replay-scanner-${scanner.id}.nested`}
                                             group={universal.filter_group.values[0]}
-                                            taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                            taxonomicGroupTypes={scannerFilterTypes}
                                             onChange={(nestedGroup) =>
                                                 applyUniversal({
                                                     ...universal,
@@ -232,7 +236,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                         >
                                             <RecordingsUniversalFilterAddFilterPopover
                                                 categoryDropdownVariant={categoryDropdownVariant}
-                                                taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                                taxonomicGroupTypes={scannerFilterTypes}
                                             />
                                         </UniversalFilters>
                                     )}

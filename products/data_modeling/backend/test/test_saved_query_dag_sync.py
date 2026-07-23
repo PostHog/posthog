@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -434,3 +435,37 @@ class TestUpdateNodeType(BaseTest):
         # shouldn't raise, exception is captured though
         update_node_type(saved_query, NodeType.MAT_VIEW)
         update_node_type(saved_query, NodeType.VIEW)
+
+
+@pytest.mark.django_db
+class TestGraphMutationTriggers(BaseTest):
+    def _saved_query(self, name: str = "trigger_view") -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+
+    def test_each_graph_mutation_queues_a_reconcile(self):
+        # the tiered scheduler converges from the graph, so every mutation path must invoke
+        # the trigger hook — dropping one silently freezes that DAG's schedules
+        saved_query = self._saved_query()
+        module = "products.data_modeling.backend.logic.saved_query_dag_sync"
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            sync_saved_query_to_dag(saved_query)
+        reconcile.assert_called_once()
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            update_node_type(saved_query, NodeType.MAT_VIEW)
+        reconcile.assert_called_once()
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            delete_node_from_dag(saved_query)
+        reconcile.assert_called_once()
+
+    def test_sync_can_defer_reconcile_for_batch_callers(self):
+        saved_query = self._saved_query("batched_view")
+        module = "products.data_modeling.backend.logic.saved_query_dag_sync"
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            sync_saved_query_to_dag(saved_query, reconcile=False)
+        reconcile.assert_not_called()

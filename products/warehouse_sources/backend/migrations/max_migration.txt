@@ -1,1 +1,1 @@
-0088_alter_externaldatasource_source_type_and_more
+0092_repin_lightspeed_retail_api_version
