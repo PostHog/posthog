@@ -9856,7 +9856,7 @@ export namespace Schemas {
       investigation_agent_enabled?: boolean;
       /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
       investigation_gates_notifications?: boolean;
-      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+      /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
@@ -36073,6 +36073,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -36118,6 +36119,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
       Slack: 'slack',
@@ -36163,6 +36165,7 @@ export namespace Schemas {
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
        * * `reddit-ads` - Reddit Ads
+       * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
        * * `salesforce` - Salesforce
        * * `slack` - Slack
@@ -46776,7 +46779,7 @@ export namespace Schemas {
       investigation_agent_enabled?: boolean;
       /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
       investigation_gates_notifications?: boolean;
-      /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+      /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
@@ -77294,6 +77297,7 @@ export namespace Schemas {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -77350,6 +77354,7 @@ export namespace Schemas {
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
+      Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
       Slack: 'slack',

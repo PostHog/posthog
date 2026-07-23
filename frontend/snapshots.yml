@@ -6279,9 +6279,9 @@ snapshots:
     scenes-app-insights-error-empty-states--funnel-single-step--light:
         hash: v1.k794b7964.49098739cf73ac9854bc1d46cfd56405adcd40293f444d5ff8de1262b8bb1d1e.-7-iNk2KTD2g20fzTZf9fQyHGs647o8oWLMiUQ5XQ4M
     scenes-app-insights-error-empty-states--long-loading--dark:
-        hash: v1.k794b7964.4292e7593e17b889ac3a9011418979edcd88c9543d592162c8fab2b1809fc620.lLy6rdV3V-0PqRYWFCO75_6NSPC52a3xUdM_zUx4C6g
+        hash: v1.k794b7964.a4ef06f43150c35c271495c091ba62f54a37e5c5b36907254181945c123a9b2f.t7UYQk8Vhutgw1BLk6eTVGvlF79bBNM-Nq5JONt6QDA
     scenes-app-insights-error-empty-states--long-loading--light:
-        hash: v1.k794b7964.37ac1f8ed685e7329f75ccc361aeebbbb444ec01aa76b524d6f385f6c9f07eca.ZVg1oU7Td2E71vfg8AmOVfM7esqQYD_y6fZQ4rAeZfY
+        hash: v1.k794b7964.b7f6e68a896b184b5f4e3125da63f376e6660e237473454e64188495ed99a6f9.lcJSyjsLeSXf8NSS1_r8iVLlvr0WWivdQPyJAvAjtxU
     scenes-app-insights-error-empty-states--memory-limit-exceeded--dark:
         hash: v1.k794b7964.ef18ee16bcec4b43d74979a5131a3f325f8e0542b6b4cba050746f6b02699ab9.kOLq5BxzD8AlGlxKgleq3uJTw_ddM6GTSmML4MNaZ5o
     scenes-app-insights-error-empty-states--memory-limit-exceeded--light:
@@ -6959,9 +6959,9 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.b1ae6dbc8feb673159fcc13f4a8fd5ee856c63ad1204e839a1b55ef70d109c81.W5sqRIJDHcdkKlYg4ghfwpbKS2FmlQKF_N-1C83h9Mg
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.9a85d1e551f875692d6f1ffec62f8db8e27c384e2e2b5ce505c2647d604fbd14.Sdhkzdt1LZM6P9-gz98b5hIczvxj3QsmiQVZI0FTyeE
+        hash: v1.k794b7964.a06a06ce88b18661e364b77d37cea0c5fd295c8d4c4bbca6a2ed23d9c24c8a17.EevG24h4TfTuTtuDcO8yvr2ud0S063KNPLMMcSkrS6w
     scenes-app-settings-environment--settings-environment-access-control--light:
-        hash: v1.k794b7964.432e453fa102c92bf70534288829d72f0e4c36ec027701bf5522af3e94ea7209.RnsHAOIeR-82mYRPBBwrqKeJxpZpiMml7wuf8xuN3dA
+        hash: v1.k794b7964.b38981b3b0698411b568b030cf5c6e96dd56bc7110d89e4445eea94846aa5225.2nrRh3foaiYfPJtooERUbjtT52VVddebzXyZynChbV8
     scenes-app-settings-environment--settings-environment-autocapture--dark:
         hash: v1.k794b7964.2183cf0082a1556d6df553572df4ab3813c96288a8b9a80e669c005908230c3e.-ybX8d6KyxaSa-yJDVccZm2CkK8Fl8qLSbw9jGhSIx4
     scenes-app-settings-environment--settings-environment-autocapture--light:

@@ -212,6 +212,8 @@ export enum Scene {
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
+    AIObservabilityTag = 'AIObservabilityTag',
+    AIObservabilityTags = 'AIObservabilityTags',
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
@@ -421,6 +423,8 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
+    [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
 
