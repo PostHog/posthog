@@ -1,9 +1,12 @@
+import re
 import dataclasses
 from collections.abc import Iterable
 from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 from requests.exceptions import RequestException
+
+from posthog.cloud_utils import is_cloud
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.settings import CODESCENE_ENDPOINTS
@@ -59,6 +62,50 @@ def hostname_of(base_url: str | None) -> str:
     return urlparse(normalize_base_url(base_url)).hostname or ""
 
 
+# urlparse and requests disagree on ambiguous authorities: a backslash (raw or percent-encoded)
+# reads as a path separator to requests but not to urlparse, and userinfo lets the visible host
+# differ from the one actually dialed. Either lets a URL that looks safe to `_is_host_safe` connect
+# somewhere else, so reject them before the host is derived.
+_BACKSLASH = re.compile(r"\\|%5c", re.IGNORECASE)
+
+
+def _validate_base_url(base_url: str | None) -> tuple[bool, str | None]:
+    """Structurally validate a user-supplied CodeScene base URL before it derives a host or carries
+    the API token. A blank value means CodeScene Cloud and is always allowed."""
+    raw = (base_url or "").strip()
+    if not raw:
+        return True, None
+
+    normalized = normalize_base_url(base_url)
+    if _BACKSLASH.search(raw) or _BACKSLASH.search(normalized):
+        return False, "The CodeScene API base URL can't contain backslashes."
+
+    parsed = urlparse(normalized)
+    if parsed.scheme not in ("http", "https"):
+        return False, "The CodeScene API base URL must start with http:// or https://."
+    if not parsed.hostname:
+        return False, "The CodeScene API base URL must include a host."
+    if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
+        return False, "The CodeScene API base URL can't include a username or password."
+    if parsed.query or parsed.fragment:
+        return False, "The CodeScene API base URL can't include a query string or fragment."
+    # The token rides in the Authorization header, so on cloud it must never cross plaintext HTTP.
+    # Self-hosted instances may reach an internal on-prem server over HTTP.
+    if is_cloud() and parsed.scheme != "https":
+        return False, "The CodeScene API base URL must use HTTPS."
+
+    return True, None
+
+
+def _check_base_url(base_url: str | None, team_id: int) -> tuple[bool, str | None]:
+    """Full pre-request gate: structural validation followed by the SSRF host check. Run immediately
+    before any credential-bearing request so an edited config or DNS change can't slip past."""
+    structural_ok, structural_err = _validate_base_url(base_url)
+    if not structural_ok:
+        return False, structural_err
+    return _is_host_safe(hostname_of(base_url), team_id)
+
+
 def _headers(api_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_token}", "Accept": "application/json"}
 
@@ -78,7 +125,7 @@ def _page_paginator() -> PageNumberPaginator:
 
 
 def validate_credentials(api_token: str, base_url: str | None, team_id: int) -> tuple[bool, str | None]:
-    host_ok, host_err = _is_host_safe(hostname_of(base_url), team_id)
+    host_ok, host_err = _check_base_url(base_url, team_id)
     if not host_ok:
         return False, host_err
 
@@ -134,6 +181,13 @@ def codescene_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CodesceneResumeConfig],
 ) -> SourceResponse:
+    # Re-check right before issuing requests: validate_credentials ran when the source was first
+    # configured, but the config can be edited afterwards and DNS can change, so the SSRF/plaintext
+    # guard must hold at sync time too.
+    base_url_ok, base_url_err = _check_base_url(base_url, team_id)
+    if not base_url_ok:
+        raise ValueError(base_url_err)
+
     endpoint_config = CODESCENE_ENDPOINTS[endpoint]
     client_config = _client_config(base_url, api_token)
 

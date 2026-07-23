@@ -117,6 +117,44 @@ class TestValidateCredentials:
         assert message == "internal address"
         patched_session.return_value.get.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # urlparse reads the host as example.com, but requests dials 169.254.169.254 — reject
+            # the ambiguous authority before it reaches the host check or carries the token.
+            ("percent_encoded_backslash", "http://169.254.169.254%5c@example.com"),
+            ("raw_backslash", "http://169.254.169.254\\@example.com"),
+            ("userinfo", "https://user:pass@example.com"),
+            ("query_string", "https://codescene.example.com/api/v2?x=1"),
+            ("bad_scheme", "ftp://codescene.example.com"),
+        ]
+    )
+    def test_rejects_ambiguous_base_url_without_requesting(self, _name: str, base_url: str) -> None:
+        # A structurally invalid URL must be rejected before any credential-bearing request.
+        with self._patch_session(Mock(status_code=200)) as patched_session:
+            valid, message = validate_credentials("token", base_url, team_id=1)
+        assert valid is False
+        assert message
+        patched_session.return_value.get.assert_not_called()
+
+    def test_cloud_requires_https(self) -> None:
+        with (
+            patch.object(codescene_module, "is_cloud", return_value=True),
+            self._patch_session(Mock(status_code=200)) as patched_session,
+        ):
+            valid, message = validate_credentials("token", "http://codescene.example.com", team_id=1)
+        assert valid is False
+        assert message and "HTTPS" in message
+        patched_session.return_value.get.assert_not_called()
+
+    def test_self_hosted_allows_http(self) -> None:
+        with (
+            patch.object(codescene_module, "is_cloud", return_value=False),
+            self._patch_session(Mock(status_code=200)) as patched_session,
+        ):
+            valid, _message = validate_credentials("token", "http://codescene.example.com", team_id=1)
+        assert valid is True
+        patched_session.return_value.get.assert_called_once()
+
 
 class TestCodesceneSourceFlatEndpoint:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.rest_api_resource")
