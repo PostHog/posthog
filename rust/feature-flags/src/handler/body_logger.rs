@@ -853,7 +853,10 @@ mod tests {
         let body = format!(
             r#"{{"api_key":"\u0070\u0068\u0073\u005fSECRETTOKENVALUE","pad":"{padding}"}}"#
         );
-        assert!(!body.contains("phs_"), "literal prefix must be hidden in the raw body");
+        assert!(
+            !body.contains("phs_"),
+            "literal prefix must be hidden in the raw body"
+        );
 
         let captured = capture_log_response(|_| {
             logger.log_response(Uuid::nil(), Some(42), Some(Bytes::from(body)), &resp);
