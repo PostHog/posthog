@@ -229,6 +229,8 @@ export const externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsItemMax =
 
 export const externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsMax = 100;
 
+export const externalDataSourcesPartialUpdateBodyApiVersionMax = 128;
+
 
 
 export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -240,7 +242,8 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod.object({
   "direct_query_enabled": zod.boolean().optional().describe('Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'),
   "auto_sync_new_schemas": zod.boolean().optional().describe('Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'),
   "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesPartialUpdateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'),
-  "job_inputs": zod.unknown().optional()
+  "job_inputs": zod.unknown().optional(),
+  "api_version": zod.string().max(externalDataSourcesPartialUpdateBodyApiVersionMax).nullish().describe('Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type\'s default version at sync time. Set it to any of the source type\'s supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.')
 }).describe('Mixin for serializers to add user access control fields')
 
 
@@ -269,6 +272,8 @@ export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsIte
 
 export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax = 100;
 
+export const externalDataSourcesCreateWebhookCreateBodyApiVersionMax = 128;
+
 
 
 export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod.object({
@@ -280,7 +285,8 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod.ob
   "direct_query_enabled": zod.boolean().optional().describe('Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'),
   "auto_sync_new_schemas": zod.boolean().optional().describe('Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'),
   "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'),
-  "job_inputs": zod.unknown().optional()
+  "job_inputs": zod.unknown().optional(),
+  "api_version": zod.string().max(externalDataSourcesCreateWebhookCreateBodyApiVersionMax).nullish().describe('Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type\'s default version at sync time. Set it to any of the source type\'s supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.')
 }).describe('Mixin for serializers to add user access control fields')
 
 
@@ -300,6 +306,8 @@ export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsIte
 
 export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax = 100;
 
+export const externalDataSourcesDeleteWebhookCreateBodyApiVersionMax = 128;
+
 
 
 export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod.object({
@@ -311,7 +319,8 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod.ob
   "direct_query_enabled": zod.boolean().optional().describe('Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'),
   "auto_sync_new_schemas": zod.boolean().optional().describe('Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'),
   "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'),
-  "job_inputs": zod.unknown().optional()
+  "job_inputs": zod.unknown().optional(),
+  "api_version": zod.string().max(externalDataSourcesDeleteWebhookCreateBodyApiVersionMax).nullish().describe('Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type\'s default version at sync time. Set it to any of the source type\'s supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.')
 }).describe('Mixin for serializers to add user access control fields')
 
 
@@ -327,13 +336,16 @@ export const externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsIt
 
 export const externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsMax = 100;
 
+export const externalDataSourcesRefreshSchemasCreateBodyApiVersionMax = 128;
+
 
 
 export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod.object({
   "created_via": zod.union([zod.enum(['web', 'api', 'mcp', 'wizard', 'self_driving']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'),zod.null()]).optional().describe('How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller\'s user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'),
   "direct_query_enabled": zod.boolean().optional().describe('Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'),
   "auto_sync_new_schemas": zod.boolean().optional().describe('Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'),
-  "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.')
+  "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesRefreshSchemasCreateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'),
+  "api_version": zod.string().max(externalDataSourcesRefreshSchemasCreateBodyApiVersionMax).nullish().describe('Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type\'s default version at sync time. Set it to any of the source type\'s supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.')
 }).describe('Mixin for serializers to add user access control fields')
 
 
@@ -349,13 +361,16 @@ export const externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsItemMax = 
 
 export const externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsMax = 100;
 
+export const externalDataSourcesReloadCreateBodyApiVersionMax = 128;
+
 
 
 export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod.object({
   "created_via": zod.union([zod.enum(['web', 'api', 'mcp', 'wizard', 'self_driving']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'),zod.null()]).optional().describe('How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller\'s user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'),
   "direct_query_enabled": zod.boolean().optional().describe('Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'),
   "auto_sync_new_schemas": zod.boolean().optional().describe('Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'),
-  "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.')
+  "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesReloadCreateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'),
+  "api_version": zod.string().max(externalDataSourcesReloadCreateBodyApiVersionMax).nullish().describe('Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type\'s default version at sync time. Set it to any of the source type\'s supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.')
 }).describe('Mixin for serializers to add user access control fields')
 
 
@@ -393,6 +408,8 @@ export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatte
 
 export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax = 100;
 
+export const externalDataSourcesUpdateWebhookInputsCreateBodyApiVersionMax = 128;
+
 
 
 export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod.object({
@@ -404,7 +421,8 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
   "direct_query_enabled": zod.boolean().optional().describe('Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'),
   "auto_sync_new_schemas": zod.boolean().optional().describe('Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'),
   "auto_sync_schema_patterns": zod.array(zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsItemMax).describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')).max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax).nullish().describe('Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'),
-  "job_inputs": zod.unknown().optional()
+  "job_inputs": zod.unknown().optional(),
+  "api_version": zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyApiVersionMax).nullish().describe('Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type\'s default version at sync time. Set it to any of the source type\'s supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation.')
 }).describe('Mixin for serializers to add user access control fields')
 
 
