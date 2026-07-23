@@ -46,11 +46,16 @@ pub(crate) enum ImageFallback {
 const DATA_URI_PREFIX: &[u8] = b"data:image/png;base64,";
 const ID_HEX_LEN: usize = 8;
 
-/// Random per process: payload bytes can't be crafted to collide with a live token.
+/// Random 128 bits per process: payload bytes can't be crafted (or fluked, at any volume) to
+/// collide with a live token — a false match needs this exact 35-char ASCII run in the payload.
 static TOKEN_MARKER: LazyLock<String> = LazyLock::new(|| {
-    let mut h = RandomState::new().build_hasher();
-    h.write_u32(std::process::id());
-    format!("xph{:016x}", h.finish())
+    let state = RandomState::new();
+    let mut a = state.build_hasher();
+    a.write_u32(std::process::id());
+    let mut b = state.build_hasher();
+    b.write_u64(a.finish());
+    b.write_u32(std::process::id());
+    format!("xph{:016x}{:016x}", a.finish(), b.finish())
 });
 
 fn worker_count() -> usize {
