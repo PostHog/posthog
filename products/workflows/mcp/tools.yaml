@@ -407,10 +407,10 @@ tools:
             Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
-            content fields stage a draft (published with workflows-publish) while name/description apply immediately;
-            a rejection saying active workflows can't be edited means draft editing isn't enabled for this project
-            yet - then a live change means recreating the workflow as a new draft. Status changes go through
-            workflows-enable / workflows-archive.
+            content fields stage a draft (published with workflows-publish) while name/description apply immediately; a
+            rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet -
+            then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable
+            / workflows-archive.
         exclude_params:
             - status
         ui_app: workflow

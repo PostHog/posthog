@@ -1403,6 +1403,12 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.'
+        ),
     operations: zod
         .array(
             zod.object({
