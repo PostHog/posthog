@@ -150,7 +150,8 @@ def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None
     membership = (
         OrganizationMembership.objects.filter(
             organization_id=team.organization_id,
-            user__email=email,
+            # Slack profile emails often differ in case from the stored PostHog email (IdP casing).
+            user__email__iexact=email,
         )
         .select_related("user")
         .first()
