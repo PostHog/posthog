@@ -111,7 +111,8 @@ PR mode only, same-repo PR only, at least one confident fix commit only:
 ```bash
 PR_HEAD_REF=$(gh pr view "$PR_REF" --json headRefName --jq '.headRefName')
 test -n "$PR_HEAD_REF"
-git push origin "$PR_HEAD_REF"
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null \
+  git push origin "$PR_HEAD_REF"
 ```
 
 Never force-push. The push names the local PR branch, not `HEAD`, so it works from any checkout state. The fix commits sit on top of the checked-out PR head, so a non-fast-forward rejection means the remote moved during the run: do not retry and do not fetch-and-force. Post or print a report explaining that local fix commits exist but were not pushed because the PR branch changed.

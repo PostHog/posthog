@@ -180,10 +180,15 @@ PR mode only. Checkout only after preflight passes:
 RUN_SKILL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/qa-frontend-skill.XXXXXX")"
 cp -R "<skill_dir>/." "$RUN_SKILL_DIR/"
 SKILL_DIR="$RUN_SKILL_DIR"
+
+# repo-managed git hooks (.husky/) are PR-controlled code; without this, checkout
+# would execute the PR's post-checkout hook on the developer's machine
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null
+
 gh pr checkout "$PR_REF"
 ```
 
-If checkout fails, abort cleanly and restore the original branch if needed. Never hand-roll fork fetch commands in this skill.
+If checkout fails, abort cleanly and restore the original branch if needed. Never hand-roll fork fetch commands in this skill. Export the same three `GIT_CONFIG_*` variables in every later shell that runs `git checkout`, `git commit`, or `git push` during this run - the hook files stay PR-controlled for the whole checkout.
 
 Local mode skips this section entirely.
 
