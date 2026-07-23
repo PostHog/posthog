@@ -14,6 +14,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.feature_flags.backend.encrypted_flag_payloads import flag_payload_codec
 from products.feature_flags.backend.facade.api import (
     _roll_out_variant,
     archive_flag,
@@ -201,6 +202,35 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters["feature_enrollment"] is None
         assert flag.filters["groups"] == []
+
+    def test_update_preserves_encrypted_payloads_carried_from_stored_filters(self):
+        # Callers carry filters over from get_filters(), where encrypted payloads are
+        # ciphertext: without redaction the serializer 400s on it as invalid JSON (or
+        # would re-encrypt it), blocking early access demotion/deletion on such flags.
+        token = flag_payload_codec().encrypt(b'{"config": 1}').decode("utf-8")
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="facade-encrypted-flag",
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": token},
+                "feature_enrollment": True,
+            },
+        )
+
+        update_flag(
+            flag,
+            {"filters": set_feature_enrollment(flag.get_filters(), None)},
+            team=self.team,
+            user=None,
+        )
+
+        flag.refresh_from_db()
+        assert flag.filters["feature_enrollment"] is None
+        assert flag.filters["payloads"]["true"] == token
 
     def test_system_write_rejects_user_bearing_request(self):
         flag = self._create_flag(active=True)

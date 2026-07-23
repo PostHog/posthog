@@ -74,6 +74,7 @@ class ServiceRequest:
         self.user = user
         self.is_system = is_system
         self.method = method
+        self.successful_authenticator = None
         self.path = "/"
         self.data: dict = {}
         self.GET: dict = {}

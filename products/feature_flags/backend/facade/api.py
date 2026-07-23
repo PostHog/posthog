@@ -34,6 +34,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -81,13 +82,36 @@ def create_flag(data: dict, *, team: Team, user: Any, request: Any | None = None
     return serializer.save()
 
 
+def _redact_unchanged_encrypted_payloads(flag: FeatureFlag, data: dict) -> dict:
+    """Facade callers derive update filters from ``flag.get_filters()``, which stores
+    encrypted payload values as ciphertext. Ciphertext echoed back through the serializer
+    fails its JSON payload validation (and must never be re-encrypted), so values
+    byte-identical to the stored ones are swapped for the redacted placeholder, which the
+    serializer preserves. Genuinely new payload values pass through and are encrypted."""
+    filters = data.get("filters")
+    if not flag.has_encrypted_payloads or not isinstance(filters, dict):
+        return data
+    stored = (flag.filters or {}).get("payloads") or {}
+    incoming = filters.get("payloads")
+    if not isinstance(incoming, dict):
+        return data
+    redacted = {k: REDACTED_PAYLOAD_VALUE if k in stored and v == stored[k] else v for k, v in incoming.items()}
+    if redacted == incoming:
+        return data
+    return {**data, "filters": {**filters, "payloads": redacted}}
+
+
 def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request: Any | None = None) -> FeatureFlag:
     """Gated partial update: routes through FeatureFlagSerializer so @approval_gate,
     validation, and activity logging apply. ``data`` is a partial flag write payload
     (fields it omits are untouched) applied as-is — nothing is silently dropped.
     Raises ApprovalRequired when a policy requires approval; the flag is left untouched.
     ``user=None`` is a system write (see module docstring): ``last_modified_by`` is
-    cleared, activity is logged as system, the approval gate is skipped."""
+    cleared, activity is logged as system, the approval gate is skipped.
+
+    Encrypted payload values carried over unchanged from ``flag.get_filters()`` are
+    preserved as-is, never re-validated or re-encrypted."""
+    data = _redact_unchanged_encrypted_payloads(flag, data)
     serializer = FeatureFlagSerializer(
         flag, data=data, partial=True, context=_serializer_context(team, user, request, method="PATCH")
     )
