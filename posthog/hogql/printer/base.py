@@ -964,7 +964,24 @@ class BasePrinter(Visitor[str]):
             "Use COLUMNS(...) for top-level column selection."
         )
 
+    @staticmethod
+    def _rewrite_multi_arg_if(node: ast.Call) -> ast.Call | None:
+        """Lower `if` with more than three (and an odd number of) arguments to `multiIf`.
+
+        `if` is strictly ternary in every dialect we target, so such a call is expressing chained
+        conditions — which is exactly what `multiIf` is for. Without this, these queries fail with an
+        opaque "expects 3 arguments" error (ClickHouse) or silently drop the extra arguments
+        (Postgres). `multiIf` is supported across every dialect, so returning it here is safe.
+        """
+        if node.name.lower() == "if" and len(node.args) > 3 and len(node.args) % 2 == 1:
+            return ast.Call(name="multiIf", args=node.args)
+        return None
+
     def visit_call(self, node: ast.Call):
+        rewritten = self._rewrite_multi_arg_if(node)
+        if rewritten is not None:
+            return self.visit(rewritten)
+
         func_meta = (
             find_hogql_aggregation(node.name)
             or find_hogql_function(node.name)
