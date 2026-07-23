@@ -21,6 +21,7 @@ from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.access_control import AccessControl
@@ -1861,6 +1862,42 @@ class TestEarlyAccessFeatureFlagFacadeWrites(APIBaseTest):
             for group in flag.filters["groups"]
         ]
         assert groups == expected_groups
+
+    def test_stage_update_on_encrypted_flag_preserves_and_redacts_payloads(self):
+        # Demotion carries the flag's stored filters (ciphertext payloads) through the
+        # facade: the write must succeed, keep the ciphertext intact in the database, and
+        # the response must show the redacted placeholder rather than the ciphertext.
+        token = flag_payload_codec().encrypt(b'{"config": 1}').decode("utf-8")
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-feature",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": token},
+                "feature_enrollment": True,
+            },
+        )
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Encrypted feature",
+            stage=EarlyAccessFeature.Stage.BETA,
+            feature_flag=flag,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            data={"stage": "archived"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["feature_flag"]["filters"]["payloads"] == {"true": REDACTED_PAYLOAD_VALUE}
+
+        flag.refresh_from_db()
+        assert flag.filters["feature_enrollment"] is None
+        assert flag.filters["payloads"]["true"] == token
 
     def test_file_system_deletion_clears_enrollment_and_logs_system_activity(self):
         flag = FeatureFlag.objects.create(

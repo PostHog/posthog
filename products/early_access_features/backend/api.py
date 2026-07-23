@@ -27,6 +27,7 @@ from products.feature_flags.backend.api.feature_flag import (
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
 )
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -127,6 +128,17 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
     @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
+
+    def to_representation(self, instance: EarlyAccessFeature) -> dict:
+        representation = super().to_representation(instance)
+        # The nested flag serializes raw stored filters, where encrypted payload values
+        # are ciphertext — redact them; early access surfaces never need payload values.
+        serialized_flag = representation.get("feature_flag")
+        if serialized_flag and instance.feature_flag and instance.feature_flag.has_encrypted_payloads:
+            payloads = (serialized_flag.get("filters") or {}).get("payloads")
+            if payloads:
+                serialized_flag["filters"]["payloads"] = dict.fromkeys(payloads, REDACTED_PAYLOAD_VALUE)
+        return representation
 
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
         # Handle payload separately since SerializerMethodField is read-only
