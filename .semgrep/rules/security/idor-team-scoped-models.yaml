@@ -99,6 +99,7 @@ rules:
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertySource
+                              |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
@@ -413,6 +414,7 @@ rules:
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertySource
+                        |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
                         |Dashboard

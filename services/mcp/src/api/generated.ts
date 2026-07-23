@@ -16516,6 +16516,45 @@ export namespace Schemas {
     }
 
     /**
+     * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
+     * pipeline, never through the API.
+     */
+    export interface CustomPropertySyncRun {
+      readonly id: string;
+      /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+      readonly trigger: string;
+      /** Run status: 'running', 'completed', or 'failed'. */
+      readonly status: string;
+      /**
+         * When the run began.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the run ended, or null while running.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /** Warehouse rows scanned this run. */
+      readonly rows_read: number;
+      /** Rows whose mapped values changed since the last run. */
+      readonly changed: number;
+      /** Person profiles updated (changed rows that matched an existing person). */
+      readonly existing: number;
+      /** Property-update intents produced to the ingestion pipeline. */
+      readonly produced: number;
+      /** Changed rows dropped because no existing person matched the distinct id. */
+      readonly skipped_missing_person: number;
+      /**
+         * Error summary if the run failed, else null.
+         * @nullable
+         */
+      readonly error: string | null;
+      /** When the run row was recorded. */
+      readonly created_at: string;
+    }
+
+    /**
      * Binds a materialized data-warehouse view column to a custom property definition; the view's
      * values are synced onto matching accounts on each materialization.
      */
@@ -16565,6 +16604,18 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
+      /**
+         * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+         * @nullable
+         */
+      readonly sync_frequency_interval_seconds: number | null;
+      /**
+         * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+         * @nullable
+         */
+      readonly next_sync_at: string | null;
+      /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+      readonly latest_run: CustomPropertySyncRun | null;
     }
 
     /**
@@ -25162,6 +25213,7 @@ export namespace Schemas {
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
      * * `gemini-3.6-flash` - Gemini 3.6 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
@@ -25169,6 +25221,7 @@ export namespace Schemas {
 
     export const ScannerModelEnum = {
       Gemini35FlashLite: 'gemini-3.5-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
       Gemini36Flash: 'gemini-3.6-flash',
     } as const;
 
@@ -25198,6 +25251,7 @@ export namespace Schemas {
       /** Proposed model; determines `credits_per_observation` in the response.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
     }
@@ -38130,7 +38184,7 @@ export namespace Schemas {
       type: LoopTriggerTypeEnum;
       /** Whether this trigger is active. Disabling pauses only this trigger. */
       enabled?: boolean;
-      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
       config?: unknown;
     }
 
@@ -40996,6 +41050,15 @@ export namespace Schemas {
       results: CustomPropertySource[];
     }
 
+    export interface PaginatedCustomPropertySyncRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CustomPropertySyncRun[];
+    }
+
     export interface PaginatedCustomerJourneyList {
       count: number;
       /** @nullable */
@@ -42589,6 +42652,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -51242,6 +51306,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -73208,6 +73273,21 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type CustomPropertySourcesBackfillCreate202 = { [key: string]: unknown };
+
+    export type CustomPropertySourcesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CustomPropertySourcesSyncCreate202 = { [key: string]: unknown };
 
     export type CustomerJourneysListParams = {
     /**
