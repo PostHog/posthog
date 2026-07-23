@@ -734,6 +734,9 @@ importers:
       '@posthog/products-notifications':
         specifier: workspace:*
         version: link:../products/notifications
+      '@posthog/products-outcomes':
+        specifier: workspace:*
+        version: link:../products/outcomes
       '@posthog/products-persons':
         specifier: workspace:*
         version: link:../products/persons
@@ -3904,6 +3907,27 @@ importers:
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(react@18.3.1)
+
+  products/outcomes:
+    dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/persons:
     dependencies:

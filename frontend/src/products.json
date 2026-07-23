@@ -184,6 +184,7 @@
             "type": null,
             "intents": ["metrics"]
         },
+        { "path": "Outcomes", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["outcomes"] },
         { "path": "Tasks", "category": "Tools", "iconType": "task", "type": "task", "intents": ["tasks"] },
         {
             "path": "Product analytics",

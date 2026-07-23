@@ -40624,6 +40624,52 @@ export namespace Schemas {
       success?: boolean | null;
     }
 
+    export interface OutcomeDefinition {
+      readonly id: string;
+      /**
+         * Human-readable name of the outcome.
+         * @maxLength 400
+         */
+      name: string;
+      /** What reaching this outcome means for the business. */
+      description?: string;
+      /**
+         * Name of the event the person must perform to reach the outcome.
+         * @maxLength 400
+         */
+      target_event: string;
+      /**
+         * Minimum number of times the person must perform the target event.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      threshold?: number;
+      /** Number of persons who have reached this outcome so far. */
+      readonly reached_count: number;
+      /**
+         * When the batch evaluator last ran for this outcome.
+         * @nullable
+         */
+      readonly last_calculated_at: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+    }
+
+    export interface OutcomeLatch {
+      readonly id: string;
+      /** UUID of the person who reached the outcome. */
+      readonly person_id: string;
+      /** A distinct ID of the person, used for display and event emission. */
+      readonly distinct_id: string;
+      /** Timestamp of the threshold-crossing event — a function of the event set alone. */
+      readonly reached_at: string;
+      /** How many times the person had performed the target event when evaluated. */
+      readonly event_count: number;
+      readonly created_at: string;
+    }
+
     export interface OutdatedTrafficAlert {
       /** Outdated version handling significant traffic. */
       version: string;
@@ -42014,6 +42060,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationPersonalAPIKey[];
+    }
+
+    export interface PaginatedOutcomeDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: OutcomeDefinition[];
     }
 
     export interface ParserRecipe {
@@ -50104,6 +50159,39 @@ export namespace Schemas {
       readonly last_login?: string;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
+    }
+
+    export interface PatchedOutcomeDefinition {
+      readonly id?: string;
+      /**
+         * Human-readable name of the outcome.
+         * @maxLength 400
+         */
+      name?: string;
+      /** What reaching this outcome means for the business. */
+      description?: string;
+      /**
+         * Name of the event the person must perform to reach the outcome.
+         * @maxLength 400
+         */
+      target_event?: string;
+      /**
+         * Minimum number of times the person must perform the target event.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      threshold?: number;
+      /** Number of persons who have reached this outcome so far. */
+      readonly reached_count?: number;
+      /**
+         * When the batch evaluator last ran for this outcome.
+         * @nullable
+         */
+      readonly last_calculated_at?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
     }
 
     export interface PatchedParserRecipe {
@@ -78274,6 +78362,17 @@ export namespace Schemas {
     };
 
     export type ObjectMediaPreviewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type OutcomesListParams = {
     /**
      * Number of results to return per page.
      */
