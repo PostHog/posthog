@@ -415,7 +415,10 @@ class LoopWriteSerializer(serializers.Serializer):
                 )
 
         reasoning_effort = attrs.get("reasoning_effort")
-        if runtime_adapter is not None and reasoning_effort is not None:
+        # Create only: a PATCH may omit a pinned model while sending the effort, and substituting
+        # the fire-time default here would reject valid combinations. Partial updates are validated
+        # against the merged post-update state in the facade's `update_loop` instead.
+        if not self.partial and runtime_adapter is not None and reasoning_effort is not None:
             # A blank model means "PostHog picks at run time", so the effort is
             # validated against the model that would actually run.
             effective_model = model or get_default_model_for_runtime_adapter(runtime_adapter)

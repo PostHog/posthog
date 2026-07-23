@@ -183,6 +183,74 @@ class LoopBehaviorsAPITest(LoopsAPITestCase):
 
 
 class LoopPartialUpdateAPITest(LoopsAPITestCase):
+    @parameterized.expand(
+        [
+            (
+                "effort_alone_validates_against_the_pinned_model",
+                {"model": "claude-sonnet-5", "reasoning_effort": "high"},
+                {"reasoning_effort": "medium"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "adapter_and_effort_keep_the_pinned_model",
+                {"model": "claude-sonnet-5", "reasoning_effort": "high"},
+                {"runtime_adapter": "claude", "reasoning_effort": "medium"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "effort_alone_on_an_unpinned_loop_uses_the_default_model",
+                {"model": "", "reasoning_effort": None},
+                {"reasoning_effort": "medium"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "model_change_revalidates_the_stored_effort",
+                {"model": "claude-sonnet-5", "reasoning_effort": "medium"},
+                {"model": "@cf/zai-org/glm-5.2"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "model_change_compatible_with_stored_effort_passes",
+                {"model": "claude-sonnet-5", "reasoning_effort": "high"},
+                {"model": "@cf/zai-org/glm-5.2"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "unknown_model_is_rejected_via_the_stored_adapter",
+                {"model": "claude-sonnet-5", "reasoning_effort": None},
+                {"model": "gpt-nope"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_patch_validates_model_config_against_the_merged_state(
+        self, _name, create_overrides, patch_payload, expected_status
+    ):
+        loop_id = self._create_loop(self.owner_client, **create_overrides)["id"]
+
+        response = self.owner_client.patch(self._loop_url(loop_id), patch_payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+
+    def test_patch_of_unrelated_fields_skips_model_validation(self):
+        # A legacy row can hold an effort its current fire-time default no longer supports; that
+        # must degrade at fire time, not block a rename.
+        loop = Loop.objects.unscoped().create(
+            team=self.team,
+            created_by=self.owner,
+            name="Legacy loop",
+            instructions="Summarize open PRs",
+            runtime_adapter="claude",
+            model="",
+            reasoning_effort="medium",
+            enabled=True,
+        )
+
+        response = self.owner_client.patch(self._loop_url(loop.id), {"name": "Renamed"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["name"], "Renamed")
+
     def test_partial_behaviors_patch_preserves_unsent_subfields(self):
         # DRF drops omitted nested subfields on a PATCH, so a naive setattr would wipe them. The facade
         # deep-merges, so sending one behavior toggle must not reset the siblings the client didn't send.

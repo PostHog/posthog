@@ -795,6 +795,37 @@ def _validate_context_visibility(visibility: str, context_target: dict | None) -
         raise LoopValidationError("A loop attached to a context must have team visibility.")
 
 
+def _validate_model_config_for_update(loop: Loop, data: dict) -> None:
+    """Judge model/effort validity on the merged post-update state, with the stored row filling in
+    fields the PATCH omits (the write serializer can't, it only sees submitted fields). Skipped
+    when the PATCH doesn't touch model config, so a stored legacy combination keeps degrading at
+    fire time instead of blocking unrelated edits."""
+    if not any(key in data for key in ("runtime_adapter", "model", "reasoning_effort")):
+        return
+    # Deferred so the model catalog stays off this module's import path (see `validate_loop_write`).
+    from products.tasks.backend.facade.run_config import (  # noqa: PLC0415
+        get_default_model_for_runtime_adapter,
+        get_models_for_runtime_adapter,
+        get_reasoning_effort_error,
+    )
+
+    runtime_adapter = data.get("runtime_adapter", loop.runtime_adapter)
+    model = data["model"] if "model" in data else loop.model
+    reasoning_effort = data["reasoning_effort"] if "reasoning_effort" in data else loop.reasoning_effort
+
+    if model:
+        allowed_models = get_models_for_runtime_adapter(runtime_adapter)
+        if allowed_models and model not in allowed_models:
+            raise LoopValidationError(f"'{model}' is not a supported model for runtime_adapter '{runtime_adapter}'.")
+
+    if reasoning_effort is not None:
+        effective_model = model or get_default_model_for_runtime_adapter(runtime_adapter)
+        if effective_model:
+            error = get_reasoning_effort_error(runtime_adapter, effective_model, reasoning_effort)
+            if error:
+                raise LoopValidationError(error)
+
+
 def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDTO:
     data = dict(validated_data)
     validate_loop_write(team_id, data)
@@ -901,6 +932,7 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     ):
         raise LoopPermissionError("Only the loop's creator or a project admin may make a shared team loop personal.")
     validate_loop_write(team_id, data)
+    _validate_model_config_for_update(loop, data)
 
     trigger_payloads = data.pop("triggers", None)
     # Detaching from a context sends `context_target: null`; the column is NOT NULL, so store {}.
