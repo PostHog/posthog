@@ -404,6 +404,8 @@ class TestStampProvenance:
 
         described = PropertyDefinition.objects.get(team=team, name="plan_tier")
         plain = PropertyDefinition.objects.get(team=team, name="seat_count")
+        assert described.warehouse_origin is not None
+        assert plain.warehouse_origin is not None
         assert described.warehouse_origin["custom_property_source_id"] == "s1"
         assert described.warehouse_origin["description"] == "The plan tier"
         # A property without a configured description carries provenance but no description key.
@@ -424,4 +426,5 @@ class TestStampProvenance:
 
         assert PropertyDefinition.objects.get(id=other.id).warehouse_origin is None
         stamped = PropertyDefinition.objects.get(team=team, name="tier", group_type_index=0)
+        assert stamped.warehouse_origin is not None
         assert stamped.warehouse_origin["custom_property_source_id"] == "s1"
