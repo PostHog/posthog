@@ -45,6 +45,12 @@ Editing an active workflow stages a **draft** instead of changing what's running
 
 In-flight runs follow the live config: once published, people mid-flow continue from their current step on the new version. Steps they already passed don't re-run; people parked on a step the publish deletes skip forward to its next surviving step (or exit at a dead end), exactly as the impact preview reported.
 
+### Rolling back
+
+Every live-content change appends a snapshot to the workflow's revision history. `workflows-list-revisions` lists versions (newest first); `workflows-get-revision` returns one version's full content. To roll back (or forward), `workflows-restore-revision` copies that version's content into the draft — it never touches the live config — then the normal publish cycle applies: test with `use_draft=true`, preview, confirm. The preview shows exactly what the rollback does to people in-flight, same as any publish.
+
+A restore returns 409 when a draft is already open; publish or discard it, or pass `overwrite=true` to replace it. Two things a rollback cannot undo: runs that already moved or exited while the newer version was live keep their positions (their side effects happened), and a publish that shortened a delay may have pulled parked wake times earlier — rolling back doesn't push them later again.
+
 If an edit is rejected with "editing an active workflow isn't supported", draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft (`workflows-create`), testing it, and enabling it as a replacement.
 
 ## What the server owns, never send it

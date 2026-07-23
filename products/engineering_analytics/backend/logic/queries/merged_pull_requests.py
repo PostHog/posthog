@@ -40,18 +40,13 @@ _SELECT = f"""
 """
 
 
-def build_merged_pull_requests(
-    *, curated: CuratedGitHubSource, repo: str, since: datetime, numbers: list[int] | None = None
+def query_merged_pull_requests(
+    *, curated: CuratedGitHubSource, repo_owner: str, repo_name: str, since: datetime, numbers: list[int] | None = None
 ) -> list[MergedPullRequest]:
-    owner, _, name = repo.partition("/")
-    # A half-specified repo (bare org, trailing/leading slash) would silently drop the scope and
-    # return merges from every repo in the source — fail loudly instead.
-    if not (owner and name):
-        raise ValueError(f"repo must be in 'owner/name' format, got: {repo!r}")
     placeholders: dict[str, ast.Expr] = {
         "since": ast.Constant(value=since),
-        "repo_owner": ast.Constant(value=owner.lower()),
-        "repo_name": ast.Constant(value=name.lower()),
+        "repo_owner": ast.Constant(value=repo_owner.lower()),
+        "repo_name": ast.Constant(value=repo_name.lower()),
     }
     numbers_filter = ""
     if numbers is not None:

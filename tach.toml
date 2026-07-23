@@ -223,7 +223,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics",
 ]
 layer = "modules"
 
@@ -272,6 +272,7 @@ depends_on = [
     "products.data_warehouse",
     "products.notifications",
     "products.posthog_ai",
+    "products.revenue_analytics",
     "products.warehouse_sources_queue",
     "products.workflows",
 ]
@@ -693,6 +694,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.conversations",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
@@ -1063,7 +1065,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources"]
+depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources", "products.signals"]
 layer = "modules"
 
 [[interfaces]]

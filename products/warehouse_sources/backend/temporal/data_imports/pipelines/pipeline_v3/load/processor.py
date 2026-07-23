@@ -18,6 +18,13 @@ from products.data_warehouse.backend.facade.api import update_external_job_statu
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
+    enrich_delete_rows,
+    enrich_toast_omitted_rows,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
     supports_partial_data_loading,
@@ -92,6 +99,93 @@ def _read_existing_rows_by_first_pk(
         key = existing.column(first_pk).cast(pa.string())
         wanted = pa.array(first_components, pa.string())
         return existing.filter(pc.is_in(key, value_set=wanted))
+
+
+def _enrich_cdc_rows(
+    pa_table: pa.Table,
+    *,
+    primary_keys: list[str] | None,
+    cdc_write_mode: str | None,
+    existing_delta_table: deltalake.DeltaTable | None,
+    batch_index: int,
+) -> pa.Table:
+    """Cross-batch CDC enrichment against the existing DeltaLake state.
+
+    Batch-internal enrichment was already applied in the extraction activity; this
+    fills what only the target table knows:
+    - DELETE rows with no preceding INSERT/UPDATE for the same PK in the batch.
+    - Unchanged-TOAST (omitted) UPDATE columns whose last value is not in the batch.
+
+    Always strips TOAST_OMITTED_COLUMN before returning — it is transport metadata
+    for this enrichment and must never reach DeltaLake.
+    """
+    if cdc_write_mode is None:
+        return pa_table
+
+    if primary_keys and existing_delta_table is not None and CDC_OP_COLUMN in pa_table.column_names:
+        present_pks = [col for col in primary_keys if col in pa_table.column_names]
+        if present_pks:
+            ops = pa_table.column(CDC_OP_COLUMN).to_pylist()
+            pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
+            delete_key_set: set[tuple[Any, ...]] = set()
+            for i, op in enumerate(ops):
+                if op == "D":
+                    delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
+
+            toast_key_set: set[tuple[Any, ...]] = set()
+            if TOAST_OMITTED_COLUMN in pa_table.column_names:
+                omitted_lists = pa_table.column(TOAST_OMITTED_COLUMN).to_pylist()
+                for i, omitted in enumerate(omitted_lists):
+                    if omitted:
+                        toast_key_set.add(tuple(arr[i] for arr in pk_arrays))
+
+            enrich_key_set = delete_key_set | toast_key_set
+            if enrich_key_set:
+                logger.debug(
+                    "cdc_delete_enrichment",
+                    delete_row_count=len(delete_key_set),
+                    toast_omitted_row_count=len(toast_key_set),
+                    primary_key_count=len(present_pks),
+                    cdc_write_mode=cdc_write_mode,
+                    batch_index=batch_index,
+                )
+                # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
+                # For composite PKs that IN is a superset — narrow in PyArrow below.
+                first_pk = present_pks[0]
+                first_components = list({t[0] for t in enrich_key_set})
+                existing_rows = _read_existing_rows_by_first_pk(existing_delta_table, first_pk, first_components)
+
+                # For composite PKs the IN filter is a superset — narrow to exact matches.
+                if len(present_pks) > 1 and existing_rows.num_rows > 0:
+                    if all(col in existing_rows.column_names for col in present_pks):
+                        ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
+                        match_indices = [
+                            j
+                            for j in range(existing_rows.num_rows)
+                            if tuple(arr[j] for arr in ex_pk_arrays) in enrich_key_set
+                        ]
+                        existing_rows = existing_rows.take(match_indices)
+                    else:
+                        existing_rows = existing_rows.take([])
+
+                # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
+                # enrich with the most recent state rather than a historical one.
+                if (
+                    cdc_write_mode == "scd2_append"
+                    and existing_rows.num_rows > 0
+                    and SCD2_VALID_TO_COLUMN in existing_rows.column_names
+                ):
+                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
+
+                # TOAST fill first so DELETE enrichment copies resolved values,
+                # not the nulls standing in for omitted columns.
+                pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
+                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+    if TOAST_OMITTED_COLUMN in pa_table.column_names:
+        pa_table = pa_table.drop_columns([TOAST_OMITTED_COLUMN])
+
+    return pa_table
 
 
 def _apply_partitioning(
@@ -511,66 +605,13 @@ def process_message(
             "batch_index": str(export_signal.batch_index),
         }
 
-        # Cross-batch DELETE enrichment: fill data columns on DELETE rows from the
-        # existing DeltaLake state. Batch-internal enrichment was already applied
-        # in the extraction activity; this handles standalone DELETEs that arrive
-        # in a batch with no preceding INSERT/UPDATE for the same PK.
-        if cdc_write_mode is not None and primary_keys and existing_delta_table is not None:
-            from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-                CDC_OP_COLUMN,
-                SCD2_VALID_TO_COLUMN,
-                enrich_delete_rows,
-            )
-
-            if CDC_OP_COLUMN in pa_table.column_names:
-                present_pks = [col for col in primary_keys if col in pa_table.column_names]
-                if present_pks:
-                    ops = pa_table.column(CDC_OP_COLUMN).to_pylist()
-                    pk_arrays = [pa_table.column(col).to_pylist() for col in present_pks]
-                    delete_key_set: set[tuple[Any, ...]] = set()
-                    for i, op in enumerate(ops):
-                        if op == "D":
-                            delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
-
-                    if delete_key_set:
-                        logger.debug(
-                            "cdc_delete_enrichment",
-                            delete_row_count=len(delete_key_set),
-                            primary_key_count=len(present_pks),
-                            cdc_write_mode=cdc_write_mode,
-                            batch_index=export_signal.batch_index,
-                        )
-                        # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
-                        # For composite PKs that IN is a superset — narrow in PyArrow below.
-                        first_pk = present_pks[0]
-                        first_components = list({t[0] for t in delete_key_set})
-                        existing_rows = _read_existing_rows_by_first_pk(
-                            existing_delta_table, first_pk, first_components
-                        )
-
-                        # For composite PKs the IN filter is a superset — narrow to exact matches.
-                        if len(present_pks) > 1 and existing_rows.num_rows > 0:
-                            if all(col in existing_rows.column_names for col in present_pks):
-                                ex_pk_arrays = [existing_rows.column(col).to_pylist() for col in present_pks]
-                                match_indices = [
-                                    j
-                                    for j in range(existing_rows.num_rows)
-                                    if tuple(arr[j] for arr in ex_pk_arrays) in delete_key_set
-                                ]
-                                existing_rows = existing_rows.take(match_indices)
-                            else:
-                                existing_rows = existing_rows.take([])
-
-                        # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
-                        # enrich the DELETE with the most recent state rather than a historical one.
-                        if (
-                            cdc_write_mode == "scd2_append"
-                            and existing_rows.num_rows > 0
-                            and SCD2_VALID_TO_COLUMN in existing_rows.column_names
-                        ):
-                            existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
-
-                        pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+        pa_table = _enrich_cdc_rows(
+            pa_table,
+            primary_keys=primary_keys,
+            cdc_write_mode=cdc_write_mode,
+            existing_delta_table=existing_delta_table,
+            batch_index=export_signal.batch_index,
+        )
 
         if existing_delta_table is not None:
             pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())

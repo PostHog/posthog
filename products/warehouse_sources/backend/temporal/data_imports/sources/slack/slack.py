@@ -1,3 +1,4 @@
+import hashlib
 import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
@@ -63,6 +64,25 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
     response = make_tracked_session().get(url, **kwargs)
+    if response.status_code == 429:
+        retry_after = int(response.headers.get("Retry-After", 1))
+        logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
+        raise SlackRetryableError("Slack: rate limited", retry_after=retry_after)
+    if response.status_code >= 500:
+        raise SlackRetryableError(f"Slack: server error {response.status_code}")
+    return response
+
+
+@retry(
+    retry=retry_if_exception_type(
+        (SlackRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    ),
+    stop=stop_after_attempt(5),
+    wait=_wait_with_retry_after,
+    reraise=True,
+)
+def _slack_post(url: str, **kwargs: Any) -> requests.Response:
+    response = make_tracked_session().post(url, **kwargs)
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
@@ -184,14 +204,46 @@ def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> li
 _CHANNELS_CACHE_TTL_SECONDS = 300
 
 
-def _channels_cache_key(integration_id: int) -> str:
-    # Keyed on the Integration row PK (unique per PostHog team × Slack workspace), matching
+def _channels_cache_key(cache_id: str) -> str:
+    # Keyed on a stable per-workspace identity — the Integration row PK for the legacy OAuth path,
+    # or a hash of the bring-your-own bot token for the manual path (see `manual_cache_id`). Mirrors
     # the convention used by the HogFunctions Slack channel-list cache in posthog.api.integration.
-    return f"@dwh/slack/{integration_id}/channels"
+    return f"@dwh/slack/{cache_id}/channels"
+
+
+def manual_cache_id(access_token: str) -> str:
+    """Stable channel-cache identity for a bring-your-own bot token.
+
+    The manual auth path has no Integration row to key the cache on, so we derive a short,
+    non-reversible id from the token. It only scopes a 5-minute channel-list cache, so a token
+    rotation harmlessly starts a fresh cache entry rather than serving another workspace's data.
+    """
+    return hashlib.sha256(access_token.encode()).hexdigest()[:16]
+
+
+def auth_test_user_id(access_token: str) -> str | None:
+    """Return the user id `auth.test` reports for a token, or None if the call fails.
+
+    Used by the manual auth path to scope private-channel discovery. For a bot token this is the
+    bot's own user id; `users.conversations` then returns the private channels the bot is a member
+    of. A failed/invalid token yields None (discovery falls back to unscoped), and credential
+    validation surfaces the error separately.
+    """
+    url = "https://slack.com/api/auth.test"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        response = _slack_get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("ok"):
+            return data.get("user_id")
+    except Exception:
+        logger.warning("Slack auth.test failed while resolving authed user", exc_info=True)
+    return None
 
 
 def _fetch_all_channels_cached(
-    integration_id: int,
+    cache_id: str,
     access_token: str,
     authed_user: str | None = None,
     force_refresh: bool = False,
@@ -206,7 +258,7 @@ def _fetch_all_channels_cached(
     stays in cache until the new one is written, so concurrent readers don't pile up
     on a missing key.
     """
-    cache_key = _channels_cache_key(integration_id)
+    cache_key = _channels_cache_key(cache_id)
     if not force_refresh:
         cached = cache.get(cache_key)
         if cached is not None:
@@ -294,7 +346,7 @@ def _fetch_thread_replies(
 
 
 def get_channels(
-    integration_id: int,
+    cache_id: str,
     access_token: str,
     authed_user: str | None = None,
     force_refresh: bool = False,
@@ -302,8 +354,48 @@ def get_channels(
     """Return channel id + name pairs for all accessible channels."""
     return [
         {"id": ch["id"], "name": ch["name"]}
-        for ch in _fetch_all_channels_cached(integration_id, access_token, authed_user, force_refresh=force_refresh)
+        for ch in _fetch_all_channels_cached(cache_id, access_token, authed_user, force_refresh=force_refresh)
     ]
+
+
+# conversations.join errors that mean "nothing to do for this channel" rather than a real failure.
+_SKIP_JOIN_ERRORS = {"already_in_channel", "is_archived", "method_not_supported_for_channel_type"}
+
+
+def _join_public_channels(access_token: str, channels: list[dict[str, Any]]) -> int:
+    """Join every public channel the bot isn't already in, so their message events reach the webhook.
+
+    ``conversations.join`` only works for public channels — private channels must be invited manually.
+    Joins are idempotent (``already_in_channel`` is a no-op) and archived channels are skipped. A
+    missing ``channels:join`` scope is surfaced immediately, since it means auto-join can never work.
+    Returns the number of channels newly joined.
+    """
+    url = "https://slack.com/api/conversations.join"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    joined = 0
+    for ch in channels:
+        if ch.get("is_private") or ch.get("is_archived") or ch.get("is_member"):
+            continue
+        response = _slack_post(url, headers=headers, data={"channel": ch["id"]}, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("ok"):
+            joined += 1
+            continue
+        error = data.get("error", "unknown_error")
+        if error == "missing_scope":
+            raise Exception("missing_scope: your Slack app needs the channels:join scope to auto-join public channels.")
+        if error not in _SKIP_JOIN_ERRORS:
+            logger.warning("Slack conversations.join failed", channel_id=ch.get("id"), error=error)
+    if joined:
+        logger.info("Slack auto-joined public channels", joined=joined)
+    return joined
+
+
+def join_public_channels(access_token: str, cache_id: str, authed_user: str | None = None) -> int:
+    """Auto-join all public channels the bot isn't in yet (see ``_join_public_channels``)."""
+    channels = _fetch_all_channels_cached(cache_id, access_token, authed_user)
+    return _join_public_channels(access_token, channels)
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
@@ -388,7 +480,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
 
 def slack_source(
     access_token: str,
-    integration_id: int,
+    cache_id: str,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -409,7 +501,7 @@ def slack_source(
         # public+private types are mixed, so we walk public and private separately and
         # scope private channels to the installer (matches get_schemas behavior).
         endpoint_config = ENDPOINTS[endpoint]
-        items = lambda: iter(_fetch_all_channels_cached(integration_id, access_token, authed_user))
+        items = lambda: iter(_fetch_all_channels_cached(cache_id, access_token, authed_user))
     elif endpoint in ENDPOINTS:
         # $users — served via the generic REST framework
         endpoint_config = ENDPOINTS[endpoint]

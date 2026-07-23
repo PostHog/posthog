@@ -28,6 +28,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     BrokenTestsResult,
     CICardSummary,
     CIFailureLogs,
+    CISignalsConfig,
     CurrentBranchHealth,
     FlakyTestList,
     GitHubSource,
@@ -76,6 +77,22 @@ def _authorized_source(
     """
     return logic.CuratedGitHubSource.for_team(
         team, source_id=source_id, repo=repo, user_access_control=user_access_control
+    )
+
+
+def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:
+    return logic.get_ci_signals_config(team=team, user_access_control=user_access_control)
+
+
+def update_ci_signals_config(
+    *,
+    team: Team,
+    enabled: bool,
+    created_by_id: int,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CISignalsConfig:
+    return logic.update_ci_signals_config(
+        team=team, enabled=enabled, created_by_id=created_by_id, user_access_control=user_access_control
     )
 
 
@@ -336,7 +353,6 @@ def list_flaky_tests(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
     source_id: str | None = None,
@@ -347,7 +363,6 @@ def list_flaky_tests(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )
@@ -358,7 +373,6 @@ def list_team_ci_health(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
     source_id: str | None = None,
@@ -368,7 +382,6 @@ def list_team_ci_health(
         curated=_authorized_source(team, source_id, user_access_control),
         date_from=date_from,
         date_to=date_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )

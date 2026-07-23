@@ -18,6 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import re
 import logging
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -42,8 +43,6 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
-from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -55,8 +54,6 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
-    CodeWorkflowConfig,
-    CodeWorkstream,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSnapshot,
@@ -72,6 +69,8 @@ from products.tasks.backend.visibility import task_control_q, task_run_visibilit
 from . import contracts
 
 logger = logging.getLogger(__name__)
+
+_TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="task-log-read")
 
 # --- Enum re-exports ---
 # Value types (not ORM models), safe to expose. External callers compare against the
@@ -91,26 +90,12 @@ CODE_INVITE_REDEEMED = "redeemed"
 CODE_INVITE_INVALID_CODE = "invalid_code"
 CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
 
-# --- Code-workflow save outcomes ---
-# Returned on ``CodeWorkflowSaveResult.outcome``; the presentation layer maps each to an
-# HTTP status (saved -> 200, conflict -> 409, invalid -> 422).
-CODE_WORKFLOW_SAVED = "saved"
-CODE_WORKFLOW_CONFLICT = "conflict"
-CODE_WORKFLOW_INVALID = "invalid"
-
-# --- Code-home tuning ---
-# An agent run counts as "active" only if it updated within this window.
-CODE_HOME_ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
-_CODE_HOME_RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
     "CODE_INVITE_NOT_REDEEMABLE",
     "CODE_INVITE_REDEEMED",
-    "CODE_WORKFLOW_CONFLICT",
-    "CODE_WORKFLOW_INVALID",
-    "CODE_WORKFLOW_SAVED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -149,8 +134,6 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
-    "get_code_home",
-    "get_code_workflow_config",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
@@ -190,16 +173,14 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
+    "record_task_run_user_activity",
     "redeem_code_invite",
     "redispatch_task_run",
-    "refresh_team_code_workstreams",
     "relay_task_run_message",
-    "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
-    "save_code_workflow_bindings",
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
@@ -917,6 +898,35 @@ def create_wizard_cloud_run(
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
         pending_user_message=prompt,
+    )
+
+
+def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetime]:
+    """Creation times of a user's recent wizard cloud runs that still count against their quota.
+
+    Backs the outcome-aware cloud_run throttles: failed and cancelled runs are excluded so a
+    user whose run broke (or who cancelled a stuck one) can start another without waiting out
+    the window. The hard ceiling on total attempts lives in the cloud_run view as an atomic
+    cache reservation, not here.
+
+    The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
+    protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
+    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
+    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
+    or flipping it would launder sandbox boots out of the limits.
+
+    Deliberately user-scoped across teams: the throttle is per user, and a user can run the
+    wizard on projects in different teams. Returns only timestamps, no run data.
+    """
+    return list(
+        TaskRun.objects.filter(
+            task__created_by_id=user_id,
+            state__has_key="wizard_config",
+            created_at__gte=since,
+        )
+        .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+        .order_by("created_at")
+        .values_list("created_at", flat=True)
     )
 
 
@@ -1791,10 +1801,17 @@ def task_accessible_for_run_view(
     read actions, which the caller signals via ``bypass_visibility``. Run-mutating actions pass
     ``for_control`` to use the narrower ``task_control_q`` — public-channel visibility lets
     teammates watch a run, not drive it.
+
+    Slack-originated tasks are the exception: those threads are multiplayer, so any same-team
+    user can already steer the run from Slack (follow-ups record them as the run's actor, with
+    sandbox credentials minted for them). The runs API mirrors that and lets team members drive
+    and watch Slack tasks' runs — otherwise a non-creator actor's sandbox 404s on every callback
+    (reply relay, log-append heartbeat, completion PATCH) and the thread dies silently.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id)
     if not bypass_visibility:
-        task_filter = task_filter.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
+        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id)
+        task_filter = task_filter.filter(scope_q | Q(origin_product=Task.OriginProduct.SLACK))
     return task_filter.exists()
 
 
@@ -2596,9 +2613,17 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     if run is None:
         return None
 
+    resume_chain = run.get_resume_chain()
+    chunks: Iterable[str]
+    if len(resume_chain) == 1:
+        chunks = [object_storage.read(resume_chain[0].log_url, missing_ok=True) or ""]
+    else:
+        chunks = _TASK_LOG_READ_EXECUTOR.map(
+            lambda ancestor: object_storage.read(ancestor.log_url, missing_ok=True) or "", resume_chain
+        )
+
     parts: list[str] = []
-    for ancestor in run.get_resume_chain():
-        chunk = object_storage.read(ancestor.log_url, missing_ok=True) or ""
+    for chunk in chunks:
         if chunk:
             if not chunk.endswith("\n"):
                 chunk = chunk + "\n"
@@ -2726,7 +2751,22 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
+    record_task_run_user_activity(run.id, team_id)
     return True
+
+
+def record_task_run_user_activity(run_id: str | UUID, team_id: int) -> None:
+    """Stamp a user message against the run's open sandbox usage sessions.
+
+    Best-effort (the ledger swallows its own failures): records last-activity on
+    every message and starts the user-attributable billing window on the first one.
+    Usage ledger only — no workflow side effects.
+    """
+    from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        record_task_run_user_activity as _record_user_activity,
+    )
+
+    _record_user_activity(run_id, team_id)
 
 
 def get_task_run_sandbox_connection(
@@ -3014,7 +3054,6 @@ def bootstrap_task_run(
     reasoning_effort = validated_data.get("reasoning_effort")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
-    home_quick_action = validated_data.get("home_quick_action")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
     relayed_mcp_servers = validated_data.get("relayed_mcp_servers")
     if run_source == RunSource.SIGNAL_REPORT:
@@ -3035,7 +3074,6 @@ def bootstrap_task_run(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
-        "home_quick_action": home_quick_action,
         "rtk_enabled": validated_data.get("rtk_enabled"),
     }.items():
         if value is not None:
@@ -4794,197 +4832,6 @@ def resolve_slack_thread_context(
         runs=run_dtos,
     )
     return contracts.SlackThreadContextResult(outcome="ok", context=context)
-
-
-# --- Code workflow config (presentation CRUD) ---
-# A user's per-team binding configuration. Reads seed a default config on first access;
-# saves are optimistic-locked on ``version`` and validate the bindings before persisting.
-
-
-def _epoch_ms(dt: datetime) -> int:
-    return int(dt.timestamp() * 1000)
-
-
-def _code_workflow_config_to_dto(config: CodeWorkflowConfig) -> contracts.CodeWorkflowConfigDTO:
-    return contracts.CodeWorkflowConfigDTO(
-        id=str(config.id),
-        version=config.version,
-        updated_at=config.updated_at,
-        bindings=config.bindings,
-    )
-
-
-def get_code_workflow_config(team_id: int, user_id: int) -> contracts.CodeWorkflowConfigDTO:
-    """Return the user's config for the team, seeding a default one on first access."""
-    config, _ = CodeWorkflowConfig.objects.get_or_create(
-        team_id=team_id,
-        user_id=user_id,
-        defaults={"bindings": build_default_bindings(), "version": 1},
-    )
-    return _code_workflow_config_to_dto(config)
-
-
-def save_code_workflow_bindings(
-    team_id: int, user_id: int, *, bindings: dict, expected_version: object
-) -> contracts.CodeWorkflowSaveResult:
-    """Validate and save bindings under optimistic locking.
-
-    Returns a ``conflict`` result when ``expected_version`` is not an int or does not match
-    the stored version, an ``invalid`` result (with diagnostics) when validation fails, or a
-    ``saved`` result with the version-bumped config.
-    """
-    with transaction.atomic():
-        current, _ = CodeWorkflowConfig.objects.select_for_update().get_or_create(
-            team_id=team_id,
-            user_id=user_id,
-            defaults={"bindings": build_default_bindings(), "version": 1},
-        )
-        if not isinstance(expected_version, int) or current.version != expected_version:
-            return contracts.CodeWorkflowSaveResult(
-                outcome=CODE_WORKFLOW_CONFLICT,
-                config=_code_workflow_config_to_dto(current),
-            )
-
-        result = validate_bindings(bindings)
-        if not result.can_save:
-            return contracts.CodeWorkflowSaveResult(
-                outcome=CODE_WORKFLOW_INVALID,
-                config=_code_workflow_config_to_dto(current),
-                diagnostics=[
-                    contracts.CodeWorkflowDiagnosticDTO(
-                        severity=d.severity,
-                        code=d.code,
-                        message=d.message,
-                        situation_id=d.situation_id,
-                        action_id=d.action_id,
-                    )
-                    for d in result.diagnostics
-                ],
-            )
-
-        current.bindings = bindings
-        current.version = current.version + 1
-        current.save(update_fields=["bindings", "version", "updated_at"])
-
-    return contracts.CodeWorkflowSaveResult(
-        outcome=CODE_WORKFLOW_SAVED,
-        config=_code_workflow_config_to_dto(current),
-    )
-
-
-def reset_code_workflow_bindings(team_id: int, user_id: int) -> contracts.CodeWorkflowConfigDTO:
-    """Reset the user's bindings back to the defaults and bump the version."""
-    with transaction.atomic():
-        config, _ = CodeWorkflowConfig.objects.select_for_update().get_or_create(
-            team_id=team_id,
-            user_id=user_id,
-            defaults={"bindings": build_default_bindings(), "version": 1},
-        )
-        config.bindings = build_default_bindings()
-        config.version = config.version + 1
-        config.save(update_fields=["bindings", "version", "updated_at"])
-    return _code_workflow_config_to_dto(config)
-
-
-# --- Code home board ---
-# Active agents are computed live off in-flight runs; workstreams are persisted by the
-# worker and split into board columns by their stored ``state``.
-
-
-def _code_home_workstream_to_dto(ws: CodeWorkstream) -> contracts.CodeHomeWorkstreamDTO:
-    return contracts.CodeHomeWorkstreamDTO(
-        id=ws.key,
-        repo_name=ws.repo_name,
-        repo_full_path=ws.repo_full_path,
-        branch=ws.branch,
-        pr_url=ws.pr_url,
-        pr=ws.pr,
-        primary_situation=ws.primary_situation,
-        last_activity_at=_epoch_ms(ws.last_activity_at),
-        tasks=[
-            contracts.CodeHomeWorkstreamTaskDTO(
-                id=t.get("id"),
-                title=t.get("title"),
-                status=t.get("status"),
-                is_generating=False,
-                needs_permission=False,
-                quick_action=t.get("quick_action"),
-            )
-            for t in (ws.tasks or [])
-        ],
-        situations=ws.situations or [],
-    )
-
-
-def _code_home_active_agents(team_id: int, user_id: int) -> list[contracts.CodeHomeActiveAgentDTO]:
-    cutoff = django_timezone.now() - CODE_HOME_ACTIVE_AGENT_WINDOW
-    runs = (
-        TaskRun.objects.filter(
-            team_id=team_id,
-            task__created_by_id=user_id,
-            task__archived=False,
-            task__deleted=False,
-            status__in=_CODE_HOME_RUNNING_STATUSES,
-            updated_at__gte=cutoff,
-        )
-        .select_related("task")
-        .order_by("-updated_at")
-    )
-
-    seen_tasks: set[str] = set()
-    agents: list[contracts.CodeHomeActiveAgentDTO] = []
-    for run in runs.iterator():
-        task = run.task
-        if str(task.id) in seen_tasks:
-            continue
-        if (run.output or {}).get("pr_url"):
-            continue
-        seen_tasks.add(str(task.id))
-        agents.append(
-            contracts.CodeHomeActiveAgentDTO(
-                task_id=str(task.id),
-                title=task.title,
-                repo_name=task.repository.split("/")[-1] if task.repository else None,
-                branch=run.branch,
-                status=run.status,
-                last_activity_at=_epoch_ms(run.updated_at),
-                needs_permission=False,
-                cloud_pr_url=None,
-            )
-        )
-    return agents
-
-
-def get_code_home(team_id: int, user_id: int) -> contracts.CodeHomeDTO:
-    """Assemble the code-home board: live active agents plus persisted workstreams by column."""
-    workstreams = CodeWorkstream.objects.filter(team_id=team_id, user_id=user_id)
-    needs_attention: list[contracts.CodeHomeWorkstreamDTO] = []
-    in_progress: list[contracts.CodeHomeWorkstreamDTO] = []
-    for ws in workstreams.iterator():
-        dto = _code_home_workstream_to_dto(ws)
-        if ws.state == CodeWorkstream.WorkstreamState.ATTENTION:
-            needs_attention.append(dto)
-        else:
-            in_progress.append(dto)
-
-    return contracts.CodeHomeDTO(
-        active_agents=_code_home_active_agents(team_id, user_id),
-        needs_attention=needs_attention,
-        in_progress=in_progress,
-    )
-
-
-def refresh_team_code_workstreams(team_id: int) -> bool:
-    """Trigger an on-demand evaluation of the team's code workstreams.
-
-    Returns whether a new evaluation workflow was started (``False`` if one was already
-    running).
-    """
-    from products.tasks.backend.temporal.code_workstreams.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        trigger_team_code_workstreams_evaluation,
-    )
-
-    return trigger_team_code_workstreams_evaluation(team_id)
 
 
 # --- Id-based bridges to the sandbox/agent-command surface ---

@@ -19,7 +19,8 @@ export interface ObservationLabelProps {
     scannerUserAccessLevel?: AccessControlLevel | null
 }
 
-const FEEDBACK_PLACEHOLDER = 'Optional: what did it get right or wrong, and why? Used to improve the prompt.'
+const FEEDBACK_PLACEHOLDER =
+    'Optional: what did it get right or wrong, and why? Used to improve the scanner configuration.'
 
 function useEditAccess(scannerUserAccessLevel?: AccessControlLevel | null): string | null {
     // Editing the shared rating mutates team-wide data derived from a recording, so it needs the same
