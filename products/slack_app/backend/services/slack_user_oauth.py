@@ -78,34 +78,11 @@ def find_linked_posthog_user(
             .select_related("user")
             .order_by("-created_at")
         )
-        if not links:
-            return None
-        # Org-scope filter as a set lookup so we keep the per-row iteration
-        # below in stable most-recent-first order without a second per-row query.
-        user_ids = [link.user_id for link in links if link.user is not None]
-        accessible_user_ids = set(
-            OrganizationMembership.objects.filter(
-                user_id__in=user_ids, organization_id__in=candidate_org_ids
-            ).values_list("user_id", flat=True)
+        return _pick_accessible_linked_user(
+            links,
+            candidate_org_ids,
+            warn_log_fields={"slack_user_id": slack_user_id, "slack_team_id": slack_team_id},
         )
-        if not accessible_user_ids:
-            return None
-        if len(links) > 1:
-            # Telemetry for the multi-link ambiguity case. Picking
-            # most-recent is deliberate but it's worth seeing how often
-            # this fires — if it's common, the linking flow needs harder
-            # guard rails (or a DB-level partial unique constraint).
-            logger.warning(
-                "slack_app_user_link_multiple_matches",
-                slack_user_id=slack_user_id,
-                slack_team_id=slack_team_id,
-                link_count=len(links),
-                accessible_count=len(accessible_user_ids),
-            )
-        for link in links:
-            if link.user_id in accessible_user_ids:
-                return link.user
-        return None
     except Exception:
         logger.warning(
             "slack_app_user_link_lookup_failed",
@@ -114,6 +91,44 @@ def find_linked_posthog_user(
             exc_info=True,
         )
         return None
+
+
+def _pick_accessible_linked_user(
+    links: list[UserIntegration],
+    candidate_org_ids: set[UUID],
+    *,
+    warn_log_fields: dict[str, Any],
+) -> User | None:
+    """Provider-neutral core of linked-user resolution: given ``UserIntegration`` rows
+    in most-recent-first order, return the most recently linked user who is a member of
+    one of the candidate organizations."""
+    if not links:
+        return None
+    # Org-scope filter as a set lookup so we keep the per-row iteration
+    # below in stable most-recent-first order without a second per-row query.
+    user_ids = [link.user_id for link in links if link.user is not None]
+    accessible_user_ids = set(
+        OrganizationMembership.objects.filter(user_id__in=user_ids, organization_id__in=candidate_org_ids).values_list(
+            "user_id", flat=True
+        )
+    )
+    if not accessible_user_ids:
+        return None
+    if len(links) > 1:
+        # Telemetry for the multi-link ambiguity case. Picking
+        # most-recent is deliberate but it's worth seeing how often
+        # this fires — if it's common, the linking flow needs harder
+        # guard rails (or a DB-level partial unique constraint).
+        logger.warning(
+            "slack_app_user_link_multiple_matches",
+            link_count=len(links),
+            accessible_count=len(accessible_user_ids),
+            **warn_log_fields,
+        )
+    for link in links:
+        if link.user_id in accessible_user_ids:
+            return link.user
+    return None
 
 
 # ---------------------------------------------------------------------------
