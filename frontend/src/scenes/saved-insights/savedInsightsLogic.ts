@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -13,18 +13,19 @@ import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { crushDraftQueryForLocalStorage, parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs, UserType } from '~/types'
 
-import { AlertType } from 'products/alerts/frontend/types'
 import {
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,
@@ -34,6 +35,7 @@ import type { Node } from '../../queries/schema/schema-general'
 import type { DeleteDashboardForm } from '../dashboard/deleteDashboardLogic'
 import type { DuplicateDashboardForm } from '../dashboard/duplicateDashboardLogic'
 import { teamLogic } from '../teamLogic'
+import { DraftInsightQuery, draftInsightListItem, isValidDraftInsightQuery } from './draftInsight'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -94,7 +96,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
 export interface savedInsightsLogicValues {
     activeSceneId: string | null // sceneLogic
     currentTeamId: number | null // teamLogic
-    alertModalId: AlertType['id'] | null
+    user: UserType | null // userLogic
     breadcrumbs: Breadcrumb[]
     bulkDeleteResponse: InsightBulkDeleteResponseApi | null
     bulkDeleteResponseLoading: boolean
@@ -102,6 +104,8 @@ export interface savedInsightsLogicValues {
     bulkRestoreResponseLoading: boolean
     count: number
     dashboardUpdatesInProgress: Record<number, boolean>
+    draftInsightRow: SavedInsightListItem | null
+    draftQuery: DraftInsightQuery | null
     filters: SavedInsightFilters
     insights: InsightsResult
     insightsLoading: boolean
@@ -179,7 +183,7 @@ export interface savedInsightsLogicActions {
             ids: number[]
         }
     }
-    closeAlertModal: () => {
+    discardDraftQuery: () => {
         value: true
     }
     duplicateInsight: (
@@ -188,6 +192,9 @@ export interface savedInsightsLogicActions {
     ) => {
         insight: QueryBasedInsightModel<Node<Record<string, any>>>
         redirectToInsight: any
+    }
+    loadDraftQuery: () => {
+        value: true
     }
     loadInsights: (debounce?: boolean) => {
         debounce: boolean
@@ -210,9 +217,6 @@ export interface savedInsightsLogicActions {
             debounce: boolean
         }
     }
-    openAlertModal: (alertId: AlertType['id']) => {
-        alertId: string
-    }
     renameInsight: (insight: QueryBasedInsightModel) => {
         insight: QueryBasedInsightModel<Node<Record<string, any>>>
     }
@@ -222,6 +226,9 @@ export interface savedInsightsLogicActions {
     ) => {
         insightId: number
         loading: boolean
+    }
+    setDraftQuery: (draftQuery: DraftInsightQuery | null) => {
+        draftQuery: DraftInsightQuery | null
     }
     setSavedInsightsFilters: (
         filters: Partial<SavedInsightFilters>,
@@ -306,6 +313,11 @@ export interface savedInsightsLogicMeta {
             user?: true | undefined
         }
         pagination: (filters: SavedInsightFilters, count: number) => PaginationManual
+        draftInsightRow: (
+            draftQuery: DraftInsightQuery | null,
+            user: UserType | null,
+            filters: SavedInsightFilters
+        ) => SavedInsightListItem | null
     }
 }
 
@@ -319,7 +331,7 @@ export type savedInsightsLogicType = MakeLogicType<
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId'], userLogic, ['user']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -337,9 +349,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         loadInsights: (debounce: boolean = true) => ({ debounce }),
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
-        openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
-        closeAlertModal: true,
         setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
+        loadDraftQuery: true,
+        setDraftQuery: (draftQuery: DraftInsightQuery | null) => ({ draftQuery }),
+        discardDraftQuery: true,
     }),
     loaders(({ values }) => ({
         insights: {
@@ -453,19 +466,18 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     }),
             },
         ],
-        alertModalId: [
-            null as AlertType['id'] | null,
-            {
-                openAlertModal: (_, { alertId }) => alertId,
-                closeAlertModal: () => null,
-            },
-        ],
         dashboardUpdatesInProgress: [
             {} as Record<number, boolean>,
             {
                 setDashboardUpdateLoading: (state, { insightId, loading }) => {
                     return { ...state, [insightId]: loading }
                 },
+            },
+        ],
+        draftQuery: [
+            null as DraftInsightQuery | null,
+            {
+                setDraftQuery: (_, { draftQuery }) => draftQuery,
             },
         ],
     }),
@@ -550,6 +562,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     entryCount: count,
                 }
             },
+        ],
+        draftInsightRow: [
+            (s) => [s.draftQuery, s.user, s.filters],
+            (
+                draftQuery: DraftInsightQuery | null,
+                user: UserType | null,
+                filters: SavedInsightFilters
+            ): SavedInsightListItem | null =>
+                // The draft is pinned to the top of the list, so it only belongs on the first page
+                draftQuery && filters.page === 1 ? draftInsightListItem(draftQuery, user) : null,
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
@@ -690,6 +712,48 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         bulkRestoreInsightsFailure: () => {
             lemonToast.error('Failed to restore insights')
         },
+        loadDraftQuery: () => {
+            if (!values.currentTeamId) {
+                actions.setDraftQuery(null)
+                return
+            }
+            const storageKey = `draft-query-${values.currentTeamId}`
+            const stored = localStorage.getItem(storageKey)
+            const parsed = stored ? parseDraftQueryFromLocalStorage(stored) : null
+            const draft = isValidDraftInsightQuery(parsed) ? parsed : null
+            if (stored && !draft) {
+                // A malformed draft would resurface (or crash the row) on every visit, so drop it for good
+                localStorage.removeItem(storageKey)
+            }
+            actions.setDraftQuery(draft)
+        },
+        discardDraftQuery: () => {
+            const draft = values.draftQuery
+            if (!draft) {
+                return
+            }
+            const storageKey = `draft-query-${values.currentTeamId}`
+            localStorage.removeItem(storageKey)
+            actions.setDraftQuery(null)
+            eventUsageLogic.actions.reportInsightDraftDiscarded(
+                Math.max(0, Math.round((Date.now() - draft.timestamp) / 1000))
+            )
+            lemonToast.info('Draft discarded', {
+                button: {
+                    label: 'Undo',
+                    action: () => {
+                        // The editor may have written a newer draft since the discard — don't clobber it
+                        if (localStorage.getItem(storageKey) === null) {
+                            localStorage.setItem(
+                                storageKey,
+                                crushDraftQueryForLocalStorage(draft.query, draft.timestamp)
+                            )
+                        }
+                        actions.loadDraftQuery()
+                    },
+                },
+            })
+        },
     })),
     trackedActionToUrl(({ values }) => {
         const changeUrl = ():
@@ -721,15 +785,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.savedInsights()]: async (
-            _,
-            { alert_id, ...searchParams }, // search params,
-            hashParams
-        ) => {
-            if (alert_id) {
-                actions.openAlertModal(alert_id)
-            } else {
-                actions.closeAlertModal()
+        [urls.savedInsights()]: async (_, searchParams, hashParams) => {
+            if (searchParams.tab === SavedInsightsTabs.Alerts || searchParams.alert_id) {
+                const alertsSearchParams = { ...searchParams }
+                delete alertsSearchParams.tab
+                router.actions.replace(urls.alerts(), alertsSearchParams, hashParams)
+                return
             }
 
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
@@ -750,6 +811,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 return
             }
 
+            // The insight editor may have written or cleared a draft since this logic mounted
+            actions.loadDraftQuery()
+
             const currentFilters = cleanFilters(values.filters)
             const nextFilters = cleanFilters(searchParams)
             if (values.rawFilters === null || !objectsEqual(currentFilters, nextFilters)) {
@@ -757,4 +821,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadDraftQuery()
+    }),
 ])

@@ -10,13 +10,17 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Organization, Team, User
+from posthog.models.comment import Comment
 
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
 
 from ee.billing.salesforce_enrichment.conversations_signals import (
+    _fetch_slack_bot_joined_at_by_channel,
     _get_slack_bot_token,
+    _lookup_slack_bot_joined_at,
     aggregate_conversations_slack_signals_for_orgs,
     build_slack_channel_url,
     build_support_ticket_url,
@@ -33,11 +37,18 @@ class TestConversationsSlackSignals(SimpleTestCase):
         with self.settings(SITE_URL="https://us.posthog.com"):
             assert build_support_ticket_url(2, 1234) == "https://us.posthog.com/project/2/support/tickets/1234"
 
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_bot_joined_at_by_channel")
+    @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
     def test_aggregates_latest_channel_for_org(
-        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets
+        self,
+        mock_fetch_rows,
+        mock_fetch_channel_activity,
+        mock_fetch_latest_tickets,
+        mock_fetch_last_customer,
+        mock_fetch_bot_joined,
     ):
         org_id = "org-1"
         mock_fetch_rows.return_value = [
@@ -67,6 +78,8 @@ class TestConversationsSlackSignals(SimpleTestCase):
                 "activity_at": dt.datetime(2026, 6, 30, 8, 0, tzinfo=dt.UTC),
             }
         ]
+        mock_fetch_last_customer.return_value = {org_id: dt.datetime(2026, 6, 28, 14, 30, tzinfo=dt.UTC)}
+        mock_fetch_bot_joined.return_value = {("T123", "C_NEW"): dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC)}
 
         with self.settings(SITE_URL="https://us.posthog.com"):
             result = aggregate_conversations_slack_signals_for_orgs([org_id], include_slack_user_count=False)
@@ -79,12 +92,27 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.slack_user_count is None
         assert signals.last_slack_activity == dt.datetime(2026, 6, 29, 9, 0, tzinfo=dt.UTC)
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/1234"
+        assert signals.last_customer_message_at == dt.datetime(2026, 6, 28, 14, 30, tzinfo=dt.UTC)
+        assert signals.slack_bot_joined_at == dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC)
 
+    @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_bot_joined_at_by_channel",
+        return_value={},
+    )
+    @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org",
+        return_value={},
+    )
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
     def test_returns_latest_support_ticket_without_slack_rows(
-        self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets
+        self,
+        mock_fetch_rows,
+        mock_fetch_channel_activity,
+        mock_fetch_latest_tickets,
+        _mock_fetch_last_customer,
+        _mock_fetch_bot_joined,
     ):
         org_id = "org-1"
         mock_fetch_rows.return_value = []
@@ -109,10 +137,25 @@ class TestConversationsSlackSignals(SimpleTestCase):
         assert signals.last_slack_activity is None
         assert signals.most_recent_support_ticket_url == "https://us.posthog.com/project/2/support/tickets/5678"
 
+    @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_bot_joined_at_by_channel",
+        return_value={},
+    )
+    @patch(
+        "ee.billing.salesforce_enrichment.conversations_signals._fetch_last_customer_message_at_by_org",
+        return_value={},
+    )
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_latest_support_ticket_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_trusted_slack_channel_activity_rows")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._fetch_slack_channel_aggregate_rows")
-    def test_returns_empty_when_no_rows(self, mock_fetch_rows, mock_fetch_channel_activity, mock_fetch_latest_tickets):
+    def test_returns_empty_when_no_rows(
+        self,
+        mock_fetch_rows,
+        mock_fetch_channel_activity,
+        mock_fetch_latest_tickets,
+        _mock_fetch_last_customer,
+        _mock_fetch_bot_joined,
+    ):
         mock_fetch_rows.return_value = []
         mock_fetch_channel_activity.return_value = []
         mock_fetch_latest_tickets.return_value = []
@@ -120,6 +163,75 @@ class TestConversationsSlackSignals(SimpleTestCase):
         result = aggregate_conversations_slack_signals_for_orgs(["org-1"], include_slack_user_count=False)
 
         assert result == {}
+
+    @patch("ee.billing.salesforce_enrichment.conversations_signals.query_with_columns")
+    def test_fetch_slack_bot_joined_at_keys_rows_by_workspace_and_channel(self, mock_query):
+        # The ClickHouse driver can return naive datetimes; they must come back UTC-aware.
+        # A row without a datetime value must be skipped, not crash or store None.
+        mock_query.return_value = [
+            {"slack_team_id": "T123", "slack_channel_id": "C1", "bot_joined_at": dt.datetime(2026, 7, 5, 9, 0)},
+            {
+                "slack_team_id": "T999",
+                "slack_channel_id": "C2",
+                "bot_joined_at": dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
+            },
+            {"slack_team_id": "T000", "slack_channel_id": "C3", "bot_joined_at": None},
+        ]
+
+        result = _fetch_slack_bot_joined_at_by_channel(["C1", "C2"])
+
+        assert result == {
+            ("T123", "C1"): dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC),
+            ("T999", "C2"): dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
+        }
+
+        # Pin the ClickHouse contract with the emitter (_track_bot_joined_channel) as
+        # literal values: if the event name, internal analytics team, or tracking-since
+        # bound drifts, this fails instead of Salesforce silently going empty.
+        query, params = mock_query.call_args.args
+        assert params == {
+            "team_id": 2,
+            "event": "support slack bot joined channel",
+            "since": dt.datetime(2026, 7, 1, tzinfo=dt.UTC),
+            "channel_ids": ["C1", "C2"],
+        }
+        assert mock_query.call_args.kwargs == {"workload": Workload.OFFLINE}
+        for fragment in (
+            "team_id = %(team_id)s",
+            "event = %(event)s",
+            "timestamp >= %(since)s",
+            "min(timestamp) AS bot_joined_at",
+            "JSONExtractString(properties, 'slack_team_id')",
+            "JSONExtractString(properties, 'slack_channel_id') IN %(channel_ids)s",
+            "GROUP BY slack_team_id, slack_channel_id",
+        ):
+            assert fragment in query
+
+    @patch("ee.billing.salesforce_enrichment.conversations_signals.query_with_columns")
+    def test_fetch_slack_bot_joined_at_skips_query_without_channels(self, mock_query):
+        # An empty IN () clause is a ClickHouse syntax error, so the guard is load-bearing.
+        assert _fetch_slack_bot_joined_at_by_channel([]) == {}
+        mock_query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("workspace_match", "T123", "C1", dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC)),
+            ("workspace_mismatch", "T999", "C1", None),
+            # Channel ids are only unique per workspace, so a workspace-less row is
+            # never matched even when a channel id lines up.
+            ("no_workspace", None, "C1", None),
+            ("no_channel", "T123", None, None),
+        ]
+    )
+    def test_lookup_slack_bot_joined_at(
+        self, _name: str, slack_team_id: str | None, slack_channel_id: str | None, expected: dt.datetime | None
+    ) -> None:
+        joined_at_by_channel = {
+            ("T123", "C1"): dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC),
+            ("T456", "C1"): dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC),
+        }
+
+        assert _lookup_slack_bot_joined_at(joined_at_by_channel, slack_team_id, slack_channel_id) == expected
 
     @patch("ee.billing.salesforce_enrichment.conversations_signals.WebClient")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._get_slack_bot_token")
@@ -171,6 +283,21 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         organization = Organization.objects.create(name=f"other-{uuid.uuid4()}")
         user = User.objects.create_and_join(organization, email, None)
         return organization, user
+
+    def _create_ticket_comment(
+        self, ticket: Ticket, author_type: str, created_at: dt.datetime, deleted: bool = False
+    ) -> Comment:
+        comment = Comment.objects.create(
+            team=ticket.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="message",
+            item_context={"author_type": author_type, "is_private": False},
+            deleted=deleted,
+        )
+        # created_at is auto_now_add, so backdate it after the fact.
+        Comment.objects.filter(id=comment.id).update(created_at=created_at)
+        return comment
 
     def test_aggregate_query_applies_recency_and_tie_break_ordering(self):
         selected_activity = dt.datetime(2026, 6, 30, 11, 0, tzinfo=dt.UTC)
@@ -422,6 +549,93 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         assert together[self.org_id] == alone[self.org_id]
         assert together[self.org_id].slack_channel_url == "https://app.slack.com/archives/C_OWN"
         assert together[self.org_id].last_slack_activity == own_activity
+
+    def test_last_customer_message_at_counts_only_customer_comments_on_verified_tickets(self):
+        slack_ticket = self._create_slack_ticket(
+            channel_id="C123", activity_at=dt.datetime(2026, 6, 28, 10, 0, tzinfo=dt.UTC)
+        )
+        expected = dt.datetime(2026, 6, 29, 11, 0, tzinfo=dt.UTC)
+        self._create_ticket_comment(slack_ticket, "customer", dt.datetime(2026, 6, 28, 10, 0, tzinfo=dt.UTC))
+        # Staff, AI, and deleted-customer messages are all newer but must not count.
+        self._create_ticket_comment(slack_ticket, "support", dt.datetime(2026, 6, 30, 9, 0, tzinfo=dt.UTC))
+        self._create_ticket_comment(slack_ticket, "AI", dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC))
+        self._create_ticket_comment(
+            slack_ticket, "customer", dt.datetime(2026, 6, 30, 11, 0, tzinfo=dt.UTC), deleted=True
+        )
+
+        # The org-wide max spans channels: a newer customer message on an email ticket wins.
+        email_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=f"session-{uuid.uuid4()}",
+            distinct_id="",
+            channel_source=Channel.EMAIL,
+            email_from=self.user.email,
+            organization_id=self.org_id,
+            last_message_at=expected,
+            identity_verified=True,
+        )
+        self._create_ticket_comment(email_ticket, "customer", expected)
+
+        # Customer messages on unverified tickets must not count.
+        unverified_ticket = self._create_slack_ticket(
+            channel_id="C_UNVERIFIED",
+            activity_at=dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC),
+            identity_verified=False,
+        )
+        self._create_ticket_comment(unverified_ticket, "customer", dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC))
+
+        result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        assert result[self.org_id].last_customer_message_at == expected
+
+    def test_last_customer_message_at_stays_scoped_per_org_within_a_batch(self):
+        # Both orgs' teams land in the same batch-wide comment query, so attribution
+        # must key on the ticket (item_id), not the team set — a regression here would
+        # hand one org the other's newer timestamp.
+        own_time = dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC)
+        own_ticket = self._create_slack_ticket(channel_id="C_OWN", activity_at=own_time)
+        self._create_ticket_comment(own_ticket, "customer", own_time)
+
+        other_org, other_user = self._create_member_of_other_org(f"other-{uuid.uuid4()}@posthog.com")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        other_time = dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC)
+        other_ticket = self._create_slack_ticket(
+            org_id=str(other_org.id),
+            channel_id="C_OTHER",
+            activity_at=other_time,
+            distinct_id=other_user.distinct_id,
+            team=other_team,
+        )
+        self._create_ticket_comment(other_ticket, "customer", other_time)
+
+        # A comment forged through the generic comments API — created under the other
+        # org's team but pointing at this org's ticket — must not count either.
+        forged = Comment.objects.create(
+            team=other_team,
+            scope="conversations_ticket",
+            item_id=str(own_ticket.id),
+            content="forged",
+            item_context={"author_type": "customer", "is_private": False},
+            deleted=False,
+        )
+        Comment.objects.filter(id=forged.id).update(created_at=dt.datetime(2026, 7, 1, 9, 0, tzinfo=dt.UTC))
+
+        result = aggregate_conversations_slack_signals_for_orgs(
+            [self.org_id, str(other_org.id)], include_slack_user_count=False
+        )
+
+        assert result[self.org_id].last_customer_message_at == own_time
+        assert result[str(other_org.id)].last_customer_message_at == other_time
+
+    def test_last_customer_message_at_is_none_without_customer_comments(self):
+        ticket = self._create_slack_ticket(
+            channel_id="C123", activity_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC)
+        )
+        self._create_ticket_comment(ticket, "support", dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC))
+
+        result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        assert result[self.org_id].last_customer_message_at is None
 
     def test_get_slack_bot_token_resolves_by_workspace_then_team(self):
         TeamConversationsSlackConfig.objects.update_or_create(

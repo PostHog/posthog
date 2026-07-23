@@ -117,10 +117,10 @@ Python node execution uses `get_ipython().run_cell(code)` inside a capture conte
 
 A DuckDB node is then just: register any not-yet-registered file-backed inputs, `_ph.duck.sql(code)`, bind the result relation to `output_name` (as a registered DuckDB view + lazily-materializable frame), envelope with a capped preview. The result stays lazy in DuckDB until a downstream Python node calls for pandas.
 
-The routing rule the server applies per run (from the walkthrough, now concrete):
+The routing rule (from the walkthrough, now concrete) — applied by the **backend at dispatch**, not by the server:
 
-- `node.type == hogql` and **all** inputs are `hogql` → push to CH: data-plane page fetch only, kernel untouched.
-- anything else (Python node, DuckDB node, or a HogQL node would go here if we ever allow HogQL over local frames — we don't; that's what DuckDB syntax is for) → materialize `hogql` inputs to frame files, run in the kernel.
+- `node.type == hogql` and **all** inputs are `hogql` → the **direct lane** (`sql_v2_direct.py`): the backend enqueues the inlined query on the async query manager and the run never reaches the sandbox at all — no kernel required, results land on the run row via the result poll. This amends walkthrough decision 4 ("the sandbox drives execution"): the backend routes, and the sandbox drives only kernel-lane runs. The server's own hogql handling (capped fetch, result cache, `/page` re-query) remains only for runs dispatched before the direct lane and is slated for removal.
+- anything else (Python node, DuckDB node, or a HogQL node would go here if we ever allow HogQL over local frames — we don't; that's what DuckDB syntax is for) → materialize `hogql` inputs to frame files, run in the kernel. Dispatch provisions the kernel itself when none is running (the run is the user's ask for compute; the panel is presentation, not a prerequisite).
 
 ## Result store and paging
 

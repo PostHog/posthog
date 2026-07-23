@@ -44,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
@@ -126,6 +129,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             external_data_source_id=inputs.source_id,
             external_data_schema_id=inputs.schema_id,
             external_data_job_id=inputs.run_id,
+            schema_name=model.schema.name if model.schema is not None else None,
+            sync_type=model.schema.sync_type if model.schema is not None else None,
+            pipeline_version=model.pipeline_version,
         )
 
         job_inputs = PipelineInputs(
@@ -325,6 +331,13 @@ async def _handle_import_error(
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
+
+    # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
+    # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
+    # contract by type so every REST-based source stops immediately, rather than depending on each
+    # source listing the message in get_non_retryable_errors.
+    if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
 
     non_retryable_errors = source_cls.get_non_retryable_errors()
     if any(match in error_msg for match in non_retryable_errors):

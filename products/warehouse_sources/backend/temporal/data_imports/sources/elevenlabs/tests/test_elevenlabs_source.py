@@ -92,6 +92,8 @@ class TestElevenLabsPipelinePlumbing:
         manager = MagicMock()
         inputs = MagicMock(
             schema_name="history",
+            team_id=7,
+            job_id="job-1",
             should_use_incremental_field=True,
             db_incremental_field_last_value=1700000000,
             incremental_field="date_unix",
@@ -102,6 +104,8 @@ class TestElevenLabsPipelinePlumbing:
         _args, kwargs = mocked.call_args
         assert kwargs["endpoint"] == "history"
         assert kwargs["api_key"] == "sk_test"
+        assert kwargs["team_id"] == 7
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
         assert kwargs["incremental_field"] == "date_unix"

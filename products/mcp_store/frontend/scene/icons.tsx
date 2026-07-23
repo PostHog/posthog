@@ -1,103 +1,70 @@
+import { useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconServer } from '@posthog/icons'
 
-import IconAirOpsService from 'public/services/airops.png'
-import IconAtlassianService from 'public/services/atlassian.svg'
-import IconAttioService from 'public/services/attio.png'
-import IconBoxService from 'public/services/box.svg'
-import IconBrowserbaseService from 'public/services/browserbase.svg'
-import IconCanvaService from 'public/services/canva.svg'
-import IconCircleService from 'public/services/circle.png'
-import IconCiscoThousandEyesService from 'public/services/cisco_thousandeyes.png'
-import IconClerkService from 'public/services/clerk.svg'
-import IconClickHouseService from 'public/services/clickhouse.svg'
-import IconCloudflareService from 'public/services/cloudflare.svg'
-import IconContext7Service from 'public/services/context7.svg'
-import IconDatadogService from 'public/services/datadog.svg'
-import IconFigmaService from 'public/services/figma.svg'
-import IconFiretigerService from 'public/services/firetiger.svg'
-import IconGitHubService from 'public/services/github.svg'
-import IconGitLabService from 'public/services/gitlab.svg'
-import IconHexService from 'public/services/hex.svg'
-import IconHubSpotService from 'public/services/hubspot.png'
-import IconLaunchDarklyService from 'public/services/launchdarkly.png'
-import IconLinearService from 'public/services/linear.svg'
-import IconMondayService from 'public/services/monday.svg'
-import IconNeonService from 'public/services/neon.svg'
-import IconNotionService from 'public/services/notion.svg'
-import IconPagerDutyService from 'public/services/pagerduty.svg'
-import IconPlanetScaleService from 'public/services/planetscale.svg'
-import IconPostmanService from 'public/services/postman.svg'
-import IconPrismaService from 'public/services/prisma.svg'
-import IconRenderService from 'public/services/render.svg'
-import IconSanityService from 'public/services/sanity.svg'
-import IconSentryService from 'public/services/sentry.svg'
-import IconSlackService from 'public/services/slack.png'
-import IconStripeService from 'public/services/stripe.png'
-import IconSupabaseService from 'public/services/supabase.svg'
-import IconSvelteService from 'public/services/svelte.png'
-import IconWixService from 'public/services/wix.png'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-// Templates without an asset here use the generic server icon.
-const SERVER_ICONS: Record<string, string> = {
-    airops: IconAirOpsService,
-    atlassian: IconAtlassianService,
-    attio: IconAttioService,
-    box: IconBoxService,
-    browserbase: IconBrowserbaseService,
-    canva: IconCanvaService,
-    cisco_thousandeyes: IconCiscoThousandEyesService,
-    circle: IconCircleService,
-    clerk: IconClerkService,
-    clickhouse: IconClickHouseService,
-    cloudflare: IconCloudflareService,
-    context7: IconContext7Service,
-    datadog: IconDatadogService,
-    figma: IconFigmaService,
-    firetiger: IconFiretigerService,
-    github: IconGitHubService,
-    gitlab: IconGitLabService,
-    hex: IconHexService,
-    hubspot: IconHubSpotService,
-    launchdarkly: IconLaunchDarklyService,
-    linear: IconLinearService,
-    monday: IconMondayService,
-    neon: IconNeonService,
-    notion: IconNotionService,
-    pagerduty: IconPagerDutyService,
-    planetscale: IconPlanetScaleService,
-    postman: IconPostmanService,
-    prisma: IconPrismaService,
-    render: IconRenderService,
-    sanity: IconSanityService,
-    sentry: IconSentryService,
-    slack: IconSlackService,
-    stripe: IconStripeService,
-    supabase: IconSupabaseService,
-    svelte: IconSvelteService,
-    wix: IconWixService,
+// Machine-facing subdomains stripped when deriving a brand domain from a server URL, so a custom
+// install at https://mcp.linear.app/mcp still resolves the vendor's brand (linear.app).
+const STRIPPED_SUBDOMAINS = ['mcp.', 'api.', 'www.']
+
+export function iconDomainFromServerUrl(serverUrl: string | null | undefined): string | null {
+    if (!serverUrl) {
+        return null
+    }
+    let host: string
+    try {
+        host = new URL(serverUrl).hostname.toLowerCase()
+    } catch {
+        return null
+    }
+    for (const prefix of STRIPPED_SUBDOMAINS) {
+        if (host.startsWith(prefix) && host.split('.').length >= 3) {
+            return host.slice(prefix.length)
+        }
+    }
+    return host.includes('.') ? host : null
 }
 
-export function resolveServerIcon(iconKey: string | null | undefined): string | undefined {
-    return iconKey ? SERVER_ICONS[iconKey] : undefined
+export function serverIconUrl(iconDomain: string, theme?: 'light' | 'dark'): string {
+    const themeSuffix = theme ? `&theme=${theme}` : ''
+    return `/api/projects/@current/mcp_servers/icon/?domain=${encodeURIComponent(iconDomain)}${themeSuffix}`
 }
 
 interface ServerIconProps {
-    iconKey?: string | null
+    /** The template's brand domain (icon_domain). Falls back to deriving one from serverUrl. */
+    iconDomain?: string | null
+    /** The MCP server URL — lets custom installs without a template still get a brand icon. */
+    serverUrl?: string | null
     size?: number
     className?: string
 }
 
-export function ServerIcon({ iconKey, size = 32, className }: ServerIconProps): JSX.Element {
-    const src = resolveServerIcon(iconKey)
+export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: ServerIconProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+    const domain = iconDomain || iconDomainFromServerUrl(serverUrl)
+    // logo.dev picks the logo variant suited to the active background theme.
+    const theme = isDarkModeOn ? 'dark' : 'light'
+    // Failure latches per (domain, theme) — the unit the request URL varies over — so a failed
+    // load in one theme doesn't blank the other, and a theme flip retries after a transient error
+    // (cheap: definitive misses are cached server-side for a day).
+    const iconKey = `${domain}|${theme}`
+    const [failedIconKey, setFailedIconKey] = useState<string | null>(null)
     const dimension = `${size}px`
-    if (src) {
+    if (domain && failedIconKey !== iconKey) {
         return (
             <div
                 className={`flex items-center justify-center overflow-hidden rounded-[4px] ${className ?? ''}`}
                 // Fixed dimensions prevent layout shift during icon load.
                 style={{ width: dimension, height: dimension }}
             >
-                <img src={src} alt="" style={{ width: dimension, height: dimension }} />
+                <img
+                    src={serverIconUrl(domain, theme)}
+                    alt=""
+                    style={{ width: dimension, height: dimension }}
+                    onError={() => setFailedIconKey(iconKey)}
+                />
             </div>
         )
     }

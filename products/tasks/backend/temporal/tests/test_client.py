@@ -31,6 +31,6 @@ def test_followup_signal_sends_expected_args(mock_connect: MagicMock) -> None:
     handle = MagicMock(signal=AsyncMock())
     mock_connect.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
 
-    signal_task_followup_message("wf-1", "hi", ["artifact-1"], message_id="msg-1")
+    signal_task_followup_message("wf-1", "hi", ["artifact-1"], message_id="msg-1", actor_user_id=7)
 
-    handle.signal.assert_awaited_once_with("send_followup_message", args=["hi", ["artifact-1"], "msg-1"])
+    handle.signal.assert_awaited_once_with("send_followup_message", args=["hi", ["artifact-1"], "msg-1", 7, None])

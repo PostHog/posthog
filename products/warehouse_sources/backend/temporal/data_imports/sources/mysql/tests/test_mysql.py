@@ -16,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _MAX_CONNECT_ATTEMPTS,
     _SSH_HANDSHAKE_EOF_ERROR,
@@ -27,8 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_bad_plan_error,
     _is_transient_connect_dns_failure,
     _is_transient_connect_drop,
+    _is_transient_connect_gone_away,
     _is_transient_connect_reset,
     _is_transient_connect_timeout,
+    _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
     _is_transient_vitess_dial_timeout,
@@ -948,6 +950,34 @@ class TestIsTransientConnectDrop:
         assert not _is_transient_connect_drop(pymysql.err.OperationalError())
 
 
+class TestIsTransientConnectGoneAway:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "MySQL server has gone away (ConnectionResetError(104, 'Connection reset by peer'))",
+            "MySQL server has gone away (BrokenPipeError(32, 'Broken pipe'))",
+        ],
+    )
+    def test_matches_server_gone_away(self, message):
+        # The server reset the socket mid-handshake — the write-side sibling of the 2013 read-side
+        # drop, transient, so the in-process retry must catch it instead of surfacing it as noise.
+        assert _is_transient_connect_gone_away(pymysql.err.OperationalError(2006, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_gone_away(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_gone_away(pymysql.err.OperationalError())
+
+
 class TestIsTransientConnectTimeout:
     @pytest.mark.parametrize(
         "message",
@@ -1187,6 +1217,26 @@ class TestConnectTransientRetry:
         assert mock_connect.call_count == 2
         sleep.assert_called_once_with(2)
 
+    def test_retries_server_gone_away_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    2006, "MySQL server has gone away (ConnectionResetError(104, 'Connection reset by peer'))"
+                ),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
     def test_retries_connect_timeout_then_succeeds(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         conn = MagicMock()
@@ -1401,6 +1451,36 @@ class TestIsTransientVitessReparent:
         assert not _is_transient_vitess_reparent(ValueError("reparent operation in progress"))
 
 
+class TestIsTransientMetadataQueryReset:
+    def test_matches_connection_reset_mid_query(self):
+        # A peer reset landing on an already-open connection while a metadata query (e.g.
+        # `get_table_metadata`'s information_schema lookup) was in flight — an overloaded
+        # server or a proxy/load-balancer cycling its backend, not a bad query plan.
+        assert _is_transient_metadata_query_reset(
+            pymysql.err.OperationalError(
+                2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Same code without the peer-reset signature is the bad-plan/filesort-timeout
+            # symptom `_is_bad_plan_error` handles instead — must not be absorbed here.
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_metadata_query_reset(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_metadata_query_reset(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_metadata_query_reset(ConnectionResetError("[Errno 104] Connection reset by peer"))
+
+
 class TestRetryOnTransientTabletUnavailable:
     @staticmethod
     def _unavailable() -> pymysql.err.OperationalError:
@@ -1434,6 +1514,17 @@ class TestRetryOnTransientTabletUnavailable:
             "there may be a reparent operation in progress",
         )
         operation = MagicMock(side_effect=[reparent, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
+
+    def test_retries_metadata_query_connection_reset_then_succeeds(self, mocker):
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        reset = pymysql.err.OperationalError(
+            2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+        )
+        operation = MagicMock(side_effect=[reset, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
@@ -1797,6 +1888,23 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Out-of-sort-memory error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # str(exc) form the sync path classifies — a zero-width space pasted into a field.
+            str(UnicodeEncodeError("latin-1", "\u200b", 0, 1, "ordinal not in range(256)")),
+            # `" ".join(str(arg) for arg in exc.args)` form validate_credentials builds, where the
+            # formatted "codec can't encode character" text is absent but the reason arg remains.
+            " ".join(str(a) for a in UnicodeEncodeError("latin-1", "\u200b", 0, 1, "ordinal not in range(256)").args),
+            # A different offending character and position stays matched.
+            str(UnicodeEncodeError("latin-1", "\u3042", 4, 5, "ordinal not in range(256)")),
+        ],
+    )
+    def test_non_latin1_connection_field_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Non-latin-1 connection field error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

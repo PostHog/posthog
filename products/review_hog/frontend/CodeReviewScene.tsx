@@ -627,7 +627,7 @@ function TriggerReviewSection(): JSX.Element | null {
             >
                 <LemonInput
                     className="min-w-80 flex-1"
-                    placeholder="https://github.com/posthog/posthog.com/pull/1234"
+                    placeholder="https://github.com/PostHog/posthog.com/pull/1234"
                     value={triggerPrUrl}
                     onChange={setTriggerPrUrl}
                 />
@@ -1389,7 +1389,7 @@ function PerspectivesSection(): JSX.Element {
     const { togglePerspective } = useActions(reviewHogSettingsLogic)
 
     return (
-        <section className="flex flex-col gap-4 border-t border-primary pt-8">
+        <section className="flex flex-col gap-4">
             <SectionHeader
                 icon={<IconStack />}
                 title="Perspectives"
@@ -1447,7 +1447,7 @@ function SingleActiveSection({
     const { blockSingleActiveDeactivation } = useActions(reviewHogSettingsLogic)
 
     return (
-        <section className="flex flex-col gap-4 border-t border-primary pt-8">
+        <section className="flex flex-col gap-4">
             <SectionHeader
                 icon={icon}
                 title={title}
@@ -1554,8 +1554,9 @@ export function CodeReviewScene(): JSX.Element {
                         ReviewHog reviews pull requests before humans do
                     </h2>
                     <p className="m-0 max-w-155 text-sm text-secondary">
-                        Specialist review perspectives read your changed code in parallel, a blind-spot sweep catches
-                        what they missed, and only validated findings get published back to the pull request.
+                        Specialist review skills read your changed code in parallel each from their own perspective, a
+                        blind-spot sweep catches what they missed, and only validated findings get published back to the
+                        pull request.
                     </p>
                     <ProofCard />
                 </section>
@@ -1570,30 +1571,41 @@ export function CodeReviewScene(): JSX.Element {
                 <RecentReviewsSection />
                 <PipelineSection />
                 <TriggersSection />
+                <section className="flex flex-col gap-8 border-t border-primary pt-8">
+                    <div className="flex flex-col gap-1.5">
+                        <h2 className="m-0 text-xl font-bold">Review skills</h2>
+                        <p className="m-0 max-w-160 text-sm text-secondary">
+                            Everything below is a regular skill, stored in your PostHog skills store like anything else
+                            you've added. Review skills read your changed code, a blind-spot sweep catches what they
+                            missed, and validation criteria decide what reaches the pull request. Toggling one here
+                            applies only to your pull request reviews; editing a skill changes it for the whole team.
+                        </p>
+                    </div>
+                    <PerspectivesSection />
+                    <SingleActiveSection
+                        icon={<IconSearch />}
+                        title="Blind-spot check"
+                        intro="After the enabled perspectives finish, ReviewHog runs one more sweep over each chunk — it sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
+                        kind="blind_spots"
+                        kindLabel="blind-spot check"
+                        preamble={<EffectivenessCard kind="blind_spots" />}
+                        createLabel="Create your own blind-spot check"
+                        skills={blindSpots?.map((s) => ({ ...s, on: s.active })) ?? null}
+                        onSelect={selectBlindSpots}
+                    />
+                    <SingleActiveSection
+                        icon={<IconShield />}
+                        title="Validation criteria"
+                        intro="Every candidate finding is checked against your quality bar before publishing, so noisy, speculative, or low-value issues never reach the pull request. Keep several bars on hand, but only one is applied."
+                        kind="validator"
+                        kindLabel="validator"
+                        createLabel="Create your own validation criteria"
+                        preamble={<ValidatorEffectivenessCard />}
+                        skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
+                        onSelect={selectValidator}
+                    />
+                </section>
                 <UrgencySection />
-                <PerspectivesSection />
-                <SingleActiveSection
-                    icon={<IconSearch />}
-                    title="Blind-spot check"
-                    intro="After the enabled perspectives finish, ReviewHog runs one more sweep over each chunk — it sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
-                    kind="blind_spots"
-                    kindLabel="blind-spot check"
-                    preamble={<EffectivenessCard kind="blind_spots" />}
-                    createLabel="Create your own blind-spot check"
-                    skills={blindSpots?.map((s) => ({ ...s, on: s.active })) ?? null}
-                    onSelect={selectBlindSpots}
-                />
-                <SingleActiveSection
-                    icon={<IconShield />}
-                    title="Validation criteria"
-                    intro="Every candidate finding is checked against your quality bar before publishing, so noisy, speculative, or low-value issues never reach the pull request. Keep several bars on hand, but only one is applied."
-                    kind="validator"
-                    kindLabel="validator"
-                    createLabel="Create your own validation criteria"
-                    preamble={<ValidatorEffectivenessCard />}
-                    skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
-                    onSelect={selectValidator}
-                />
 
                 <SkillDrawer />
                 <ReviewDetailDrawer />
