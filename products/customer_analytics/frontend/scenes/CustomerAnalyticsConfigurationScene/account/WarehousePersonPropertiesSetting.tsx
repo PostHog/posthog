@@ -178,6 +178,10 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
             render: (_, definition) => {
                 const source = definition.source
                 const triggering = !!source && triggeringSourceId === source.id
+                const running = source?.latest_run?.status === 'running'
+                // A run is in flight for this table; block a second trigger and show it as busy.
+                const busyReason = running ? 'A sync or backfill is already running for this table' : undefined
+                const disabledReason = restrictionReason ?? (!source ? 'No source configured' : undefined) ?? busyReason
                 return (
                     <div className="flex gap-1 justify-end">
                         <LemonButton
@@ -186,14 +190,14 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
                             tooltip="Sync now — re-runs the warehouse sync for this table"
                             onClick={() => source && triggerSync({ sourceId: source.id })}
                             loading={triggering}
-                            disabledReason={restrictionReason ?? (!source ? 'No source configured' : undefined)}
+                            disabledReason={disabledReason}
                         />
                         <LemonButton
                             size="small"
                             tooltip="Backfill — reads the whole table to fill in historical rows"
                             onClick={() => source && triggerBackfill({ sourceId: source.id })}
-                            loading={triggering}
-                            disabledReason={restrictionReason ?? (!source ? 'No source configured' : undefined)}
+                            loading={triggering || running}
+                            disabledReason={disabledReason}
                         >
                             Backfill
                         </LemonButton>

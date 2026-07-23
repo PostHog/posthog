@@ -24,6 +24,7 @@ from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef, Prefetch, Q
+from django.utils import timezone
 
 import structlog
 from celery import current_app
@@ -70,6 +71,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertySource,
     CustomPropertySyncRun,
     DisplayType,
+    SyncStatus,
     TargetType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
@@ -1228,9 +1230,47 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
     transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
 
 
+def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> None:
+    """Insert a 'running' run for each enabled person source on the schema that isn't already running.
+    The UI shows these as in-progress and disables the trigger while they exist; the backfill activity
+    reconciles them to their terminal state (see record_sync_run). Skipping sources that already have a
+    running run makes this a no-op when a backfill for the table is already in flight (coalesced)."""
+    sources = list(
+        CustomPropertySource.objects.for_team(team_id).filter(
+            external_data_schema_id=schema_id,
+            is_enabled=True,
+            definition__target_type=TargetType.PERSON.value,
+        )
+    )
+    if not sources:
+        return
+    already_running = set(
+        CustomPropertySyncRun.objects.for_team(team_id)
+        .filter(source__in=sources, status=SyncStatus.RUNNING.value)
+        .values_list("source_id", flat=True)
+    )
+    now = timezone.now()
+    CustomPropertySyncRun.objects.bulk_create(
+        [
+            CustomPropertySyncRun(
+                team_id=team_id,
+                source=source,
+                schema_id=schema_id,
+                trigger=trigger,
+                status=SyncStatus.RUNNING.value,
+                started_at=now,
+            )
+            for source in sources
+            if source.id not in already_running
+        ]
+    )
+
+
 def _start_backfill(team_id: int, schema_id: str, trigger: str) -> None:
     """Start the person-property backfill workflow. Failure must not fail the originating write."""
     try:
+        # Placeholder rows before starting, so the activity always finds a running row to reconcile.
+        _create_running_runs(team_id, schema_id, trigger)
         # The temporal client is heavy; keep it off the CA facade import (django.setup) path.
         from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
 
@@ -1281,6 +1321,8 @@ def trigger_person_property_backfill(*, team_id: int, source_id: str, trigger: s
     schema_id = _triggerable_person_schema_id(team_id, source_id)
     if schema_id is None:
         return None
+    # Placeholder rows before starting, so the activity always finds a running row to reconcile.
+    _create_running_runs(team_id, schema_id, trigger)
     from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
 
     return start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)

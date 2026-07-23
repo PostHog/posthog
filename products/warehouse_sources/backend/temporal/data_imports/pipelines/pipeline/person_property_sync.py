@@ -169,10 +169,19 @@ def _decode_parquet_rows(data: bytes) -> list[dict]:
     return pq.read_table(_bytes_reader(data)).to_pylist()
 
 
+def _snapshot_file_order(entry: dict) -> tuple:
+    # Oldest first, so a newer run's hashes win for a repeated distinct_id. Order by the file's
+    # last-modified time (the run that wrote it), falling back to the key when a store omits the
+    # timestamp. The (is-missing, time, key) shape keeps None timestamps sorting first without ever
+    # comparing None to a datetime.
+    last_modified = entry.get("LastModified")
+    return (last_modified is None, last_modified, entry["Key"])
+
+
 async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) -> dict[str, str]:
-    """Union every parquet file in the source's snapshot folder into {distinct_id: sent_hash}. Files
-    are read in sorted order so a later file's hash wins for a repeated distinct_id; ordering only
-    affects whether an unchanged value is re-sent (an idempotent no-op), never correctness."""
+    """Union every parquet file in the source's snapshot folder into {distinct_id: sent_hash}, reading
+    oldest file first so a newer run's hash wins for a repeated distinct_id (a stale hash would only
+    cost an idempotent re-send, but newest-wins avoids even that). Ordering never affects correctness."""
     prefix = _snapshot_prefix(team_id, schema_id, source_id)
     hashes: dict[str, str] = {}
     async with aget_s3_client() as s3_client:
@@ -181,8 +190,9 @@ async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) ->
         except FileNotFoundError:
             return {}
         values = listing.values() if isinstance(listing, dict) else listing
-        files = sorted(f["Key"] for f in values if f.get("type") != "directory")
-        for file_path in files:
+        files = sorted((f for f in values if f.get("type") != "directory"), key=_snapshot_file_order)
+        for entry in files:
+            file_path = entry["Key"]
             data = await s3_client._cat_file(f"s3://{file_path}" if not file_path.startswith("s3://") else file_path)
             for record in await asyncio.to_thread(_decode_parquet_rows, data):
                 hashes[record["distinct_id"]] = record["sent_hash"]

@@ -97,3 +97,28 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         # A run for a since-deleted source must not crash or orphan a row.
         record_sync_run(self._record(source_id=str(uuid4())))
         assert not CustomPropertySyncRun.objects.unscoped().filter(job_id="job-1").exists()
+
+    def test_backfill_reconciles_running_placeholder_in_place(self):
+        # The UI/auto path pre-creates a 'running' row; a backfill terminal record must update it in
+        # place (one row, not a running + completed pair) so the progress row resolves.
+        placeholder = CustomPropertySyncRun.objects.create(
+            team_id=self.team.id, source=self.source, schema_id=self.schema_id, trigger="backfill", status="running"
+        )
+        record_sync_run(self._record(trigger="backfill", status="completed", produced=5))
+
+        runs = CustomPropertySyncRun.objects.unscoped().filter(source=self.source)
+        assert runs.count() == 1
+        run = runs.get()
+        assert run.id == placeholder.id
+        assert run.status == "completed" and run.produced == 5
+
+    def test_scheduled_run_leaves_a_running_placeholder_untouched(self):
+        # A scheduled sync must not hijack a backfill's running placeholder; it always inserts its own.
+        placeholder = CustomPropertySyncRun.objects.create(
+            team_id=self.team.id, source=self.source, schema_id=self.schema_id, trigger="backfill", status="running"
+        )
+        record_sync_run(self._record(trigger="scheduled", status="completed"))
+
+        assert CustomPropertySyncRun.objects.unscoped().filter(source=self.source).count() == 2
+        placeholder.refresh_from_db()
+        assert placeholder.status == "running"

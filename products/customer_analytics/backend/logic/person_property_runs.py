@@ -12,11 +12,20 @@ from django.db import transaction
 
 from posthog.exceptions_capture import capture_exception
 
-from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, SyncStatus
+from products.customer_analytics.backend.models import (
+    CustomPropertySource,
+    CustomPropertySyncRun,
+    SyncStatus,
+    SyncTrigger,
+)
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
 
 # Auto-disable a source after this many consecutive failures, matching the account sync path.
 MAX_CONSECUTIVE_SYNC_FAILURES = 5
+
+# Triggers that pre-create a "running" row (from the UI/auto path) which this recorder then reconciles
+# to its terminal state, so one backfill is one row rather than a running + a completed pair.
+_UI_TRIGGERS = frozenset({SyncTrigger.MANUAL.value, SyncTrigger.BACKFILL.value})
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -40,22 +49,37 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
         succeeded = record.status == SyncStatus.COMPLETED.value
 
         with transaction.atomic():
-            CustomPropertySyncRun.objects.create(
-                team_id=record.team_id,
-                source=source,
-                schema_id=record.schema_id or None,
-                job_id=record.job_id,
-                trigger=record.trigger,
-                status=record.status,
-                started_at=_parse_iso(record.started_at),
-                finished_at=finished_at,
-                rows_read=record.rows_read,
-                changed=record.changed,
-                existing=record.existing,
-                produced=record.produced,
-                skipped_missing_person=record.skipped_missing_person,
-                error=record.error,
-            )
+            # Manual/backfill runs pre-create a "running" row (UI progress + double-submit guard);
+            # reconcile the newest one to its terminal state so it's one row, not a running+terminal
+            # pair. Scheduled runs have no placeholder, so they always insert.
+            run = None
+            if record.trigger in _UI_TRIGGERS:
+                run = (
+                    CustomPropertySyncRun.objects.for_team(record.team_id)
+                    .filter(source=source, status=SyncStatus.RUNNING.value)
+                    .order_by("-created_at")
+                    .first()
+                )
+            fields = {
+                "schema_id": record.schema_id or None,
+                "job_id": record.job_id,
+                "trigger": record.trigger,
+                "status": record.status,
+                "started_at": _parse_iso(record.started_at),
+                "finished_at": finished_at,
+                "rows_read": record.rows_read,
+                "changed": record.changed,
+                "existing": record.existing,
+                "produced": record.produced,
+                "skipped_missing_person": record.skipped_missing_person,
+                "error": record.error,
+            }
+            if run is not None:
+                for attr, value in fields.items():
+                    setattr(run, attr, value)
+                run.save()
+            else:
+                CustomPropertySyncRun.objects.create(team_id=record.team_id, source=source, **fields)
 
             if succeeded:
                 source.last_synced_at = finished_at
