@@ -3,6 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    VisionActionsListQueryParams,
+    VisionActionsRetrieveParams,
+    VisionActionsRunsListParams,
+    VisionActionsRunsListQueryParams,
+    VisionActionsRunsRetrieveParams,
     VisionObservationsLabelCreateBody,
     VisionObservationsLabelCreateParams,
     VisionObservationsLabelDestroyParams,
@@ -36,6 +41,83 @@ import {
 } from '@/generated/replay_vision/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const VisionActionsListSchema = VisionActionsListQueryParams
+
+const visionActionsList = (): ToolBase<
+    typeof VisionActionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedVisionActionList>
+> => ({
+    name: 'vision-actions-list',
+    schema: VisionActionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedVisionActionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                scanner: params.scanner,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay-vision')
+    },
+})
+
+const VisionActionsRetrieveSchema = VisionActionsRetrieveParams.omit({ project_id: true })
+
+const visionActionsRetrieve = (): ToolBase<typeof VisionActionsRetrieveSchema, Schemas.VisionAction> => ({
+    name: 'vision-actions-retrieve',
+    schema: VisionActionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.VisionAction>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const VisionActionsRunsListSchema = VisionActionsRunsListParams.omit({ project_id: true }).extend(
+    VisionActionsRunsListQueryParams.shape
+)
+
+const visionActionsRunsList = (): ToolBase<
+    typeof VisionActionsRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedVisionActionRunListList>
+> => ({
+    name: 'vision-actions-runs-list',
+    schema: VisionActionsRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsRunsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedVisionActionRunListList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.vision_action_id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay-vision')
+    },
+})
+
+const VisionActionsRunsRetrieveSchema = VisionActionsRunsRetrieveParams.omit({ project_id: true })
+
+const visionActionsRunsRetrieve = (): ToolBase<typeof VisionActionsRunsRetrieveSchema, Schemas.VisionActionRun> => ({
+    name: 'vision-actions-runs-retrieve',
+    schema: VisionActionsRunsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsRunsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.VisionActionRun>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.vision_action_id))}/runs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
 
 const VisionObservationsLabelCreateSchema = VisionObservationsLabelCreateParams.omit({ project_id: true }).extend(
     VisionObservationsLabelCreateBody.shape
@@ -613,6 +695,10 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'vision-actions-list': visionActionsList,
+    'vision-actions-retrieve': visionActionsRetrieve,
+    'vision-actions-runs-list': visionActionsRunsList,
+    'vision-actions-runs-retrieve': visionActionsRunsRetrieve,
     'vision-observations-label-create': visionObservationsLabelCreate,
     'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,
