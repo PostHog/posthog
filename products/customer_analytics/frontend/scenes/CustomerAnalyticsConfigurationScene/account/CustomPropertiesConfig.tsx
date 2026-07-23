@@ -38,9 +38,27 @@ export function CustomPropertiesConfig(): JSX.Element {
     })
 
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
+        const references = definition.references ?? []
+        // Only account-target definitions store values in the accounts EAV table; person/group
+        // targets write to profile properties, so there's nothing hard-deleted for those.
+        const hasStoredValues = definition.target_type === 'account'
         LemonDialog.open({
             title: `Delete ${definition.name}?`,
-            description: `Deleting ${definition.name} removes this custom property. This can't be undone.`,
+            description: (
+                <div className="flex flex-col gap-2">
+                    <p className="mb-0">
+                        Deleting <strong>{definition.name}</strong> permanently removes the property
+                        {hasStoredValues ? ' and every value stored on your accounts' : ''}. This can't be undone.
+                    </p>
+                    {references.length > 0 && (
+                        <p className="mb-0">
+                            It's still used by {references.length} {references.length === 1 ? 'workflow' : 'workflows'}.
+                            Those actions will stop setting this property, and any saved columns or filters that
+                            reference it will show as deleted.
+                        </p>
+                    )}
+                </div>
+            ),
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',

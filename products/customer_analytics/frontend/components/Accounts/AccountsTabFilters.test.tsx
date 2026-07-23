@@ -8,9 +8,10 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
-import type { UserType } from '~/types'
+import { PropertyFilterType, PropertyOperator, type UserType } from '~/types'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsLogic } from './accountsLogic'
 import { AccountsTabFilters } from './AccountsTabFilters'
 
@@ -23,6 +24,7 @@ describe('AccountsTabFilters', () => {
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
                 '/api/projects/:team_id/tags': () => [200, []],
                 '/api/environments/:team_id/column_configurations': () => [200, { results: [] }],
+                '/api/projects/:team_id/custom_property_definitions/': () => [200, { results: [] }],
             },
         })
         initKeaTests()
@@ -104,5 +106,31 @@ describe('AccountsTabFilters', () => {
 
         expect(screen.getByText('Unassigned')).toBeInTheDocument()
         expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+    })
+
+    // Regression: a filter keyed to a deleted definition compiles to nothing at query time, so it
+    // must be surfaced with a one-click remove — otherwise the filter silently stops mattering.
+    it('surfaces a remove button for a filter whose custom property was deleted', () => {
+        const columnLogic = accountsColumnConfigLogic()
+        columnLogic.mount()
+        // Definitions loaded, but the filter's id isn't among them → it points at a deleted property.
+        columnLogic.actions.loadCustomPropertyDefinitionsSuccess([])
+        logic.actions.setCustomPropertyFilters([
+            {
+                key: 'abcdabcd-1234-5678-9abc-def012345678',
+                type: PropertyFilterType.AccountCustomProperty,
+                operator: PropertyOperator.Exact,
+                value: 'x',
+            },
+        ])
+        renderFilters()
+
+        const removeButton = screen.getByText('Remove 1 deleted filter')
+        expect(removeButton).toBeInTheDocument()
+
+        fireEvent.click(removeButton)
+        expect(logic.values.customPropertyFilters).toEqual([])
+
+        columnLogic.unmount()
     })
 })

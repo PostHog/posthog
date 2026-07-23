@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonColorGlyph, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
@@ -13,6 +13,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +30,12 @@ import type {
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import { ACCOUNTS_NAME_COLUMN, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import {
+    ACCOUNTS_NAME_COLUMN,
+    LEGACY_ROLE_COLUMNS,
+    accountsColumnConfigLogic,
+    isCustomPropertyAlias,
+} from './accountsColumnConfigLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
 import { AccountsEvents } from './constants'
@@ -291,8 +297,22 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
     },
 }
 
+// Shown for a `cp_<id>` column whose definition was deleted — the alias lingers in a saved column
+// or shared URL, but the definition (and its stored values) are gone. Explains the opaque header
+// and points at where to remove the dead column instead of leaving raw NULL cells unexplained.
+function DeletedColumnHeader(): JSX.Element {
+    return (
+        <Tooltip title="This custom property was deleted. Remove this column in Configure columns.">
+            <span className="inline-flex items-center gap-1 text-muted">
+                <IconWarning />
+                Deleted property
+            </span>
+        </Tooltip>
+    )
+}
+
 function useContextColumns(): Record<string, QueryContextColumn> {
-    const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition } =
+    const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, customPropertyDefinitionsLoaded } =
         useValues(accountsColumnConfigLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
@@ -316,6 +336,13 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                 }
                 continue
             }
+            if (customPropertyDefinitionsLoaded && isCustomPropertyAlias(key)) {
+                columns[key] = {
+                    renderTitle: () => <DeletedColumnHeader />,
+                    render: () => <span className="text-muted">—</span>,
+                }
+                continue
+            }
             const template = KNOWN_COLUMN_TEMPLATES[key]
             const label = template?.label ?? key
             columns[key] = {
@@ -325,7 +352,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             }
         }
         return columns
-    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition])
+    }, [visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, customPropertyDefinitionsLoaded])
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
