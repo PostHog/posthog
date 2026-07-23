@@ -279,47 +279,51 @@ class TestCheckTraceSettledActivity:
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
         team = setup_data["team"]
+        trace_id = f"t-settled-{uuid.uuid4()}"
         _insert_ai_event(
-            team=team, event="$ai_generation", trace_id="t-settled", arrival=datetime.now(UTC) - timedelta(seconds=60)
+            team=team, event="$ai_generation", trace_id=trace_id, arrival=datetime.now(UTC) - timedelta(seconds=60)
         )
         result = check_trace_settled_activity(
-            CheckTraceSettledInputs(team_id=team.id, trace_id="t-settled", quiet_period_seconds=30)
+            CheckTraceSettledInputs(team_id=team.id, trace_id=trace_id, quiet_period_seconds=30)
         )
         assert result is not None
 
     @pytest.mark.django_db(transaction=True)
     def test_not_settled_when_recent_activity(self, setup_data):
         team = setup_data["team"]
+        trace_id = f"t-live-{uuid.uuid4()}"
         _insert_ai_event(
-            team=team, event="$ai_generation", trace_id="t-live", arrival=datetime.now(UTC) - timedelta(seconds=5)
+            team=team, event="$ai_generation", trace_id=trace_id, arrival=datetime.now(UTC) - timedelta(seconds=5)
         )
         with pytest.raises(ApplicationError) as err:
             check_trace_settled_activity(
-                CheckTraceSettledInputs(team_id=team.id, trace_id="t-live", quiet_period_seconds=30)
+                CheckTraceSettledInputs(team_id=team.id, trace_id=trace_id, quiet_period_seconds=30)
             )
         assert err.value.type == "trace_not_settled"
 
     @pytest.mark.django_db(transaction=True)
     def test_null_visibility_is_not_settled(self, setup_data):
         team = setup_data["team"]
+        trace_id = f"t-missing-{uuid.uuid4()}"
         with pytest.raises(ApplicationError) as err:
             check_trace_settled_activity(
-                CheckTraceSettledInputs(team_id=team.id, trace_id="t-missing", quiet_period_seconds=30)
+                CheckTraceSettledInputs(team_id=team.id, trace_id=trace_id, quiet_period_seconds=30)
             )
         assert err.value.type == "trace_not_settled"
 
     @pytest.mark.django_db(transaction=True)
     def test_annotation_events_do_not_defer_settling(self, setup_data):
         team = setup_data["team"]
+        trace_id = f"t-annot-{uuid.uuid4()}"
         _insert_ai_event(
-            team=team, event="$ai_generation", trace_id="t-annot", arrival=datetime.now(UTC) - timedelta(seconds=120)
+            team=team, event="$ai_generation", trace_id=trace_id, arrival=datetime.now(UTC) - timedelta(seconds=120)
         )
         _insert_ai_event(
-            team=team, event="$ai_evaluation", trace_id="t-annot", arrival=datetime.now(UTC) - timedelta(seconds=2)
+            team=team, event="$ai_evaluation", trace_id=trace_id, arrival=datetime.now(UTC) - timedelta(seconds=2)
         )
         assert (
             check_trace_settled_activity(
-                CheckTraceSettledInputs(team_id=team.id, trace_id="t-annot", quiet_period_seconds=30)
+                CheckTraceSettledInputs(team_id=team.id, trace_id=trace_id, quiet_period_seconds=30)
             )
             is not None
         )

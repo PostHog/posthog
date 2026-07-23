@@ -74,7 +74,9 @@ INGESTION_LAG_MARGIN_SECONDS = 15
 _LIVENESS_EVENTS = ("$ai_generation", "$ai_span", "$ai_embedding", "$ai_trace")
 
 # ai_events only, never the events fallback: every AI event is double-written there for all
-# teams, and the fallback's events-table scan is orders of magnitude more expensive.
+# teams, and the fallback's events-table scan is orders of magnitude more expensive. The query
+# must also stay ungrouped: an ungrouped aggregate always returns exactly one row, so
+# query_ai_events's empty-result probe (which triggers the fallback) never fires.
 _SETTLE_POLL_SQL = """
 SELECT maxOrNull(_timestamp) AS last_seen
 FROM posthog.ai_events AS ai_events

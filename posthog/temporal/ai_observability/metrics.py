@@ -32,6 +32,8 @@ EVAL_ACTIVITY_TYPES = {
     "emit_internal_telemetry_activity",
     "update_key_state_activity",
     "emit_eval_signal_activity",
+    # check_trace_settled_activity is deliberately excluded: its expected trace_not_settled
+    # failures would otherwise count as activity errors.
 }
 
 EVAL_WORKFLOW_TYPES = {
@@ -110,7 +112,7 @@ def increment_settle_poll(outcome: str) -> None:
     if not activity.in_activity() and not workflow.in_workflow():
         return
     meter = get_metric_meter({"outcome": outcome})
-    counter = meter.create_counter("ai_evaluation_settle_polls_total", "Trace settle poll outcomes")
+    counter = meter.create_counter("llma_eval_settle_polls", "Trace settle poll outcomes")
     counter.add(1)
 
 
