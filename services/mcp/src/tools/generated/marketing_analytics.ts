@@ -5,15 +5,25 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 import type { Schemas } from '@/api/generated'
 
-import { MarketingAnalyticsDataSourcesRetrieveQueryParams, MarketingAnalyticsDiagnoseRetrieveQueryParams, MarketingAnalyticsExplainConversionGoalRetrieveQueryParams, MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams, MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams, MarketingAnalyticsUtmAuditRetrieveQueryParams } from '@/generated/marketing_analytics/api'
+import {
+    MarketingAnalyticsDataSourcesRetrieveQueryParams,
+    MarketingAnalyticsDiagnoseRetrieveQueryParams,
+    MarketingAnalyticsExplainConversionGoalRetrieveQueryParams,
+    MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams,
+    MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams,
+    MarketingAnalyticsUtmAuditRetrieveQueryParams,
+} from '@/generated/marketing_analytics/api'
 
 const MarketingAnalyticsConversionGoalsSchema = z.object({})
 
-const marketingAnalyticsConversionGoals = (): ToolBase<typeof MarketingAnalyticsConversionGoalsSchema, Schemas.ConversionGoalsListResponse> => ({
+const marketingAnalyticsConversionGoals = (): ToolBase<
+    typeof MarketingAnalyticsConversionGoalsSchema,
+    Schemas.ConversionGoalsListResponse
+> => ({
     name: 'marketing-analytics-conversion-goals',
     schema: MarketingAnalyticsConversionGoalsSchema,
     // eslint-disable-next-line no-unused-vars
-handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsConversionGoalsSchema>) => {
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsConversionGoalsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ConversionGoalsListResponse>({
             method: 'GET',
@@ -25,7 +35,10 @@ handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsConve
 
 const MarketingAnalyticsDataSourcesSchema = MarketingAnalyticsDataSourcesRetrieveQueryParams
 
-const marketingAnalyticsDataSources = (): ToolBase<typeof MarketingAnalyticsDataSourcesSchema, Schemas.DataSourceHealthResponse> => ({
+const marketingAnalyticsDataSources = (): ToolBase<
+    typeof MarketingAnalyticsDataSourcesSchema,
+    Schemas.DataSourceHealthResponse
+> => ({
     name: 'marketing-analytics-data-sources',
     schema: MarketingAnalyticsDataSourcesSchema,
     handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDataSourcesSchema>) => {
@@ -43,7 +56,10 @@ const marketingAnalyticsDataSources = (): ToolBase<typeof MarketingAnalyticsData
 
 const MarketingAnalyticsDiagnoseSchema = MarketingAnalyticsDiagnoseRetrieveQueryParams
 
-const marketingAnalyticsDiagnose = (): ToolBase<typeof MarketingAnalyticsDiagnoseSchema, Schemas.MarketingDiagnosticResponse> => ({
+const marketingAnalyticsDiagnose = (): ToolBase<
+    typeof MarketingAnalyticsDiagnoseSchema,
+    Schemas.MarketingDiagnosticResponse
+> => ({
     name: 'marketing-analytics-diagnose',
     schema: MarketingAnalyticsDiagnoseSchema,
     handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDiagnoseSchema>) => {
@@ -63,7 +79,10 @@ const marketingAnalyticsDiagnose = (): ToolBase<typeof MarketingAnalyticsDiagnos
 
 const MarketingAnalyticsExplainConversionGoalSchema = MarketingAnalyticsExplainConversionGoalRetrieveQueryParams
 
-const marketingAnalyticsExplainConversionGoal = (): ToolBase<typeof MarketingAnalyticsExplainConversionGoalSchema, Schemas.GoalExplanation> => ({
+const marketingAnalyticsExplainConversionGoal = (): ToolBase<
+    typeof MarketingAnalyticsExplainConversionGoalSchema,
+    Schemas.GoalExplanation
+> => ({
     name: 'marketing-analytics-explain-conversion-goal',
     schema: MarketingAnalyticsExplainConversionGoalSchema,
     handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsExplainConversionGoalSchema>) => {
@@ -83,7 +102,10 @@ const marketingAnalyticsExplainConversionGoal = (): ToolBase<typeof MarketingAna
 
 const MarketingAnalyticsSuggestConversionGoalsSchema = MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams
 
-const marketingAnalyticsSuggestConversionGoals = (): ToolBase<typeof MarketingAnalyticsSuggestConversionGoalsSchema, Schemas.EventSuggestionsResponse> => ({
+const marketingAnalyticsSuggestConversionGoals = (): ToolBase<
+    typeof MarketingAnalyticsSuggestConversionGoalsSchema,
+    Schemas.EventSuggestionsResponse
+> => ({
     name: 'marketing-analytics-suggest-conversion-goals',
     schema: MarketingAnalyticsSuggestConversionGoalsSchema,
     handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsSuggestConversionGoalsSchema>) => {
@@ -102,7 +124,10 @@ const marketingAnalyticsSuggestConversionGoals = (): ToolBase<typeof MarketingAn
 
 const MarketingAnalyticsSuggestUtmMappingsSchema = MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams
 
-const marketingAnalyticsSuggestUtmMappings = (): ToolBase<typeof MarketingAnalyticsSuggestUtmMappingsSchema, Schemas.UtmMappingSuggestionsResponse> => ({
+const marketingAnalyticsSuggestUtmMappings = (): ToolBase<
+    typeof MarketingAnalyticsSuggestUtmMappingsSchema,
+    Schemas.UtmMappingSuggestionsResponse
+> => ({
     name: 'marketing-analytics-suggest-utm-mappings',
     schema: MarketingAnalyticsSuggestUtmMappingsSchema,
     handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsSuggestUtmMappingsSchema>) => {

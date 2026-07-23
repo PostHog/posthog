@@ -7,9 +7,21 @@ import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools
 import type { Schemas } from '@/api/generated'
 import { castStringToInt } from '@/tools/cast-helpers'
 
-import { AnnotationsCreateBody, AnnotationsDestroyParams, AnnotationsListQueryParams, AnnotationsPartialUpdateBody, AnnotationsPartialUpdateParams, AnnotationsRetrieveParams } from '@/generated/annotations/api'
+import {
+    AnnotationsCreateBody,
+    AnnotationsDestroyParams,
+    AnnotationsListQueryParams,
+    AnnotationsPartialUpdateBody,
+    AnnotationsPartialUpdateParams,
+    AnnotationsRetrieveParams,
+} from '@/generated/annotations/api'
 
-const AnnotationCreateSchema = AnnotationsCreateBody.omit({ 'creation_type': true, 'dashboard_item': true, 'dashboard_id': true, 'deleted': true })
+const AnnotationCreateSchema = AnnotationsCreateBody.omit({
+    creation_type: true,
+    dashboard_item: true,
+    dashboard_id: true,
+    deleted: true,
+})
 
 const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Annotation> => ({
     name: 'annotation-create',
@@ -17,11 +29,21 @@ const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Ann
     handler: async (context: Context, params: z.infer<typeof AnnotationCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.content !== undefined) body["content"] = params.content
-        if (params.date_marker !== undefined) body["date_marker"] = params.date_marker
-        if (params.scope !== undefined) body["scope"] = params.scope
-        if (params.emoji !== undefined) body["emoji"] = params.emoji
-        if (params.hidden_in_user_interface !== undefined) body["hidden_in_user_interface"] = params.hidden_in_user_interface
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.date_marker !== undefined) {
+            body['date_marker'] = params.date_marker
+        }
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.emoji !== undefined) {
+            body['emoji'] = params.emoji
+        }
+        if (params.hidden_in_user_interface !== undefined) {
+            body['hidden_in_user_interface'] = params.hidden_in_user_interface
+        }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/`,
@@ -47,7 +69,9 @@ const annotationDelete = (): ToolBase<typeof AnnotationDeleteSchema, Schemas.Ann
     },
 })
 
-const AnnotationRetrieveSchema = (AnnotationsRetrieveParams.omit({ project_id: true })).extend({ id: z.preprocess(castStringToInt, AnnotationsRetrieveParams.shape['id']) })
+const AnnotationRetrieveSchema = AnnotationsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, AnnotationsRetrieveParams.shape['id']),
+})
 
 const annotationRetrieve = (): ToolBase<typeof AnnotationRetrieveSchema, Schemas.Annotation> => ({
     name: 'annotation-retrieve',
@@ -62,9 +86,17 @@ const annotationRetrieve = (): ToolBase<typeof AnnotationRetrieveSchema, Schemas
     },
 })
 
-const AnnotationsListSchema = (AnnotationsListQueryParams).extend({ limit: AnnotationsListQueryParams.shape['limit'].default(100).optional().describe('Number of annotations to return per page (default 100).') })
+const AnnotationsListSchema = AnnotationsListQueryParams.extend({
+    limit: AnnotationsListQueryParams.shape['limit']
+        .default(100)
+        .optional()
+        .describe('Number of annotations to return per page (default 100).'),
+})
 
-const annotationsList = (): ToolBase<typeof AnnotationsListSchema, WithPostHogUrl<Schemas.PaginatedAnnotationList>> => ({
+const annotationsList = (): ToolBase<
+    typeof AnnotationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedAnnotationList>
+> => ({
     name: 'annotations-list',
     schema: AnnotationsListSchema,
     handler: async (context: Context, params: z.infer<typeof AnnotationsListSchema>) => {
@@ -78,12 +110,28 @@ const annotationsList = (): ToolBase<typeof AnnotationsListSchema, WithPostHogUr
                 search: params.search,
             },
         })
-        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['created_by.uuid', 'created_by.distinct_id', 'created_by.first_name', 'created_by.last_name', 'created_by.is_email_verified', 'created_by.hedgehog_config', 'created_by.role_at_organization'])) } as typeof result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'created_by.uuid',
+                    'created_by.distinct_id',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'created_by.is_email_verified',
+                    'created_by.hedgehog_config',
+                    'created_by.role_at_organization',
+                ])
+            ),
+        } as typeof result
         return await withPostHogUrl(context, filtered, '/data-management/annotations')
     },
 })
 
-const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(AnnotationsPartialUpdateBody.omit({ 'creation_type': true, 'dashboard_item': true, 'dashboard_id': true, 'deleted': true }).shape)
+const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
+    AnnotationsPartialUpdateBody.omit({ creation_type: true, dashboard_item: true, dashboard_id: true, deleted: true })
+        .shape
+)
 
 const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSchema, Schemas.Annotation> => ({
     name: 'annotations-partial-update',
@@ -91,11 +139,21 @@ const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSch
     handler: async (context: Context, params: z.infer<typeof AnnotationsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.content !== undefined) body["content"] = params.content
-        if (params.date_marker !== undefined) body["date_marker"] = params.date_marker
-        if (params.scope !== undefined) body["scope"] = params.scope
-        if (params.emoji !== undefined) body["emoji"] = params.emoji
-        if (params.hidden_in_user_interface !== undefined) body["hidden_in_user_interface"] = params.hidden_in_user_interface
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.date_marker !== undefined) {
+            body['date_marker'] = params.date_marker
+        }
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.emoji !== undefined) {
+            body['emoji'] = params.emoji
+        }
+        if (params.hidden_in_user_interface !== undefined) {
+            body['hidden_in_user_interface'] = params.hidden_in_user_interface
+        }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/${encodeURIComponent(String(params.id))}/`,

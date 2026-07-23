@@ -6,11 +6,26 @@ import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 
 import type { Schemas } from '@/api/generated'
 
-import { EngineeringAnalyticsBrokenTestsQueryParams, EngineeringAnalyticsCiFailureLogsQueryParams, EngineeringAnalyticsFlakyTestsQueryParams, EngineeringAnalyticsPrCostQueryParams, EngineeringAnalyticsPrLifecycleQueryParams, EngineeringAnalyticsPullRequestsQueryParams, EngineeringAnalyticsRunFailureLogsQueryParams, EngineeringAnalyticsTeamCiHealthQueryParams, EngineeringAnalyticsWorkflowHealthQueryParams, EngineeringAnalyticsWorkflowJobsQueryParams, EngineeringAnalyticsWorkflowRunnerCostsQueryParams } from '@/generated/engineering_analytics/api'
+import {
+    EngineeringAnalyticsBrokenTestsQueryParams,
+    EngineeringAnalyticsCiFailureLogsQueryParams,
+    EngineeringAnalyticsFlakyTestsQueryParams,
+    EngineeringAnalyticsPrCostQueryParams,
+    EngineeringAnalyticsPrLifecycleQueryParams,
+    EngineeringAnalyticsPullRequestsQueryParams,
+    EngineeringAnalyticsRunFailureLogsQueryParams,
+    EngineeringAnalyticsTeamCiHealthQueryParams,
+    EngineeringAnalyticsWorkflowHealthQueryParams,
+    EngineeringAnalyticsWorkflowJobsQueryParams,
+    EngineeringAnalyticsWorkflowRunnerCostsQueryParams,
+} from '@/generated/engineering_analytics/api'
 
 const EngineeringAnalyticsBrokenTestsSchema = EngineeringAnalyticsBrokenTestsQueryParams
 
-const engineeringAnalyticsBrokenTests = (): ToolBase<typeof EngineeringAnalyticsBrokenTestsSchema, Schemas.BrokenTestsResult> => ({
+const engineeringAnalyticsBrokenTests = (): ToolBase<
+    typeof EngineeringAnalyticsBrokenTestsSchema,
+    Schemas.BrokenTestsResult
+> => ({
     name: 'engineering-analytics-broken-tests',
     schema: EngineeringAnalyticsBrokenTestsSchema,
     handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsBrokenTestsSchema>) => {
@@ -29,7 +44,10 @@ const engineeringAnalyticsBrokenTests = (): ToolBase<typeof EngineeringAnalytics
 
 const EngineeringAnalyticsCiFailureLogsSchema = EngineeringAnalyticsCiFailureLogsQueryParams
 
-const engineeringAnalyticsCiFailureLogs = (): ToolBase<typeof EngineeringAnalyticsCiFailureLogsSchema, Schemas.CIFailureLogs> => ({
+const engineeringAnalyticsCiFailureLogs = (): ToolBase<
+    typeof EngineeringAnalyticsCiFailureLogsSchema,
+    Schemas.CIFailureLogs
+> => ({
     name: 'engineering-analytics-ci-failure-logs',
     schema: EngineeringAnalyticsCiFailureLogsSchema,
     handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsCiFailureLogsSchema>) => {
@@ -49,7 +67,10 @@ const engineeringAnalyticsCiFailureLogs = (): ToolBase<typeof EngineeringAnalyti
 
 const EngineeringAnalyticsFlakyTestsSchema = EngineeringAnalyticsFlakyTestsQueryParams
 
-const engineeringAnalyticsFlakyTests = (): ToolBase<typeof EngineeringAnalyticsFlakyTestsSchema, WithPostHogUrl<Schemas.FlakyTestList>> => ({
+const engineeringAnalyticsFlakyTests = (): ToolBase<
+    typeof EngineeringAnalyticsFlakyTestsSchema,
+    WithPostHogUrl<Schemas.FlakyTestList>
+> => ({
     name: 'engineering-analytics-flaky-tests',
     schema: EngineeringAnalyticsFlakyTestsSchema,
     handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsFlakyTestsSchema>) => {
@@ -92,7 +113,10 @@ const engineeringAnalyticsPrCost = (): ToolBase<typeof EngineeringAnalyticsPrCos
 
 const EngineeringAnalyticsRunFailureLogsSchema = EngineeringAnalyticsRunFailureLogsQueryParams
 
-const engineeringAnalyticsRunFailureLogs = (): ToolBase<typeof EngineeringAnalyticsRunFailureLogsSchema, Schemas.RunFailureLogs> => ({
+const engineeringAnalyticsRunFailureLogs = (): ToolBase<
+    typeof EngineeringAnalyticsRunFailureLogsSchema,
+    Schemas.RunFailureLogs
+> => ({
     name: 'engineering-analytics-run-failure-logs',
     schema: EngineeringAnalyticsRunFailureLogsSchema,
     handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsRunFailureLogsSchema>) => {
@@ -112,11 +136,14 @@ const engineeringAnalyticsRunFailureLogs = (): ToolBase<typeof EngineeringAnalyt
 
 const EngineeringAnalyticsSourcesSchema = z.object({})
 
-const engineeringAnalyticsSources = (): ToolBase<typeof EngineeringAnalyticsSourcesSchema, WithPostHogUrl<Schemas.GitHubSource[]>> => ({
+const engineeringAnalyticsSources = (): ToolBase<
+    typeof EngineeringAnalyticsSourcesSchema,
+    WithPostHogUrl<Schemas.GitHubSource[]>
+> => ({
     name: 'engineering-analytics-sources',
     schema: EngineeringAnalyticsSourcesSchema,
     // eslint-disable-next-line no-unused-vars
-handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsSourcesSchema>) => {
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsSourcesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GitHubSource[]>({
             method: 'GET',
@@ -128,7 +155,10 @@ handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsSou
 
 const EngineeringAnalyticsTeamCiHealthSchema = EngineeringAnalyticsTeamCiHealthQueryParams
 
-const engineeringAnalyticsTeamCiHealth = (): ToolBase<typeof EngineeringAnalyticsTeamCiHealthSchema, WithPostHogUrl<Schemas.TeamCIHealthList>> => ({
+const engineeringAnalyticsTeamCiHealth = (): ToolBase<
+    typeof EngineeringAnalyticsTeamCiHealthSchema,
+    WithPostHogUrl<Schemas.TeamCIHealthList>
+> => ({
     name: 'engineering-analytics-team-ci-health',
     schema: EngineeringAnalyticsTeamCiHealthSchema,
     handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsTeamCiHealthSchema>) => {
@@ -150,7 +180,10 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<typeof EngineeringAnalytic
 
 const EngineeringAnalyticsWorkflowJobsSchema = EngineeringAnalyticsWorkflowJobsQueryParams
 
-const engineeringAnalyticsWorkflowJobs = (): ToolBase<typeof EngineeringAnalyticsWorkflowJobsSchema, WithPostHogUrl<Schemas.WorkflowJob[]>> => ({
+const engineeringAnalyticsWorkflowJobs = (): ToolBase<
+    typeof EngineeringAnalyticsWorkflowJobsSchema,
+    WithPostHogUrl<Schemas.WorkflowJob[]>
+> => ({
     name: 'engineering-analytics-workflow-jobs',
     schema: EngineeringAnalyticsWorkflowJobsSchema,
     handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsWorkflowJobsSchema>) => {
@@ -171,7 +204,10 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<typeof EngineeringAnalytic
 
 const EngineeringAnalyticsWorkflowRunnerCostsSchema = EngineeringAnalyticsWorkflowRunnerCostsQueryParams
 
-const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<typeof EngineeringAnalyticsWorkflowRunnerCostsSchema, WithPostHogUrl<Schemas.WorkflowRunnerCost[]>> => ({
+const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
+    typeof EngineeringAnalyticsWorkflowRunnerCostsSchema,
+    WithPostHogUrl<Schemas.WorkflowRunnerCost[]>
+> => ({
     name: 'engineering-analytics-workflow-runner-costs',
     schema: EngineeringAnalyticsWorkflowRunnerCostsSchema,
     handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsWorkflowRunnerCostsSchema>) => {
@@ -212,7 +248,11 @@ const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> 
     },
 })
 
-const PullRequestsSchema = (EngineeringAnalyticsPullRequestsQueryParams).extend({ date_from: EngineeringAnalyticsPullRequestsQueryParams.shape['date_from'].describe('Recency floor for merged/closed PRs — relative (\'-30d\', \'-8w\') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d.') })
+const PullRequestsSchema = EngineeringAnalyticsPullRequestsQueryParams.extend({
+    date_from: EngineeringAnalyticsPullRequestsQueryParams.shape['date_from'].describe(
+        "Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d."
+    ),
+})
 
 const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Schemas.PullRequestList>> => ({
     name: 'pull-requests',
@@ -233,7 +273,17 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
     },
 })
 
-const WorkflowHealthSchema = (EngineeringAnalyticsWorkflowHealthQueryParams).extend({ date_from: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_from'].describe('Window start — relative (\'-24h\', \'-7d\') or ISO8601. Defaults to -24h.'), date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe('Window end — relative or ISO8601. Defaults to now.'), run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe('Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.') })
+const WorkflowHealthSchema = EngineeringAnalyticsWorkflowHealthQueryParams.extend({
+    date_from: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_from'].describe(
+        "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
+    ),
+    date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
+        'Window end — relative or ISO8601. Defaults to now.'
+    ),
+    run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
+        'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.'
+    ),
+})
 
 const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<Schemas.WorkflowHealthItem[]>> => ({
     name: 'workflow-health',
