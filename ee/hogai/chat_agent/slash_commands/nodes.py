@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Send
 
@@ -32,6 +34,40 @@ class SlashCommandHandlerNode(AssistantNode):
         SlashCommandName.FIELD_TICKET: TicketCommand,
     }
 
+    # Standalone greetings that open a conversation get a quick canned reply instead of
+    # spinning up the full agent, which would otherwise answer a plain "hello" with a wall of text.
+    GREETINGS = frozenset(
+        {
+            "hi",
+            "hii",
+            "hiya",
+            "hey",
+            "heya",
+            "hello",
+            "howdy",
+            "yo",
+            "sup",
+            "hi there",
+            "hey there",
+            "hello there",
+            "good morning",
+            "good afternoon",
+            "good evening",
+        }
+    )
+    GREETING_REPLY = "🎵 is it me you're looking for"
+
+    def _is_greeting(self, state: AssistantState) -> bool:
+        """Detect a standalone greeting that opens a conversation, so we can skip the full agent."""
+        # Only short-circuit the opening turn — a greeting mid-conversation flows normally.
+        if any(isinstance(msg, AssistantMessage) for msg in state.messages):
+            return False
+        last_human = next((msg for msg in reversed(state.messages) if isinstance(msg, HumanMessage)), None)
+        if last_human is None:
+            return False
+        normalized = last_human.content.strip().lower().rstrip("!.?,")
+        return normalized in self.GREETINGS
+
     def _get_command(self, state: AssistantState) -> str | None:
         """Extract the slash command from the last human message, if any."""
         for msg in reversed(state.messages):
@@ -46,13 +82,16 @@ class SlashCommandHandlerNode(AssistantNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         command = self._get_command(state)
-        if command is None:
-            return None
+        if command is not None:
+            command_class = self.COMMAND_HANDLERS[command]
+            command_instance = command_class(self._team, self._user)
+            result = await command_instance.execute(config, state)
+            return self._stamp_message_source(result, command)
 
-        command_class = self.COMMAND_HANDLERS[command]
-        command_instance = command_class(self._team, self._user)
-        result = await command_instance.execute(config, state)
-        return self._stamp_message_source(result, command)
+        if self._is_greeting(state):
+            return PartialAssistantState(messages=[AssistantMessage(content=self.GREETING_REPLY, id=str(uuid4()))])
+
+        return None
 
     @staticmethod
     def _stamp_message_source(result: PartialAssistantState, command: str) -> PartialAssistantState:
@@ -83,6 +122,10 @@ class SlashCommandHandlerNode(AssistantNode):
         """
         command = self._get_command(state)
         if command is not None:
+            return AssistantNodeName.END
+
+        # A standalone opening greeting is answered directly in arun, so end here too.
+        if self._is_greeting(state):
             return AssistantNodeName.END
 
         # No command detected - route to normal conversation flow

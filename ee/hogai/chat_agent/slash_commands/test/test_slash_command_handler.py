@@ -170,6 +170,58 @@ class TestSlashCommandHandlerNode(BaseTest):
 
     @parameterized.expand(
         [
+            ("hi",),
+            ("Hello",),
+            ("hey there",),
+            ("HI THERE",),
+            ("hello!",),
+            ("  hey  ",),
+            ("good morning",),
+        ]
+    )
+    def test_is_greeting_detects_opening_greeting(self, content):
+        state = AssistantState(messages=[HumanMessage(content=content)])
+        self.assertTrue(self.node._is_greeting(state))
+
+    @parameterized.expand(
+        [
+            ("hello, how are you?",),
+            ("hi, how do I build a funnel?",),
+            ("what's up with my retention",),
+            ("",),
+        ]
+    )
+    def test_is_greeting_ignores_non_greetings(self, content):
+        state = AssistantState(messages=[HumanMessage(content=content)])
+        self.assertFalse(self.node._is_greeting(state))
+
+    def test_is_greeting_ignored_mid_conversation(self):
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="how many users signed up?"),
+                AssistantMessage(content="1,234 users signed up.", id="1"),
+                HumanMessage(content="hey"),
+            ]
+        )
+        self.assertFalse(self.node._is_greeting(state))
+
+    async def test_arun_returns_canned_reply_for_greeting(self):
+        state = AssistantState(messages=[HumanMessage(content="hello")])
+        result = await self.node.arun(state, {})
+        assert result is not None
+        assert result.messages is not None
+        self.assertEqual(len(result.messages), 1)
+        msg = result.messages[0]
+        assert isinstance(msg, AssistantMessage)
+        self.assertEqual(msg.content, SlashCommandHandlerNode.GREETING_REPLY)
+
+    async def test_router_returns_end_for_greeting(self):
+        state = AssistantState(messages=[HumanMessage(content="hi there")])
+        result = await self.node.arouter(state)
+        self.assertEqual(result, AssistantNodeName.END)
+
+    @parameterized.expand(
+        [
             (
                 "no_meta",
                 None,
