@@ -1071,13 +1071,16 @@ class UserAccessControl:
 
         blocked_resource_ids, allowed_resource_ids = self._blocked_and_allowed_object_ids(access_controls)
 
-        # Resource-level access is team-scoped, so it can't be evaluated on a team-less instance
-        # (org-wide aggregation across many teams). Treat that as no resource access — fail closed,
-        # consistent with has_access_levels_for_resource. Object-level blocking below still applies.
-        has_resource_access = self._team is not None and self.has_resource_access(resource)
+        # Resource-level access is team-scoped. On a team-less instance (org-wide aggregation across
+        # many teams, e.g. the welcome endpoint) it can't be evaluated as a single boolean, so it must
+        # be resolved per team — otherwise a resource-denied team would leak its objects.
+        if self._team is None:
+            return self._filter_team_less_queryset_by_access_level(
+                queryset, resource, model_has_creator, blocked_resource_ids, allowed_resource_ids
+            )
 
         # Apply filtering logic based on resource-level access
-        if not has_resource_access and allowed_resource_ids:
+        if not self.has_resource_access(resource) and allowed_resource_ids:
             # User has "none" resource access but specific object access
             # Only show objects they have explicit access to (plus created objects)
             if model_has_creator:
@@ -1092,6 +1095,79 @@ class UserAccessControl:
                 queryset = queryset.exclude(id__in=blocked_resource_ids)
 
         return queryset
+
+    def _filter_team_less_queryset_by_access_level(
+        self,
+        queryset: QuerySet,
+        resource: APIScopeObject,
+        model_has_creator: bool,
+        blocked_resource_ids: set[str],
+        allowed_resource_ids: set[str],
+    ) -> QuerySet:
+        """Org-wide (team-less) variant of `filter_queryset_by_access_level`.
+
+        Resource-level access is team-scoped, so it's evaluated per team: teams that grant the
+        resource contribute all their objects except explicitly blocked ones; teams that deny it
+        at the resource level ("none") contribute only objects the user was explicitly granted.
+        The user's own created objects are always visible. This mirrors, per team, what a
+        team-scoped instance would return — and keeps a resource-denied team from leaking its
+        objects when the user has no explicit grants (fail closed).
+        """
+        model = cast(Model, queryset.model)
+        model_has_team_id = any(getattr(field, "attname", None) == "team_id" for field in model._meta.concrete_fields)
+
+        denied_team_ids = self._resource_denied_team_ids(resource)
+
+        # Objects in teams that grant the resource, minus explicitly blocked ones.
+        granted = Q()
+        if denied_team_ids:
+            if model_has_team_id:
+                granted &= ~Q(team_id__in=denied_team_ids)
+            else:
+                # Can't scope per team without a team_id column, so fail closed: surface only the
+                # objects the user was explicitly granted (plus their own) below.
+                granted = Q(pk__in=[])
+        if blocked_resource_ids:
+            granted &= ~Q(id__in=blocked_resource_ids)
+
+        visible = granted
+        if allowed_resource_ids:
+            visible = visible | Q(id__in=allowed_resource_ids)
+        if model_has_creator:
+            visible = visible | Q(created_by=self._user)
+
+        return queryset.filter(visible)
+
+    def _resource_denied_team_ids(self, resource: APIScopeObject) -> set[int]:
+        """Teams in the org where the user's effective resource-level access to `resource` is "none".
+
+        Only meaningful for a team-less (org-wide) instance. Resources without resource-level
+        controls (project/organization/plugin) always resolve to their default level, which is
+        never "none", so no team denies them here.
+        """
+        resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+
+        if resource in ("organization", "project", "plugin"):
+            return set()
+
+        if self.is_organization_admin or not self.access_controls_supported or not self._organization_id:
+            return set()
+
+        filters = {
+            "resource": resource,
+            "resource_id__isnull": True,
+            "team__organization_id": str(self._organization_id),
+        }
+
+        rows_by_team: dict[int, list[_AccessControl]] = defaultdict(list)
+        for access_control in self._get_access_controls(filters):
+            rows_by_team[access_control.team_id].append(access_control)
+
+        return {
+            team_id
+            for team_id, rows in rows_by_team.items()
+            if self._highest_access_level_from_rows(resource, rows) == NO_ACCESS_LEVEL
+        }
 
     def _blocked_and_allowed_object_ids(self, access_controls: list[_AccessControl]) -> tuple[set[str], set[str]]:
         """Canonical object-level decision over a pool of object access controls (rows with
