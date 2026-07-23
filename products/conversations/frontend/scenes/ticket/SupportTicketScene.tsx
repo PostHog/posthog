@@ -39,12 +39,11 @@ import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
-import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
-import { TicketAccountPanel } from './TicketAccountPanel'
 import { TicketActivityPanel } from './TicketActivityPanel'
+import { TicketCustomerPanel } from './TicketCustomerPanel'
 
 export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
@@ -121,6 +120,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
+    const accountEnabled = !!(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && ticket?.organization_id)
 
     const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-general')
     const replyDisabledReason: JSX.Element | undefined = emailReplyBlockedReason
@@ -480,14 +480,15 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    {/* Related Groups Panel */}
-                    {person?.uuid && (
-                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
-                    )}
-
-                    {/* Customer analytics account panel — self-hides when no linked account exists */}
-                    {featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && ticket?.organization_id && ticket?.id && (
-                        <TicketAccountPanel ticketId={ticket.id} />
+                    {/* Customer panel — customer analytics account and/or the person's related groups.
+                        Self-hides when neither is available. */}
+                    {ticket?.id && (person?.uuid || accountEnabled) && (
+                        <TicketCustomerPanel
+                            ticketId={ticket.id}
+                            personUuid={person?.uuid}
+                            organizationId={ticket?.organization_id}
+                            accountEnabled={accountEnabled}
+                        />
                     )}
 
                     {/* Staff Actions Panel */}

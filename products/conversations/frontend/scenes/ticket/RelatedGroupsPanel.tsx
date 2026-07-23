@@ -18,6 +18,9 @@ interface RelatedGroupsPanelProps {
     personUuid: string
     // The group the ticket was created with (organization group key), snapshotted at creation.
     organizationId?: string | null
+    // When false, render just the related-groups content without the surrounding collapse — so it can
+    // sit inside another collapsible panel (e.g. the merged customer panel) rather than nesting one.
+    renderCollapse?: boolean
 }
 
 // Append the creation group as its own row only when it exists but isn't already in the person's live
@@ -35,7 +38,11 @@ export function shouldShowCreationFallback(
     return !relatedActors.some((actor) => actor.type === 'group' && actor.group_key === organizationId)
 }
 
-export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroupsPanelProps): JSX.Element {
+export function RelatedGroupsPanel({
+    personUuid,
+    organizationId,
+    renderCollapse = true,
+}: RelatedGroupsPanelProps): JSX.Element {
     const { relatedActors, relatedActorsLoading } = useValues(
         relatedGroupsLogic({ groupTypeIndex: null, id: personUuid })
     )
@@ -73,6 +80,23 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
               ]
             : []
 
+    const content = (
+        <RelatedGroups
+            id={personUuid}
+            groupTypeIndex={null}
+            embedded
+            highlightGroupKey={organizationId}
+            highlightLabel={HIGHLIGHT_LABEL}
+            highlightStale={showFallback}
+            highlightStaleTooltip={STALE_TOOLTIP}
+            extraActors={extraActors}
+        />
+    )
+
+    if (!renderCollapse) {
+        return content
+    }
+
     return (
         <LemonCollapse
             className="bg-surface-primary"
@@ -81,18 +105,7 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
                 {
                     key: 'related-groups',
                     header: 'Related groups',
-                    content: (
-                        <RelatedGroups
-                            id={personUuid}
-                            groupTypeIndex={null}
-                            embedded
-                            highlightGroupKey={organizationId}
-                            highlightLabel={HIGHLIGHT_LABEL}
-                            highlightStale={showFallback}
-                            highlightStaleTooltip={STALE_TOOLTIP}
-                            extraActors={extraActors}
-                        />
-                    ),
+                    content,
                 },
             ]}
         />
