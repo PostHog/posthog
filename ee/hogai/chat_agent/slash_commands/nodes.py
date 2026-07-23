@@ -34,14 +34,13 @@ class SlashCommandHandlerNode(AssistantNode):
         SlashCommandName.FIELD_TICKET: TicketCommand,
     }
 
-    # A conversation opening with a plain "hello" gets a quick canned reply instead of
+    # A conversation opening with a literal "hello" gets a quick canned reply instead of
     # spinning up the full agent, which would otherwise answer with a wall of text.
-    # Scoped to "hello" specifically — the reply is a callback that only lands on "hello".
-    HELLO_GREETINGS = frozenset({"hello", "hello there"})
+    # Scoped to exactly "hello" — the reply is a callback that only lands on that word.
     GREETING_REPLY = "🎵 is it me you're looking for"
 
     def _is_greeting(self, state: AssistantState) -> bool:
-        """Detect a plain "hello" that opens a conversation, so we can skip the full agent."""
+        """Detect a lone "hello" that opens a conversation, so we can skip the full agent."""
         # Only short-circuit the opening turn — a greeting mid-conversation flows normally.
         if any(isinstance(msg, AssistantMessage) for msg in state.messages):
             return False
@@ -49,7 +48,7 @@ class SlashCommandHandlerNode(AssistantNode):
         if last_human is None:
             return False
         normalized = last_human.content.strip().lower().rstrip("!.?,")
-        return normalized in self.HELLO_GREETINGS
+        return normalized == "hello"
 
     def _get_command(self, state: AssistantState) -> str | None:
         """Extract the slash command from the last human message, if any."""

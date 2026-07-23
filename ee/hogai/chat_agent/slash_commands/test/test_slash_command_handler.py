@@ -175,7 +175,6 @@ class TestSlashCommandHandlerNode(BaseTest):
             ("HELLO",),
             ("hello!",),
             ("  hello  ",),
-            ("hello there",),
         ]
     )
     def test_is_greeting_detects_opening_hello(self, content):
@@ -184,8 +183,9 @@ class TestSlashCommandHandlerNode(BaseTest):
 
     @parameterized.expand(
         [
-            ("hi",),  # only "hello" triggers the reply, not other greetings
+            ("hi",),  # only a lone "hello" triggers the reply, nothing else
             ("hey there",),
+            ("hello there",),
             ("hello, how are you?",),
             ("hello world, how do I build a funnel?",),
             ("",),
