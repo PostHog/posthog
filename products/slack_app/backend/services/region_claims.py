@@ -29,7 +29,10 @@ logger = structlog.get_logger(__name__)
 
 # Integration.kind values each chat provider may claim a workspace for. Adding a provider
 # means adding its kinds here and its secret to ``region_claims_secret``.
-_PROVIDER_CLAIM_KINDS: dict[str, frozenset[str]] = {"slack": frozenset(SLACK_INTEGRATION_KINDS)}
+_PROVIDER_CLAIM_KINDS: dict[str, frozenset[str]] = {
+    "slack": frozenset(SLACK_INTEGRATION_KINDS),
+    "telegram": frozenset({"telegram"}),
+}
 
 
 def evaluate_workspace_claims(request: HttpRequest, provider: str) -> HttpResponse:
