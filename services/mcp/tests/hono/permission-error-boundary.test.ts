@@ -23,6 +23,20 @@ function buildWrappedPermissionError(): Error {
     return wrapError(`Failed to get user: ${original.message}`, original)
 }
 
+// A token bound to a different org/project at consent (access_level =
+// organization or project) is denied with a scopeless 403. Advertising
+// `insufficient_scope` here sends OAuth clients to re-consent for scopes they
+// already hold; the boundary must instead drop the challenge and explain the
+// binding.
+function buildWrappedBindingError(): Error {
+    const original = new PostHogPermissionError({
+        detail: 'API key does not have access to the requested project: ID 47074.',
+        url: 'https://us.posthog.com/api/projects/47074/property_definitions/',
+        method: 'GET',
+    })
+    return wrapError(`Failed to resolve tool catalog: ${original.message}`, original)
+}
+
 const props = { userHash: 'abc123', transport: 'streamable-http' } as RequestProperties
 
 describe('handleCatchError permission boundary', () => {
@@ -38,5 +52,17 @@ describe('handleCatchError permission boundary', () => {
         const body = await response.text()
         expect(body).toContain("'user:read'")
         expect(body).toContain('MCP Server')
+    })
+
+    it('drops the insufficient_scope challenge for a token-binding mismatch', async () => {
+        const response = handleCatchError(buildWrappedBindingError(), props)
+
+        expect(response.status).toBe(403)
+        // No re-consent nudge: the token holds the scopes, it's just bound elsewhere.
+        expect(response.headers.get('www-authenticate')).toBeNull()
+
+        const body = await response.text()
+        expect(body).toContain('not a missing-scope problem')
+        expect(body).toContain('access_level')
     })
 })

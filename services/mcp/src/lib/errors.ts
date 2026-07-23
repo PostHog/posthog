@@ -275,6 +275,20 @@ export function wrapError(message: string, cause: unknown): Error {
 
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
 
+// Backend 403s split into two causes that share the same HTTP status but need
+// opposite remediation: a missing-scope denial ("API key missing required
+// scope 'X'"), and a token-binding mismatch — the OAuth token was pinned to
+// specific orgs/projects at consent (`access_level` = organization or project)
+// and the request targets one outside that set. `posthog/permissions.py`
+// phrases the latter as "... does not have access to the requested
+// project/organization: ID N.". Re-consenting for more scopes never fixes a
+// binding mismatch, so we must tell the two apart before nudging the client.
+const TOKEN_BINDING_MESSAGE_PATTERN = /does not have access to the requested (?:project|organization)/i
+
+export function isTokenBindingError(error: PostHogPermissionError): boolean {
+    return !error.missingScope && TOKEN_BINDING_MESSAGE_PATTERN.test(error.detail)
+}
+
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
     const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
     if (error.missingScope) {
@@ -286,6 +300,16 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
             `To fix: edit the Personal API key in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
             '',
             `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+        ].join('\n')
+    }
+
+    if (isTokenBindingError(error)) {
+        return [
+            `PostHog API access denied: ${error.detail}`,
+            '',
+            `This is not a missing-scope problem. Your OAuth token already holds the required scopes, but it is bound to a specific organization or project (set by the \`access_level\` you chose when authorizing: organization or project), and ${callTarget} reaches a project or organization outside that binding. Re-consenting for more scopes will not help.`,
+            '',
+            'To fix, either re-authorize and choose "All" access (access_level=all) so the token is not pinned to one org or project, or make requests only against the organization and project the token is bound to.',
         ].join('\n')
     }
 

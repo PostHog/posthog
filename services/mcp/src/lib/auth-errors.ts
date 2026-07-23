@@ -12,6 +12,7 @@ import {
     ErrorCode,
     findPostHogPermissionError,
     formatPermissionErrorMessage,
+    isTokenBindingError,
 } from './errors'
 import { isIdJagAccessToken } from './id-jag'
 import { MCP_DOCS_URL } from './oauth-constants'
@@ -22,12 +23,19 @@ import { getPublicUrl } from './routing'
 export function mapErrorToAuthResponse(error: unknown): Response | null {
     const permissionError = findPostHogPermissionError(error)
     if (permissionError) {
+        const headers: Record<string, string> = {
+            'Content-Type': 'text/plain; charset=utf-8',
+        }
+        // An `insufficient_scope` challenge tells OAuth clients to re-consent for
+        // more scopes. That's the wrong nudge for a token-binding mismatch, where
+        // the token is pinned to a different org/project rather than short a
+        // scope, so only advertise the challenge for genuine scope gaps.
+        if (!isTokenBindingError(permissionError)) {
+            headers['WWW-Authenticate'] = buildInsufficientScopeChallenge(permissionError)
+        }
         return new Response(formatPermissionErrorMessage(permissionError), {
             status: 403,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
-            },
+            headers,
         })
     }
 
