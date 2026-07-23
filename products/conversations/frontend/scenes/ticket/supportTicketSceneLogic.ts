@@ -536,13 +536,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return []
                     }
 
-                    // Match related tickets by the person's merged distinct_ids OR their email, so
-                    // tickets from the same email that were never merged into this person still surface.
+                    // Widen the match to email only when the current ticket's identity was positively
+                    // attested (e.g. SPF-authenticated email). email_from is attacker-controllable on
+                    // unverified tickets, and person.properties.email is customer-controlled analytics
+                    // data with no trusted mapping — trusting either would let a spoofed sender pull a
+                    // real customer's ticket history into their own ticket view.
                     const emails = new Set<string>()
-                    if (person.properties?.email) {
-                        emails.add(person.properties.email)
-                    }
-                    if (values.ticket?.email_from) {
+                    if (values.ticket?.identity_verified === true && values.ticket.email_from) {
                         emails.add(values.ticket.email_from)
                     }
 
