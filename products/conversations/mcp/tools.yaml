@@ -12,12 +12,6 @@ tools:
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false
-    conversations-tickets-bulk-add-tags-create:
-        operation: conversations_tickets_bulk_add_tags_create
-        enabled: false
-    conversations-tickets-bulk-remove-tags-create:
-        operation: conversations_tickets_bulk_remove_tags_create
-        enabled: false
     conversations-tickets-bulk-update-status-create:
         operation: conversations_tickets_bulk_update_status_create
         enabled: false
