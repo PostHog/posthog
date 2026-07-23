@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -96,5 +99,33 @@ describe('SupportTicketsTable selection', () => {
 
         await waitFor(() => expect(getRowCheckbox()).not.toBeChecked())
         expect(logic.values.selectedTicketIds).toEqual([])
+    })
+
+    // Regression: opening a ticket from a filtered list dropped the filters, so the ticket's
+    // back arrow returned to the unfiltered "all tickets" list instead of the view the user
+    // was on. The row now carries the list's query string onto the ticket URL so the back
+    // arrow can restore it.
+    it('carries the active filters onto the ticket URL when a row is opened', async () => {
+        act(() => {
+            logic.actions.setStatusFilter(['open'])
+        })
+        // The filter is reflected in the list URL first.
+        await waitFor(() => expect(router.values.location.url).toContain('status'))
+
+        render(
+            <Provider>
+                <SupportTicketsTable />
+            </Provider>
+        )
+
+        // Click the ticket row itself (not the selection checkbox).
+        const rows = screen.getAllByRole('row')
+        await userEvent.click(rows[rows.length - 1])
+
+        await waitFor(() =>
+            expect(router.values.location.pathname).toBe(urls.supportTicketDetail(TICKET.ticket_number))
+        )
+        // Filters ride along on the ticket URL so the back arrow returns to this view.
+        expect(router.values.location.url).toContain('status')
     })
 })

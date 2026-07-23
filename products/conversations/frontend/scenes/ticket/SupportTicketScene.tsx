@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -85,6 +86,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         latestAiMessage,
         feedbackByMessageId,
     } = useValues(logic)
+    // The list's filters / saved view ride along in this page's query string
+    // (the ticket row carries them through on navigation). Preserve them on the
+    // back arrow so it returns to the view the user came from rather than the
+    // unfiltered ticket list.
+    const { searchParams } = useValues(router)
     const {
         setStatus,
         setPriority,
@@ -180,7 +186,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
                     name: 'Ticket list',
-                    path: urls.supportTickets(),
+                    path: combineUrl(urls.supportTickets(), searchParams).url,
                     key: 'supportTickets',
                 }}
             />
