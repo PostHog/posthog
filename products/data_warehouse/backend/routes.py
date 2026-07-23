@@ -6,8 +6,6 @@ from products.data_warehouse.backend.presentation.views import (
     column_statistics,
     data_modeling_job,
     data_warehouse,
-    external_data_schema,
-    external_data_source,
     managed_viewset,
     modeling,
     query_tab_state,
@@ -40,12 +38,6 @@ def register_routes(routers: RouterRegistry) -> None:
         r"warehouse_view_link", view_link.ViewLinkViewSet, "project_warehouse_view_link", ["team_id"]
     )
     routers.projects.register(
-        r"external_data_sources",
-        external_data_source.ExternalDataSourceViewSet,
-        "project_external_data_sources",
-        ["team_id"],
-    )
-    routers.projects.register(
         r"data_warehouse", data_warehouse.DataWarehouseViewSet, "project_data_warehouse", ["team_id"]
     )
     routers.projects.register(
@@ -56,12 +48,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"query_tab_state", query_tab_state.QueryTabStateViewSet, "project_query_tab_state", ["project_id"]
-    )
-    routers.projects.register(
-        r"external_data_schemas",
-        external_data_schema.ExternalDataSchemaViewset,
-        "project_external_data_schemas",
-        ["team_id"],
     )
     routers.projects.register(r"fix_hogql", fix_hogql.FixHogQLViewSet, "project_fix_hogql", ["team_id"])
     routers.projects.register(

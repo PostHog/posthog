@@ -250,12 +250,9 @@ function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | n
     return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
 }
 
-const getThresholdBounds = (
-    goalLines?: GoalLine[] | null,
-    uiVersion: AlertFormLogicProps['uiVersion'] = 'legacy'
-): InsightsThresholdBounds => {
+const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
-        return uiVersion === 'redesigned' ? { upper: 1 } : {}
+        return {}
     }
 
     // Simple assumption that the alert should be triggered when the first/smallest goal line is crossed
@@ -537,7 +534,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           threshold: {
                               configuration: {
                                   type: InsightThresholdType.ABSOLUTE,
-                                  bounds: getThresholdBounds(values.goalLines, props.uiVersion),
+                                  bounds: getThresholdBounds(values.goalLines),
                               },
                           },
                           condition: {

@@ -196,7 +196,7 @@ describe('alertFormLogic', () => {
 
     it.each([
         ['legacy', 'legacy' as const, '', {}],
-        ['redesigned', 'redesigned' as const, 'Weekly signups alert', { upper: 1 }],
+        ['redesigned', 'redesigned' as const, 'Weekly signups alert', {}],
     ])('keeps %s creation defaults scoped to its UI', (_name, uiVersion, expectedName, expectedBounds) => {
         const logic = alertFormLogic({
             alert: null,
