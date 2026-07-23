@@ -82,7 +82,7 @@ evaluated, discriminated on `strategy`:
   matching generation. Between 10 seconds and 2 hours, defaults to 30 minutes. A `target_config`
   without a `strategy` key means this.
 - `{ "strategy": "inactivity", "quiet_period_seconds": 300, "max_age_seconds": 7200 }` — evaluate once
-  the trace has had no new matching generation for the quiet period (10 seconds to 30 minutes,
+  the trace has had no new activity for the quiet period (10 seconds to 30 minutes,
   defaults to 5 minutes). `max_age_seconds` caps the total wait from the first matching generation
   (1 minute to 2 hours, defaults to 2 hours, must be at least the quiet period).
 

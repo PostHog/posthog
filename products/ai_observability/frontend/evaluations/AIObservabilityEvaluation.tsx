@@ -115,6 +115,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
+    const effectiveStrategy: EvaluationSettleStrategy = settlingStrategyEnabled
+        ? (evaluation.target_config.strategy ?? 'fixed_window')
+        : 'fixed_window'
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
     const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
@@ -514,10 +517,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                             {settlingStrategyEnabled && (
                                                                 <Field name="settle_strategy" label="Evaluate when">
                                                                     <LemonSelect<EvaluationSettleStrategy>
-                                                                        value={
-                                                                            evaluation.target_config.strategy ??
-                                                                            'fixed_window'
-                                                                        }
+                                                                        value={effectiveStrategy}
                                                                         onChange={setSettleStrategy}
                                                                         options={[
                                                                             {
@@ -533,8 +533,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                     />
                                                                 </Field>
                                                             )}
-                                                            {(evaluation.target_config.strategy ?? 'fixed_window') ===
-                                                            'fixed_window' ? (
+                                                            {effectiveStrategy === 'fixed_window' ? (
                                                                 <Field
                                                                     name="settle_window"
                                                                     label="Wait before evaluating"
@@ -546,11 +545,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                     .window_seconds ??
                                                                                 DEFAULT_TRACE_WINDOW_SECONDS
                                                                             }
-                                                                            onChange={(value) =>
+                                                                            onChange={(value) => {
+                                                                                if (
+                                                                                    evaluation.target_config
+                                                                                        .strategy === 'inactivity'
+                                                                                ) {
+                                                                                    setSettleStrategy('fixed_window')
+                                                                                }
                                                                                 patchTargetConfig({
                                                                                     window_seconds: value,
                                                                                 })
-                                                                            }
+                                                                            }}
                                                                         />
                                                                         <p className="text-muted text-xs">
                                                                             How long to wait after the first matching
@@ -582,8 +587,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                             />
                                                                             <p className="text-muted text-xs">
                                                                                 Evaluate once the trace has had no new
-                                                                                matching activity for this long
-                                                                                (10s–30m).
+                                                                                activity for this long (10s–30m).
                                                                             </p>
                                                                         </div>
                                                                     </Field>

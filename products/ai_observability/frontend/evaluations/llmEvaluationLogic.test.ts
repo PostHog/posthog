@@ -450,6 +450,17 @@ return result`,
                 window_seconds: 30 * 60,
             })
         })
+
+        it('reseeding fixed window over an inactivity bag leaves no inactivity keys', () => {
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setSettleStrategy('inactivity')
+            logic.actions.setSettleStrategy('fixed_window')
+            logic.actions.patchTargetConfig({ window_seconds: 900 })
+            expect(logic.values.evaluation?.target_config).toEqual({
+                strategy: 'fixed_window',
+                window_seconds: 900,
+            })
+        })
     })
 
     describe('selectors', () => {
