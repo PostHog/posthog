@@ -1,5 +1,6 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -176,8 +177,10 @@ pub async fn run(args: GateArgs) -> Result<()> {
 
     // A crashed prior run may have left rows behind; the team id belongs to
     // the harness, so start from a clean slate.
-    seed::cleanup_team(&pool, args.team_id).await?;
-    let person_ids = Arc::new(seed::seed_persons(&pool, args.team_id, args.persons).await?);
+    seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
+    let person_ids = Arc::new(
+        seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.persons).await?,
+    );
     println!(
         "Seeded {} persons for team {}",
         person_ids.len(),
@@ -208,6 +211,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 "harness_gate_",
                 &collector,
                 &state,
+                Arc::new(AtomicBool::new(false)),
             )
             .await
         })
@@ -230,6 +234,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 duration,
                 &collector,
                 &state,
+                Arc::new(AtomicBool::new(false)),
             )
             .await
         })
@@ -334,10 +339,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     );
 
     if !args.keep_data {
-        let persons = seed::cleanup_team(&pool, args.team_id).await?;
-        if args.pg_target_table != "posthog_person" {
-            seed::cleanup_target_table(&pool, &args.pg_target_table, args.team_id).await?;
-        }
+        let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
         println!("Cleaned up {persons} persons");
     }
 

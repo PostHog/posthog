@@ -47,6 +47,11 @@ pub struct SeedArgs {
 
     #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
     pub persons_db_url: String,
+
+    /// Table to seed into — the same table the stack's writer targets
+    /// and its leader's fallback reads.
+    #[arg(long, default_value = "personhog_person_tmp")]
+    pub pg_target_table: String,
 }
 
 #[derive(Args, Clone)]
@@ -56,6 +61,10 @@ pub struct CleanupArgs {
 
     #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
     pub persons_db_url: String,
+
+    /// Table to delete the team's rows from.
+    #[arg(long, default_value = "personhog_person_tmp")]
+    pub pg_target_table: String,
 }
 
 #[derive(Args, Clone)]
@@ -158,11 +167,11 @@ pub struct GateArgs {
     #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
     pub persons_db_url: String,
 
-    /// The table the writer under test upserts into. Must match the
-    /// writer's PG_TARGET_TABLE: spawned stacks run in posthog_person mode;
-    /// the dev stack's writer defaults to personhog_person_tmp, so pass
-    /// that with --external-router-url against dev.
-    #[arg(long, default_value = "posthog_person")]
+    /// The table every stack component and harness operation uses:
+    /// spawned stacks set it as the writer's PG_TARGET_TABLE and the
+    /// leader's FALLBACK_TABLE, and the harness seeds, verifies, and
+    /// cleans up in it. posthog_person is deliberately never touched.
+    #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
 
     #[arg(long, default_value = "localhost:9092")]

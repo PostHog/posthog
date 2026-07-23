@@ -9,7 +9,7 @@ pub async fn run(args: SeedArgs) -> Result<()> {
         .await
         .context("connecting to persons DB")?;
 
-    let ids = seed::seed_persons(&pool, args.team_id, args.count).await?;
+    let ids = seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.count).await?;
 
     println!("Seeded {} persons for team {}", ids.len(), args.team_id);
     println!();
@@ -26,7 +26,7 @@ pub async fn run_cleanup(args: CleanupArgs) -> Result<()> {
         .await
         .context("connecting to persons DB")?;
 
-    let persons = seed::cleanup_team(&pool, args.team_id).await?;
+    let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
     println!("Deleted {persons} persons for team {}", args.team_id);
     Ok(())
 }
