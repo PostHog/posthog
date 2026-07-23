@@ -135,7 +135,9 @@ Make sure to grant the following read permissions:
                 return (
                     "Maps which profiles belong to which list as {list_id, profile_id, joined_group_at} rows. "
                     "Incremental syncs pick up new joins and re-joins; profiles removed from a list are only "
-                    "reflected on a full refresh"
+                    "reflected on a full refresh. List membership is not the same as subscription: check the "
+                    "$consent array in the profiles table's properties column to see which channels (sms, "
+                    "email, push) a profile is currently subscribed to"
                 )
             return None
 
@@ -164,7 +166,7 @@ Make sure to grant the following read permissions:
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_klaviyo_credentials(config.api_key):
+        if validate_klaviyo_credentials(config.api_key, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid Klaviyo API key"

@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class GreenhouseSourceConfig(config.Config):
-    api_key: str
+    client_id: str | None = None
+    client_secret: str | None = None
+    api_key: str | None = None

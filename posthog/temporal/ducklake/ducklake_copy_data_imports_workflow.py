@@ -3,6 +3,7 @@ import uuid
 import typing
 import datetime as dt
 import dataclasses
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -28,6 +29,7 @@ from posthog.ducklake.storage import (
     compute_staging_uri,
     configure_connection,
     connect_to_duckgres,
+    create_staging_read_secret,
     ensure_ducklake_bucket_exists,
     get_deltalake_storage_options,
     setup_duckgres_session,
@@ -257,7 +259,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                     source_type=source_type,
                 )
                 continue
-        source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
+        source_table_uri = _data_imports_source_table_uri(schema)
         staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
             source_table_uri, team_id=inputs.team_id
         )
@@ -352,6 +354,7 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
 
     with connect_to_duckgres(server) as conn:
         setup_duckgres_session(conn)
+        create_staging_read_secret(conn, bucket)
         logger.info(
             "Creating DuckLake table from staged Delta snapshot via duckgres",
             ducklake_table=table,
@@ -381,6 +384,17 @@ def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingClea
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
     )
+
+
+def _data_imports_source_table_uri(schema: ExternalDataSchema) -> str:
+    """S3 URI of the schema's Delta table, matching the folder the loader actually wrote.
+
+    Uses ``normalized_s3_folder_name`` (the resolved folder leaf), which diverges from
+    ``normalized_name`` for folder-pinned sources (e.g. Postgres ``public.users`` → folder
+    ``users``). Reading ``normalized_name`` here points at a prefix with no ``_delta_log``
+    and surfaces as "No files in log segment".
+    """
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{schema.normalized_s3_folder_name}"
 
 
 def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str | None:
@@ -511,6 +525,7 @@ def _verify_data_imports_ducklake_copy_via_duckgres(
 
     with connect_to_duckgres(server) as conn:
         setup_duckgres_session(conn)
+        create_staging_read_secret(conn, urlparse(inputs.model.staging_uri).netloc)
         return _run_data_imports_verification_checks(
             conn,
             inputs,

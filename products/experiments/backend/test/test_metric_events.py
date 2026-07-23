@@ -233,9 +233,9 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
         )
 
     def test_reports_hits_only_for_metrics_with_in_window_events(self) -> None:
-        # Two metrics force a genuine multi-branch UNION ALL — a single branch collapses to a
-        # plain SelectQuery, so only this shape proves the union compiles and that a metric
-        # with no matching events yields no hit.
+        # Two metrics with different sources prove the combined query aggregates each source
+        # separately and that a metric with no matching events yields no hit (its aggregate
+        # row shows count 0, which must not surface as a hit with an epoch timestamp).
         metric_a = _metric("mean", name="Purchases", source=_events_node("purchase"))
         metric_b = _metric("mean", name="Signups", source=_events_node("signup"))
         self._create_session_event("purchase", "s1", timestamp="2026-01-01T10:05:00Z")
@@ -309,16 +309,34 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
 
         assert [hit.metric_uuid for hit in hits] == [purchases["uuid"]]
 
+    def test_metrics_with_identical_sources_each_report_their_hit(self) -> None:
+        # Overlapping experiments routinely measure the same event (production sessions show
+        # identical sources under different metric uuids); those sources share one aggregate
+        # set in the scan, and every metric uuid must still get its own hit back.
+        first = _metric("mean", name="Purchases", source=_events_node("purchase"))
+        second = _metric("mean", name="Purchases too", source=_events_node("purchase"))
+        self._create_session_event("purchase", "s1")
+        flush_persons_and_events()
+
+        hits = self._scan([first, second], "s1")
+
+        assert sorted(hit.metric_uuid for hit in hits) == sorted([first["uuid"], second["uuid"]])
+        assert all(hit.event_count == 1 for hit in hits)
+
     def test_scan_caps_number_of_scanned_metrics(self) -> None:
-        # Metric counts are user-configurable with no server-side cap; without the branch cap a
-        # metric-heavy experiment would compile an arbitrarily wide UNION ALL per player open.
+        # Metric counts are user-configurable with no server-side cap; without the metric cap a
+        # metric-heavy experiment would compile an arbitrarily wide scan per player open. The
+        # cap must count metrics, not distinct sources: a metric sharing an already-accepted
+        # source (`shared`) adds no query width, but letting it through would let many metrics
+        # on one source emit an unbounded hit list.
         first = _metric("mean", name="Purchases", source=_events_node("purchase"))
         second = _metric("mean", name="Signups", source=_events_node("signup"))
+        shared = _metric("mean", name="Purchases too", source=_events_node("purchase"))
         self._create_session_event("purchase", "s1")
         self._create_session_event("signup", "s1")
         flush_persons_and_events()
 
         with patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1):
-            hits = self._scan([first, second], "s1")
+            hits = self._scan([first, second, shared], "s1")
 
         assert [hit.metric_uuid for hit in hits] == [first["uuid"]]
