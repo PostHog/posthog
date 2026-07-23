@@ -2129,6 +2129,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
+        # calculate_people_ch below reads the person table to compute cohort membership, so it
+        # must be merged first. Optimizing only at read time (in execute) is too late — the
+        # membership rows would already be written from unmerged, possibly stale person data.
+        sync_execute("OPTIMIZE TABLE person FINAL")
+
         filter = Filter(
             data={
                 "properties": {
