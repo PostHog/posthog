@@ -290,14 +290,16 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
         return
     except RepartitionUnpartitionableError as e:
-        # Terminal: the table can't be partitioned. Clear the flag so we don't retry every run.
+        # Terminal, expected condition: the table has no column suitable for partitioning. Clear the
+        # flag so we don't retry every run. Not captured as an exception — it recurs on every sync for
+        # such a table; the `warehouse_repartition_skipped` event and the "skipped" outcome metric carry
+        # the reason for dashboards and alerting instead.
         schema.refresh_from_db(fields=["sync_type_config"])
         schema.clear_repartition_pending()
         props = base_event_props(schema, schema.source, inputs.job_id)
         props.update({"trigger_reason": trigger_reason, "reason": str(e)})
         capture_repartition_event("warehouse_repartition_skipped", props)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="skipped").inc()
-        capture_exception(e)
         return
     except asyncio.CancelledError:
         # Worker shutdown / deploy interrupted the (possibly long) rewrite. Not a repartition failure —

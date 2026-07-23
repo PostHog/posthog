@@ -345,7 +345,7 @@ def select_repartition_target(
         # no-op'd to `hour` before the ceiling existed) has nothing finer to gain either.
         ceiling_index = DATETIME_FORMAT_TIERS.index(_datetime_tier_ceiling(schema))
         if current_index >= ceiling_index:
-            # Already at the finest usable tier — can't go finer. Caller alerts.
+            # Already at the finest usable tier — can't go finer. Caller reports the skip via metric + event.
             return None, "datetime_at_finest_tier"
         return RepartitionTarget(
             partition_keys=keys,
