@@ -130,6 +130,15 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "edited no report."
         ),
     )
+    metadata = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "Scout-owned per-run context stamped at run start. Known keys today: `model`, "
+            "`runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the "
+            "`scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. "
+            "Empty object when the run rode the default model, or for runs predating the field."
+        ),
+    )
 
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):

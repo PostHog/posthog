@@ -1,3 +1,5 @@
+import './components/ScannerSummary.scss'
+
 import { useValues } from 'kea'
 
 import { LemonCard, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
@@ -130,7 +132,7 @@ function VisionActionRunScene(): JSX.Element {
             {run.synthesized_markdown ? (
                 <LemonCard hoverEffect={false} className="p-4">
                     {/* Same untrusted-content guard as the scanner-page digest card. */}
-                    <LemonMarkdown className="text-base" disableImages>
+                    <LemonMarkdown className="ScannerSummaryMarkdown text-base" disableImages>
                         {summaryMarkdown}
                     </LemonMarkdown>
                 </LemonCard>
