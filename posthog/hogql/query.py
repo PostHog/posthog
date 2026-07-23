@@ -65,7 +65,6 @@ from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringR
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.ph_client import ph_scoped_capture
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -692,7 +691,8 @@ class HogQLQueryExecutor:
                     raise
             finally:
                 # Only hand-written HogQL can be unbounded because compiled runners inject a date range.
-                # Capture after the ClickHouse attempt so a worker flush never delays starting the query.
+                # Runs after the ClickHouse attempt so the detector walk never delays starting the
+                # query, and still fires when the query errors.
                 if self.query_type == "HogQLQuery" and "events" in hogql_features.tables:
                     with self.timings.measure("capture_unbounded_events_query"):
                         self._capture_unbounded_events_query()
@@ -729,7 +729,9 @@ class HogQLQueryExecutor:
         A full-history events scan is never intended — compiled insight queries always inject a date
         range, so this only trips on hand-written HogQL. Emitting it as an event lets us alert on and
         chase down unbounded queries (they dominate cost on shared/embedded dashboards, where every
-        anonymous view re-runs them). Best-effort: never let telemetry affect query execution.
+        anonymous view re-runs them). Best-effort: capture is a non-blocking enqueue on every path —
+        no flush happens here, so telemetry can never delay or block query execution. Delivery from
+        Celery workers is handled by the bounded flush in ``on_worker_process_shutdown``.
         """
         with tracer.start_as_current_span("HogQLQueryExecutor._capture_unbounded_events_query"):
             try:
@@ -738,11 +740,10 @@ class HogQLQueryExecutor:
                 if not query_reads_events_without_timestamp_filter(self.select_query):
                     return
                 tags = get_query_tags()
-                distinct_id = str(self.team.pk)
-                event = "unbounded events query"
                 properties = {
                     "team_id": self.team.pk,
                     "query_type": self.query_type,
+                    "kind": tags.kind,
                     "access_method": tags.access_method,
                     "product": tags.product,
                     "feature": tags.feature,
@@ -754,12 +755,12 @@ class HogQLQueryExecutor:
                     "$process_person_profile": False,
                 }
                 groups = {"organization": str(tags.org_id)} if tags.org_id else None
-
-                if tags.kind == "request":
-                    posthoganalytics.capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
-                else:
-                    with ph_scoped_capture() as capture:
-                        capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
+                posthoganalytics.capture(
+                    distinct_id=str(self.team.pk),
+                    event="unbounded events query",
+                    properties=properties,
+                    groups=groups,
+                )
             except Exception as e:
                 capture_exception(e, {"component": "capture_unbounded_events_query", "team_id": self.team.pk})
 
