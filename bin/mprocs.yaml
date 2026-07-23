@@ -246,9 +246,10 @@ procs:
             tech: Python
 
     docker-compose:
-        # Keep the failure message in sync with _generate_docker_compose_config in
+        # Keep the sandbox guard and failure message in sync with
+        # _generate_docker_compose_config in
         # tools/hogli-commands/hogli_commands/devenv/generator.py (the generated config).
-        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -f docker-compose.dev.yml up --pull always -d || { echo "docker compose up failed. Another stack or process may be holding a required port (see the pre-flight output from bin/start). Inspect with: docker ps --all"; exit 1; } && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f; fi'
+        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -f docker-compose.dev.yml up --pull always -d || { echo "docker compose up failed (see the error above). A common cause: another stack or process holding a required port (see the pre-flight output from bin/start). Inspect with: docker ps --all"; exit 1; } && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f; fi'
         capability: core_infra
         ready_pattern: 'docker-compose ready'
         groups:

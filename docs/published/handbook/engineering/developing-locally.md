@@ -218,6 +218,7 @@ ClickHouse and ZooKeeper store their data in named docker volumes (`clickhouse-d
 The first `hogli start` after updating past the July 2026 switch to named volumes recreates both containers with fresh volumes (the data previously lived in anonymous volumes that container recreation discards), so local ClickHouse data is reset once.
 Run `hogli migrations:run` to recreate the ClickHouse schema, or `hogli dev:reset` for a full wipe plus demo data.
 This happens once per machine, since the docker stack is shared across worktrees.
+The old anonymous volumes are left dangling; reclaim the disk space with `docker volume prune` (check first with `docker volume ls -f dangling=true`).
 
 **ClickHouse "get_mempolicy" warning**
 You might see `get_mempolicy: Operation not permitted` in the ClickHouse logs. This is harmless and can be ignored. To verify ClickHouse started properly, run `docker exec -it posthog-clickhouse-1 bash` then `clickhouse-client --query "SELECT 1"`.
