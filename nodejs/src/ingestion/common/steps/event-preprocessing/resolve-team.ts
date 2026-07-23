@@ -25,10 +25,43 @@ export const verifiedPropertyCounter = new Counter({
     labelNames: ['action'],
 })
 
+// $set/$set_once carry properties onto the person; $unset removes them. A client could
+// smuggle a forged $verified person property through any of these, so they are scrubbed
+// alongside the top-level property on non-secret-token events.
+const PERSON_PROPERTY_OPERATIONS = ['$set', '$set_once', '$unset'] as const
+
+function stripForgedVerified(properties: Record<string, any>): boolean {
+    let stripped = false
+
+    if ('$verified' in properties) {
+        delete properties['$verified']
+        stripped = true
+    }
+
+    for (const operation of PERSON_PROPERTY_OPERATIONS) {
+        const container = properties[operation]
+        if (Array.isArray(container)) {
+            // $unset is conventionally a list of property names to remove.
+            const filtered = container.filter((name) => name !== '$verified')
+            if (filtered.length !== container.length) {
+                properties[operation] = filtered
+                stripped = true
+            }
+        } else if (container && typeof container === 'object' && '$verified' in container) {
+            delete container['$verified']
+            stripped = true
+        }
+    }
+
+    return stripped
+}
+
 /**
  * $verified is a server-controlled property: it is set when the event was captured with
  * the team's secret API token (primary or backup, so token rotation keeps verifying),
- * and any client-supplied value is stripped otherwise.
+ * and any client-supplied value is stripped otherwise. Stripping also covers $verified
+ * smuggled through $set/$set_once/$unset, which would otherwise forge a "Verified"
+ * person property without the secret token.
  */
 export function applyVerifiedProperty(event: PluginEvent, token: string | undefined, team: Team): void {
     const sentWithSecretToken =
@@ -37,8 +70,7 @@ export function applyVerifiedProperty(event: PluginEvent, token: string | undefi
     if (sentWithSecretToken) {
         event.properties = { ...(event.properties ?? {}), $verified: true }
         verifiedPropertyCounter.labels({ action: 'verified' }).inc()
-    } else if (event.properties && '$verified' in event.properties) {
-        delete event.properties['$verified']
+    } else if (event.properties && stripForgedVerified(event.properties)) {
         verifiedPropertyCounter.labels({ action: 'stripped' }).inc()
     }
 }

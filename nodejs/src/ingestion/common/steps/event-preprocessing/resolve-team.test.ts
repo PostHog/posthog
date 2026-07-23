@@ -219,6 +219,24 @@ describe('createResolveTeamStep()', () => {
             }
         )
 
+        it.each([
+            ['$set', { $set: { $verified: true, name: 'a' } }, { foo: 'bar', $set: { name: 'a' } }],
+            ['$set_once', { $set_once: { $verified: true } }, { foo: 'bar', $set_once: {} }],
+            ['$unset array', { $unset: ['$verified', 'other'] }, { foo: 'bar', $unset: ['other'] }],
+            ['$unset object', { $unset: { $verified: true } }, { foo: 'bar', $unset: {} }],
+        ])(
+            'forged $verified smuggled through %s is stripped from public-token events',
+            async (_label, forgedProps, expected) => {
+                const response = await step(makeInput('phc_public', { foo: 'bar', ...forgedProps }))
+                expect(isOkResult(response)).toBe(true)
+                const event = (response as any).value.event
+                expect(event.properties).toEqual(expected)
+                expect(await getMetricValues('ingestion_verified_property_total')).toEqual([
+                    { labels: { action: 'stripped' }, value: 1 },
+                ])
+            }
+        )
+
         it('client-supplied $verified is overwritten on secret-token events', async () => {
             const response = await step(makeInput('phs_primary', { foo: 'bar', $verified: 'forged' }))
             expect(isOkResult(response)).toBe(true)
@@ -270,6 +288,29 @@ describe('applyVerifiedProperty()', () => {
         const event = { ...createTestPipelineEvent({ properties }), team_id: team.id } as any
         applyVerifiedProperty(event, token, team)
         expect(event.properties).toEqual(expected)
+    })
+
+    it.each([
+        [{ $set: { $verified: true } }, { $set: {} }],
+        [
+            { $set_once: { $verified: 'x' }, keep: 1 },
+            { $set_once: {}, keep: 1 },
+        ],
+        [{ $unset: ['$verified', 'foo'] }, { $unset: ['foo'] }],
+        [{ $unset: { $verified: 1 } }, { $unset: {} }],
+    ])(
+        'strips forged $verified from person-property operations on public-token events (%p)',
+        (properties, expected) => {
+            const event = { ...createTestPipelineEvent({ properties }), team_id: team.id } as any
+            applyVerifiedProperty(event, 'phc_public', team)
+            expect(event.properties).toEqual(expected)
+        }
+    )
+
+    it('leaves $set untouched when no $verified is present', () => {
+        const event = { ...createTestPipelineEvent({ properties: { $set: { name: 'a' } } }), team_id: team.id } as any
+        applyVerifiedProperty(event, 'phc_public', team)
+        expect(event.properties).toEqual({ $set: { name: 'a' } })
     })
 
     it('does not verify against a team whose secret tokens are null', () => {
