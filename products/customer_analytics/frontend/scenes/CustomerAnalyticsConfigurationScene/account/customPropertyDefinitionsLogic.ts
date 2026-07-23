@@ -17,12 +17,12 @@ import {
     customPropertyDefinitionsDestroy,
     customPropertyDefinitionsList,
     customPropertyDefinitionsPartialUpdate,
-    customPropertySourcesBackfill,
+    customPropertySourcesBackfillCreate,
     customPropertySourcesCreate,
     customPropertySourcesDestroy,
     customPropertySourcesPartialUpdate,
     customPropertySourcesRunsList,
-    customPropertySourcesSync,
+    customPropertySourcesSyncCreate,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     CustomPropertyDefinitionApi,
@@ -866,7 +866,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         triggerSync: async ({ sourceId }) => {
             actions.addTriggeringSource({ sourceId })
             try {
-                await customPropertySourcesSync(String(values.currentProjectId), sourceId)
+                await customPropertySourcesSyncCreate(String(values.currentProjectId), sourceId)
                 lemonToast.success('Sync triggered — it may take a few minutes to run')
                 actions.loadDefinitions()
                 actions.pollRunsStatus({ sourceId })
@@ -880,7 +880,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         triggerBackfill: async ({ sourceId }) => {
             actions.addTriggeringSource({ sourceId })
             try {
-                const response = await customPropertySourcesBackfill(String(values.currentProjectId), sourceId)
+                const response = await customPropertySourcesBackfillCreate(String(values.currentProjectId), sourceId)
                 const alreadyRunning = (response as { already_running?: boolean } | undefined)?.already_running
                 lemonToast.success(
                     alreadyRunning
