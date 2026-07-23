@@ -5,13 +5,14 @@ import datetime as dt
 
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -31,7 +32,9 @@ from posthog.hogql.errors import QueryError
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -85,6 +88,7 @@ __all__ = [
     "LogsViewViewSet",
 ]
 
+logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 
@@ -1101,6 +1105,17 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if self.action == "patterns_diff":
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # When the org saturates the per-org concurrency limiter, every runner.run() call raises
+        # ConcurrencyLimitExceeded. Mirror the /query API and surface a clean 429 instead of letting
+        # it fall through to DRF's default handler as an unhandled 500. Catching it here covers all
+        # of the viewset's runner.run() call sites at once.
+        if isinstance(exc, ConcurrencyLimitExceeded):
+            # Log the raw detail (Redis key + task id) for debugging, but surface a clean message.
+            logger.warning("logs_query_concurrency_limit_exceeded", detail=str(exc))
+            exc = Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        return super().handle_exception(exc)
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
