@@ -15353,6 +15353,10 @@ export namespace Schemas {
       message: string;
       /** TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+      /** Email addresses to copy (Cc) on the first message and the rest of the thread. */
+      cc?: string[];
+      /** Email addresses to blind-copy (Bcc) on the first message. Never revealed to the other recipients. */
+      bcc?: string[];
     }
 
     export interface ComposeTicketResponse {
@@ -68801,6 +68805,10 @@ export namespace Schemas {
       is_private?: boolean;
       /** Optional TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+      /** Email addresses to copy (Cc) on the reply. Cc'd addresses are remembered for the rest of the thread, so later replies keep copying them. Ignored for private notes. */
+      cc?: string[];
+      /** Email addresses to blind-copy (Bcc) on the reply. Applies to this message only and is never revealed to the other recipients. Ignored for private notes. */
+      bcc?: string[];
     }
 
     export interface TopPage {

@@ -304,13 +304,15 @@ export interface supportTicketSceneLogicActions {
         richContent: Record<string, unknown> | null,
         isPrivate: boolean,
         onSuccess?: () => void,
-        statusAfterSend?: TicketStatus
+        statusAfterSend?: TicketStatus,
+        extraRecipients?: { cc: string[]; bcc: string[] }
     ) => {
         content: string
         isPrivate: boolean
         onSuccess: (() => void) | undefined
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
+        extraRecipients: { cc: string[]; bcc: string[] } | undefined
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
@@ -459,13 +461,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             richContent: Record<string, unknown> | null,
             isPrivate: boolean,
             onSuccess?: () => void,
-            statusAfterSend?: TicketStatus
+            statusAfterSend?: TicketStatus,
+            extraRecipients?: { cc: string[]; bcc: string[] }
         ) => ({
             content,
             richContent,
             isPrivate,
             onSuccess,
             statusAfterSend,
+            extraRecipients,
         }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
@@ -1046,12 +1050,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, richContent, isPrivate, onSuccess, statusAfterSend }) => {
+        sendMessage: async ({ content, richContent, isPrivate, onSuccess, statusAfterSend, extraRecipients }) => {
             if (props.id === 'new' || !values.ticket?.id) {
                 actions.setMessageSending(false)
                 return
             }
             try {
+                // Cc/Bcc only ride along on customer-facing replies; the backend also drops them for notes.
+                const cc = !isPrivate ? (extraRecipients?.cc ?? []) : []
+                const bcc = !isPrivate ? (extraRecipients?.bcc ?? []) : []
                 await api.comments.create(
                     {
                         content,
@@ -1061,6 +1068,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         item_context: {
                             author_type: 'support',
                             is_private: isPrivate,
+                            ...(cc.length > 0 ? { cc } : {}),
+                            ...(bcc.length > 0 ? { bcc } : {}),
                         },
                     },
                     {}

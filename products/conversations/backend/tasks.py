@@ -56,6 +56,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
+from products.conversations.backend.services.recipients import normalize_recipients
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
@@ -781,9 +782,15 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     from_email = formataddr((config.from_name or author_name, config.from_email))
 
-    # Tickets created before To/Cc participant filtering may still have the requester
-    # persisted in cc_participants; drop them here so they aren't delivered to twice.
-    cc = [addr for addr in (ticket.cc_participants or []) if addr.lower() != ticket.email_from.lower()]
+    # Cc is the union of the thread's persisted participants and any this-message Cc; Bcc
+    # is per-message only. normalize_recipients validates/de-dupes and drops the requester
+    # (and, for Bcc, anyone already on To/Cc) so nobody is delivered to twice or exposed.
+    item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    cc = normalize_recipients(
+        [*(ticket.cc_participants or []), *(item_context.get("cc") or [])],
+        exclude=[ticket.email_from],
+    )
+    bcc = normalize_recipients(item_context.get("bcc"), exclude=[ticket.email_from, *cc])
 
     email_message = mail.EmailMultiAlternatives(
         subject=subject,
@@ -791,11 +798,14 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         from_email=from_email,
         to=[ticket.email_from],
         cc=cc,
+        bcc=bcc,
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
 
-    recipients = [ticket.email_from, *cc]
+    # Bcc stays out of the MIME headers (Django omits it) but must be in the SMTP envelope
+    # so Mailgun actually delivers to it.
+    recipients = [ticket.email_from, *cc, *bcc]
     mime_bytes = email_message.message().as_bytes(linesep="\r\n")
 
     try:

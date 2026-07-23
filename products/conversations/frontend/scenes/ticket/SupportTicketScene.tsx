@@ -213,6 +213,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
                         sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
                         unsavedTicketChanges={unsavedTicketChanges}
+                        showCcBcc={ticket?.channel_source === 'email'}
                         replyDisabledReason={replyDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"

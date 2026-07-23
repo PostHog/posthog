@@ -273,6 +273,18 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
         rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        cc: zod
+            .array(zod.email())
+            .optional()
+            .describe(
+                "Email addresses to copy (Cc) on the reply. Cc'd addresses are remembered for the rest of the thread, so later replies keep copying them. Ignored for private notes."
+            ),
+        bcc: zod
+            .array(zod.email())
+            .optional()
+            .describe(
+                'Email addresses to blind-copy (Bcc) on the reply. Applies to this message only and is never revealed to the other recipients. Ignored for private notes.'
+            ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 
@@ -358,6 +370,14 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
     email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    cc: zod
+        .array(zod.email())
+        .optional()
+        .describe('Email addresses to copy (Cc) on the first message and the rest of the thread.'),
+    bcc: zod
+        .array(zod.email())
+        .optional()
+        .describe('Email addresses to blind-copy (Bcc) on the first message. Never revealed to the other recipients.'),
 })
 
 export const conversationsViewsCreateBodyNameMax = 400

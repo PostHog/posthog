@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInputSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -11,13 +11,19 @@ import type { TicketChannel, TicketStatus } from '../../types'
 import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 
+export interface ExtraRecipients {
+    cc: string[]
+    bcc: string[]
+}
+
 export interface MessageInputProps {
     onSendMessage: (
         content: string,
         richContent: JSONContent | null,
         isPrivate: boolean,
         onSuccess: () => void,
-        statusAfterSend?: TicketStatus
+        statusAfterSend?: TicketStatus,
+        extraRecipients?: ExtraRecipients
     ) => void
     messageSending: boolean
     placeholder?: string
@@ -49,6 +55,8 @@ export interface MessageInputProps {
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
     unsavedTicketChanges?: string[]
+    /** Show Cc/Bcc recipient inputs (agent email replies only, not the customer widget) */
+    showCcBcc?: boolean
 }
 
 export function MessageInput({
@@ -70,10 +78,14 @@ export function MessageInput({
     sendConfirmationMessage,
     sendAndSetStatusOptions,
     unsavedTicketChanges,
+    showCcBcc = false,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
+    const [cc, setCc] = useState<string[]>([])
+    const [bcc, setBcc] = useState<string[]>([])
+    const [ccBccExpanded, setCcBccExpanded] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
 
     useEffect(() => {
@@ -99,6 +111,8 @@ export function MessageInput({
         if (editorRef.current && !isEmpty) {
             const richContent = editorRef.current.getJSON()
             const content = serializeToMarkdown(richContent)
+            // Cc/Bcc only apply to customer-facing replies, never private notes.
+            const extraRecipients = showCcBcc && !isPrivate ? { cc, bcc } : undefined
             const doSend = (): void => {
                 onSendMessage(
                     content,
@@ -108,13 +122,17 @@ export function MessageInput({
                         editorRef.current?.clear()
                         setIsEmpty(true)
                         onDraftChange?.(null)
+                        setCc([])
+                        setBcc([])
+                        setCcBccExpanded(false)
                         if (onPrivateChange) {
                             onPrivateChange(false)
                         } else {
                             setLocalIsPrivate(false)
                         }
                     },
-                    statusAfterSend
+                    statusAfterSend,
+                    extraRecipients
                 )
             }
             // Sending with a status saves the whole ticket, so surface any other unsaved edits first.
@@ -169,8 +187,46 @@ export function MessageInput({
                 ? 'Uploading image...'
                 : undefined
 
+    const showCcBccFields = showCcBcc && !isPrivate
+    const ccBccVisible = ccBccExpanded || cc.length > 0 || bcc.length > 0
+
     return (
         <div>
+            {showCcBccFields &&
+                (ccBccVisible ? (
+                    <div className="flex flex-col gap-1 mb-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-muted text-xs w-8 shrink-0">Cc</span>
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
+                                value={cc}
+                                onChange={setCc}
+                                placeholder="Add Cc recipients..."
+                                size="small"
+                                className="flex-1"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-muted text-xs w-8 shrink-0">Bcc</span>
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
+                                value={bcc}
+                                onChange={setBcc}
+                                placeholder="Add Bcc recipients..."
+                                size="small"
+                                className="flex-1"
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <div className="mb-2">
+                        <LemonButton size="xsmall" type="tertiary" onClick={() => setCcBccExpanded(true)}>
+                            Add Cc/Bcc
+                        </LemonButton>
+                    </div>
+                ))}
             <SupportEditor
                 initialContent={draftContent}
                 placeholder={resolvedPlaceholder}

@@ -7105,6 +7105,8 @@ const api = {
             recipient_distinct_id?: string
             email_subject?: string
             rich_content?: Record<string, unknown> | null
+            cc?: string[]
+            bcc?: string[]
         }): Promise<{ id: string; ticket_number: number }> {
             return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
         },

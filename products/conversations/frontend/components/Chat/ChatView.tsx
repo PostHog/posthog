@@ -4,6 +4,7 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { MessageInput } from './MessageInput'
+import type { ExtraRecipients } from './MessageInput'
 import { MessageList } from './MessageList'
 
 export interface ChatViewProps {
@@ -18,7 +19,8 @@ export interface ChatViewProps {
         richContent: JSONContent | null,
         isPrivate: boolean,
         onSuccess: () => void,
-        statusAfterSend?: TicketStatus
+        statusAfterSend?: TicketStatus,
+        extraRecipients?: ExtraRecipients
     ) => void
     onLoadOlderMessages?: () => void
     header?: React.ReactNode
@@ -54,6 +56,8 @@ export interface ChatViewProps {
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
+    /** Show Cc/Bcc recipient inputs (agent email replies only) */
+    showCcBcc?: boolean
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
@@ -86,6 +90,7 @@ export function ChatView({
     sendConfirmationMessage,
     sendAndSetStatusOptions,
     unsavedTicketChanges,
+    showCcBcc = false,
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
@@ -130,6 +135,7 @@ export function ChatView({
                     sendConfirmationMessage={sendConfirmationMessage}
                     sendAndSetStatusOptions={sendAndSetStatusOptions}
                     unsavedTicketChanges={unsavedTicketChanges}
+                    showCcBcc={showCcBcc}
                 />
             </div>
         </LemonCard>
