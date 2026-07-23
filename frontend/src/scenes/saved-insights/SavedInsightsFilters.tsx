@@ -11,6 +11,11 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
+import {
+    AllTypesIconPrototypeSwitcher,
+    useAllTypesIconVariant,
+    withAllTypesIconVariant,
+} from 'scenes/saved-insights/allTypesIconPrototype'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
@@ -31,6 +36,8 @@ export function SavedInsightsFilters({
     const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
     const quickFilterSet = new Set(quickFilters)
     const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
+    // PROTOTYPE(all-types-icon): throwaway — delete along with allTypesIconPrototype.tsx once an icon is picked
+    const [iconVariant, cycleIconVariant] = useAllTypesIconVariant()
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -45,18 +52,21 @@ export function SavedInsightsFilters({
             {quickFilters.length > 0 && (
                 <div className="flex gap-2 items-center flex-wrap ml-auto">
                     {quickFilterSet.has('insightType') && (
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            size="small"
-                            active={hasInsightTypeSelection}
-                            status={borderless && !hasInsightTypeSelection ? 'alt' : 'default'}
-                            onChange={(value) => {
-                                setFilters({ insightType: value as string })
-                                posthog.capture('saved insights filtered', { filter_type: 'insight_type', value })
-                            }}
-                            options={INSIGHT_TYPE_OPTIONS}
-                            value={insightType || 'All types'}
-                        />
+                        <>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                size="small"
+                                active={hasInsightTypeSelection}
+                                status={borderless && !hasInsightTypeSelection ? 'alt' : 'default'}
+                                onChange={(value) => {
+                                    setFilters({ insightType: value as string })
+                                    posthog.capture('saved insights filtered', { filter_type: 'insight_type', value })
+                                }}
+                                options={withAllTypesIconVariant(INSIGHT_TYPE_OPTIONS, iconVariant)}
+                                value={insightType || 'All types'}
+                            />
+                            <AllTypesIconPrototypeSwitcher variant={iconVariant} onCycle={cycleIconVariant} />
+                        </>
                     )}
                     {quickFilterSet.has('tags') && (
                         <TagSelect
