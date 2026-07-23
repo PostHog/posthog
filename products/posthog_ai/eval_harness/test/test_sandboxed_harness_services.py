@@ -60,7 +60,10 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
         )
 
     env = start.call_args.kwargs["env"]
-    assert env["FEATURE_FLAG_OVERRIDES"] == f'{{"mcp-exec-skills": {str(expected_flag_value).lower()}}}'
+    assert (
+        env["FEATURE_FLAG_OVERRIDES"]
+        == f'{{"product-data-catalog": true, "mcp-exec-skills": {str(expected_flag_value).lower()}}}'
+    )
     if skill_archive_url is None:
         assert "POSTHOG_MCP_SKILLS_URL" not in env
     else:
