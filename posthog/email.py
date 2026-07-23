@@ -159,11 +159,9 @@ def get_email_footer_context(
     organization: Optional["Organization"] = None,
 ) -> dict[str, str]:
     """
-    Build the footer context the transactional email footer (configured in Customer.io)
-    uses to tell recipients which project, organization, and billing account an email is
-    about. Pass whichever of team / organization is in scope; the organization is derived
-    from the team when not given. Keys — team_name, organization_name, customer_id — are
-    omitted when a value isn't available, so the footer only renders what's present.
+    Context for the Customer.io transactional email footer: team_name, organization_name,
+    and customer_id (the billing customer). Absent values are omitted, so the footer
+    renders only what's present.
     """
     if organization is None and team is not None:
         organization = team.organization
