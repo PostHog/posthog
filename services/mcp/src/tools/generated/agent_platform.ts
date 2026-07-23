@@ -1,7 +1,10 @@
 // AUTO-GENERATED from services/mcp/definitions/agent_platform.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     AgentApplicationsCreateBody,
     AgentApplicationsDestroyParams,
@@ -63,7 +66,6 @@ import {
     AgentRevisionsEnvKeysGetParams,
     AgentRevisionsEnvKeysListParams,
 } from '@/generated/agent_platform/api'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AgentApplicationsCreateSchema = AgentApplicationsCreateBody
 

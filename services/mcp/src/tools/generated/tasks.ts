@@ -1,7 +1,17 @@
 // AUTO-GENERATED from products/tasks/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
+
 import {
     LoopsCreateBody,
     LoopsDestroyParams,
@@ -23,14 +33,6 @@ import {
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LoopsCreateSchema = LoopsCreateBody
 
