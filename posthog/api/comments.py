@@ -581,6 +581,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         except SlackApiError as e:
             slack_error = (e.response.get("error") if e.response else None) or "unknown error"
             raise exceptions.ValidationError(f"Could not look up the Slack channel ({slack_error})")
+        # A 1:1 DM reports is_im (not is_private), so it would sail past the private-channel
+        # guard and let any member mirror a discussion into someone's DMs with the bot.
+        if channel.get("is_im") or channel.get("is_mpim"):
+            raise exceptions.ValidationError("Discussions can only be sent to Slack channels, not direct messages")
         if channel.get("is_private"):
             if integration.created_by_id != user.id:
                 raise exceptions.PermissionDenied(

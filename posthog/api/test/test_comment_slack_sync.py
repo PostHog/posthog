@@ -65,10 +65,27 @@ class TestSendCommentToSlack(APIBaseTest):
             },
         )
 
-    def _mock_channel_info(self, mock_slack, name: str = "team-support", is_private: bool = False) -> None:
+    def _mock_channel_info(self, mock_slack, name: str = "team-support", is_private: bool = False, **flags) -> None:
         mock_slack.return_value.client.conversations_info.return_value = {
-            "channel": {"id": "C1", "name": name, "is_private": is_private}
+            "channel": {"id": "C1", "name": name, "is_private": is_private, **flags}
         }
+
+    @parameterized.expand([("dm", {"is_im": True}), ("group_dm", {"is_mpim": True, "is_private": True})])
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_cannot_send_to_a_direct_message(self, _name, flags, mock_slack, _flag, _backfill):
+        # is_im conversations don't report is_private, so without an explicit guard a member
+        # could mirror a discussion into someone's DMs with the bot.
+        self._mock_channel_info(mock_slack, **flags)
+        comment = self._comment()
+
+        res = self._send(comment.id, channel_id="D1")
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "direct message" in str(res.json())
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
