@@ -522,12 +522,12 @@ describe('Evaluation Scheduler', () => {
             } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
             temporalService = {
                 startEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
-                signalAggregateEvaluationWorkflow: jest.fn().mockResolvedValue(undefined),
+                startAggregateEvaluationWorkflow: jest.fn().mockResolvedValue(undefined),
                 startTaggerRunWorkflow: jest.fn().mockResolvedValue(undefined),
             } as unknown as import('~/ai-observability/services/temporal.service').TemporalService
         })
 
-        it('signals the aggregate workflow with trace context and the resolved fixed-window settle config', async () => {
+        it('starts the aggregate workflow with trace context and the resolved fixed-window settle config', async () => {
             const event = createAiGenerationEvent(teamId, {
                 properties: JSON.stringify({ $ai_trace_id: 'trace-abc', $session_id: null }),
             })
@@ -542,7 +542,7 @@ describe('Evaluation Scheduler', () => {
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.signalAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
                 'eval-1',
                 expect.objectContaining({ uuid: event.uuid }),
                 'trace-abc',
@@ -566,7 +566,7 @@ describe('Evaluation Scheduler', () => {
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.signalAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
                 'eval-1',
                 expect.objectContaining({ uuid: event.uuid }),
                 'trace-abc',
@@ -590,7 +590,7 @@ describe('Evaluation Scheduler', () => {
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.signalAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
                 evaluation.id,
                 expect.anything(),
                 expect.any(String),
@@ -612,7 +612,7 @@ describe('Evaluation Scheduler', () => {
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.signalAggregateEvaluationWorkflow).not.toHaveBeenCalled()
+            expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
         })
 
@@ -634,7 +634,7 @@ describe('Evaluation Scheduler', () => {
                 event,
                 evaluation.evaluation_type
             )
-            expect(temporalService.signalAggregateEvaluationWorkflow).not.toHaveBeenCalled()
+            expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
         })
     })
 

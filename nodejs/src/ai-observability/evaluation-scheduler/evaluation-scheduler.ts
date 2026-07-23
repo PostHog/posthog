@@ -479,7 +479,7 @@ async function processEventEvaluationMatch(
         // No isEvaluationWorkflowRuntime guard here: the aggregate workflow validates evaluation_type
         // server-side and rejects unsupported types as a non-retryable ApplicationError.
         const settle = resolveSettleConfig(evaluationDefinition.target_config)
-        await temporalService.signalAggregateEvaluationWorkflow(
+        await temporalService.startAggregateEvaluationWorkflow(
             evaluationDefinition.id,
             event,
             traceContext.traceId,

@@ -53,7 +53,6 @@ describe('TemporalService', () => {
         mockClient = {
             workflow: {
                 start: jest.fn().mockResolvedValue(mockWorkflowHandle),
-                signalWithStart: jest.fn().mockResolvedValue(mockWorkflowHandle),
             },
             connection: mockConnection,
         } as any
@@ -278,16 +277,16 @@ describe('TemporalService', () => {
     })
 
     describe('aggregate evaluation workflows', () => {
-        it('signal-with-starts the aggregate workflow with the resolved settle config', async () => {
+        it('starts the aggregate workflow with the resolved settle config', async () => {
             const mockEvent = createMockEvent()
 
-            await service.signalAggregateEvaluationWorkflow('eval-123', mockEvent, 'trace-abc', 'session-1', {
+            await service.startAggregateEvaluationWorkflow('eval-123', mockEvent, 'trace-abc', 'session-1', {
                 strategy: 'inactivity',
                 quiet_period_seconds: 120,
                 max_age_seconds: 600,
             })
 
-            expect(mockClient.workflow.signalWithStart).toHaveBeenCalledWith('run-aggregate-evaluation', {
+            expect(mockClient.workflow.start).toHaveBeenCalledWith('run-aggregate-evaluation', {
                 args: [
                     {
                         evaluation_id: 'eval-123',
@@ -298,21 +297,20 @@ describe('TemporalService', () => {
                         settle: { strategy: 'inactivity', quiet_period_seconds: 120, max_age_seconds: 600 },
                     },
                 ],
-                signal: 'activity-seen',
-                signalArgs: [{ event_uuid: mockEvent.uuid }],
                 taskQueue: 'llm-analytics-evals-task-queue',
                 workflowId: 'llma-trace-eval-eval-123-trace-abc',
+                workflowIdConflictPolicy: 'USE_EXISTING',
                 workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
                 workflowTaskTimeout: '2 minutes',
             })
         })
 
         it('returns null when the trace was already evaluated', async () => {
-            ;(mockClient.workflow.signalWithStart as jest.Mock).mockRejectedValueOnce(
+            ;(mockClient.workflow.start as jest.Mock).mockRejectedValueOnce(
                 new WorkflowExecutionAlreadyStartedError('done', 'llma-trace-eval-x', 'run-aggregate-evaluation')
             )
 
-            const result = await service.signalAggregateEvaluationWorkflow(
+            const result = await service.startAggregateEvaluationWorkflow(
                 'eval-123',
                 createMockEvent(),
                 'trace-abc',
@@ -324,14 +322,14 @@ describe('TemporalService', () => {
         })
 
         it('produces the same workflow id for every event of the same trace', async () => {
-            await service.signalAggregateEvaluationWorkflow(
+            await service.startAggregateEvaluationWorkflow(
                 'eval-123',
                 createMockEvent({ uuid: 'event-1' }),
                 'trace-789',
                 null,
                 { strategy: 'fixed_window', window_seconds: 1800 }
             )
-            await service.signalAggregateEvaluationWorkflow(
+            await service.startAggregateEvaluationWorkflow(
                 'eval-123',
                 createMockEvent({ uuid: 'event-2' }),
                 'trace-789',
@@ -339,16 +337,16 @@ describe('TemporalService', () => {
                 { strategy: 'fixed_window', window_seconds: 1800 }
             )
 
-            const calls = (mockClient.workflow.signalWithStart as jest.Mock).mock.calls
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
             expect(calls[0][1].workflowId).toEqual(calls[1][1].workflowId)
             expect(calls[0][1].workflowId).not.toContain('event-1')
         })
 
         it('rethrows non-dedup start failures', async () => {
-            ;(mockClient.workflow.signalWithStart as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
+            ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
 
             await expect(
-                service.signalAggregateEvaluationWorkflow('eval-123', createMockEvent(), 'trace-789', null, {
+                service.startAggregateEvaluationWorkflow('eval-123', createMockEvent(), 'trace-789', null, {
                     strategy: 'fixed_window',
                     window_seconds: 1800,
                 })

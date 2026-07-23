@@ -228,16 +228,17 @@ export class TemporalService {
     }
 
     /**
-     * Signal-with-start the settle-then-evaluate workflow for (evaluation, trace).
+     * Start (or join) the settle-then-evaluate workflow for (evaluation, trace).
      *
      * The workflow id deliberately excludes the event uuid: the first matching generation of a
-     * trace creates the workflow, and every later one delivers an `activity-seen` signal to it
-     * (which the fixed_window strategy ignores and the inactivity strategy uses to re-arm its
-     * quiet timer). Once a run completed, ALLOW_DUPLICATE_FAILED_ONLY rejects new starts — a
-     * trace is evaluated at most once per evaluation, which also caps the damage from runaway
-     * shared trace ids ("0", "fixed_id", ...). Returns null when the trace was already evaluated.
+     * trace creates the workflow and every later one lands on it as a no-op (USE_EXISTING while
+     * pending/running). The workflow discovers further trace activity itself by polling
+     * ClickHouse, so ingestion volume never reaches Temporal beyond this one dedup'd start.
+     * Once a run completed, ALLOW_DUPLICATE_FAILED_ONLY rejects new starts — a trace is
+     * evaluated at most once per evaluation, which also caps the damage from runaway shared
+     * trace ids ("0", "fixed_id", ...). Returns null when the trace was already evaluated.
      */
-    async signalAggregateEvaluationWorkflow(
+    async startAggregateEvaluationWorkflow(
         evaluationId: string,
         event: RawKafkaEvent,
         traceId: string,
@@ -249,7 +250,7 @@ export class TemporalService {
         const workflowId = `llma-trace-eval-${evaluationId}-${workflowSafeTraceId(traceId)}`
 
         try {
-            const handle = await client.workflow.signalWithStart('run-aggregate-evaluation', {
+            const handle = await client.workflow.start('run-aggregate-evaluation', {
                 args: [
                     {
                         evaluation_id: evaluationId,
@@ -260,17 +261,16 @@ export class TemporalService {
                         settle,
                     },
                 ],
-                signal: 'activity-seen',
-                signalArgs: [{ event_uuid: event.uuid }],
                 taskQueue: EVALUATION_TASK_QUEUE,
                 workflowId,
+                workflowIdConflictPolicy: 'USE_EXISTING',
                 workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
                 workflowTaskTimeout: '2 minutes',
             })
 
             temporalWorkflowsStarted.labels({ status: 'success' }).inc()
 
-            logger.debug('Signal-started aggregate evaluation workflow', {
+            logger.debug('Started aggregate evaluation workflow', {
                 workflowId,
                 evaluationId,
                 traceId,
@@ -280,8 +280,6 @@ export class TemporalService {
 
             return handle
         } catch (error) {
-            // A completed run for this (evaluation, trace) already exists — the expected
-            // outcome for every matching event after the trace was evaluated.
             if (error instanceof WorkflowExecutionAlreadyStartedError) {
                 temporalWorkflowsStarted.labels({ status: 'already_completed' }).inc()
                 return null
