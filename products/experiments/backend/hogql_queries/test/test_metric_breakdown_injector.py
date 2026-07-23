@@ -10,6 +10,9 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
+    StartHandling,
 )
 
 from posthog.hogql import ast
@@ -83,6 +86,61 @@ def _session_mean_query() -> ast.SelectQuery:
     query.ctes = {
         "metric_events_by_session": ast.CTE(name="metric_events_by_session", expr=mebs, cte_type="subquery"),
         "metric_events": ast.CTE(name="metric_events", expr=me, cte_type="subquery"),
+        "entity_metrics": ast.CTE(name="entity_metrics", expr=em, cte_type="subquery"),
+    }
+    return query
+
+
+def _dw_retention_metric():
+    return ExperimentRetentionMetric(
+        start_event=ExperimentDataWarehouseNode(
+            table_name="events_dw",
+            events_join_key="properties.$user_id",
+            data_warehouse_join_key="userid",
+            timestamp_field="ds",
+            math=ExperimentMetricMathType.TOTAL,
+        ),
+        completion_event=EventsNode(event="returned"),
+        retention_window_start=1,
+        retention_window_end=7,
+        retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        start_handling=StartHandling.FIRST_SEEN,
+        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="plan", type=BreakdownType.DATA_WAREHOUSE)]),
+    )
+
+
+def _retention_metric(breakdown_limit=None):
+    return ExperimentRetentionMetric(
+        start_event=EventsNode(event="signed_up"),
+        completion_event=EventsNode(event="returned"),
+        retention_window_start=1,
+        retention_window_end=7,
+        retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        start_handling=StartHandling.FIRST_SEEN,
+        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")], breakdown_limit=breakdown_limit),
+    )
+
+
+def _retention_query() -> ast.SelectQuery:
+    # Stand-in for the retention shape: start_events (GROUP BY entity) -> completion_events ->
+    # entity_metrics (joins exposures + start + completion).
+    query = parse_select("SELECT variant FROM entity_metrics")
+    assert isinstance(query, ast.SelectQuery)
+    se = parse_select(
+        "SELECT exposures.entity_id AS entity_id, min(timestamp) AS start_timestamp "
+        "FROM events INNER JOIN exposures ON entity_id = exposures.entity_id GROUP BY exposures.entity_id"
+    )
+    ce = parse_select("SELECT entity_id, timestamp AS completion_timestamp FROM events")
+    em = parse_select(
+        "SELECT exposures.entity_id AS entity_id, exposures.variant AS variant, max(value) AS value "
+        "FROM exposures INNER JOIN start_events ON exposures.entity_id = start_events.entity_id "
+        "LEFT JOIN completion_events ON exposures.entity_id = completion_events.entity_id "
+        "GROUP BY exposures.entity_id, exposures.variant"
+    )
+    assert isinstance(se, ast.SelectQuery) and isinstance(ce, ast.SelectQuery) and isinstance(em, ast.SelectQuery)
+    query.ctes = {
+        "start_events": ast.CTE(name="start_events", expr=se, cte_type="subquery"),
+        "completion_events": ast.CTE(name="completion_events", expr=ce, cte_type="subquery"),
         "entity_metrics": ast.CTE(name="entity_metrics", expr=em, cte_type="subquery"),
     }
     return query
@@ -283,6 +341,85 @@ class TestMetricBreakdownInjectorMean:
         # A DW breakdown is a direct warehouse column (the metric_events CTE reads FROM the warehouse
         # table), so it must read bare `plan`, NOT be wrapped in an event `properties` chain.
         coalesce_call = bd.expr
+        assert isinstance(coalesce_call, ast.Call) and coalesce_call.name == "coalesce"
+        to_string = coalesce_call.args[0]
+        assert isinstance(to_string, ast.Call) and to_string.name == "toString"
+        field = to_string.args[0]
+        assert isinstance(field, ast.Field)
+        assert field.chain == ["plan"]
+
+
+class TestMetricBreakdownInjectorRetention:
+    def test_breakdown_read_from_start_event(self):
+        metric = _retention_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _retention_query()
+
+        injector.inject_retention_breakdown_columns(query)
+
+        assert query.ctes is not None
+        se_cte = query.ctes["start_events"]
+        assert isinstance(se_cte, ast.CTE) and isinstance(se_cte.expr, ast.SelectQuery)
+        se_aliases = [c.alias for c in se_cte.expr.select if isinstance(c, ast.Alias)]
+        assert "breakdown_value_1" in se_aliases
+
+    def test_entity_metrics_first_touch_from_start_event(self):
+        metric = _retention_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _retention_query()
+
+        injector.inject_retention_breakdown_columns(query)
+
+        expr = _entity_metrics_aliases(query)["breakdown_value_1"]
+        # Carried from the start_events CTE (first-touch attributed there over start_timestamp).
+        assert isinstance(expr, ast.Field)
+        assert expr.chain == ["start_events", "breakdown_value_1"]
+
+    def test_start_events_uses_argmin_over_start_timestamp(self):
+        metric = _retention_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _retention_query()
+
+        injector.inject_retention_breakdown_columns(query)
+
+        assert query.ctes is not None
+        se_cte = query.ctes["start_events"]
+        assert isinstance(se_cte, ast.CTE) and isinstance(se_cte.expr, ast.SelectQuery)
+        bd = next(c for c in se_cte.expr.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
+        # start_events groups by entity, so the breakdown is deduped first-touch via argMin.
+        assert isinstance(bd.expr, ast.Call)
+        assert bd.expr.name == "argMin"
+        assert bd.expr.args[1] == ast.Field(chain=["timestamp"])
+
+    def test_final_select_applies_top_n_other_limit(self):
+        metric = _retention_metric(breakdown_limit=3)
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _retention_query()
+
+        injector.inject_retention_breakdown_columns(query)
+
+        final_alias = next(c for c in query.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
+        assert isinstance(final_alias.expr, ast.Call)
+        assert final_alias.expr.name == "if"
+        other = final_alias.expr.args[2]
+        assert isinstance(other, ast.Constant)
+        assert other.value == "$$_posthog_breakdown_other_$$"
+
+    def test_data_warehouse_breakdown_reads_warehouse_column(self):
+        metric = _dw_retention_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _retention_query()
+
+        injector.inject_retention_breakdown_columns(query)
+
+        assert query.ctes is not None
+        se_cte = query.ctes["start_events"]
+        assert isinstance(se_cte, ast.CTE) and isinstance(se_cte.expr, ast.SelectQuery)
+        bd = next(c for c in se_cte.expr.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
+        # A DW breakdown reads bare `plan` from the warehouse table (no `properties` wrapper).
+        argmin_call = bd.expr
+        assert isinstance(argmin_call, ast.Call) and argmin_call.name == "argMin"
+        coalesce_call = argmin_call.args[0]
         assert isinstance(coalesce_call, ast.Call) and coalesce_call.name == "coalesce"
         to_string = coalesce_call.args[0]
         assert isinstance(to_string, ast.Call) and to_string.name == "toString"
