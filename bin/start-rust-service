@@ -285,6 +285,16 @@ case "$RS_SVC" in
     export METRICS_PORT=9101
     ;;
 
+  personhog-identity)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-trace}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50055
+    export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
+    export ROUTER_URL=http://127.0.0.1:50052
+    export METRICS_PORT=9108
+    ;;
+
   flags-consumer)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn

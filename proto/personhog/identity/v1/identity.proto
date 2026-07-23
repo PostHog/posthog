@@ -1,0 +1,21 @@
+syntax = "proto3";
+package personhog.identity.v1;
+
+import "personhog/types/v1/person.proto";
+
+// PersonHogIdentity owns the identity graph: distinct id resolution and
+// get-or-create orchestration across the sync plane (Postgres primary) and
+// the async plane (leader-owned properties). Ingestion calls this service
+// directly; it is not fronted by the router.
+//
+// Get-or-create semantics: created = true means the person stub row is
+// committed in Postgres AND the initial properties (when provided) are
+// durable in the leader's changelog. A crash between the stub commit and the
+// leader ack surfaces as an error; the retried key resolves to the stub
+// (created = false) and the caller applies properties through the normal
+// UpdatePersonProperties path — the event remains the durable source of the
+// initial properties.
+service PersonHogIdentity {
+  rpc GetOrCreatePersonByDistinctId(personhog.types.v1.GetOrCreatePersonByDistinctIdRequest) returns (personhog.types.v1.GetOrCreatePersonByDistinctIdResponse);
+  rpc GetOrCreatePersonsByDistinctIds(personhog.types.v1.GetOrCreatePersonsByDistinctIdsRequest) returns (personhog.types.v1.GetOrCreatePersonsByDistinctIdsResponse);
+}
