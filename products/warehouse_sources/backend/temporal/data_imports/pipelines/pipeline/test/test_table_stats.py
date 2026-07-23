@@ -11,7 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     record_table_stats,
 )
 
-_STATS = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats.record_table_stats"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats"
+_STATS = f"{_MODULE}.record_table_stats"
+_CAPTURE = f"{_MODULE}.posthoganalytics.capture"
+_POD = f"{_MODULE}._pod_name"
 _BATCHER_STATS = (
     "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.record_table_stats"
 )
@@ -33,29 +36,53 @@ class TestRecordTableStats:
             )
         )
 
-    def test_outlier_log_fires_at_threshold(self):
+    def test_outlier_logs_and_captures_event_with_full_tags(self):
         logger = mock.MagicMock()
-        record_table_stats(
-            source_type="Stripe",
-            stage="batcher",
-            num_rows=10,
-            payload_bytes=OUTLIER_TABLE_BYTES,
-            logger=logger,
-            team_id=7,
-            schema_name="charges",
-        )
+        with mock.patch(_CAPTURE) as capture, mock.patch(_POD, return_value="warehouse-sources-load-abc123"):
+            record_table_stats(
+                source_type="Stripe",
+                stage="batcher",
+                num_rows=10,
+                payload_bytes=OUTLIER_TABLE_BYTES,
+                logger=logger,
+                team_id=7,
+                schema_name="charges",
+            )
         logger.warning.assert_called_once()
         assert logger.warning.call_args.args[0] == "data_import_large_table"
-        assert logger.warning.call_args.kwargs["team_id"] == 7
-        assert logger.warning.call_args.kwargs["schema_name"] == "charges"
+
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "data_import_large_table"
+        assert capture.call_args.kwargs["distinct_id"]  # machine id used as distinct_id
+        props = capture.call_args.kwargs["properties"]
+        assert props["source_type"] == "Stripe"
+        assert props["stage"] == "batcher"
+        assert props["team_id"] == 7
+        assert props["schema_name"] == "charges"
+        assert props["num_rows"] == 10
+        assert props["payload_bytes"] == OUTLIER_TABLE_BYTES
+        assert props["pod_name"] == "warehouse-sources-load-abc123"
+
+    def test_capture_failure_is_swallowed(self):
+        # A telemetry failure must never fail the import.
+        with mock.patch(_CAPTURE, side_effect=RuntimeError("boom")):
+            record_table_stats(
+                source_type="Stripe",
+                stage="batcher",
+                num_rows=10,
+                payload_bytes=OUTLIER_TABLE_BYTES,
+                logger=mock.MagicMock(),
+            )
 
     @parameterized.expand([("below_threshold", OUTLIER_TABLE_BYTES - 1), ("bytes_unknown", None)])
-    def test_no_outlier_log(self, _name, payload_bytes):
+    def test_no_outlier_log_or_event(self, _name, payload_bytes):
         logger = mock.MagicMock()
-        record_table_stats(
-            source_type="Stripe", stage="pipeline", num_rows=10, payload_bytes=payload_bytes, logger=logger
-        )
+        with mock.patch(_CAPTURE) as capture:
+            record_table_stats(
+                source_type="Stripe", stage="pipeline", num_rows=10, payload_bytes=payload_bytes, logger=logger
+            )
         logger.warning.assert_not_called()
+        capture.assert_not_called()
 
 
 class TestRecordSourceItemStats:

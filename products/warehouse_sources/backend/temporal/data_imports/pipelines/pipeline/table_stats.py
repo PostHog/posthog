@@ -12,17 +12,31 @@ buffer for a zero-copy slice) — the `Batcher` produces zero-copy slices, so `.
 over-count there.
 """
 
+import os
 from typing import Any, Optional
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
-# Any single table whose in-memory Arrow payload crosses this is logged with the team/schema/source
-# context needed to reproduce it. The metrics below capture the full distribution; this surfaces the
-# specific offenders to fix.
+from posthog.utils import get_machine_id
+
+# Any single table whose in-memory Arrow payload crosses this is logged and captured as a PostHog
+# event with the pod/team/schema/source context needed to reproduce it. The metrics below capture the
+# full distribution; this surfaces the specific offenders to fix. Event volume is bounded because it
+# only fires on the outliers (a paginating source can call record_table_stats thousands of times per
+# sync — one event each would flood ingestion; the histograms carry that full distribution instead).
 OUTLIER_TABLE_BYTES: int = 512 * 1024 * 1024  # 512 MiB
+
+# The event a large table emits. Tagged with pod/host, source_type, schema_name, team_id, rows, bytes.
+LARGE_TABLE_EVENT = "data_import_large_table"
+
+
+def _pod_name() -> Optional[str]:
+    """The k8s pod name (== the container hostname) so events can be sliced by pod/host."""
+    return os.environ.get("HOSTNAME")
 
 
 def _column_payload_bytes(col: pa.ChunkedArray) -> int:
@@ -71,8 +85,9 @@ def record_table_stats(
     """Record row/byte size for one source table, keyed on `(source_type, stage)`.
 
     Safe outside an activity (unit tests construct the pipeline/batcher directly): the Temporal meter
-    is only touched inside an activity context; the outlier log still fires. Metric labels are kept to
-    `source_type` + `stage` (bounded cardinality) — `team_id`/`schema_name` ride the outlier log only.
+    is only touched inside an activity context; the outlier log + event still fire. Metric labels are
+    kept to `source_type` + `stage` (bounded cardinality); `pod`/`team_id`/`schema_name` ride the
+    outlier log and the PostHog event only.
     """
     resolved_source_type = source_type or "unknown"
     if activity.in_activity():
@@ -85,15 +100,38 @@ def record_table_stats(
                 "data_import_table_bytes", "In-memory Arrow payload of one source table", "By"
             ).record(max(payload_bytes, 0))
     if payload_bytes is not None and payload_bytes >= OUTLIER_TABLE_BYTES:
+        pod_name = _pod_name()
         logger.warning(
-            "data_import_large_table",
+            LARGE_TABLE_EVENT,
             source_type=resolved_source_type,
             stage=stage,
             payload_bytes=payload_bytes,
             num_rows=num_rows,
             team_id=team_id,
             schema_name=schema_name,
+            pod_name=pod_name,
         )
+        # Long-lived Temporal worker, so posthoganalytics' background flush thread stays alive
+        # (unlike the Celery pitfall) — this matches capture_repartition_event. Best-effort: a
+        # telemetry failure must never fail the import.
+        try:
+            machine_id = get_machine_id()
+            posthoganalytics.capture(
+                distinct_id=machine_id,
+                event=LARGE_TABLE_EVENT,
+                properties={
+                    "source_type": resolved_source_type,
+                    "stage": stage,
+                    "num_rows": num_rows,
+                    "payload_bytes": payload_bytes,
+                    "team_id": team_id,
+                    "schema_name": schema_name,
+                    "pod_name": pod_name,
+                    "machine_id": machine_id,
+                },
+            )
+        except Exception:
+            logger.debug("Failed to capture data_import_large_table event", exc_info=True)
 
 
 def record_source_item_stats(
