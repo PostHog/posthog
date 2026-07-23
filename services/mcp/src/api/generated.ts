@@ -79112,6 +79112,10 @@ export namespace Schemas {
      */
     priority?: string;
     /**
+     * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
+     */
+    scout?: string;
+    /**
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;
