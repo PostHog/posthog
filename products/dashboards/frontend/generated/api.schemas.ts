@@ -3740,7 +3740,7 @@ export interface WebStatsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
-    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
@@ -3834,6 +3834,8 @@ export interface WebOverviewQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4109,6 +4111,8 @@ export interface Response4Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4137,7 +4141,7 @@ export interface Response5Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
-    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
@@ -4196,6 +4200,8 @@ export interface Response7Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4232,6 +4238,8 @@ export interface Response8Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4490,6 +4498,8 @@ export interface Response18Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -4516,6 +4526,8 @@ export interface Response19Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -6219,6 +6231,8 @@ export interface WebGoalsQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -6339,6 +6353,8 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -7201,6 +7217,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7275,6 +7293,8 @@ export interface MarketingAnalyticsAggregatedQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
