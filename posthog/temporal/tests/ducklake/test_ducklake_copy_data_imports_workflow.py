@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from django.conf import settings
+from django.test import override_settings
 
 import temporalio.worker
 import temporalio.converter
@@ -519,11 +520,13 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    copy_data_imports_to_ducklake_activity(inputs)
+    # TEST=False: the close_old_connections() call is skipped under settings.TEST (matching
+    # database_sync_to_async's convention) so it never trips pytest-django's db-access guard
+    # in tests that don't need the database; override it here to prove the call still fires
+    # outside tests, i.e. in the real long-lived worker thread.
+    with override_settings(TEST=False):
+        copy_data_imports_to_ducklake_activity(inputs)
 
-    # This activity runs in a long-lived worker thread that never goes through Django's
-    # request/response cycle, so a connection killed by the DB/proxy is never detected
-    # and closed before reuse unless the activity does it itself.
     mock_close_old_connections.assert_called_once()
     mock_configure_connection.assert_called_once_with(mock_conn)
     mock_ensure_bucket.assert_called_once_with(config={"DUCKLAKE_BUCKET": "ducklake-dev"}, team_id=1)
@@ -644,7 +647,9 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    results = verify_data_imports_ducklake_copy_activity(inputs)
+    # TEST=False: see the comment in test_copy_data_imports_to_ducklake_activity_via_duckdb.
+    with override_settings(TEST=False):
+        results = verify_data_imports_ducklake_copy_activity(inputs)
 
     assert results == []
     # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity:
@@ -996,7 +1001,9 @@ def test_cleanup_data_imports_staging_activity_closes_stale_connections_before_q
 
     inputs = DuckLakeDataImportsStagingCleanupInputs(team_id=1, staging_uri="s3://bucket/__posthog_staging/team_1")
 
-    ducklake_module.cleanup_data_imports_staging_activity(inputs)
+    # TEST=False: see the comment in test_copy_data_imports_to_ducklake_activity_via_duckdb.
+    with override_settings(TEST=False):
+        ducklake_module.cleanup_data_imports_staging_activity(inputs)
 
     mock_close_old_connections.assert_called_once()
 

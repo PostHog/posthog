@@ -296,7 +296,8 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
     # This activity runs in a long-lived worker thread that never goes through Django's
     # request/response cycle, so a connection killed by the DB/proxy (e.g. after
     # CONN_MAX_AGE) is never detected and closed before reuse.
-    close_old_connections()
+    if not settings.TEST:
+        close_old_connections()
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
@@ -384,7 +385,8 @@ def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingClea
     """Clean up staged Delta files after successful verification."""
     bind_contextvars(team_id=inputs.team_id)
     # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity.
-    close_old_connections()
+    if not settings.TEST:
+        close_old_connections()
     server = get_duckgres_server_by_team_org(inputs.team_id)
     if server is None:
         return
@@ -462,7 +464,8 @@ def verify_data_imports_ducklake_copy_activity(
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
     # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity.
-    close_old_connections()
+    if not settings.TEST:
+        close_old_connections()
 
     if not inputs.model.verification_queries:
         logger.info("No DuckLake verification queries configured - skipping")
