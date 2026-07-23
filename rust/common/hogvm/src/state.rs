@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use indexmap::IndexMap;
+use crate::values::HogMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 
@@ -363,7 +363,7 @@ fn object_from_json(
     }
     // A plain object (including reference duck-types like __hogDateTime__, which Rust also models as
     // marked objects) — preserve key order.
-    let mut out = IndexMap::with_capacity(map.len());
+    let mut out = HogMap::with_capacity_and_hasher(map.len(), Default::default());
     for (k, v) in map {
         out.insert(k.clone(), value_from_json(v, heap, cells, header_len)?);
     }

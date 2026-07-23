@@ -57,6 +57,7 @@ pub use values::Closure;
 pub use values::FromHogLiteral;
 pub use values::FromHogRef;
 pub use values::HogLiteral;
+pub use values::HogMap;
 pub use values::HogStr;
 pub use values::HogValue;
 pub use values::LocalCallable;

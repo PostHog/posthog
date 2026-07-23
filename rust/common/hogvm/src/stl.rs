@@ -2,10 +2,10 @@ use core::str;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::values::HogMap;
 use base64::Engine as _;
 use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use hmac::{Hmac, Mac};
-use indexmap::IndexMap;
 use md5::Md5;
 use once_cell::sync::Lazy;
 use rand::Rng;
@@ -1445,7 +1445,7 @@ fn to_string(heap: &VmHeap, val: &HogValue, _depth: usize) -> Result<String, VmE
 
 // Render a Hog datetime as Luxon's `DateTime.fromSeconds(dt, {zone}).toISO()` does: millisecond
 // precision, `Z` for UTC and a `+HH:MM` offset otherwise.
-fn hog_datetime_to_iso(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Result<String, VmError> {
+fn hog_datetime_to_iso(heap: &VmHeap, obj: &HogMap) -> Result<String, VmError> {
     let dt = obj_number(heap, obj, "dt")?.unwrap_or(0.0);
     let zone = obj_string(heap, obj, "zone")?.unwrap_or_else(|| "UTC".to_string());
     // Luxon keeps millisecond precision; round to whole millis first to avoid float drift turning
@@ -1469,18 +1469,14 @@ fn hog_datetime_to_iso(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Resul
     Ok(formatted)
 }
 
-fn obj_marker(heap: &VmHeap, obj: &IndexMap<String, HogValue>, key: &str) -> Result<bool, VmError> {
+fn obj_marker(heap: &VmHeap, obj: &HogMap, key: &str) -> Result<bool, VmError> {
     match obj.get(key) {
         Some(v) => Ok(matches!(v.deref(heap)?, HogLiteral::Boolean(true))),
         None => Ok(false),
     }
 }
 
-fn obj_number(
-    heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
-    key: &str,
-) -> Result<Option<f64>, VmError> {
+fn obj_number(heap: &VmHeap, obj: &HogMap, key: &str) -> Result<Option<f64>, VmError> {
     match obj.get(key) {
         Some(v) => Ok(match v.deref(heap)? {
             HogLiteral::Number(n) => Some(n.to_float()),
@@ -1490,11 +1486,7 @@ fn obj_number(
     }
 }
 
-fn obj_string(
-    heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
-    key: &str,
-) -> Result<Option<String>, VmError> {
+fn obj_string(heap: &VmHeap, obj: &HogMap, key: &str) -> Result<Option<String>, VmError> {
     match obj.get(key) {
         Some(v) => Ok(match v.deref(heap)? {
             HogLiteral::String(s) => Some(s.to_string()),
@@ -1505,7 +1497,7 @@ fn obj_string(
 }
 
 // Whole days from the Unix epoch to a Hog date (reference: `day.diff(epoch, 'days').days` floored).
-fn hog_date_epoch_days(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Result<i64, VmError> {
+fn hog_date_epoch_days(heap: &VmHeap, obj: &HogMap) -> Result<i64, VmError> {
     let year = obj_number(heap, obj, "year")?.unwrap_or(0.0) as i32;
     let month = obj_number(heap, obj, "month")?.unwrap_or(0.0) as u32;
     let day = obj_number(heap, obj, "day")?.unwrap_or(0.0) as u32;
@@ -1691,7 +1683,7 @@ impl<'de> Visitor<'de> for HogJsonVisitor {
         Ok(HogLiteral::Array(vals))
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<HogLiteral, A::Error> {
-        let mut obj = IndexMap::new();
+        let mut obj = HogMap::default();
         while let Some((k, HogJson(v))) = map.next_entry::<String, HogJson>()? {
             obj.insert(k, v);
         }
@@ -2018,7 +2010,7 @@ fn zone_local_timestamp(zone: &str, naive: &NaiveDateTime) -> Result<f64, VmErro
 fn make_hog_interval(vm: &HogVM, args: &[HogValue], unit: &str) -> Result<HogValue, VmError> {
     assert_argc(args, 1, "toInterval")?;
     let n = args[0].deref(&vm.heap)?.try_as::<Num>()?.clone();
-    let mut map = IndexMap::new();
+    let mut map = HogMap::default();
     map.insert(
         "__hogInterval__".to_string(),
         HogLiteral::Boolean(true).into(),
@@ -2553,7 +2545,7 @@ fn new_hog_error(
     message: String,
     payload: Option<&HogValue>,
 ) -> Result<HogValue, VmError> {
-    let mut map = IndexMap::new();
+    let mut map = HogMap::default();
     map.insert("__hogError__".to_string(), HogLiteral::Boolean(true).into());
     map.insert("type".to_string(), HogLiteral::from(type_str).into());
     map.insert("message".to_string(), HogLiteral::from(message).into());

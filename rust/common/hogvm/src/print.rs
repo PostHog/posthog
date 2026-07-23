@@ -5,7 +5,7 @@
 //! (which is `toString` semantics) on purpose — the two are subtly different and the
 //! parity loop is what reconciles them.
 
-use indexmap::IndexMap;
+use crate::values::HogMap;
 
 use crate::{
     memory::{HeapReference, VmHeap},
@@ -163,10 +163,7 @@ fn print_callable(callable: &Callable) -> String {
 
 // Render the Hog temporal duck-types: `{__hogDateTime__: true, dt, zone}` -> `DateTime(dt, 'zone')`
 // and `{__hogDate__: true, year, month, day}` -> `Date(y, m, d)`. Returns None for plain objects.
-fn format_temporal(
-    heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
-) -> Result<Option<String>, crate::VmError> {
+fn format_temporal(heap: &VmHeap, obj: &HogMap) -> Result<Option<String>, crate::VmError> {
     if marker(heap, obj.get("__hogDateTime__"))? {
         let dt = number(heap, obj.get("dt"))?.unwrap_or(0.0);
         let zone = string(heap, obj.get("zone"))?.unwrap_or_else(|| "UTC".to_string());
@@ -189,7 +186,7 @@ fn format_temporal(
 // `Type('message')` or `Type('message', payload)`. Returns None for plain objects.
 fn format_error(
     heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
+    obj: &HogMap,
     marked: &mut Vec<HeapReference>,
     depth: usize,
 ) -> Result<Option<String>, crate::VmError> {
@@ -297,7 +294,7 @@ impl<'a> HogQLPrinter<'a> {
     }
 
     // Entry point: an already-dereferenced AST object.
-    fn print_node(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn print_node(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         self.depth += 1;
         let result = self.dispatch(obj);
         self.depth -= 1;
@@ -314,7 +311,7 @@ impl<'a> HogQLPrinter<'a> {
         }
     }
 
-    fn dispatch(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn dispatch(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let node_type = self.str_field(obj, "__hx_ast")?.ok_or_else(|| {
             crate::VmError::NativeCallFailed("HogQL node missing __hx_ast".to_string())
         })?;
@@ -347,7 +344,7 @@ impl<'a> HogQLPrinter<'a> {
         }
     }
 
-    fn select_query(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn select_query(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let is_top_level = self.depth <= 1;
         let distinct = if self.bool_field(obj, "distinct")? {
             " DISTINCT"
@@ -405,10 +402,7 @@ impl<'a> HogQLPrinter<'a> {
         })
     }
 
-    fn select_set_query(
-        &mut self,
-        obj: &IndexMap<String, HogValue>,
-    ) -> Result<String, crate::VmError> {
+    fn select_set_query(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         // The reference decrements/increments the indent around the set query; with pretty=false that
         // only affects the parenthesisation check, which we approximate via depth.
         let mut result = self.visit_child(obj, "initial_select_query")?;
@@ -442,7 +436,7 @@ impl<'a> HogQLPrinter<'a> {
         self.visit(node)
     }
 
-    fn join_expr(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn join_expr(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let mut parts = Vec::new();
         let table = self.visit_child(obj, "table")?;
         match self.str_field(obj, "alias")? {
@@ -489,7 +483,7 @@ impl<'a> HogQLPrinter<'a> {
         Ok(parts.join(" "))
     }
 
-    fn call(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn call(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let name = self.str_field(obj, "name")?.unwrap_or_default();
         Ok(format!(
             "{name}({})",
@@ -497,7 +491,7 @@ impl<'a> HogQLPrinter<'a> {
         ))
     }
 
-    fn field(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn field(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let chain = self.array_field(obj, "chain")?;
         if chain.len() == 1 {
             if let HogLiteral::String(s) = chain[0].deref(self.heap)? {
@@ -513,7 +507,7 @@ impl<'a> HogQLPrinter<'a> {
         Ok(parts.join("."))
     }
 
-    fn alias(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn alias(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         if self.bool_field(obj, "hidden")? {
             return self.visit_child(obj, "expr");
         }
@@ -522,11 +516,7 @@ impl<'a> HogQLPrinter<'a> {
         Ok(format!("{inside} AS {}", escape_identifier(&alias)))
     }
 
-    fn logical(
-        &mut self,
-        obj: &IndexMap<String, HogValue>,
-        func: &str,
-    ) -> Result<String, crate::VmError> {
+    fn logical(&mut self, obj: &HogMap, func: &str) -> Result<String, crate::VmError> {
         let exprs = self.exprs_field(obj, "exprs")?;
         match exprs.len() {
             0 => Ok(String::new()),
@@ -535,7 +525,7 @@ impl<'a> HogQLPrinter<'a> {
         }
     }
 
-    fn compare(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn compare(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let left = self.visit_child(obj, "left")?;
         let right = self.visit_child(obj, "right")?;
         let op = self.str_field(obj, "op")?.unwrap_or_default();
@@ -563,7 +553,7 @@ impl<'a> HogQLPrinter<'a> {
         })
     }
 
-    fn arithmetic(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn arithmetic(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let left = self.visit_child(obj, "left")?;
         let right = self.visit_child(obj, "right")?;
         let func = match self.str_field(obj, "op")?.as_deref() {
@@ -581,7 +571,7 @@ impl<'a> HogQLPrinter<'a> {
         Ok(format!("{func}({left}, {right})"))
     }
 
-    fn lambda(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
+    fn lambda(&mut self, obj: &HogMap) -> Result<String, crate::VmError> {
         let args = self.array_field(obj, "args")?;
         let escaped: Vec<String> = args
             .iter()
@@ -599,15 +589,11 @@ impl<'a> HogQLPrinter<'a> {
     }
 
     // ── helpers ──
-    fn exprs(&mut self, obj: &IndexMap<String, HogValue>) -> Result<Vec<String>, crate::VmError> {
+    fn exprs(&mut self, obj: &HogMap) -> Result<Vec<String>, crate::VmError> {
         self.exprs_field(obj, "exprs")
     }
 
-    fn exprs_field(
-        &mut self,
-        obj: &IndexMap<String, HogValue>,
-        key: &str,
-    ) -> Result<Vec<String>, crate::VmError> {
+    fn exprs_field(&mut self, obj: &HogMap, key: &str) -> Result<Vec<String>, crate::VmError> {
         let items = self.array_field(obj, key)?;
         let mut out = Vec::with_capacity(items.len());
         for item in &items {
@@ -616,22 +602,14 @@ impl<'a> HogQLPrinter<'a> {
         Ok(out)
     }
 
-    fn visit_child(
-        &mut self,
-        obj: &IndexMap<String, HogValue>,
-        key: &str,
-    ) -> Result<String, crate::VmError> {
+    fn visit_child(&mut self, obj: &HogMap, key: &str) -> Result<String, crate::VmError> {
         match obj.get(key) {
             Some(v) => self.visit(v),
             None => Ok(String::new()),
         }
     }
 
-    fn array_field(
-        &self,
-        obj: &IndexMap<String, HogValue>,
-        key: &str,
-    ) -> Result<Vec<HogValue>, crate::VmError> {
+    fn array_field(&self, obj: &HogMap, key: &str) -> Result<Vec<HogValue>, crate::VmError> {
         match obj.get(key) {
             Some(v) => Ok(match v.deref(self.heap)? {
                 HogLiteral::Array(a) | HogLiteral::Tuple(a) => a.clone(),
@@ -641,19 +619,11 @@ impl<'a> HogQLPrinter<'a> {
         }
     }
 
-    fn str_field(
-        &self,
-        obj: &IndexMap<String, HogValue>,
-        key: &str,
-    ) -> Result<Option<String>, crate::VmError> {
+    fn str_field(&self, obj: &HogMap, key: &str) -> Result<Option<String>, crate::VmError> {
         string(self.heap, obj.get(key))
     }
 
-    fn bool_field(
-        &self,
-        obj: &IndexMap<String, HogValue>,
-        key: &str,
-    ) -> Result<bool, crate::VmError> {
+    fn bool_field(&self, obj: &HogMap, key: &str) -> Result<bool, crate::VmError> {
         marker(self.heap, obj.get(key))
     }
 

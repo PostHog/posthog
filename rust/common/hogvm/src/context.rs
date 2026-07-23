@@ -1,4 +1,3 @@
-use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 use std::collections::{HashMap, HashSet};
@@ -9,7 +8,7 @@ use crate::{
     program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
     vm::HogVM,
-    HogLiteral, HogValue,
+    HogLiteral, HogMap, HogValue,
 };
 
 /// Function names that always suspend, mirroring the reference VM's `ASYNC_STL`. These are async
@@ -355,7 +354,7 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             }
         }
         HogLiteral::Object(obj) => {
-            let emplaced_obj: Result<IndexMap<String, HogValue>, _> = obj
+            let emplaced_obj: Result<HogMap, _> = obj
                 .into_iter()
                 .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
                 .collect();

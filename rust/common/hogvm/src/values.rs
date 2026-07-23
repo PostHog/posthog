@@ -66,6 +66,12 @@ impl From<LocalCallable> for Callable {
 // hog has "primitives", which are copied by e.g, "get_local", and "objects", which are passed around by reference. This is distinct from the
 // "Heap" allocated stuff, which is used for things which must outlive all references to themselves on the stack, e.g. upvalues.
 
+/// The object map used by [`HogLiteral::Object`]. Insertion-ordered like the reference VMs;
+/// hashed with `ahash` instead of the default SipHash — object keys sit under every property
+/// read/write and SipHash was ~5% of interpreter self-time (see perf/LOG.md iteration 4).
+/// ahash stays a keyed, DoS-resistant hash, which matters because keys come from user programs.
+pub type HogMap = IndexMap<String, HogValue, ahash::RandomState>;
+
 /// The payload of [`HogLiteral::String`]. `Owned` is a plain heap string (globals, native-fn
 /// results, computed strings); `Shared` is a refcounted slice of the pre-decoded token stream,
 /// so pushing a string *constant* is a refcount bump instead of a malloc+copy (the ~90-write
@@ -147,7 +153,7 @@ pub enum HogLiteral {
     // Object/Callable/Closure payloads are boxed so the enum stays small (~32 bytes instead of
     // 120): every stack push/pop, clone, and heap emplacement moves the enum by value, and the
     // memmove of the large inline payloads was a measured hot spot (see perf/LOG.md).
-    Object(Box<IndexMap<String, HogValue>>),
+    Object(Box<HogMap>),
     Callable(Box<Callable>),
     Closure(Box<Closure>),
     Null,
@@ -713,6 +719,12 @@ impl From<HashMap<String, HogValue>> for HogLiteral {
 
 impl From<IndexMap<String, HogValue>> for HogLiteral {
     fn from(value: IndexMap<String, HogValue>) -> Self {
+        Self::Object(Box::new(value.into_iter().collect()))
+    }
+}
+
+impl From<HogMap> for HogLiteral {
+    fn from(value: HogMap) -> Self {
         Self::Object(Box::new(value))
     }
 }
@@ -939,7 +951,7 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
             Ok(HogLiteral::Array(values).into())
         }
         JsonValue::Object(obj) => {
-            let mut map = IndexMap::new();
+            let mut map = HogMap::default();
             for (key, value) in obj {
                 map.insert(key, construct_free_standing(value, depth + 1)?);
             }

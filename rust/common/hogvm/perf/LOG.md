@@ -198,3 +198,48 @@ this file does not yet contain one.
   (e.g. lazy globals conversion — most of the ~30 event properties are never read by the
   template beyond `properties`/`$ip`). (2) CallGlobal `Symbol` probe allocations.
   (3) IndexMap rehash on the growing `$set`/`$set_once` maps (reserve on first insert).
+
+## 2026-07-23 — iteration 4: ahash for object maps
+
+- Machine note: the runner was re-scheduled between sessions — the same HEAD binary
+  that measured 240.6 us/op last session measures ~157 here (~35% faster hardware).
+  Absolute us/op values are NOT comparable across sessions on ephemeral runners; only
+  same-session interleaved A/B ratios are.
+- Baseline (HEAD = HogStr commit, median of 3): **157.0 us/op** (160.9 / 157.0 / 156.5).
+- Fresh profile: allocator ~26%, `step` 9.8%, IndexMap+hash block ~12.4%
+  (`insert_full` 3.7, `reserve_rehash` 2.2, SipHash write 2.6 + `hash_one` 2.5,
+  `memcmp` 1.8, `get` 1.2), JSON boundary ~6.2% (`json_to_hog` 2.6, `hog_to_json` 1.3,
+  `construct_free_standing` 1.2, `walk_emplacing` 1.1), `get_token` 2.4%, memmove 2.7%.
+  Note GetGlobal conversion is already lazy per accessed subtree, and the geoip template
+  returns the whole event, so the JSON round trip has little skippable work — the
+  "lazy globals" candidate from iteration 3 is weaker than it looked.
+- Hypothesis: swap the object maps' hasher from the default SipHash `RandomState` to
+  `ahash::RandomState` (`IndexMap<String, HogValue, ahash::RandomState>`). SipHash is
+  ~5% of self-time and sits under every property write/read; ahash is several times
+  faster on short keys while still being a keyed, DoS-resistant hash (object keys come
+  from user-defined Hog programs, so an unkeyed hasher like FxHash is off the table).
+  Insertion order, equality, and serialization are hasher-independent, so semantics are
+  pinned. New dependency rationale (constraint 4): `ahash` 0.8 is already in the rust
+  workspace lockfile (used transitively elsewhere); this adds it as a direct dep of the
+  hogvm crate. Gate at >= 2%; predicted 3-5%.
+- Diff summary: new `pub type HogMap = IndexMap<String, HogValue, ahash::RandomState>`
+  in `values.rs`; `HogLiteral::Object(Box<HogMap>)`; construction sites moved to
+  `HogMap::default()` / `with_capacity_and_hasher`; `&IndexMap<..>` parameter types
+  became `&HogMap`; kept the existing default-hasher `From<IndexMap>` impl (re-collects)
+  for API compatibility and added `From<HogMap>`. `ahash` added via the workspace dep
+  (already pinned at 0.8.11 in the root Cargo.toml and present in the lockfile).
+- Gates: 77 crate + 19 addon tests, fixture parity, cymbal/cohort-core compile,
+  fmt/clippy/shear both workspaces — all green.
+- Measurement (interleaved A/B, 4 rounds, 100k iters each):
+  base 158.9 / 157.6 / 155.7 / 157.8 (median 157.7) vs
+  cand 147.2 / 141.9 / 147.4 / 150.8 (median 147.3) -> **~6.6% improvement**.
+- Verdict: **COMMITTED** (`perf(hogvm): ahash-backed object maps (157.7 -> 147.3 us/op)`).
+- Iteration score: committed improvement — consecutive-no-commit counter stays 0.
+- Cumulative committed same-machine ratios: iter2 0.894 x iter3 0.968 x iter4 0.934
+  = **~0.808 of branch HEAD-at-loop-start** (~19% cumulative reduction) — past the
+  ~17% target-equivalent; stretch (~38% cumulative) still open.
+- Next-iteration candidates: (1) re-profile — with SipHash gone, see whether the
+  allocator block (still ~26%) has a dominant contributor worth attacking directly
+  (json_to_hog String clones? heap Vec growth? `walk_emplacing` clone of geoip
+  records?). (2) CallGlobal `Symbol` probe allocations. (3) `HogLiteral::size`
+  accounting walk on SetProperty (backlog 7).

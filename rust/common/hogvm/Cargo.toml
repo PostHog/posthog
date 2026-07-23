@@ -15,6 +15,7 @@ rand.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 indexmap = "2"
+ahash.workspace = true
 md-5 = "0.10"
 sha2.workspace = true
 hmac.workspace = true
