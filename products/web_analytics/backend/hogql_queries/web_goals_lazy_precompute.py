@@ -301,6 +301,8 @@ def ensure_web_goals_precomputed(
         placeholders[f"action_{n}_id"] = ast.Constant(value=int(action.id))
 
     return web_ensure_precomputed(
+        runner=runner,
+        family=_FAMILY,
         team=runner.team,
         insert_query=_build_insert_query(actions),
         time_range_start=time_range_start,

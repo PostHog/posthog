@@ -18,6 +18,8 @@ import type {
     HogFlowInvocationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
+    HogFlowRevisionApi,
+    HogFlowRevisionRestoreRequestApi,
     HogFlowScheduleApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
@@ -30,12 +32,14 @@ import type {
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogFlowsRevisionsListParams,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
     MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
+    PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
@@ -655,6 +659,69 @@ export const hogFlowsRerunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogInvocationRerunRequestApi),
+    })
+}
+
+export const getHogFlowsRevisionsListUrl = (projectId: string, id: string, params?: HogFlowsRevisionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/revisions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/revisions/`
+}
+
+export const hogFlowsRevisionsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsRevisionsListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowRevisionBasicListApi> => {
+    return apiMutator<PaginatedHogFlowRevisionBasicListApi>(getHogFlowsRevisionsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsRevisionsRetrieveUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/`
+}
+
+export const hogFlowsRevisionsRetrieve = async (
+    projectId: string,
+    id: string,
+    version: number,
+    options?: RequestInit
+): Promise<HogFlowRevisionApi> => {
+    return apiMutator<HogFlowRevisionApi>(getHogFlowsRevisionsRetrieveUrl(projectId, id, version), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsRevisionsRestoreCreateUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/restore/`
+}
+
+export const hogFlowsRevisionsRestoreCreate = async (
+    projectId: string,
+    id: string,
+    version: number,
+    hogFlowRevisionRestoreRequestApi?: HogFlowRevisionRestoreRequestApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsRevisionsRestoreCreateUrl(projectId, id, version), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowRevisionRestoreRequestApi),
     })
 }
 

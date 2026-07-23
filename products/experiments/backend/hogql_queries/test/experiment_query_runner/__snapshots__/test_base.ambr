@@ -2528,7 +2528,7 @@
             exposures.variant AS variant,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM exposures
-     LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), and(greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(exposures.first_exposure_time, 'UTC')), less(toTimeZone(metric_events.timestamp, 'UTC'), plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(86400)))))
+     LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), and(greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(exposures.first_exposure_time, 'UTC')), less(toTimeZone(metric_events.timestamp, 'UTC'), plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(86400)))))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2600,7 +2600,7 @@
             exposures.variant AS variant,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM exposures
-     LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), and(greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(exposures.first_exposure_time, 'UTC')), less(toTimeZone(metric_events.timestamp, 'UTC'), plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(172800)))))
+     LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), and(greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(exposures.first_exposure_time, 'UTC')), less(toTimeZone(metric_events.timestamp, 'UTC'), plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(172800)))))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,
@@ -2672,7 +2672,7 @@
             exposures.variant AS variant,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM exposures
-     LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), and(greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(exposures.first_exposure_time, 'UTC')), less(toTimeZone(metric_events.timestamp, 'UTC'), plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(259200)))))
+     LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), and(greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), toTimeZone(exposures.first_exposure_time, 'UTC')), less(toTimeZone(metric_events.timestamp, 'UTC'), plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(259200)))))
      GROUP BY exposures.entity_id,
               exposures.variant)
   SELECT entity_metrics.variant AS variant,

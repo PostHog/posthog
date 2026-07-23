@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        },
+        "overwrite": {
+            "default": false,
+            "description": "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409.",
+            "type": "boolean"
+        },
+        "version": {
+            "description": "Workflow version to restore.",
+            "type": "number"
+        }
+    },
+    "required": ["id", "version"],
+    "type": "object"
+}
