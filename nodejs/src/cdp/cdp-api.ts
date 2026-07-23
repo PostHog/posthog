@@ -843,8 +843,12 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Workflow not found' })
             }
 
-            const count = await this.batchResolverProducer.countInFlightJobs(team.id, id)
-            return res.json({ count })
+            const counts = await this.batchResolverProducer.countInFlightJobs(team.id, id)
+            return res.json({
+                count: counts.count,
+                by_action: counts.byAction,
+                position_unknown: counts.positionUnknown,
+            })
         } catch (e) {
             logger.error('Error counting in-flight hog flow jobs', {
                 error: e instanceof Error ? e.message : String(e),

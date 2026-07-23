@@ -179,6 +179,7 @@ Alternatively, connect with a Jamf Pro user account that has read access to thos
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -197,7 +198,11 @@ Alternatively, connect with a Jamf Pro user account that has read access to thos
         return schemas
 
     def validate_credentials(
-        self, config: JamfProSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: JamfProSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_jamf_pro_credentials(
             config.instance_url, _credentials_from_config(config), schema_name, team_id

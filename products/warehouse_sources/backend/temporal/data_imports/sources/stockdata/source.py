@@ -67,6 +67,7 @@ class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -88,7 +89,11 @@ class StockDataSource(ResumableSource[StockDataSourceConfig, StockDataResumeConf
         return schemas
 
     def validate_credentials(
-        self, config: StockDataSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: StockDataSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_stockdata_credentials(config.api_token)
 

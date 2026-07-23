@@ -47,6 +47,21 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     class Meta:
         db_table = "posthog_externaldatajob"
+        indexes = [
+            # Serves the hot "latest run for a pipeline" lookup (get_latest_run_if_exists):
+            # equality on team/pipeline/status, ordered by created_at DESC with LIMIT.
+            models.Index(
+                fields=["team", "pipeline", "status", "-created_at"],
+                name="idx_extdatajob_latest_run",
+            ),
+            # Serves the incremental-sync watermark scan when the warehouse imports this
+            # table (WHERE updated_at > <cursor> ORDER BY updated_at): without it the read
+            # is a full seq scan + sort of the whole table on every run.
+            models.Index(
+                fields=["updated_at"],
+                name="idx_extdatajob_updated_at",
+            ),
+        ]
 
     def folder_path(self) -> str:
         if self.schema:

@@ -1,7 +1,11 @@
 import { ReactNode } from 'react'
 
 import { IconCalendar, IconClock } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
+
+import { AlertState } from '~/queries/schema/schema-general'
+
+import { AlertType } from '../types'
 
 interface AlertDefinitionRowProps {
     label?: ReactNode
@@ -16,6 +20,23 @@ export function AlertDefinitionRow({ label, children, className }: AlertDefiniti
             {children}
         </div>
     )
+}
+
+export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
+    if (!alert.enabled) {
+        return <LemonTag type="muted">Disabled</LemonTag>
+    }
+
+    switch (alert.state) {
+        case AlertState.FIRING:
+            return <LemonTag type="danger">Firing</LemonTag>
+        case AlertState.ERRORED:
+            return <LemonTag type="danger">Errored</LemonTag>
+        case AlertState.SNOOZED:
+            return <LemonTag type="muted">Snoozed</LemonTag>
+        case AlertState.NOT_FIRING:
+            return <LemonTag type="success">Not firing</LemonTag>
+    }
 }
 
 interface AlertNextEvaluationStatusProps {

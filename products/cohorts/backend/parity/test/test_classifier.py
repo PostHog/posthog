@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from django.test import SimpleTestCase
@@ -49,9 +50,33 @@ class TestClassifier(SimpleTestCase):
             new_state={},
             last_realtime_calculation_at=LAST_CALC,
             config=_config(),
+            notes=("reconcile run r: partial 1/64",),
         )
         self.assertEqual(row.verdict, VERDICT_SKIP)
         self.assertFalse(row.gated)
+        self.assertEqual(row.notes[0], "reconcile run r: partial 1/64")
+
+    def test_reconcile_note_does_not_change_classification_fields(self) -> None:
+        baseline = classify_cohort(
+            screened=_screened(),
+            name="x",
+            old_members={"a"},
+            new_state=_entered(["a"], at=NOW),
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(),
+        )
+        with_reconcile_note = classify_cohort(
+            screened=_screened(),
+            name="x",
+            old_members={"a"},
+            new_state=_entered(["a"], at=NOW),
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(),
+            notes=("reconcile run r: 64/64",),
+        )
+
+        self.assertEqual(replace(with_reconcile_note, notes=()), baseline)
+        self.assertEqual(with_reconcile_note.notes, ("reconcile run r: 64/64",))
 
     def test_fresh_rule_explains_new_entries_after_last_recompute(self) -> None:
         new_state = _entered(["a", "b"], at=NOW - timedelta(minutes=45)) | _entered(

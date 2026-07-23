@@ -267,6 +267,10 @@ class TestPromptBuilder(BaseTest):
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "scout-emit-signal" in prompt
         assert "scout-scratchpad-search" in prompt
+        # Steering notes are prior context on every channel — the section and its tool
+        # reference must survive in the signal tail.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -353,6 +357,9 @@ class TestPromptBuilder(BaseTest):
         # run-identity emit reference point at emit-report, not emit-signal.
         assert "scout-emit-report" in prompt
         assert "scout-edit-report" in prompt
+        # Steering notes are prior context on the report channel too.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
         # The two highest-leverage nudges the report channel adds: search the inbox
         # and edit before authoring a duplicate, and set suggested reviewers (what
         # actually routes a report).
@@ -795,6 +802,19 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
+    # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
+    # `{}` on the default path) — the native API-side record of which model served the run.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    expected_metadata = {
+        key: value
+        for key, value in (
+            ("model", expected_model),
+            ("runtime_adapter", expected_runtime_adapter),
+            ("reasoning_effort", expected_reasoning_effort),
+        )
+        if value is not None
+    }
+    assert bridge.metadata == expected_metadata
     events = {c.kwargs["event"] for c in capture.call_args_list}
     assert events == {"signals_scout_run_started", "signals_scout_run_finished"}
     for call in capture.call_args_list:

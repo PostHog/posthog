@@ -94,8 +94,8 @@ catalogs:
       specifier: ^0.57.0
       version: 0.57.0
     posthog-js:
-      specifier: ^1.404.1
-      version: 1.404.1
+      specifier: ^1.407.2
+      version: 1.407.2
     storybook:
       specifier: ^10.4.3
       version: 10.4.6
@@ -409,7 +409,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -440,7 +440,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -507,7 +507,7 @@ importers:
         version: 5.3.0
       jest-image-snapshot:
         specifier: ^6.4.0
-        version: 6.4.0(jest@29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
+        version: 6.4.0(jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
       mockdate:
         specifier: ^3.0.5
         version: 3.0.5
@@ -814,7 +814,7 @@ importers:
         version: link:../packages/quill/packages/components
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.404.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.407.2)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1138,7 +1138,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1582,6 +1582,9 @@ importers:
       '@temporalio/worker':
         specifier: 1.15.0
         version: 1.15.0(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.28.1)(postcss@8.5.15)(tslib@2.8.1)
+      '@temporalio/workflow':
+        specifier: 1.15.0
+        version: 1.15.0
       '@types/node':
         specifier: 'catalog:'
         version: 22.18.8
@@ -1928,7 +1931,7 @@ importers:
         version: 3.6.0
       jest-image-snapshot:
         specifier: ^6.4.0
-        version: 6.4.0(jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
+        version: 6.4.0(jest@29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
       storybook:
         specifier: 'catalog:'
         version: 10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2635,7 +2638,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2675,7 +2678,7 @@ importers:
         version: 8.57.0
       jest:
         specifier: '*'
-        version: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+        version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(react@18.3.1)
@@ -2699,7 +2702,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2763,7 +2766,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2814,7 +2817,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2922,7 +2925,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3012,7 +3015,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3051,7 +3054,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3153,7 +3156,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3192,6 +3195,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/endpoints:
     dependencies:
@@ -3334,7 +3341,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3415,7 +3422,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3499,7 +3506,7 @@ importers:
         version: 2.1.1
       jest:
         specifier: '*'
-        version: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+        version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(react@18.3.1)
@@ -3547,7 +3554,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3700,7 +3707,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3853,7 +3860,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3979,7 +3986,7 @@ importers:
         version: 0.55.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4031,7 +4038,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4064,7 +4071,7 @@ importers:
         version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4296,7 +4303,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.404.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.407.2)(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4314,7 +4321,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4365,7 +4372,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4487,7 +4494,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4518,7 +4525,7 @@ importers:
         version: 1.2.1
       jest:
         specifier: '*'
-        version: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+        version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(react@18.3.1)
@@ -4530,7 +4537,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4548,7 +4555,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.404.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.407.2)(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4566,7 +4573,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4616,7 +4623,7 @@ importers:
         version: 4.0.0-pre.6(react@18.3.1)
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4668,7 +4675,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.404.1
+        version: 1.407.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -10150,14 +10157,17 @@ packages:
       react:
         optional: true
 
+  '@posthog/browser-common@0.2.0':
+    resolution: {integrity: sha512-w+/0/Be/x48uNM7d/M37ZimSGwhuh8WBSvx61xzKzFnuoV5HqmH7GNDhaM3E3exXoBZmWNPS8hM/Ufy8zoOQSg==}
+
   '@posthog/core@1.23.1':
     resolution: {integrity: sha512-GViD5mOv/mcbZcyzz3z9CS0R79JzxVaqEz4sP5Dsea178M/j3ZWe6gaHDZB9yuyGfcmIMQ/8K14yv+7QrK4sQQ==}
 
   '@posthog/core@1.38.0':
     resolution: {integrity: sha512-QLrJh0hMVpEJXHNyiJR9YhvIO5tzLDedw4UHdvB+ub4fXHMtHCA8H44qgl11HWR3ajpjxtJ8hs3HyOGVF3Zc1w==}
 
-  '@posthog/core@1.43.1':
-    resolution: {integrity: sha512-hGM8f5sp3we6Em/RQHXbmyYm554hUx9+9jhf92ZQgDS4/xW72KHyZiO9wcFye+qAx2cJAOhOCDIznmO1FV8IbA==}
+  '@posthog/core@1.45.1':
+    resolution: {integrity: sha512-tLtvzomavb2PPWdGYKsusyIzIeL2Px47v348Smibkay7sMy/83TyPk+Ptsp2NdeOgJsbuwSxWkR2+XA0aSCAaA==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -10210,8 +10220,8 @@ packages:
   '@posthog/types@1.395.0':
     resolution: {integrity: sha512-Ty0gbVc6d9ku9H3caF54PmEfu4PHUGpJKTriMyDb4rjCTsEYOOjD4r6Fw/UMYSSWg8Ls3KnCtTow8LL6ciqNDg==}
 
-  '@posthog/types@1.397.0':
-    resolution: {integrity: sha512-Pa7FtsBo3V0XrhY4y8Xquwp8U07syuZ2IGQdlsRyxhz0yejQLceFjI58UssCXE5zDCDj3km5l7H3ufD6rHChCg==}
+  '@posthog/types@1.398.0':
+    resolution: {integrity: sha512-sJMkl4k+u8yS/0fjHsKqE9xTdsAh30a2WvgChiptellnVoE0e8QJKFgqOMD2sk8FaEArPdeFklAhXvmENAt3Sg==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -19880,8 +19890,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.404.1:
-    resolution: {integrity: sha512-ck/HOMKuZ6yefUk5OX+h2s9mUWBsnu0mGDUAWjIwAmQQrloZPShzOhOWuEuZQuMnCKORBFRVGsBAuzsl66cBJA==}
+  posthog-js@1.407.2:
+    resolution: {integrity: sha512-5deTvXopn+NJWEmCUw8Ix/ms3cv2+60WJ73Vgbvu2wSkZY/FIj2uqAgCnq7IewGpGC+tH7CAbPYFzH6hw8eW1w==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -22480,8 +22490,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.453.0:
-    resolution: {integrity: sha512-Op3WNKRnx6Tol6l3JDZxJEikmoaJ7rsZ2MWmU4Buy09qPodbQ8zXYj68+0Qo1I6s+k+YELfBLK6HIWIOodClYA==}
+  unlayer-types@1.457.0:
+    resolution: {integrity: sha512-4GPU1YED5+X9ynAQw/cWnOez5pCcamkB++PQjfHIEQwqmsagOYkbxKPWqu1s4lcg6iJ1lZte33EeLqiTFV4u8g==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -27100,7 +27110,7 @@ snapshots:
       - supports-color
       - ts-node
 
-  '@jest/core@30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))':
+  '@jest/core@30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))':
     dependencies:
       '@jest/console': 30.0.5
       '@jest/pattern': 30.0.1
@@ -27115,7 +27125,7 @@ snapshots:
       exit-x: 0.2.2
       graceful-fs: 4.2.11
       jest-changed-files: 30.0.5
-      jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+      jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1))
       jest-haste-map: 30.0.5
       jest-message-util: 30.0.5
       jest-regex-util: 30.0.1
@@ -27136,7 +27146,7 @@ snapshots:
       - supports-color
       - ts-node
 
-  '@jest/core@30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))':
+  '@jest/core@30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))':
     dependencies:
       '@jest/console': 30.0.5
       '@jest/pattern': 30.0.1
@@ -27151,7 +27161,7 @@ snapshots:
       exit-x: 0.2.2
       graceful-fs: 4.2.11
       jest-changed-files: 30.0.5
-      jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      jest-config: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
       jest-haste-map: 30.0.5
       jest-message-util: 30.0.5
       jest-regex-util: 30.0.1
@@ -30030,6 +30040,11 @@ snapshots:
     optionalDependencies:
       react: 18.3.1
 
+  '@posthog/browser-common@0.2.0':
+    dependencies:
+      '@posthog/core': 1.45.1
+      '@posthog/types': 1.398.0
+
   '@posthog/core@1.23.1':
     dependencies:
       cross-spawn: 7.0.6
@@ -30038,9 +30053,9 @@ snapshots:
     dependencies:
       '@posthog/types': 1.395.0
 
-  '@posthog/core@1.43.1':
+  '@posthog/core@1.45.1':
     dependencies:
-      '@posthog/types': 1.397.0
+      '@posthog/types': 1.398.0
 
   '@posthog/core@1.7.1':
     dependencies:
@@ -30080,9 +30095,9 @@ snapshots:
       '@posthog/core': 1.38.0
       posthog-node: 5.25.0
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.404.1)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.407.2)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.404.1
+      posthog-js: 1.407.2
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -30091,7 +30106,7 @@ snapshots:
 
   '@posthog/types@1.395.0': {}
 
-  '@posthog/types@1.397.0': {}
+  '@posthog/types@1.398.0': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -38384,15 +38399,15 @@ snapshots:
       - supports-color
       - ts-node
 
-  jest-cli@30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+  jest-cli@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
     dependencies:
-      '@jest/core': 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      '@jest/core': 30.0.5(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       '@jest/test-result': 30.0.5
       '@jest/types': 30.0.5
       chalk: 4.1.2
       exit-x: 0.2.2
       import-local: 3.2.0
-      jest-config: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      jest-config: 30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       jest-util: 30.0.5
       jest-validate: 30.0.5
       yargs: 17.7.2
@@ -38403,15 +38418,15 @@ snapshots:
       - supports-color
       - ts-node
 
-  jest-cli@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+  jest-cli@30.0.5(esbuild-register@3.6.0(esbuild@0.28.1)):
     dependencies:
-      '@jest/core': 30.0.5(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      '@jest/core': 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       '@jest/test-result': 30.0.5
       '@jest/types': 30.0.5
       chalk: 4.1.2
       exit-x: 0.2.2
       import-local: 3.2.0
-      jest-config: 30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      jest-config: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       jest-util: 30.0.5
       jest-validate: 30.0.5
       yargs: 17.7.2
@@ -38549,6 +38564,39 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  jest-config@30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1)):
+    dependencies:
+      '@babel/core': 7.29.0
+      '@jest/get-type': 30.0.1
+      '@jest/pattern': 30.0.1
+      '@jest/test-sequencer': 30.0.5
+      '@jest/types': 30.0.5
+      babel-jest: 30.0.5(@babel/core@7.29.0)
+      chalk: 4.1.2
+      ci-info: 4.3.0
+      deepmerge: 4.3.1
+      glob: 10.5.0
+      graceful-fs: 4.2.11
+      jest-circus: 30.0.5
+      jest-docblock: 30.0.1
+      jest-environment-node: 30.0.5
+      jest-regex-util: 30.0.1
+      jest-resolve: 30.0.5
+      jest-runner: 30.0.5
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      micromatch: 4.0.8
+      parse-json: 5.2.0
+      pretty-format: 30.0.5
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    optionalDependencies:
+      '@types/node': 22.18.8
+      esbuild-register: 3.6.0(esbuild@0.28.1)
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
   jest-config@30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)):
     dependencies:
       '@babel/core': 7.29.0
@@ -38579,40 +38627,6 @@ snapshots:
       '@types/node': 22.18.8
       esbuild-register: 3.6.0(esbuild@0.28.1)
       ts-node: 10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - supports-color
-
-  jest-config@30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
-    dependencies:
-      '@babel/core': 7.29.0
-      '@jest/get-type': 30.0.1
-      '@jest/pattern': 30.0.1
-      '@jest/test-sequencer': 30.0.5
-      '@jest/types': 30.0.5
-      babel-jest: 30.0.5(@babel/core@7.29.0)
-      chalk: 4.1.2
-      ci-info: 4.3.0
-      deepmerge: 4.3.1
-      glob: 10.5.0
-      graceful-fs: 4.2.11
-      jest-circus: 30.0.5
-      jest-docblock: 30.0.1
-      jest-environment-node: 30.0.5
-      jest-regex-util: 30.0.1
-      jest-resolve: 30.0.5
-      jest-runner: 30.0.5
-      jest-util: 30.0.5
-      jest-validate: 30.0.5
-      micromatch: 4.0.8
-      parse-json: 5.2.0
-      pretty-format: 30.0.5
-      slash: 3.0.0
-      strip-json-comments: 3.1.1
-    optionalDependencies:
-      '@types/node': 22.18.8
-      esbuild-register: 3.6.0(esbuild@0.28.1)
-      ts-node: 10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)
     transitivePeerDependencies:
       - babel-plugin-macros
       - supports-color
@@ -38650,40 +38664,6 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
-  jest-config@30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
-    dependencies:
-      '@babel/core': 7.29.0
-      '@jest/get-type': 30.0.1
-      '@jest/pattern': 30.0.1
-      '@jest/test-sequencer': 30.0.5
-      '@jest/types': 30.0.5
-      babel-jest: 30.0.5(@babel/core@7.29.0)
-      chalk: 4.1.2
-      ci-info: 4.3.0
-      deepmerge: 4.3.1
-      glob: 10.5.0
-      graceful-fs: 4.2.11
-      jest-circus: 30.0.5
-      jest-docblock: 30.0.1
-      jest-environment-node: 30.0.5
-      jest-regex-util: 30.0.1
-      jest-resolve: 30.0.5
-      jest-runner: 30.0.5
-      jest-util: 30.0.5
-      jest-validate: 30.0.5
-      micromatch: 4.0.8
-      parse-json: 5.2.0
-      pretty-format: 30.0.5
-      slash: 3.0.0
-      strip-json-comments: 3.1.1
-    optionalDependencies:
-      '@types/node': 25.8.0
-      esbuild-register: 3.6.0(esbuild@0.28.1)
-      ts-node: 10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - supports-color
-
   jest-config@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
     dependencies:
       '@babel/core': 7.29.0
@@ -38713,6 +38693,38 @@ snapshots:
     optionalDependencies:
       '@types/node': 25.8.0
       ts-node: 10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
+  jest-config@30.0.5(esbuild-register@3.6.0(esbuild@0.28.1)):
+    dependencies:
+      '@babel/core': 7.29.0
+      '@jest/get-type': 30.0.1
+      '@jest/pattern': 30.0.1
+      '@jest/test-sequencer': 30.0.5
+      '@jest/types': 30.0.5
+      babel-jest: 30.0.5(@babel/core@7.29.0)
+      chalk: 4.1.2
+      ci-info: 4.3.0
+      deepmerge: 4.3.1
+      glob: 10.5.0
+      graceful-fs: 4.2.11
+      jest-circus: 30.0.5
+      jest-docblock: 30.0.1
+      jest-environment-node: 30.0.5
+      jest-regex-util: 30.0.1
+      jest-resolve: 30.0.5
+      jest-runner: 30.0.5
+      jest-util: 30.0.5
+      jest-validate: 30.0.5
+      micromatch: 4.0.8
+      parse-json: 5.2.0
+      pretty-format: 30.0.5
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    optionalDependencies:
+      esbuild-register: 3.6.0(esbuild@0.28.1)
     transitivePeerDependencies:
       - babel-plugin-macros
       - supports-color
@@ -39607,12 +39619,12 @@ snapshots:
       - supports-color
       - ts-node
 
-  jest@30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+  jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
     dependencies:
-      '@jest/core': 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      '@jest/core': 30.0.5(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       '@jest/types': 30.0.5
       import-local: 3.2.0
-      jest-cli: 30.0.5(@types/node@25.8.0)(esbuild-register@3.6.0(esbuild@0.28.1))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      jest-cli: 30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
     transitivePeerDependencies:
       - '@types/node'
       - babel-plugin-macros
@@ -39620,12 +39632,12 @@ snapshots:
       - supports-color
       - ts-node
 
-  jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)):
+  jest@30.0.5(esbuild-register@3.6.0(esbuild@0.28.1)):
     dependencies:
-      '@jest/core': 30.0.5(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      '@jest/core': 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       '@jest/types': 30.0.5
       import-local: 3.2.0
-      jest-cli: 30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      jest-cli: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
     transitivePeerDependencies:
       - '@types/node'
       - babel-plugin-macros
@@ -42463,10 +42475,11 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.404.1:
+  posthog-js@1.407.2:
     dependencies:
-      '@posthog/core': 1.43.1
-      '@posthog/types': 1.397.0
+      '@posthog/browser-common': 0.2.0
+      '@posthog/core': 1.45.1
+      '@posthog/types': 1.398.0
       core-js: 3.49.0
       dompurify: 3.4.0
       fflate: 0.4.8
@@ -43293,7 +43306,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.453.0
+      unlayer-types: 1.457.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45621,7 +45634,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.453.0: {}
+  unlayer-types@1.457.0: {}
 
   unpipe@1.0.0: {}
 

@@ -78,6 +78,21 @@ class TestInsightModel(BaseTest):
         # Check that this doesn't throw an error
         insight.dashboard_filters(dashboard=dashboard)
 
+    def test_dashboard_filters_flattens_property_group_dict_properties(self) -> None:
+        # A dashboard `properties` stored as a PropertyGroupFilter dict used to be silently dropped
+        # (wrapped as {"values": <dict>}, which the Filter parser read as an empty group). It must be
+        # flattened to leaves so the dashboard's property filter actually applies.
+        dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
+        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            filters={"date_from": "-7d", "properties": {"type": "AND", "values": [dashboard_prop]}},
+        )
+
+        filters = insight.dashboard_filters(dashboard=dashboard)
+
+        assert filters["properties"] == [dashboard_prop]
+
     def test_dashboard_with_date_from_all_overrides_compare(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d", "compare": True})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "all"})

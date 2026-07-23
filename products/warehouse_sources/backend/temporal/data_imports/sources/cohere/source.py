@@ -91,6 +91,7 @@ Create an API key in your [Cohere dashboard](https://dashboard.cohere.com/api-ke
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Cohere exposes no reliable server-side timestamp range filter across these list endpoints
         # (only /datasets documents before/after created-at filters, and the entities are mutable
@@ -111,7 +112,11 @@ Create an API key in your [Cohere dashboard](https://dashboard.cohere.com/api-ke
         return schemas
 
     def validate_credentials(
-        self, config: CohereSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CohereSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_cohere_credentials(config.api_key):
             return True, None

@@ -51,6 +51,8 @@ pub enum ShuffleMessage {
         marker_cutoff_ms: i64,
         tombstone_cutoff_ms: i64,
     },
+    /// Periodic bounded-progress tick for the partition's reconcile queue.
+    ReconcileDrain,
     /// A backfill day-tile (or its consume-side skip), paired with its topic offset. Marked on
     /// the seed tracker, never the events tracker. Boxed so the tile doesn't inflate every
     /// `ShuffleMessage`.
@@ -69,6 +71,7 @@ impl ShuffleMessage {
             | ShuffleMessage::Cascade { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain
             | ShuffleMessage::Seed { .. } => None,
         }
     }
@@ -83,7 +86,8 @@ impl ShuffleMessage {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::Cascade { .. }
             | ShuffleMessage::RedrivePendingTransfers
-            | ShuffleMessage::MergeCfGc { .. } => None,
+            | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain => None,
         }
     }
 
@@ -97,7 +101,8 @@ impl ShuffleMessage {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::Cascade { .. }
             | ShuffleMessage::RedrivePendingTransfers
-            | ShuffleMessage::MergeCfGc { .. } => false,
+            | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain => false,
         }
     }
 }
@@ -164,6 +169,7 @@ mod tests {
             source_partition: 3,
             source_offset: 9,
             leaves: vec![],
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,
@@ -195,6 +201,7 @@ mod tests {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain
             | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed an Event"),
         }
@@ -240,6 +247,9 @@ mod tests {
         assert_eq!(event.seed_offset(), None);
         assert!(event.counts_toward_intake());
         assert!(!ShuffleMessage::RedrivePendingTransfers.counts_toward_intake());
+        assert!(!ShuffleMessage::ReconcileDrain.counts_toward_intake());
+        assert_eq!(ShuffleMessage::ReconcileDrain.event_offset(), None);
+        assert_eq!(ShuffleMessage::ReconcileDrain.seed_offset(), None);
     }
 
     #[test]
@@ -254,6 +264,7 @@ mod tests {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain
             | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Sweep"),
         }
@@ -278,6 +289,7 @@ mod tests {
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::ReconcileDrain
             | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a MergeCfGc"),
         }
@@ -299,6 +311,7 @@ mod tests {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain
             | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Merge"),
         }
@@ -317,6 +330,7 @@ mod tests {
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain
             | ShuffleMessage::Seed { .. }
             | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Transfer"),
         }
@@ -341,6 +355,7 @@ mod tests {
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
             | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::ReconcileDrain
             | ShuffleMessage::Seed { .. } => unreachable!("constructed a Cascade"),
         }
     }

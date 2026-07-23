@@ -8,16 +8,18 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolsFromContext } from '@/tools'
-import { withInformationalResponse } from '@/tools/tool-utils'
 import {
     createExecTool,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
+    formatInputValidationError,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
-import { ExecHelpCatalog } from '@/tools/exec-help'
+import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -69,76 +71,192 @@ function createExec(
 
 describe('exec tool', () => {
     describe('learn command', () => {
-        const helpCatalog = new ExecHelpCatalog([
-            {
-                id: 'analytics',
-                kind: 'guide',
-                title: 'Analytics',
-                description: 'Detailed analytics guidance.',
-                content: '### Retrieving data\n\nUse the analytics tools.',
-            },
-            {
-                id: 'retention-analysis',
-                kind: 'skill',
-                title: 'Retention analysis',
-                description: 'A retention workflow.',
-                content: '### Retention analysis\n\nFollow the workflow.',
-            },
-        ])
+        const learnCatalog = new ExecLearnCatalog(
+            [
+                {
+                    id: 'analytics',
+                    title: 'Analytics',
+                    description: 'Detailed analytics guidance.',
+                    content: '### Retrieving data\n\nUse the analytics tools.',
+                },
+            ],
+            { posthog: undefined }
+        )
 
-        it('lists topic metadata without loading topic content', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('lists guide metadata and skill discovery commands without loading content', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
             const result = JSON.parse((await exec.handler(mockContext, { command: 'learn' })) as string)
 
-            expect(result).toEqual([
-                {
-                    id: 'analytics',
-                    kind: 'guide',
-                    title: 'Analytics',
-                    description: 'Detailed analytics guidance.',
+            expect(result).toEqual({
+                guides: [
+                    {
+                        id: 'analytics',
+                        title: 'Analytics',
+                        description: 'Detailed analytics guidance.',
+                    },
+                ],
+                skills: {
+                    posthogAvailable: false,
+                    projectAvailable: false,
+                    commands: [
+                        'learn skills',
+                        'learn -s <query>',
+                        'learn -d <source>:<skill> [...]',
+                        'learn posthog:<skill> [path]',
+                        'learn project:<skill> [path]',
+                        'learn <source>:<skill> <path> [path...]',
+                        'learn <source>:<skill> [<source>:<skill>...]',
+                        'learn <source>:<skill> <path> -s <query>',
+                        'learn <source>:<skill> <path> --lines <start>:<end>',
+                    ],
                 },
-                {
-                    id: 'retention-analysis',
-                    kind: 'skill',
-                    title: 'Retention analysis',
-                    description: 'A retention workflow.',
-                },
-            ])
+            })
         })
 
-        it('loads a topic by its globally unique ID', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('loads a built-in guide', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
             await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe(
                 '### Retrieving data\n\nUse the analytics tools.'
             )
         })
 
-        it('loads multiple unique topics in the requested order', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('keeps core exec usable and reports each unavailable skill source', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
-            await expect(
-                exec.handler(mockContext, { command: 'learn retention-analysis analytics retention-analysis' })
-            ).resolves.toBe(
-                '## Retention analysis\n\n### Retention analysis\n\nFollow the workflow.\n\n## Analytics\n\n### Retrieving data\n\nUse the analytics tools.'
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'learn skills' })) as string)
+            expect(result.posthog.available).toBe(false)
+            expect(result.project.available).toBe(false)
+            await expect(exec.handler(mockContext, { command: 'learn posthog:missing' })).rejects.toThrow(
+                'PostHog skills are temporarily unavailable'
+            )
+            await expect(exec.handler(mockContext, { command: 'tools' })).resolves.toContain('mock-tool')
+        })
+    })
+
+    describe('skills-first gate', () => {
+        const guideCatalog = (): ExecLearnCatalog =>
+            new ExecLearnCatalog(
+                [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
+                {
+                    posthog: new SkillCatalog([
+                        {
+                            name: 'bot-traffic',
+                            description: 'Filtering bot traffic.',
+                            files: [makeSkillFile('SKILL.md', '# Bot traffic\n\nFilter bots.')],
+                        },
+                    ]),
+                }
+            )
+
+        function makeSkillsSession(): {
+            session: NonNullable<ExecToolOptions['skillsSession']>
+            state: { learnedAt?: number; ackAt?: number }
+        } {
+            const state: { learnedAt?: number; ackAt?: number } = {}
+            return {
+                state,
+                session: {
+                    hasLearned: async () => state.learnedAt !== undefined,
+                    markLearned: async () => {
+                        state.learnedAt = Date.now()
+                    },
+                    hasAcknowledgedNoSkills: async () => state.ackAt !== undefined,
+                    markAcknowledgedNoSkills: async () => {
+                        state.ackAt = Date.now()
+                    },
+                },
+            }
+        }
+
+        it('rejects an un-learned call and passes it after a skill load', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
+            )
+
+            await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('does not open the gate for a generic guide read', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await exec.handler(mockContext, { command: 'learn analytics' })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
             )
         })
 
-        it('reports the available IDs when a topic is unknown', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('does not open the gate for a bare search', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
 
-            await expect(exec.handler(mockContext, { command: 'learn unknown' })).rejects.toThrow(
-                'Unknown learning topic: "unknown". Available: analytics, retention-analysis'
+            await exec.handler(mockContext, { command: 'learn -s bot traffic' })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
             )
         })
 
-        it('reports every unknown ID without returning partial topic content', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('does not open the gate when a search flag is quoted', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
 
-            await expect(
-                exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
-            ).rejects.toThrow('Unknown learning topics: "unknown", "missing". Available: analytics, retention-analysis')
+            // Quotes make a naive whitespace split miss the leading `-s`, so the
+            // command reads as a skill load and wrongly opens the gate.
+            await exec.handler(mockContext, { command: "learn '-s' bot traffic" })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
+            )
+        })
+
+        it('opens the gate when the skill identifier is quoted', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            // A leading quote defeats a naive `startsWith('posthog:')` check, so a
+            // real skill load would fail to open the gate.
+            await exec.handler(mockContext, { command: "learn 'posthog:bot-traffic'" })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('call --no-skills acknowledges once and opens the gate for the session', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            await expect(exec.handler(mockContext, { command: 'call --no-skills mock-tool {}' })).resolves.toBeDefined()
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('opens the gate when the session store fails', async () => {
+            const failing: NonNullable<ExecToolOptions['skillsSession']> = {
+                hasLearned: async () => {
+                    throw new Error('redis down')
+                },
+                markLearned: async () => {
+                    throw new Error('redis down')
+                },
+                hasAcknowledgedNoSkills: async () => {
+                    throw new Error('redis down')
+                },
+                markAcknowledgedNoSkills: async () => {
+                    throw new Error('redis down')
+                },
+            }
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: failing })
+
+            await expect(exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })).resolves.toContain(
+                'Bot traffic'
+            )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
         })
     })
 
@@ -248,14 +366,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
             )
         })
 
@@ -514,10 +632,17 @@ describe('exec tool', () => {
                 input: '{"actionId":277664}',
                 expected: /missing required parameter: id/,
             },
+            {
+                // Requires `reportInput: true` at the dispatch site — without it the
+                // message degrades to zod's default, which omits the actual length.
+                case: 'a string over its max length, naming actual length and limit',
+                input: `{"id":1,"description":"${'x'.repeat(401)}"}`,
+                expected: /parameter "description" is too long: 401 characters \(max 400\)/,
+            },
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
-                schema: z.object({ id: z.number() }),
+                schema: z.object({ id: z.number(), description: z.string().max(400).optional() }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
@@ -651,12 +776,16 @@ describe('exec tool', () => {
     describe('output_format suppression', () => {
         // Mirrors the generated query wrappers / insight-query: `output_format`
         // toggles whether the handler surfaces the server-side formatted table.
-        function makeFormatterTool(received: Record<string, unknown>[]): Tool<ZodObjectAny> {
+        function makeFormatterTool(
+            received: Record<string, unknown>[],
+            { wrapInPreprocess = false }: { wrapInPreprocess?: boolean } = {}
+        ): Tool<ZodObjectAny> {
+            const objectSchema = z.object({
+                series: z.string().optional().describe('Query series'),
+                output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
+            })
             return makeMockTool({
-                schema: z.object({
-                    series: z.string().optional().describe('Query series'),
-                    output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
-                }),
+                schema: wrapInPreprocess ? z.preprocess((value) => value, objectSchema) : objectSchema,
                 handler: async (_ctx, params) => {
                     received.push(params as Record<string, unknown>)
                     const optimized = (params as { output_format?: string }).output_format !== 'json'
@@ -691,6 +820,14 @@ describe('exec tool', () => {
         it('folds --json into the dispatched output_format so the handler skips the formatter', async () => {
             const received: Record<string, unknown>[] = []
             const exec = createExec([makeFormatterTool(received)])
+            const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
+            expect(received[0]!.output_format).toBe('json')
+            expect(JSON.parse(result).results).toEqual([{ count: 6 }])
+        })
+
+        it('folds --json through a z.preprocess-wrapped schema (id-alias normalization, e.g. insight-query)', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received, { wrapInPreprocess: true })])
             const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
             expect(received[0]!.output_format).toBe('json')
             expect(JSON.parse(result).results).toEqual([{ count: 6 }])
@@ -1153,6 +1290,24 @@ describe('exec tool', () => {
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
         })
+
+        // The entity-search redirect must only steer at `system.information_schema.metrics`
+        // when the governed-metrics tool is actually registered — otherwise flag-off orgs
+        // get pointed at a catalog table they can't query.
+        it('adds governed-metrics steering to the entity-search redirect only when data-catalog-metric-run is registered', async () => {
+            const withCatalog = createExec([makeMockTool({ name: 'data-catalog-metric-run' })])
+            await expect(withCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /system\.information_schema\.metrics/
+            )
+
+            const withoutCatalog = createExec([makeMockTool()])
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
+                /was removed/
+            )
+            await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.not.toThrow(
+                /system\.information_schema\.metrics/
+            )
+        })
     })
 
     describe('unavailable tool recovery', () => {
@@ -1335,6 +1490,34 @@ describe('exec tool', () => {
 
             expect(detail.fields).toContain('projectId:invalid_type')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
+        })
+    })
+
+    describe('formatInputValidationError', () => {
+        it('names actual length and limit for an over-long string without echoing the value', () => {
+            const schema = z.object({ description: z.string().max(5) })
+            const result = schema.safeParse({ description: 'secret-value' }, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const message = formatInputValidationError('insight-create', result.error!)
+
+            expect(message).toBe(
+                'Invalid input for "insight-create": parameter "description" is too long: 12 characters (max 5)'
+            )
+            // The message flows into the tool response and analytics error_message,
+            // so it may carry the input's length but never the value itself.
+            expect(message).not.toContain('secret-value')
+        })
+
+        it('falls back to the zod default for a non-string too_big instead of a bogus length', () => {
+            const schema = z.object({ tags: z.array(z.string()).max(2) })
+            const result = schema.safeParse({ tags: ['a', 'b', 'c'] }, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const message = formatInputValidationError('insight-create', result.error!)
+
+            expect(message).toMatch(/parameter "tags": /)
+            expect(message).not.toContain('undefined')
         })
     })
 })

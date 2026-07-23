@@ -1,7 +1,13 @@
 // AUTO-GENERATED from products/cohorts/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+import { castStringToInt } from '@/tools/cast-helpers'
+
 import {
     CohortsAddPersonsToStaticCohortPartialUpdateBody,
     CohortsAddPersonsToStaticCohortPartialUpdateParams,
@@ -13,10 +19,6 @@ import {
     CohortsRemovePersonFromStaticCohortPartialUpdateParams,
     CohortsRetrieveParams,
 } from '@/generated/cohorts/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
     project_id: true,

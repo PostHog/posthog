@@ -19,7 +19,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_FLASH,
+        "model": ScannerModel.GEMINI_3_6_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -52,7 +52,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -85,7 +85,7 @@ class TestReplayScanner(BaseTest):
             ("scanner_config", {"prompt": "different prompt"}),
             ("query", {"properties": [{"key": "foo"}]}),
             ("sampling_rate", 0.25),
-            ("model", ScannerModel.GEMINI_2_5_FLASH),
+            ("model", ScannerModel.GEMINI_3_5_FLASH_LITE),
             ("emits_signals", True),
         ]
     )
@@ -198,7 +198,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -265,7 +265,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id

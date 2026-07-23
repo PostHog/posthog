@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import transaction
 
 from pydantic import BaseModel
 
@@ -35,6 +36,7 @@ from products.tasks.backend.logic.services.run_actor import (
     get_task_run_actor_user as get_task_run_actor_user,
     get_task_run_credential_user as get_task_run_credential_user,
     is_slack_interaction_state as is_slack_interaction_state,
+    loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -191,6 +193,22 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     return ()
 
 
+# Applied at fire time when a loop leaves its model unset ("" / None): a blank
+# model means "let PostHog pick", so defaults can improve without rewriting
+# stored loops.
+DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
+    RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
+    RuntimeAdapter.CODEX.value: "gpt-5",
+}
+
+
+def get_default_model_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> str | None:
+    if runtime_adapter is None:
+        return None
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    return DEFAULT_MODEL_BY_RUNTIME_ADAPTER.get(adapter_value)
+
+
 def get_provider_for_runtime_adapter(
     runtime_adapter: RuntimeAdapter | str | None,
 ) -> LLMProvider | None:
@@ -277,7 +295,6 @@ class RunState(BaseModel, extra="allow"):
     auto_publish: bool | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
-    home_quick_action: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
     runtime_adapter: RuntimeAdapter | None = None
@@ -426,6 +443,22 @@ def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
+def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
+    """The connector allowlist a loop run snapshotted at fire time, read back from ``TaskRun.state``.
+
+    Returns ``None`` only when there is no snapshot at all (every non-loop task, or pre-snapshot
+    state) so the caller keeps its current unfiltered behavior. Once a loop snapshot exists, a
+    missing or malformed id list fails closed to an empty allowlist (mount nothing) — a loop that
+    selected no connectors, or whose config omitted the key, must not fall back to mounting every
+    connector the owner has."""
+    config_snapshot = (state or {}).get("config_snapshot")
+    if not isinstance(config_snapshot, dict):
+        return None
+    connectors = config_snapshot.get("connectors")
+    ids = connectors.get("mcp_installation_ids") if isinstance(connectors, dict) else None
+    return [str(i) for i in ids] if isinstance(ids, list) else []
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -433,12 +466,19 @@ def get_user_mcp_server_configs(
     *,
     include_personal: bool = True,
     interaction_origin: str | None = None,
+    allowed_installation_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Always includes shared (team-wide) installations. When
     ``include_personal`` is True and a ``user_id`` is provided, the user's
     personal installations are included too.
+
+    ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
+    loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
+    behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
+    those installations. Without it, an unattended loop run would mount every shared team connector
+    rather than only the ones its owner chose.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -453,6 +493,9 @@ def get_user_mcp_server_configs(
         user_id=user_id,
         include_personal=include_personal,
     )
+    if allowed_installation_ids is not None:
+        allowed = {str(i) for i in allowed_installation_ids}
+        installations = [installation for installation in installations if str(installation.id) in allowed]
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
@@ -902,6 +945,46 @@ def get_sandbox_github_token(
     github_user_integration_id: str | None = None,
     repository: str | None = None,
 ) -> str | None:
+    """Resolve a loop run's GitHub token, then re-check owner eligibility before handing it back.
+
+    Resolving the token can make an external round-trip (user-integration refresh, installation
+    token), so the eligibility lock in `_resolve_sandbox_github_token` can't be held across it. This
+    outer gate re-verifies eligibility once resolution is done — the tightest safe boundary — so a
+    deactivation or team-access revocation that commits during the round-trip still stops the token
+    reaching the sandbox. Non-loop runs are unaffected."""
+    token = _resolve_sandbox_github_token(
+        github_integration_id,
+        run_id=run_id,
+        state=state,
+        created_by=created_by,
+        actor_user=actor_user,
+        task=task,
+        github_user_integration_id=github_user_integration_id,
+        repository=repository,
+    )
+    loop_id = (state or {}).get("loop_id")
+    if token is not None and loop_id is not None and task is not None:
+        with transaction.atomic():
+            if not loop_owner_eligible_for_credentials(task.created_by_id, task.team):
+                logger.warning(
+                    "loop_github_token_owner_ineligible_post_resolution",
+                    extra={"run_id": run_id, "task_id": str(task.id)},
+                )
+                return None
+    return token
+
+
+def _resolve_sandbox_github_token(
+    github_integration_id: int | None,
+    *,
+    run_id: str,
+    state: dict[str, Any] | None = None,
+    created_by: User | None = None,
+    actor_user: User | None = None,
+    task: Task | None = None,
+    github_user_integration_id: str | None = None,
+    repository: str | None = None,
+) -> str | None:
     """Resolve the GitHub token used inside a task sandbox.
 
     Resolution order for ``USER`` authorship:
@@ -928,6 +1011,18 @@ def get_sandbox_github_token(
     else:
         run_state = parse_run_state(state)
         pr_authorship_mode = run_state.pr_authorship_mode
+
+    # Loop runs mint credentials as the owner, so gate every GitHub token resolution (initial
+    # provisioning, snapshot resume, and refresh all reach here) on current owner eligibility. A
+    # deactivated or team-access-revoked owner must not get a fresh team GitHub token handed to their
+    # still-running loop while the async cancellation is in flight.
+    loop_id = (state or {}).get("loop_id")
+    if loop_id is not None and task is not None:
+        owner_id = created_by.id if created_by is not None else task.created_by_id
+        with transaction.atomic():
+            if not loop_owner_eligible_for_credentials(owner_id, task.team):
+                logger.warning("loop_github_token_owner_ineligible", extra={"run_id": run_id, "task_id": str(task.id)})
+                return None
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
         if task is not None and slack_interaction and created_by is None:
@@ -1023,6 +1118,7 @@ def build_sandbox_environment_variables(
     access_token: str,
     team_id: int,
     sandbox_environment: Optional[Any] = None,
+    otel_telemetry_enabled: bool = False,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
 
@@ -1053,6 +1149,27 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    if otel_telemetry_enabled:
+        env_vars.update(get_sandbox_otel_env_vars())
+
+    return env_vars
+
+
+def get_sandbox_otel_env_vars() -> dict[str, str]:
+    """OTLP config for agent-server run telemetry (PostHog Logs/APM).
+
+    Deliberately POSTHOG_-prefixed rather than the standard OTEL_* names: the
+    sandbox env is inherited by user processes, and standard OTEL_* vars would
+    make any OTel SDK in user code auto-export into our telemetry project.
+    """
+    if not (settings.SANDBOX_AGENT_OTEL_LOGS_URL and settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN):
+        return {}
+    env_vars = {
+        "POSTHOG_AGENT_OTEL_LOGS_URL": settings.SANDBOX_AGENT_OTEL_LOGS_URL,
+        "POSTHOG_AGENT_OTEL_LOGS_TOKEN": settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN,
+    }
+    if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
+        env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
     return env_vars
 
 
