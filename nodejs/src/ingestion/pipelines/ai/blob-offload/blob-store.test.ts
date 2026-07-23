@@ -1,30 +1,36 @@
-import { CopyObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import {
+    CopyObjectCommand,
+    HeadBucketCommand,
+    HeadObjectCommand,
+    NoSuchKey,
+    NotFound,
+    PutObjectCommand,
+    S3Client,
+    S3ServiceException,
+} from '@aws-sdk/client-s3'
 
 import { aiBlobOffloadS3Errors } from '~/ingestion/pipelines/ai/metrics'
 
-import { S3BlobStore, buildAiBlobStore } from './blob-store'
+import { BlobStoreError, S3BlobStore, buildAiBlobStore } from './blob-store'
 
 const HASH = 'b'.repeat(64)
 const BLOB = { hash: HASH, bytes: Buffer.from('payload'), mime: 'image/png' }
 const NOW = new Date('2026-07-16T12:00:00Z')
 
-function notFound(): Error {
-    const error = new Error('not found')
-    error.name = 'NotFound'
-    return error
+function notFound(): NotFound {
+    return new NotFound({ $metadata: {}, message: 'not found' })
 }
 
-function namedError(name: string): Error {
-    const error = new Error(name)
-    error.name = name
-    return error
+/** Unmodeled S3 errors deserialize into the generic S3ServiceException with the code in `.name`. */
+function s3Error(name: string): S3ServiceException {
+    return new S3ServiceException({ name, $fault: 'client', $metadata: {}, message: name })
 }
 
-async function captureError(promise: Promise<unknown>): Promise<Error & { isRetriable?: boolean }> {
+async function captureError(promise: Promise<unknown>): Promise<BlobStoreError> {
     try {
         await promise
     } catch (error) {
-        return error as Error & { isRetriable?: boolean }
+        return error as BlobStoreError
     }
     throw new Error('expected rejection')
 }
@@ -147,41 +153,60 @@ describe('S3BlobStore', () => {
         expect(buildAiBlobStore({ ...base, AI_BLOB_S3_BUCKET: '' })).toBeNull()
     })
 
-    // The classification contract the upload step's retry wrapper depends on:
-    // only provably event-specific failures are tagged non-retriable (-> DLQ);
-    // everything else stays unclassified so transient errors retry and
-    // env-wide problems crash loudly instead of silently dead-lettering a lane.
-    it.each([['SlowDown'], ['InternalError'], ['RequestTimeout'], ['AccessDenied'], ['NoSuchBucket']])(
-        'rethrows %s unclassified',
-        async (name) => {
-            send.mockRejectedValueOnce(namedError(name))
-            const error = await captureError(store().ensureStored(2, BLOB))
-            expect(error.name).toBe(name)
-            expect('isRetriable' in error).toBe(false)
-        }
-    )
+    // The error contract the upload step's retry wrapper depends on: every
+    // failure surfaces as BlobStoreError with the provider error as cause.
+    // Only provably event-specific failures are non-retriable (-> DLQ);
+    // everything else is retriable so transient errors retry and env-wide
+    // problems crash loudly after exhaustion instead of dead-lettering a lane.
+    it.each([
+        ['SlowDown (throttling)', (): Error => s3Error('SlowDown')],
+        ['InternalError (5xx)', (): Error => s3Error('InternalError')],
+        ['RequestTimeout', (): Error => s3Error('RequestTimeout')],
+        ['AccessDenied', (): Error => s3Error('AccessDenied')],
+        ['NoSuchBucket', (): Error => s3Error('NoSuchBucket')],
+        ['a non-S3 network error', (): Error => new Error('connect ECONNREFUSED')],
+    ])('wraps %s as a retriable store error', async (_name, makeError) => {
+        const cause = makeError()
+        send.mockRejectedValueOnce(cause)
+        const error = await captureError(store().ensureStored(2, BLOB))
+        expect(error).toBeInstanceOf(BlobStoreError)
+        expect(error.isRetriable).toBe(true)
+        expect(error.cause).toBe(cause)
+    })
 
     it.each([['EntityTooLarge'], ['MetadataTooLarge']])(
-        'tags %s as non-retriable — deterministic for this event, retrying cannot fix it',
+        'wraps %s as non-retriable — determined by the event, retrying cannot fix it',
         async (name) => {
-            send.mockRejectedValueOnce(notFound()).mockRejectedValueOnce(namedError(name))
+            const cause = s3Error(name)
+            send.mockRejectedValueOnce(notFound()).mockRejectedValueOnce(cause)
             const error = await captureError(store().ensureStored(2, BLOB))
-            expect(error.name).toBe(name)
+            expect(error).toBeInstanceOf(BlobStoreError)
             expect(error.isRetriable).toBe(false)
+            expect(error.cause).toBe(cause)
         }
     )
 
-    it('rethrows a copy-race NoSuchKey unclassified, and a rerun self-heals via a fresh head', async () => {
+    it('never interprets event-specific codes on errors that are not S3ServiceException', async () => {
+        const impostor = new Error('EntityTooLarge')
+        impostor.name = 'EntityTooLarge'
+        send.mockRejectedValueOnce(notFound()).mockRejectedValueOnce(impostor)
+        const error = await captureError(store().ensureStored(2, BLOB))
+        expect(error.isRetriable).toBe(true)
+    })
+
+    it('wraps a copy-race NoSuchKey as retriable, and a rerun self-heals via a fresh head', async () => {
         const s = store()
+        const race = new NoSuchKey({ $metadata: {}, message: 'gone' })
         send.mockResolvedValueOnce({ LastModified: new Date(NOW.getTime() - 25 * 3600 * 1000) })
-            .mockRejectedValueOnce(namedError('NoSuchKey'))
+            .mockRejectedValueOnce(race)
             .mockRejectedValueOnce(notFound())
             .mockResolvedValueOnce({})
-        // The object expired between head and copy: unclassified, so the step
+        // The object expired between head and copy: retriable, so the step
         // retry reruns ensureStored, whose fresh head now misses and re-uploads.
         const raceError = await captureError(s.ensureStored(2, BLOB))
-        expect(raceError.name).toBe('NoSuchKey')
-        expect('isRetriable' in raceError).toBe(false)
+        expect(raceError).toBeInstanceOf(BlobStoreError)
+        expect(raceError.isRetriable).toBe(true)
+        expect(raceError.cause).toBe(race)
         await expect(s.ensureStored(2, BLOB)).resolves.toBe('uploaded')
         expect(send.mock.calls[3][0]).toBeInstanceOf(PutObjectCommand)
     })
@@ -193,9 +218,14 @@ describe('S3BlobStore', () => {
         expect(send.mock.calls[0][0].input).toMatchObject({ Bucket: 'blobs' })
     })
 
-    it('healthcheck rejects naming the bucket when the probe fails', async () => {
-        send.mockRejectedValueOnce(namedError('AccessDenied'))
-        await expect(store().healthcheck()).rejects.toThrow('AI blob store healthcheck failed for bucket "blobs"')
+    it('healthcheck rejects with a retriable store error naming the bucket', async () => {
+        const cause = s3Error('AccessDenied')
+        send.mockRejectedValueOnce(cause)
+        const error = await captureError(store().healthcheck())
+        expect(error).toBeInstanceOf(BlobStoreError)
+        expect(error.message).toBe('AI blob store healthcheck failed for bucket "blobs"')
+        expect(error.isRetriable).toBe(true)
+        expect(error.cause).toBe(cause)
     })
 
     it('builds a store when the bucket is set', () => {

@@ -2,9 +2,11 @@ import {
     CopyObjectCommand,
     HeadBucketCommand,
     HeadObjectCommand,
+    NotFound,
     PutObjectCommand,
     S3Client,
     S3ClientConfig,
+    S3ServiceException,
 } from '@aws-sdk/client-s3'
 
 import { aiBlobOffloadS3Duration, aiBlobOffloadS3Errors } from '~/ingestion/pipelines/ai/metrics'
@@ -12,38 +14,36 @@ import { aiBlobOffloadS3Duration, aiBlobOffloadS3Errors } from '~/ingestion/pipe
 export type EnsureStoredOutcome = 'uploaded' | 'fresh' | 'touched'
 
 /**
- * AWS error names that are provably caused by the content of the request —
- * deterministic per event, so no retry (and no environment change) can ever
- * make them succeed. They are tagged `isRetriable: false` so the pipeline's
- * step-retry wrapper dead-letters just the affected event instead of
- * crash-looping the consumer on it forever:
+ * The only error type blob store implementations throw. Encapsulates the
+ * provider's error taxonomy behind one framework-facing flag:
  *
- * - `EntityTooLarge`: the PUT body exceeds S3's single-request object size
- *   limit — a property of this event's blob bytes.
- * - `MetadataTooLarge`: the request metadata/headers exceed S3's limit — the
- *   only per-request headers we send are derived from the blob's detected
- *   mime (Content-Type on put and copy), so this too is determined by the
- *   event.
+ * - `isRetriable: false` — this blob can never be stored; the failure is
+ *   determined by the event's own content. The pipeline's step-retry wrapper
+ *   turns it into a DLQ sub-result, so just the affected event dead-letters.
+ * - `isRetriable: true` — worth retrying: transient (timeouts, throttling,
+ *   5xx, networking) or environment-wide (auth, missing bucket) failures.
+ *   The retry wrapper retries and, on exhaustion, crashes the consumer —
+ *   an environment-wide problem must fail loudly, never silently divert a
+ *   lane's data to the DLQ.
  *
- * Deliberately narrow. Everything else stays unclassified and crashes loudly
- * after retries, because it is either transient (timeouts, 5xx, networking —
- * retry owns those) or environment-wide (AccessDenied, NoSuchBucket,
- * credentials — dead-lettering those would silently divert the whole lane's
- * data during an infra incident; the startup healthcheck catches them before
- * traffic instead). `KeyTooLongError` is intentionally excluded: our keys are
- * prefix + team id + fixed-length hash, so an over-long key is configuration,
- * not event content.
+ * The underlying provider error is always preserved as `cause`.
  */
-const EVENT_SPECIFIC_S3_ERRORS = new Set(['EntityTooLarge', 'MetadataTooLarge'])
-
-function tagEventSpecificError(error: unknown): unknown {
-    if (error instanceof Error && EVENT_SPECIFIC_S3_ERRORS.has(error.name)) {
-        ;(error as Error & { isRetriable?: boolean }).isRetriable = false
+export class BlobStoreError extends Error {
+    constructor(
+        message: string,
+        readonly isRetriable: boolean,
+        options?: { cause?: unknown }
+    ) {
+        super(message, options)
+        this.name = 'BlobStoreError'
     }
-    return error
 }
 
 export interface BlobStore {
+    /**
+     * Ensure the blob is durably stored. Failures are thrown exclusively as
+     * {@link BlobStoreError} — callers never see provider error types.
+     */
     ensureStored(teamId: number, blob: { hash: string; bytes: Buffer; mime: string }): Promise<EnsureStoredOutcome>
 }
 
@@ -54,6 +54,27 @@ interface S3BlobStoreConfig {
     timeoutMs: number
 }
 
+/**
+ * AWS error names that are provably caused by the content of the request —
+ * deterministic per event, so no retry (and no environment change) can ever
+ * make them succeed. Translated to `isRetriable: false`:
+ *
+ * - `EntityTooLarge`: the PUT body exceeds S3's single-request object size
+ *   limit — a property of this event's blob bytes.
+ * - `MetadataTooLarge`: the request metadata/headers exceed S3's limit — the
+ *   only per-request headers we send are derived from the blob's detected
+ *   mime (Content-Type on put and copy), so this too is determined by the
+ *   event.
+ *
+ * Deliberately narrow: everything else translates to `isRetriable: true`,
+ * because it is either transient (retry owns it) or environment-wide
+ * (AccessDenied, NoSuchBucket, credentials — those crash after retries, and
+ * the startup healthcheck catches them before traffic). `KeyTooLongError` is
+ * intentionally not here: our keys are prefix + team id + fixed-length hash,
+ * so an over-long key is configuration, not event content.
+ */
+const EVENT_SPECIFIC_S3_ERRORS = new Set(['EntityTooLarge', 'MetadataTooLarge'])
+
 export class S3BlobStore implements BlobStore {
     constructor(
         private s3: S3Client,
@@ -62,6 +83,17 @@ export class S3BlobStore implements BlobStore {
 
     private key(teamId: number, hash: string): string {
         return `${this.config.prefix}${teamId}/sha256/${hash}`
+    }
+
+    /** Translate an AWS failure into the store's error type at the public boundary. */
+    private toStoreError(error: unknown): BlobStoreError {
+        // The two event-specific codes are not modeled by the SDK (they
+        // deserialize into the generic S3ServiceException with the code in
+        // `.name`), so after narrowing to S3ServiceException the name check is
+        // the only handle on them. Names on non-S3 errors are never interpreted.
+        const isRetriable = !(error instanceof S3ServiceException && EVENT_SPECIFIC_S3_ERRORS.has(error.name))
+        const message = error instanceof Error ? error.message : String(error)
+        return new BlobStoreError(`S3 blob store failure: ${message}`, isRetriable, { cause: error })
     }
 
     private async timed<T>(
@@ -76,7 +108,7 @@ export class S3BlobStore implements BlobStore {
             if (!shouldCountError || shouldCountError(error)) {
                 aiBlobOffloadS3Errors.labels(op).inc()
             }
-            throw tagEventSpecificError(error)
+            throw error
         } finally {
             timer()
         }
@@ -95,11 +127,25 @@ export class S3BlobStore implements BlobStore {
                 abortSignal: AbortSignal.timeout(this.config.timeoutMs),
             })
         } catch (error) {
-            throw new Error(`AI blob store healthcheck failed for bucket "${this.config.bucket}"`, { cause: error })
+            throw new BlobStoreError(`AI blob store healthcheck failed for bucket "${this.config.bucket}"`, true, {
+                cause: error,
+            })
         }
     }
 
     async ensureStored(
+        teamId: number,
+        blob: { hash: string; bytes: Buffer; mime: string }
+    ): Promise<EnsureStoredOutcome> {
+        try {
+            return await this.ensureStoredS3(teamId, blob)
+        } catch (error) {
+            throw this.toStoreError(error)
+        }
+    }
+
+    /** Raw S3 flow; AWS errors escape here and are translated by ensureStored. */
+    private async ensureStoredS3(
         teamId: number,
         blob: { hash: string; bytes: Buffer; mime: string }
     ): Promise<EnsureStoredOutcome> {
@@ -114,11 +160,11 @@ export class S3BlobStore implements BlobStore {
             const head = await this.timed(
                 'head',
                 () => this.s3.send(new HeadObjectCommand({ Bucket, Key }), abort()),
-                (error): boolean => !(error instanceof Error && error.name === 'NotFound')
+                (error): boolean => !(error instanceof NotFound)
             )
             lastModified = head.LastModified
         } catch (error) {
-            if (error instanceof Error && error.name === 'NotFound') {
+            if (error instanceof NotFound) {
                 await this.timed('put', () =>
                     this.s3.send(
                         new PutObjectCommand({ Bucket, Key, Body: blob.bytes, ContentType: blob.mime }),

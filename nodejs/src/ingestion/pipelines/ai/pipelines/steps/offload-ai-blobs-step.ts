@@ -156,14 +156,15 @@ export function extractAiBlobsFanOut<T extends OffloadAiBlobsInput>(
 /**
  * Per-blob upload step. Upload-before-emit: every blob must be confirmed
  * durable before the rewritten event exists anywhere. Failure contract, in
- * concert with the step's retry options and the blob store's classification:
- * transient failures (timeouts, 5xx, networking) retry and either recover or
- * crash the consumer after exhaustion; deterministic event-specific S3
- * failures arrive tagged `isRetriable: false` and become DLQ sub-results,
- * which the fan-out stage aggregates into a parent-level DLQ — the event is
- * dead-lettered instead of emitted with pointers to blobs that were never
- * stored. Environment-wide problems (bad credentials, missing bucket) are
- * caught before traffic by the blob store's startup healthcheck.
+ * concert with the step's retry options and the store's error contract
+ * (BlobStoreError): a non-retriable store failure means this blob can never
+ * be stored — determined by the event's own content — and becomes a DLQ
+ * sub-result, which the fan-out stage aggregates into a parent-level DLQ;
+ * the event dead-letters instead of being emitted with pointers to blobs
+ * that were never stored. Retriable store failures (transient or
+ * environment-wide) retry and, on exhaustion, crash the consumer;
+ * environment-wide problems are also caught before traffic by the store's
+ * startup healthcheck.
  */
 export function createUploadAiBlobStep(store: BlobStore | null): ProcessingStep<PendingAiBlobUpload, UploadedAiBlob> {
     return async function uploadAiBlobStep(upload) {

@@ -5,7 +5,7 @@ import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { isDlqResult, isOkResult } from '~/ingestion/framework/results'
 import { withStepRetry } from '~/ingestion/framework/retry'
-import { BlobStore, EnsureStoredOutcome } from '~/ingestion/pipelines/ai/blob-offload/blob-store'
+import { BlobStore, BlobStoreError, EnsureStoredOutcome } from '~/ingestion/pipelines/ai/blob-offload/blob-store'
 import { DetectedBlob } from '~/ingestion/pipelines/ai/blob-offload/detect'
 import { parseBlobPointer } from '~/ingestion/pipelines/ai/blob-offload/pointer'
 import * as aiMetrics from '~/ingestion/pipelines/ai/metrics'
@@ -361,7 +361,7 @@ describe('offloadAiBlobs stage', () => {
             const RETRY = { tries: 5, sleepMs: 1, name: 'offload_ai_blobs' }
 
             it('turns a non-retriable store failure into a dlq sub-result without retrying', async () => {
-                const error = Object.assign(new Error('EntityTooLarge'), { isRetriable: false })
+                const error = new BlobStoreError('blob can never be stored', false)
                 const ensureStored = jest.fn().mockRejectedValue(error)
                 const step = withStepRetry(createUploadAiBlobStep({ ensureStored }), RETRY)
                 const result = await step({ teamId: 2, blob: makeBlob('hash-1') })
@@ -372,8 +372,8 @@ describe('offloadAiBlobs stage', () => {
                 expect(ensureStored).toHaveBeenCalledTimes(1)
             })
 
-            it('rejects after exhausting retries for an unclassified failure', async () => {
-                const ensureStored = jest.fn().mockRejectedValue(new Error('socket hang up'))
+            it('rejects after exhausting retries for a retriable failure', async () => {
+                const ensureStored = jest.fn().mockRejectedValue(new BlobStoreError('socket hang up', true))
                 const step = withStepRetry(createUploadAiBlobStep({ ensureStored }), RETRY)
                 await expect(step({ teamId: 2, blob: makeBlob('hash-1') })).rejects.toThrow('socket hang up')
                 expect(ensureStored).toHaveBeenCalledTimes(5)
@@ -382,7 +382,7 @@ describe('offloadAiBlobs stage', () => {
             it('recovers when a transient failure resolves within the retry budget', async () => {
                 const ensureStored = jest
                     .fn()
-                    .mockRejectedValueOnce(Object.assign(new Error('flaky'), { isRetriable: true }))
+                    .mockRejectedValueOnce(new BlobStoreError('flaky', true))
                     .mockResolvedValueOnce('uploaded')
                 const step = withStepRetry(createUploadAiBlobStep({ ensureStored }), RETRY)
                 const result = await step({ teamId: 2, blob: makeBlob('hash-1') })
