@@ -218,6 +218,8 @@ rules:
                               |Notebook
                               |NotebookNodeRun
                               |ObjectMediaPreview
+                              |Outcome
+                              |OutcomeLatch
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
@@ -529,6 +531,8 @@ rules:
                         |Notebook
                         |NotebookNodeRun
                         |ObjectMediaPreview
+                        |Outcome
+                        |OutcomeLatch
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
