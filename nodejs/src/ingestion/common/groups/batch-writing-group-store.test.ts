@@ -107,7 +107,12 @@ describe('BatchWritingGroupStore', () => {
         clickhouseGroupRepository = new ClickhouseGroupRepository({
             queueMessages: mockQueueMessages,
         } as unknown as IngestionOutputs<GroupsOutput>)
-        groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository)
+        // Pin the individual CAS flush path: it remains the fallback for
+        // missing rows and failed batch statements, so this block keeps it
+        // covered while `useBatchUpdates` describes the default batched path.
+        groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
+            useBatchUpdates: false,
+        })
     })
 
     afterEach(async () => {
@@ -531,8 +536,11 @@ describe('BatchWritingGroupStore', () => {
 
     describe('useBatchCreates', () => {
         beforeEach(() => {
+            // Updates pinned to the individual path so create-routing
+            // assertions stay independent of the update flush mode.
             groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
                 useBatchCreates: true,
+                useBatchUpdates: false,
             })
         })
 

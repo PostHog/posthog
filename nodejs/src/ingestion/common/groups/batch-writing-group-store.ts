@@ -332,7 +332,7 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
-    useBatchUpdates: false,
+    useBatchUpdates: true,
     useBatchCreates: false,
     metricEmissionIntervalMs: 30_000,
 }

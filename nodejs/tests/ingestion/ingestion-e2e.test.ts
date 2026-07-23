@@ -36,20 +36,23 @@ jest.mock('~/common/utils/token-bucket', () => {
 jest.mock('~/common/utils/logger')
 
 // Two diagonal arms rather than a full cross: one with every optimization off
-// (today's default production shape) and one with them all on (the target
-// shape), keeping CI cost flat while both modes stay fully covered.
+// and one with them all on, keeping CI cost flat while both modes stay fully
+// covered. Batched group updates default to on, so the off arm pins them off
+// to keep the individual CAS flush path (still the fallback) e2e-covered.
 describe.each([
     {
         PERSONS_PREFETCH_ENABLED: true,
         PERSON_MERGE_FOLD_ENABLED: false,
         GROUPS_PREFETCH_ENABLED: false,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
     },
     {
         PERSONS_PREFETCH_ENABLED: true,
         PERSON_MERGE_FOLD_ENABLED: true,
         GROUPS_PREFETCH_ENABLED: true,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: true,
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
     },
 ])('Event Pipeline E2E tests (fold+groupBatchCreates=$PERSON_MERGE_FOLD_ENABLED)', (pipelineConfig) => {
     const testWithTeamIngester = createTestWithTeamIngester(pipelineConfig, (infra, kafkaProducer) => {
@@ -80,11 +83,12 @@ describe.each([
         jest.spyOn(infra.groupRepository, 'insertGroup')
         jest.spyOn(infra.groupRepository, 'insertGroupsBatch')
         jest.spyOn(infra.groupRepository, 'updateGroup')
+        jest.spyOn(infra.groupRepository, 'updateGroupsBatch')
         jest.spyOn(infra.groupRepository, 'updateGroupOptimistically')
         return ingester
     })
     // Group creations land differently per arm: inline single-row inserts
-    // (version 1 + one batched update) versus a single deferred batched insert
+    // (version 1 + a follow-up update) versus a single deferred batched insert
     // carrying the accumulated properties (version 1, no update needed).
     const groupBatchCreates = pipelineConfig.GROUP_BATCH_WRITING_USE_BATCH_CREATES
     let clickhouse: Clickhouse
@@ -482,6 +486,7 @@ describe.each([
             jest.mocked(infra.groupRepository.insertGroup).mockClear()
             jest.mocked(infra.groupRepository.insertGroupsBatch).mockClear()
             jest.mocked(infra.groupRepository.updateGroup).mockClear()
+            jest.mocked(infra.groupRepository.updateGroupsBatch).mockClear()
             jest.mocked(infra.groupRepository.updateGroupOptimistically).mockClear()
 
             // Same-group traffic stays within one lane (cross-lane writes to
@@ -537,19 +542,21 @@ describe.each([
             // Postgres checks below, which go through the spied repository.
             expect(infra.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
             if (groupBatchCreates) {
-                // One batched read, one batched insert for both new groups,
-                // one CAS per updated group.
+                // Fully batched: one read, one insert for both new groups,
+                // one update statement for all three dirty groups.
                 expect(infra.groupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
                 expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(0)
                 expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
                 expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(0)
-                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(3)
+                expect(infra.groupRepository.updateGroupsBatch).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
             } else {
                 // One fetch per group, one insert per new group, one CAS per
                 // dirty group (the twice-written new group needs a follow-up).
                 expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(5)
                 expect(infra.groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(0)
                 expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(2)
+                expect(infra.groupRepository.updateGroupsBatch).toHaveBeenCalledTimes(0)
                 expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(4)
             }
 

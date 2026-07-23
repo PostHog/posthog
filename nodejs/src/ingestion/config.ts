@@ -293,7 +293,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
 
         // Group batch writing config
-        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
