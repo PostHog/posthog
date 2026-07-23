@@ -88,3 +88,15 @@ gateway loads the credential, injects the right authorization header, and proxie
 provider. Plaintext credentials never leave the service for proxied providers, and every outbound
 call is attributable and audited. Direct credential fetch (Phase 1) stays for the cases that
 genuinely need the raw secret (e.g. S3 for batch exports).
+
+## Known follow-ups (before wider rollout)
+
+- **Single source of truth for the refresh partition.** The `(kinds × teams)` split that decides
+  who refreshes a row currently lives in two places — the gateway's `INTEGRATION_GATEWAY_REFRESH_*`
+  env and Django's matching settings. Both drift directions fail silently: if they disagree, either
+  nothing refreshes a row or _both_ do (racing refreshers can invalidate a rotating refresh token).
+  Before enabling any kind for real, move the partition to one authority both sides read (or add an
+  alert on disagreement). Until then, the two must be changed together as one operational step.
+- **Durable audit sink.** The credential-access audit trail is emitted to logs, which is fine for
+  Phase 1 but only as durable as log retention. If this becomes the authoritative "who accessed
+  which credential, when" record, it needs a real sink (e.g. an append-only store) rather than logs.
