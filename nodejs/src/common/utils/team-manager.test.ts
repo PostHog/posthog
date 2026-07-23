@@ -60,6 +60,7 @@ describe('TeamManager()', () => {
                   "person_processing_opt_out": null,
                   "project_id": 2,
                   "secret_api_token": null,
+                  "secret_api_token_backup": null,
                   "session_recording_opt_in": true,
                   "timezone": "UTC",
                   "uuid": "<REPLACED-UUID-0>",
@@ -197,6 +198,51 @@ describe('TeamManager()', () => {
             const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
             expect(newTeamByToken).not.toBeNull()
             expect(newTeamByToken!.drop_events_older_than_seconds).toBeNull()
+        })
+    })
+
+    describe('getTeamByToken() with secret API tokens', () => {
+        it.each([
+            ['secret_api_token', 'phs_primary123'],
+            ['secret_api_token_backup', 'phs_backup456'],
+        ])('resolves a team by %s', async (column, secretToken) => {
+            const newTeamId = await createTeam(postgres, organizationId, undefined, { [column]: secretToken })
+            const team = await teamManager.getTeamByToken(secretToken)
+            expect(team?.id).toEqual(newTeamId)
+        })
+
+        it('loads the secret token fields on the team object', async () => {
+            const newTeamId = await createTeam(postgres, organizationId, undefined, {
+                secret_api_token: 'phs_primary123',
+                secret_api_token_backup: 'phs_backup456',
+            })
+            const team = await teamManager.getTeam(newTeamId)
+            expect(team?.secret_api_token).toEqual('phs_primary123')
+            expect(team?.secret_api_token_backup).toEqual('phs_backup456')
+        })
+
+        it('a secret-token lookup also warms the cache for the public token, backup token and id', async () => {
+            const newTeamId = await createTeam(postgres, organizationId, 'phc_warmcache', {
+                secret_api_token: 'phs_warmcache',
+                secret_api_token_backup: 'phs_warmcache_backup',
+            })
+
+            const bySecret = await teamManager.getTeamByToken('phs_warmcache')
+            expect(bySecret?.id).toEqual(newTeamId)
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+
+            const byPublic = await teamManager.getTeamByToken('phc_warmcache')
+            const byBackup = await teamManager.getTeamByToken('phs_warmcache_backup')
+            const byId = await teamManager.getTeam(newTeamId)
+            expect(byPublic?.id).toEqual(newTeamId)
+            expect(byBackup?.id).toEqual(newTeamId)
+            expect(byId?.id).toEqual(newTeamId)
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('returns null for an unknown phs_ token', async () => {
+            const result = await teamManager.getTeamByToken('phs_does_not_exist')
+            expect(result).toBeNull()
         })
     })
 

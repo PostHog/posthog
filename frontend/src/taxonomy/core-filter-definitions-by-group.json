@@ -3358,6 +3358,11 @@
             "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty.",
             "label": "User ID"
         },
+        "$verified": {
+            "description": "Set by PostHog during ingestion when the event was captured with the project's secret API token. Cannot be set by clients.",
+            "label": "Verified",
+            "type": "Boolean"
+        },
         "$viewport_height": {
             "description": "The height of the user's actual browser window (in pixels).",
             "examples": [
@@ -8175,6 +8180,11 @@
         "$user_id": {
             "description": "This variable will be set to the distinct ID if you've called `posthog.identify('distinct id')`. If the user is anonymous, it'll be empty.",
             "label": "User ID"
+        },
+        "$verified": {
+            "description": "Set by PostHog during ingestion when the event was captured with the project's secret API token. Cannot be set by clients.",
+            "label": "Verified",
+            "type": "Boolean"
         },
         "$viewport_height": {
             "description": "The height of the user's actual browser window (in pixels). Data from the last time this user was seen.",

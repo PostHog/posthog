@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { eventDroppedCounter } from '~/common/metrics'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -17,6 +18,30 @@ export interface ResolveTeamStepInput {
 type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
 type ResolveTeamSuccess = { error: false; team: Team }
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
+
+export const verifiedPropertyCounter = new Counter({
+    name: 'ingestion_verified_property_total',
+    help: 'Events marked $verified (captured with the secret API token) or with a client-supplied $verified stripped',
+    labelNames: ['action'],
+})
+
+/**
+ * $verified is a server-controlled property: it is set when the event was captured with
+ * the team's secret API token (primary or backup, so token rotation keeps verifying),
+ * and any client-supplied value is stripped otherwise.
+ */
+export function applyVerifiedProperty(event: PluginEvent, token: string | undefined, team: Team): void {
+    const sentWithSecretToken =
+        token !== undefined && (token === team.secret_api_token || token === team.secret_api_token_backup)
+
+    if (sentWithSecretToken) {
+        event.properties = { ...(event.properties ?? {}), $verified: true }
+        verifiedPropertyCounter.labels({ action: 'verified' }).inc()
+    } else if (event.properties && '$verified' in event.properties) {
+        delete event.properties['$verified']
+        verifiedPropertyCounter.labels({ action: 'stripped' }).inc()
+    }
+}
 
 async function resolveTeam(
     teamManager: TeamManager,
@@ -68,6 +93,7 @@ export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
         }
 
         const pluginEvent: PluginEvent = { ...incomingEvent.event, team_id: result.team.id }
+        applyVerifiedProperty(pluginEvent, input.headers.token, result.team)
         return ok({ ...restInput, event: pluginEvent, team: result.team })
     }
 }

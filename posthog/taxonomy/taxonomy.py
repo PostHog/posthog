@@ -2010,6 +2010,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Is identified",
             "description": "Client-side property set by posthog-js indicating whether the user has been previously identified on the device.",
         },
+        "$verified": {
+            "label": "Verified",
+            "description": "Set by PostHog during ingestion when the event was captured with the project's secret API token. Cannot be set by clients.",
+            "type": "Boolean",
+        },
         "$initial_person_info": {
             "label": "Initial person info",
             "description": "posthog-js initial person information. used in the $set_once flow",
