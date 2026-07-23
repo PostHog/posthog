@@ -28,9 +28,9 @@ describe('buyHedgehogCoffeeLogic', () => {
         })
 
         it.each([
-            ['free and under allowance', { has_active_subscription: false, subscription_level: 'free' as const }, true],
-            ['paying customer', { has_active_subscription: true, subscription_level: 'paid' as const }, false],
-            ['free plan but paid level', { has_active_subscription: false, subscription_level: 'custom' as const }, false],
+            ['free', { has_active_subscription: false, subscription_level: 'free' as const }, true],
+            ['paying', { has_active_subscription: true, subscription_level: 'paid' as const }, false],
+            ['custom level', { has_active_subscription: false, subscription_level: 'custom' as const }, false],
         ])('fallback: %s', (_name, partial, expected) => {
             expect(isUnderFreeAllowance(billing({ ...partial, products: [] }))).toBe(expected)
         })
