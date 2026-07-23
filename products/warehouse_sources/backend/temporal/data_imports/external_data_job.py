@@ -89,8 +89,14 @@ LOGGER = get_logger(__name__)
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
 # expensive retry-exhaustion paths fast.
-MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
-MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
+#
+# `WorkerShuttingDownError` is retryable and burns one attempt, so a long backfill on the
+# data-warehouse worker (dozens of rollouts a day, each draining every pod) can exhaust its budget
+# on shutdown bounces alone before it ever finishes. These budgets are sized with that churn in mind
+# — resumable syncs resume cheaply so they get the most headroom; incremental ones re-read from the
+# last watermark. The real fix for the churn is fewer full-fleet rollouts, not unbounded retries.
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 25
+MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 15
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
