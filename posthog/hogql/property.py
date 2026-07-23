@@ -1224,7 +1224,14 @@ def property_to_expr(
             raise Exception("Can not convert cohort property to expression without team")
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        try:
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        # The cohort was deleted after the filter referencing it was saved. Instead of crashing the entire
+        # query, pretend the filter isn't there — mirroring the incomplete-property handling above.
+        except Cohort.DoesNotExist:
+            if strict:
+                raise
+            return ast.Constant(value=1)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(

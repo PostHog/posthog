@@ -921,6 +921,19 @@ class TestProperty(BaseTest):
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
 
+    def test_cohort_filter_missing_cohort_non_strict(self):
+        # A filter referencing a since-deleted cohort should degrade to a neutral expression instead of raising.
+        missing_id = 999999999
+        self.assertEqual(
+            self._property_to_expr({"type": "cohort", "key": "id", "value": missing_id}, self.team, strict=False),
+            self._parse_expr("1"),
+        )
+
+    def test_cohort_filter_missing_cohort_strict(self):
+        missing_id = 999999999
+        with self.assertRaises(Cohort.DoesNotExist):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": missing_id}, self.team, strict=True)
+
     def test_person_scope(self):
         self.assertEqual(
             self._property_to_expr(
