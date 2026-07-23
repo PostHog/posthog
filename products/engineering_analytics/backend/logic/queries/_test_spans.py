@@ -1,10 +1,24 @@
-"""The one definition of the per-test CI span scan (domain rules defined once, APOSD).
+"""The one definition of the per-test CI span scan and what it proves (domain rules defined once, APOSD).
 
 Backend CI emits one OTel span per test into the Traces store (span name = reconstructed
 pytest nodeid, ``test.*`` attributes, ``ci.*`` resource attributes; see
-``.github/scripts/report_test_timings.py``). Every query over that signal (the flaky-test
-leaderboard and the per-team rollups) embeds this scan, so the service fence, the signal
-outcomes, the repository scoping, and the ownership fallback cannot drift apart.
+``.github/scripts/report_test_timings.py``). Every query over that signal (the test-health
+queue and the per-team rollups) embeds ``run_evidence()``, so the service fence, the signal
+outcomes, the repository scoping, the ownership fallback, and above all the **grain** cannot
+drift apart. Sharing a predicate string was not enough: each caller still counted its own way,
+and they disagreed.
+
+The grain is the CI run, not the span. One run fans a test out across matrix legs (person-on-events,
+compat, and friends), so span-grain counting multiplies a single failure by the number of legs that
+ran it. At run grain a failure in any leg counts once, and outweighs a pass in another.
+
+What this signal can and cannot prove:
+
+- ``rerun_passed`` is proof of nondeterminism: the test failed and passed within one run. It reaches
+  only the handful of tests hand-marked ``@pytest.mark.flaky(reruns=N)``, because Backend CI runs
+  pytest without ``--reruns`` deliberately, so failures stay visible instead of being retried away.
+- Everything else proves nothing about determinism. This surface answers how much a failing test
+  costs us, so unproven failures are ranked by blast radius and never called flaky.
 """
 
 from datetime import datetime
@@ -23,9 +37,36 @@ CI_SERVICE_NAME = "ci-backend"
 UNOWNED_TEAM = "unowned"
 
 
-def flaky_bar(rerun_count: str, failed_pr_count: str) -> str:
-    """The one flaky-test qualification bar (SPEC §5): enough rerun passes OR enough distinct failed PRs."""
-    return f"{rerun_count} >= {{min_rerun_passes}} OR {failed_pr_count} >= {{min_failed_prs}}"
+_RUN_EVIDENCE = """
+    SELECT
+        nodeid,
+        run_id,
+        argMax(owner_team, span_timestamp) AS owner_team,
+        anyIf(selector, selector != '') AS selector,
+        anyIf(pr_number, pr_number != '') AS pr_number,
+        anyIf(branch, branch != '') AS branch,
+        max(is_current) AS is_current,
+        max(outcome IN ('failed', 'error')) AS failed_in_run,
+        max(outcome = 'xfailed') AS quarantined_in_run,
+        max(outcome = 'rerun_passed') AS recovered_in_run,
+        -- Every scanned span is a signal span (the fence admits no plain passes), so the run's last
+        -- span is its last signal.
+        max(span_timestamp) AS run_signal_at
+    FROM (__SPAN_SCAN__)
+    GROUP BY nodeid, run_id
+"""
+
+
+def run_evidence(*, bounded: bool) -> str:
+    """One row per (test, CI run): what that run proves about that test.
+
+    Every consumer groups this, never the raw spans, so all of them count at the same grain and
+    agree on what the signal means. See the module docstring for why the run is the grain.
+
+    ``bounded`` adds the upper time bound; some callers scan to now.
+    """
+    scan = _SCAN.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "")
+    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", scan)
 
 
 # Scans [scan_from, date_to?]; `is_current` splits rows at {date_from} so a caller scanning
@@ -39,6 +80,9 @@ _SCAN = """
         coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
         resource_attributes['ci.pr_number'] AS pr_number,
         resource_attributes['ci.branch'] AS branch,
+        -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an
+        -- unstamped span from merging every execution of its test into one phantom run.
+        coalesce(nullIf(resource_attributes['ci.run_id'], ''), trace_id) AS run_id,
         timestamp AS span_timestamp,
         timestamp >= {date_from} AS is_current
     FROM posthog.trace_spans
@@ -47,11 +91,6 @@ _SCAN = """
         AND lower(resource_attributes['ci.repository']) = lower({repository})
         AND timestamp >= {scan_from}__DATE_TO__
 """
-
-
-def span_scan(*, bounded: bool) -> str:
-    """The scan SELECT, with or without the upper time bound (some callers scan to now)."""
-    return _SCAN.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "")
 
 
 def scan_placeholders(
