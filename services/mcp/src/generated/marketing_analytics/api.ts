@@ -825,7 +825,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2150,7 +2150,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3269,7 +3269,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -4590,7 +4590,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5711,7 +5711,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7033,7 +7033,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -8326,7 +8326,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -9651,7 +9651,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -10770,7 +10770,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -12091,7 +12091,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -13212,7 +13212,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -14534,7 +14534,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/" prepended'),
+                                        .describe('Event property with "$feature/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
