@@ -1,17 +1,15 @@
 // AUTO-GENERATED from products/field_notes/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
 import {
     FieldNotesListQueryParams,
     FieldNotesPartialUpdateBody,
     FieldNotesPartialUpdateParams,
     FieldNotesRetrieveParams,
 } from '@/generated/field_notes/api'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const FieldNotesGetSchema = FieldNotesRetrieveParams.omit({ project_id: true })
 
